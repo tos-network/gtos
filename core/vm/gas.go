@@ -1,0 +1,28 @@
+// Copyright 2015 The go-ehtereum Authors
+// Copyright 2023 The Open System
+// This file is part of the tos library.
+//
+// The tos library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The tos library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the tos library. If not, see <http://www.gnu.org/licenses/>.
+
+package vm
+
+// Gas costs
+const (
+	GasQuickStep   uint64 = 0
+	GasFastestStep uint64 = 0
+	GasFastStep    uint64 = 0
+	GasMidStep     uint64 = 0
+	GasSlowStep    uint64 = 0
+	GasExtStep     uint64 = 0
+)
