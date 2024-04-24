@@ -76,53 +76,57 @@ const (
 
 // 0x30 range - closure state.
 const (
-	ADDRESS OpCode = 0x30 + iota
-	BALANCE
-	ORIGIN
-	CALLER
-	CALLVALUE
-	CALLDATALOAD
-	CALLDATASIZE
-	CALLDATACOPY
-	CODESIZE
-	CODECOPY
-	GASPRICE
-	EXTCODESIZE
-	EXTCODECOPY
-	RETURNDATASIZE
-	RETURNDATACOPY
-	EXTCODEHASH
+	ADDRESS        OpCode = 0x30
+	BALANCE        OpCode = 0x31
+	ORIGIN         OpCode = 0x32
+	CALLER         OpCode = 0x33
+	CALLVALUE      OpCode = 0x34
+	CALLDATALOAD   OpCode = 0x35
+	CALLDATASIZE   OpCode = 0x36
+	CALLDATACOPY   OpCode = 0x37
+	CODESIZE       OpCode = 0x38
+	CODECOPY       OpCode = 0x39
+	GASPRICE       OpCode = 0x3a
+	EXTCODESIZE    OpCode = 0x3b
+	EXTCODECOPY    OpCode = 0x3c
+	RETURNDATASIZE OpCode = 0x3d
+	RETURNDATACOPY OpCode = 0x3e
+	EXTCODEHASH    OpCode = 0x3f
 )
 
 // 0x40 range - block operations.
 const (
-	BLOCKHASH OpCode = 0x40 + iota
-	COINBASE
-	TIMESTAMP
-	NUMBER
-	DIFFICULTY
-	GASLIMIT
+	BLOCKHASH   OpCode = 0x40
+	COINBASE    OpCode = 0x41
+	TIMESTAMP   OpCode = 0x42
+	NUMBER      OpCode = 0x43
+	DIFFICULTY  OpCode = 0x44
+	GASLIMIT    OpCode = 0x45
 	CHAINID     OpCode = 0x46
 	SELFBALANCE OpCode = 0x47
+	BASEFEE     OpCode = 0x48
+	BLOBHASH    OpCode = 0x49
+	BLOBBASEFEE OpCode = 0x4a
 )
 
 // 0x50 range - 'storage' and execution.
 const (
-	POP       OpCode = 0x50
-	MLOAD     OpCode = 0x51
-	MSTORE    OpCode = 0x52
-	MSTORE8   OpCode = 0x53
-	SLOAD     OpCode = 0x54
-	SSTORE    OpCode = 0x55
-	JUMP      OpCode = 0x56
-	JUMPI     OpCode = 0x57
-	PC        OpCode = 0x58
-	MSIZE     OpCode = 0x59
-	GAS       OpCode = 0x5a
-	JUMPDEST  OpCode = 0x5b
-	BEGINSUB  OpCode = 0x5c
-	RETURNSUB OpCode = 0x5d
-	JUMPSUB   OpCode = 0x5e
+	POP      OpCode = 0x50
+	MLOAD    OpCode = 0x51
+	MSTORE   OpCode = 0x52
+	MSTORE8  OpCode = 0x53
+	SLOAD    OpCode = 0x54
+	SSTORE   OpCode = 0x55
+	JUMP     OpCode = 0x56
+	JUMPI    OpCode = 0x57
+	PC       OpCode = 0x58
+	MSIZE    OpCode = 0x59
+	GAS      OpCode = 0x5a
+	JUMPDEST OpCode = 0x5b
+	TLOAD    OpCode = 0x5c
+	TSTORE   OpCode = 0x5d
+	MCOPY    OpCode = 0x5e
+	PUSH0    OpCode = 0x5f
 )
 
 // 0x60 range.
@@ -284,6 +288,9 @@ var opCodeToString = map[OpCode]string{
 	GASLIMIT:    "GASLIMIT",
 	CHAINID:     "CHAINID",
 	SELFBALANCE: "SELFBALANCE",
+	BASEFEE:     "BASEFEE",
+	BLOBHASH:    "BLOBHASH",
+	BLOBBASEFEE: "BLOBBASEFEE",
 
 	// 0x50 range - 'storage' and execution.
 	POP: "POP",
@@ -301,9 +308,10 @@ var opCodeToString = map[OpCode]string{
 	GAS:      "GAS",
 	JUMPDEST: "JUMPDEST",
 
-	BEGINSUB:  "BEGINSUB",
-	JUMPSUB:   "JUMPSUB",
-	RETURNSUB: "RETURNSUB",
+	TLOAD:  "TLOAD",
+	TSTORE: "TSTORE",
+	MCOPY:  "MCOPY",
+	PUSH0:  "PUSH0",
 
 	// 0x60 range - push.
 	PUSH1:  "PUSH1",
@@ -469,9 +477,10 @@ var stringToOp = map[string]OpCode{
 	"MSIZE":          MSIZE,
 	"GAS":            GAS,
 	"JUMPDEST":       JUMPDEST,
-	"BEGINSUB":       BEGINSUB,
-	"RETURNSUB":      RETURNSUB,
-	"JUMPSUB":        JUMPSUB,
+	"TLOAD":          TLOAD,
+	"TSTORE":         TSTORE,
+	"MCOPY":          MCOPY,
+	"PUSH0":          PUSH0,
 	"PUSH1":          PUSH1,
 	"PUSH2":          PUSH2,
 	"PUSH3":          PUSH3,

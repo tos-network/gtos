@@ -554,38 +554,6 @@ func opJumpdest(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) (
 	return nil, nil
 }
 
-func opBeginSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	return nil, ErrInvalidSubroutineEntry
-}
-
-func opJumpSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	if len(callContext.rstack.data) >= 1023 {
-		return nil, ErrReturnStackExceeded
-	}
-	pos := callContext.stack.pop()
-	if !pos.IsUint64() {
-		return nil, ErrInvalidJump
-	}
-	posU64 := pos.Uint64()
-	if !callContext.contract.validJumpSubdest(posU64) {
-		return nil, ErrInvalidJump
-	}
-	callContext.rstack.push(uint32(*pc))
-	*pc = posU64 + 1
-	return nil, nil
-}
-
-func opReturnSub(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
-	if len(callContext.rstack.data) == 0 {
-		return nil, ErrInvalidRetsub
-	}
-	// Other than the check that the return stack is not empty, there is no
-	// need to validate the pc from 'returns', since we only ever push valid
-	//values onto it via jumpsub.
-	*pc = uint64(callContext.rstack.pop()) + 1
-	return nil, nil
-}
-
 func opPc(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
 	callContext.stack.push(new(uint256.Int).SetUint64(*pc))
 	return nil, nil
@@ -636,6 +604,90 @@ func opCreate(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 	if suberr == ErrExecutionReverted {
 		return res, nil
 	}
+	return nil, nil
+}
+
+// opBlobHash implements the BLOBHASH opcode
+func opBlobHash(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	index := callContext.stack.peek()
+	//if index.LtUint64(uint64(len(interpreter.evm.TxContext.BlobHashes))) {
+	//	blobHash := interpreter.evm.TxContext.BlobHashes[index.Uint64()]
+	//	index.SetBytes32(blobHash[:])
+	//} else {
+	index.Clear()
+	//}
+	return nil, nil
+}
+
+// opBlobBaseFee implements BLOBBASEFEE opcode
+func opBlobBaseFee(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	blobBaseFee, _ := uint256.FromBig(big0)
+	callContext.stack.push(blobBaseFee)
+	return nil, nil
+}
+
+// opTload implements TLOAD opcode
+func opTload(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	loc := callContext.stack.peek()
+	hash := common.Hash(loc.Bytes32())
+	val := interpreter.evm.StateDB.GetTransientState(callContext.contract.Address(), hash)
+	loc.SetBytes(val.Bytes())
+	return nil, nil
+}
+
+// opTstore implements TSTORE opcode
+func opTstore(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	if interpreter.readOnly {
+		return nil, ErrWriteProtection
+	}
+	loc := callContext.stack.pop()
+	val := callContext.stack.pop()
+	interpreter.evm.StateDB.SetTransientState(callContext.contract.Address(), loc.Bytes32(), val.Bytes32())
+	return nil, nil
+}
+
+// opMcopy implements the MCOPY opcode (https://eips.ethereum.org/EIPS/eip-5656)
+func opMcopy(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	var (
+		dst    = callContext.stack.pop()
+		src    = callContext.stack.pop()
+		length = callContext.stack.pop()
+	)
+	// These values are checked for overflow during memory expansion calculation
+	// (the memorySize function on the opcode).
+	callContext.memory.Copy(dst.Uint64(), src.Uint64(), length.Uint64())
+	return nil, nil
+}
+
+// opPush0 implements the PUSH0 opcode
+func opPush0(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	callContext.stack.push(new(uint256.Int))
+	return nil, nil
+}
+
+func opRandom(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	v := new(uint256.Int).SetBytes(interpreter.evm.Context.Coinbase.Hash().Bytes())
+	callContext.stack.push(v)
+	return nil, nil
+}
+
+// opBaseFee implements BASEFEE opcode
+func opBaseFee(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	baseFee := new(uint256.Int)
+	callContext.stack.push(baseFee)
+	return nil, nil
+}
+
+func opSelfBalance(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	balance, _ := uint256.FromBig(interpreter.evm.StateDB.GetBalance(callContext.contract.Address()))
+	callContext.stack.push(balance)
+	return nil, nil
+}
+
+// opChainID implements CHAINID opcode
+func opChainID(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	chainId, _ := uint256.FromBig(interpreter.evm.chainConfig.ChainID)
+	callContext.stack.push(chainId)
 	return nil, nil
 }
 

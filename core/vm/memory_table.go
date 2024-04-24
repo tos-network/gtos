@@ -57,6 +57,14 @@ func memoryCreate2(stack *Stack) (uint64, bool) {
 	return calcMemSize64(stack.Back(1), stack.Back(2))
 }
 
+func memoryMcopy(stack *Stack) (uint64, bool) {
+	mStart := stack.Back(0) // stack[0]: dest
+	if stack.Back(1).Gt(mStart) {
+		mStart = stack.Back(1) // stack[1]: source
+	}
+	return calcMemSize64(mStart, stack.Back(2)) // stack[2]: length
+}
+
 func memoryCall(stack *Stack) (uint64, bool) {
 	x, overflow := calcMemSize64(stack.Back(5), stack.Back(6))
 	if overflow {

@@ -20,8 +20,8 @@ package vm
 import (
 	"math/big"
 
-	"github.com/tos-network/gtos/common"
 	"github.com/holiman/uint256"
+	"github.com/tos-network/gtos/common"
 )
 
 // ContractRef is a reference to the contract's backing object
@@ -92,19 +92,6 @@ func (c *Contract) validJumpdest(dest *uint256.Int) bool {
 	}
 	// Only JUMPDESTs allowed for destinations
 	if OpCode(c.Code[udest]) != JUMPDEST {
-		return false
-	}
-	return c.isCode(udest)
-}
-
-func (c *Contract) validJumpSubdest(udest uint64) bool {
-	// PC cannot go beyond len(code) and certainly can't be bigger than 63 bits.
-	// Don't bother checking for BEGINSUB in that case.
-	if int64(udest) < 0 || udest >= uint64(len(c.Code)) {
-		return false
-	}
-	// Only BEGINSUBs allowed for destinations
-	if OpCode(c.Code[udest]) != BEGINSUB {
 		return false
 	}
 	return c.isCode(udest)

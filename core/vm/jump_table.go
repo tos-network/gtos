@@ -52,15 +52,9 @@ var (
 // JumpTable contains the EVM opcodes supported at a given fork.
 type JumpTable [256]*operation
 
-// newIstanbulInstructionSet returns the frontier instructions.
-func newIstanbulInstructionSet() JumpTable {
-	instructionSet := newFrontierInstructionSet()
-	return instructionSet
-}
-
 // newFrontierInstructionSet returns the frontier instructions
 // that can be executed during the frontier phase.
-func newFrontierInstructionSet() JumpTable {
+func newIstanbulInstructionSet() JumpTable {
 	return JumpTable{
 		STOP: {
 			execute:     opStop,
@@ -937,6 +931,61 @@ func newFrontierInstructionSet() JumpTable {
 			memorySize:  memoryCreate2,
 			writes:      true,
 			returns:     true,
+		},
+		CHAINID: {
+			execute:     opChainID,
+			constantGas: GasQuickStep,
+			minStack:    minStack(0, 1),
+			maxStack:    maxStack(0, 1),
+		},
+		SELFBALANCE: {
+			execute:     opSelfBalance,
+			constantGas: GasFastStep,
+			minStack:    minStack(0, 1),
+			maxStack:    maxStack(0, 1),
+		},
+		BASEFEE: {
+			execute:     opBaseFee,
+			constantGas: GasQuickStep,
+			minStack:    minStack(0, 1),
+			maxStack:    maxStack(0, 1),
+		},
+		PUSH0: {
+			execute:     opPush0,
+			constantGas: GasQuickStep,
+			minStack:    minStack(0, 1),
+			maxStack:    maxStack(0, 1),
+		},
+		MCOPY: {
+			execute:     opMcopy,
+			constantGas: GasFastestStep,
+			minStack:    minStack(3, 0),
+			maxStack:    maxStack(3, 0),
+			memorySize:  memoryMcopy,
+		},
+		TLOAD: {
+			execute:     opTload,
+			constantGas: GasFastestStep,
+			minStack:    minStack(1, 1),
+			maxStack:    maxStack(1, 1),
+		},
+		TSTORE: {
+			execute:     opTstore,
+			constantGas: GasFastestStep,
+			minStack:    minStack(2, 0),
+			maxStack:    maxStack(2, 0),
+		},
+		BLOBBASEFEE: {
+			execute:     opBlobBaseFee,
+			constantGas: GasQuickStep,
+			minStack:    minStack(0, 1),
+			maxStack:    maxStack(0, 1),
+		},
+		BLOBHASH: {
+			execute:     opBlobHash,
+			constantGas: GasFastestStep,
+			minStack:    minStack(1, 1),
+			maxStack:    maxStack(1, 1),
 		},
 	}
 }
