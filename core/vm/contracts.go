@@ -28,6 +28,7 @@ import (
 	"github.com/tos-network/gtos/crypto/blake2b"
 	"github.com/tos-network/gtos/crypto/bls12381"
 	"github.com/tos-network/gtos/crypto/bn256"
+	"github.com/tos-network/gtos/crypto/secp256r1"
 
 	//lint:ignore SA1019 Needed for precompile
 	"golang.org/x/crypto/ripemd160"
@@ -44,15 +45,16 @@ type PrecompiledContract interface {
 // PrecompiledContractsIstanbul contains the default set of pre-compiled Tosnetwk
 // contracts used in the Istanbul release.
 var PrecompiledContractsIstanbul = map[common.Address]PrecompiledContract{
-	common.BytesToAddress([]byte{1}): &ecrecover{},
-	common.BytesToAddress([]byte{2}): &sha256hash{},
-	common.BytesToAddress([]byte{3}): &ripemd160hash{},
-	common.BytesToAddress([]byte{4}): &dataCopy{},
-	common.BytesToAddress([]byte{5}): &bigModExp{eip2565: false},
-	common.BytesToAddress([]byte{6}): &bn256AddIstanbul{},
-	common.BytesToAddress([]byte{7}): &bn256ScalarMulIstanbul{},
-	common.BytesToAddress([]byte{8}): &bn256PairingIstanbul{},
-	common.BytesToAddress([]byte{9}): &blake2F{},
+	common.BytesToAddress([]byte{0x01}):       &ecrecover{},
+	common.BytesToAddress([]byte{0x02}):       &sha256hash{},
+	common.BytesToAddress([]byte{0x03}):       &ripemd160hash{},
+	common.BytesToAddress([]byte{0x04}):       &dataCopy{},
+	common.BytesToAddress([]byte{0x05}):       &bigModExp{eip2565: false},
+	common.BytesToAddress([]byte{0x06}):       &bn256AddIstanbul{},
+	common.BytesToAddress([]byte{0x07}):       &bn256ScalarMulIstanbul{},
+	common.BytesToAddress([]byte{0x08}):       &bn256PairingIstanbul{},
+	common.BytesToAddress([]byte{0x09}):       &blake2F{},
+	common.BytesToAddress([]byte{0x01, 0x00}): &p256Verify{},
 }
 
 var (
@@ -867,4 +869,38 @@ func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
 
 	// Encode the G2 point to 256 bytes
 	return g.EncodePoint(r), nil
+}
+
+// P256VERIFY (secp256r1 signature verification)
+// implemented as a native contract
+type p256Verify struct{}
+
+// RequiredGas returns the gas required to execute the precompiled contract
+func (c *p256Verify) RequiredGas(input []byte) uint64 {
+	return 0
+}
+
+// Run executes the precompiled contract with given 160 bytes of param, returning the output and the used gas
+func (c *p256Verify) Run(input []byte) ([]byte, error) {
+	// Required input length is 160 bytes
+	const p256VerifyInputLength = 160
+	// Check the input length
+	if len(input) != p256VerifyInputLength {
+		// Input length is invalid
+		return nil, nil
+	}
+
+	// Extract the hash, r, s, x, y from the input
+	hash := input[0:32]
+	r, s := new(big.Int).SetBytes(input[32:64]), new(big.Int).SetBytes(input[64:96])
+	x, y := new(big.Int).SetBytes(input[96:128]), new(big.Int).SetBytes(input[128:160])
+
+	// Verify the secp256r1 signature
+	if secp256r1.Verify(hash, r, s, x, y) {
+		// Signature is valid
+		return common.LeftPadBytes(big1.Bytes(), 32), nil
+	} else {
+		// Signature is invalid
+		return nil, nil
+	}
 }
