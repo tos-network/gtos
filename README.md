@@ -1,4 +1,4 @@
-## The Open System
+## Terminos Network
 
 Official Golang implementation of the TOS Network Protocol.
 

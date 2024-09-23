@@ -1,5 +1,5 @@
 // Copyright 2020 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of tos.
 //
 // The tos library is free software: you can redistribute it and/or modify

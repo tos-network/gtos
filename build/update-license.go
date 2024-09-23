@@ -1,5 +1,5 @@
 // Copyright 2018 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of the tos library.
 //
 // The tos library is free software: you can redistribute it and/or modify
@@ -96,7 +96,7 @@ var (
 // its input is an info structure.
 var licenseT = template.Must(template.New("").Parse(`
 // Copyright {{.Year}} The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of {{.Whole false}}.
 //
 // {{.Whole true}} is free software: you can redistribute it and/or modify

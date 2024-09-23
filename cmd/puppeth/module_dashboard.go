@@ -1,5 +1,5 @@
 // Copyright 2017 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of tos.
 //
 // tos is free software: you can redistribute it and/or modify
@@ -423,7 +423,7 @@ try! node?.start();
 										<p>Puppeth is distributed as part of the <a href="https://gtos.tos.network/downloads/" target="about:blank">Gtos &amp; Tools</a> bundles, but can also be installed separately via:<pre>go get github.com/tos-network/gtos/cmd/puppeth</pre></p>
 										<br/>
 										<p><em>Copyright 2017. The go-ehtereum Authors
-// Copyright 2023 The Open System.</em></p>
+// Copyright 2023 Terminos Network.</em></p>
 									</div>
 									<div style="display: inline-block; vertical-align: bottom; width: 217px;">
 										<img src="puppeth.png" style="height: 256px; margin: 16px 16px 16px 16px"></img>

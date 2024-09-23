@@ -1,5 +1,5 @@
 // Copyright 2020 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of tos.
 //
 // tos is free software: you can redistribute it and/or modify
@@ -53,7 +53,7 @@ OPTIONS:
    {{.App.Name}} - {{.App.Usage}}
 
    Copyright 2013-2019 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 
 USAGE:
    {{.App.HelpName}} [options]{{if .App.Commands}} command [command options]{{end}} {{if .App.ArgsUsage}}{{.App.ArgsUsage}}{{else}}[arguments...]{{end}}
@@ -80,7 +80,7 @@ COPYRIGHT:
    {{.App.Name}} - {{.App.Usage}}
 
    Copyright 2013-2019 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 
 USAGE:
    {{.App.HelpName}} [options]{{if .App.Commands}} command [command options]{{end}} {{if .App.ArgsUsage}}{{.App.ArgsUsage}}{{else}}[arguments...]{{end}}

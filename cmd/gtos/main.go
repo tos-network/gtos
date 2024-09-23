@@ -1,5 +1,5 @@
 // Copyright 2014 The go-ehtereum Authors
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // This file is part of tos.
 //
 // tos is free software: you can redistribute it and/or modify
@@ -219,7 +219,7 @@ func init() {
 	// Initialize the CLI app and start Gtos
 	app.Action = gtos
 	app.HideVersion = true // we have a command to print the version
-	app.Copyright = "Copyright 2023 The Open System"
+	app.Copyright = "Copyright 2023 Terminos Network"
 	app.Commands = []cli.Command{
 		// See chaincmd.go:
 		initCommand,

@@ -1,5 +1,5 @@
 // Copyright 2013 The Go Authors. All rights reserved.
-// Copyright 2023 The Open System
+// Copyright 2023 Terminos Network
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
