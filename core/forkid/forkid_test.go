@@ -44,7 +44,7 @@ func TestCreation(t *testing.T) {
 			params.MainnetChainConfig,
 			params.MainnetGenesisHash,
 			[]testcase{
-				{0, ID{Hash: checksumToBytes(0xfc64ec04), Next: 0}}, // Unsynced
+				{0, ID{Hash: checksumToBytes(0x318fefeb), Next: 0}}, // Unsynced
 			},
 		},
 		// Ropsten test cases
@@ -52,7 +52,7 @@ func TestCreation(t *testing.T) {
 			params.RopstenChainConfig,
 			params.RopstenGenesisHash,
 			[]testcase{
-				{0, ID{Hash: checksumToBytes(0x30c7ddbc), Next: 0}}, // Unsynced, last Frontier, Homestead and first Tangerine block
+				{0, ID{Hash: checksumToBytes(0xdc0cf9d7), Next: 0}}, // Unsynced, last Frontier, Homestead and first Tangerine block
 			},
 		},
 		// Rinkeby test cases

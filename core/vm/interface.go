@@ -29,11 +29,20 @@ type StateDB interface {
 	CreateAccount(common.Address)
 
 	SubBalance(common.Address, *big.Int)
+	SubBalancex(common.Address, uint64, *big.Int)
 	AddBalance(common.Address, *big.Int)
 	GetBalance(common.Address) *big.Int
+	GetBalancex(common.Address, uint64) *big.Int
+
+	SubAssetBalance(common.Address, *big.Int)
+	AddAssetBalance(common.Address, *big.Int)
+	GetAssetBalance(common.Address) *big.Int
 
 	GetNonce(common.Address) uint64
 	SetNonce(common.Address, uint64)
+
+	GetBlockTime(common.Address) uint64
+	SetBlockTime(common.Address, uint64)
 
 	GetCodeHash(common.Address) common.Hash
 	GetCode(common.Address) []byte

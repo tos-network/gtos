@@ -17,7 +17,9 @@
 
 package params
 
-import "math/big"
+import (
+	"math/big"
+)
 
 const (
 	GasLimitBoundDivisor uint64 = 1024    // The bound divisor of the gas limit, used in update calculations.
@@ -35,8 +37,10 @@ const (
 )
 
 var (
-	DifficultyBoundDivisor = big.NewInt(2048)   // The bound divisor of the difficulty, used in the update calculations.
-	GenesisDifficulty      = big.NewInt(131072) // Difficulty of the Genesis block.
-	MinimumDifficulty      = big.NewInt(131072) // The minimum that the difficulty may ever be.
-	DurationLimit          = big.NewInt(13)     // The decision boundary on the blocktime duration used to determine whether difficulty should go up or not.
+	DifficultyBoundDivisor = big.NewInt(2048)       // The bound divisor of the difficulty, used in the update calculations.
+	GenesisDifficulty      = big.NewInt(131072)     // Difficulty of the Genesis block.
+	MinimumDifficulty      = big.NewInt(131072)     // The minimum that the difficulty may ever be.
+	DurationLimit          = big.NewInt(13)         // The decision boundary on the blocktime duration used to determine whether difficulty should go up or not.
+	DurationEnergy         = big.NewInt(60)         // The decision boundary on the blocktime duration used to cal energy.
+	EnergyGrowthRate       = big.NewInt(5000000000) // WEI ETHER per token(TOS) per second. about 0.000432 ether per token per day.
 )

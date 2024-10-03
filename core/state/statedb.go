@@ -268,6 +268,15 @@ func (s *StateDB) GetBalance(addr common.Address) *big.Int {
 	return common.Big0
 }
 
+// GetBalance retrieves the balance from the given address or 0 if object not found
+func (s *StateDB) GetBalancex(addr common.Address, blockTime uint64) *big.Int {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.Balancex(blockTime)
+	}
+	return common.Big0
+}
+
 func (s *StateDB) GetNonce(addr common.Address) uint64 {
 	stateObject := s.getStateObject(addr)
 	if stateObject != nil {
@@ -275,6 +284,24 @@ func (s *StateDB) GetNonce(addr common.Address) uint64 {
 	}
 
 	return 0
+}
+
+func (s *StateDB) GetBlockTime(addr common.Address) uint64 {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.BlockTime()
+	}
+
+	return 0
+}
+
+// GetAssetBalance retrieves the asset from the given address or 0 if object not found
+func (s *StateDB) GetAssetBalance(addr common.Address) *big.Int {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.AssetBalance()
+	}
+	return common.Big0
 }
 
 // TxIndex returns the current transaction index set by Prepare.
@@ -399,10 +426,49 @@ func (s *StateDB) SetBalance(addr common.Address, amount *big.Int) {
 	}
 }
 
+// SubBalance subtracts amount from the account associated with addr.
+func (s *StateDB) SubBalancex(addr common.Address, blockTime uint64, amount *big.Int) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.SubBalancex(blockTime, amount)
+	}
+}
+
 func (s *StateDB) SetNonce(addr common.Address, nonce uint64) {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
 		stateObject.SetNonce(nonce)
+	}
+}
+
+func (s *StateDB) SetBlockTime(addr common.Address, blockTime uint64) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.SetBlockTime(blockTime)
+	}
+}
+
+// AddAssetBalance adds asset balance to the account associated with addr.
+func (s *StateDB) AddAssetBalance(addr common.Address, amount *big.Int) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.AddAssetBalance(amount)
+	}
+}
+
+// SubAssetBalance subtracts asset balance from the account associated with addr.
+func (s *StateDB) SubAssetBalance(addr common.Address, amount *big.Int) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.SubAssetBalance(amount)
+	}
+}
+
+// SetAssetBalance set asset balance from the account associated with addr.
+func (s *StateDB) SetAssetBalance(addr common.Address, amount *big.Int) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.SetAssetBalance(amount)
 	}
 }
 
@@ -441,9 +507,11 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 	}
 
 	s.journal.append(suicideChange{
-		account:     &addr,
-		prev:        stateObject.suicided,
-		prevbalance: new(big.Int).Set(stateObject.Balance()),
+		account:          &addr,
+		prev:             stateObject.suicided,
+		prevbalance:      new(big.Int).Set(stateObject.Balance()),
+		prevassetbalance: new(big.Int).Set(stateObject.AssetBalance()),
+		prevblocktime:    stateObject.BlockTime(),
 	})
 	stateObject.markSuicided()
 	stateObject.data.Balance = new(big.Int)
@@ -477,7 +545,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 	// enough to track account updates at commit time, deletions need tracking
 	// at transaction boundary level to ensure we capture state clearing.
 	if s.snap != nil {
-		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.Root, obj.data.CodeHash)
+		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.BlockTime, obj.data.AssetBalance, obj.data.Root, obj.data.CodeHash)
 	}
 }
 
@@ -528,10 +596,12 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 				return nil
 			}
 			data = &Account{
-				Nonce:    acc.Nonce,
-				Balance:  acc.Balance,
-				CodeHash: acc.CodeHash,
-				Root:     common.BytesToHash(acc.Root),
+				Nonce:        acc.Nonce,
+				Balance:      acc.Balance,
+				BlockTime:    acc.BlockTime,
+				AssetBalance: acc.AssetBalance,
+				CodeHash:     acc.CodeHash,
+				Root:         common.BytesToHash(acc.Root),
 			}
 			if len(data.CodeHash) == 0 {
 				data.CodeHash = emptyCodeHash
@@ -619,6 +689,8 @@ func (s *StateDB) CreateAccount(addr common.Address) {
 	newObj, prev := s.createObject(addr)
 	if prev != nil {
 		newObj.setBalance(prev.data.Balance)
+		newObj.setAssetBalance(prev.data.AssetBalance)
+		newObj.setBlockTime(prev.data.BlockTime)
 	}
 }
 

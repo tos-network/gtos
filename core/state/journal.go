@@ -95,9 +95,11 @@ type (
 		prevdestruct bool
 	}
 	suicideChange struct {
-		account     *common.Address
-		prev        bool // whether account had already suicided
-		prevbalance *big.Int
+		account          *common.Address
+		prev             bool // whether account had already suicided
+		prevblocktime    uint64
+		prevbalance      *big.Int
+		prevassetbalance *big.Int
 	}
 
 	// Changes to individual accounts.
@@ -108,6 +110,14 @@ type (
 	nonceChange struct {
 		account *common.Address
 		prev    uint64
+	}
+	blockTimeChange struct {
+		account *common.Address
+		prev    uint64
+	}
+	assetBalanceChange struct {
+		account *common.Address
+		prev    *big.Int
 	}
 	storageChange struct {
 		account       *common.Address
@@ -170,6 +180,8 @@ func (ch suicideChange) revert(s *StateDB) {
 	if obj != nil {
 		obj.suicided = ch.prev
 		obj.setBalance(ch.prevbalance)
+		obj.setAssetBalance(ch.prevassetbalance)
+		obj.setBlockTime(ch.prevblocktime)
 	}
 }
 
@@ -199,6 +211,22 @@ func (ch nonceChange) revert(s *StateDB) {
 }
 
 func (ch nonceChange) dirtied() *common.Address {
+	return ch.account
+}
+
+func (ch blockTimeChange) revert(s *StateDB) {
+	s.getStateObject(*ch.account).setBlockTime(ch.prev)
+}
+
+func (ch blockTimeChange) dirtied() *common.Address {
+	return ch.account
+}
+
+func (ch assetBalanceChange) revert(s *StateDB) {
+	s.getStateObject(*ch.account).setAssetBalance(ch.prev)
+}
+
+func (ch assetBalanceChange) dirtied() *common.Address {
 	return ch.account
 }
 

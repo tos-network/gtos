@@ -35,8 +35,8 @@ ios:
 test: all
 	$(GORUN) build/ci.go test
 
-testpackage: all
-	$(GORUN) build/ci.go test $(PACKAGE)
+testp: all
+	$(GORUN) build/ci.go test $(PA)
 
 lint: ## Run linters.
 	$(GORUN) build/ci.go lint

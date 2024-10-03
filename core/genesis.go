@@ -82,11 +82,13 @@ func (ga *GenesisAlloc) UnmarshalJSON(data []byte) error {
 
 // GenesisAccount is an account in the state of the genesis block.
 type GenesisAccount struct {
-	Code       []byte                      `json:"code,omitempty"`
-	Storage    map[common.Hash]common.Hash `json:"storage,omitempty"`
-	Balance    *big.Int                    `json:"balance" gencodec:"required"`
-	Nonce      uint64                      `json:"nonce,omitempty"`
-	PrivateKey []byte                      `json:"secretKey,omitempty"` // for tests
+	Code         []byte                      `json:"code,omitempty"`
+	Storage      map[common.Hash]common.Hash `json:"storage,omitempty"`
+	Balance      *big.Int                    `json:"balance" gencodec:"required"`
+	Nonce        uint64                      `json:"nonce,omitempty"`
+	AssetBalance *big.Int                    `json:"assetBalance" gencodec:"required"`
+	BlockTime    uint64                      `json:"blockTime,omitempty"`
+	PrivateKey   []byte                      `json:"secretKey,omitempty"` // for tests
 }
 
 // field type overrides for gencodec
@@ -102,11 +104,13 @@ type genesisSpecMarshaling struct {
 }
 
 type genesisAccountMarshaling struct {
-	Code       hexutil.Bytes
-	Balance    *math.HexOrDecimal256
-	Nonce      math.HexOrDecimal64
-	Storage    map[storageJSON]storageJSON
-	PrivateKey hexutil.Bytes
+	Code         hexutil.Bytes
+	Balance      *math.HexOrDecimal256
+	Nonce        math.HexOrDecimal64
+	AssetBalance *math.HexOrDecimal256
+	BlockTime    math.HexOrDecimal64
+	Storage      map[storageJSON]storageJSON
+	PrivateKey   hexutil.Bytes
 }
 
 // storageJSON represents a 256 bit byte array, but allows less than 256 bits when
@@ -262,6 +266,8 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 		statedb.AddBalance(addr, account.Balance)
 		statedb.SetCode(addr, account.Code)
 		statedb.SetNonce(addr, account.Nonce)
+		statedb.AddAssetBalance(addr, account.AssetBalance)
+		statedb.SetBlockTime(addr, account.BlockTime)
 		for key, value := range account.Storage {
 			statedb.SetState(addr, key, value)
 		}

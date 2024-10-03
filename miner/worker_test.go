@@ -229,6 +229,7 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool) {
 	w.start()
 
 	for i := 0; i < 5; i++ {
+		t.Logf("mining block %d", i)
 		b.txPool.AddLocal(b.newRandomTx(true))
 		b.txPool.AddLocal(b.newRandomTx(false))
 		w.postSideBlock(core.ChainSideEvent{Block: b.newRandomUncle()})

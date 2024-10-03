@@ -27,6 +27,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/metrics"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 )
 
@@ -95,22 +96,27 @@ type stateObject struct {
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
-	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
+	return s.data.Nonce == 0 && s.data.BlockTime == 0 && s.data.Balance.Sign() == 0 && s.data.AssetBalance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
 }
 
 // Account is the Tosnetwk consensus representation of accounts.
 // These objects are stored in the main account trie.
 type Account struct {
-	Nonce    uint64
-	Balance  *big.Int
-	Root     common.Hash // merkle root of the storage trie
-	CodeHash []byte
+	Nonce        uint64
+	Balance      *big.Int
+	BlockTime    uint64
+	AssetBalance *big.Int
+	Root         common.Hash // merkle root of the storage trie
+	CodeHash     []byte
 }
 
 // newObject creates a state object.
 func newObject(db *StateDB, address common.Address, data Account) *stateObject {
 	if data.Balance == nil {
 		data.Balance = new(big.Int)
+	}
+	if data.AssetBalance == nil {
+		data.AssetBalance = new(big.Int)
 	}
 	if data.CodeHash == nil {
 		data.CodeHash = emptyCodeHash
@@ -381,7 +387,7 @@ func (s *stateObject) CommitTrie(db Database) error {
 func (s *stateObject) AddBalance(amount *big.Int) {
 	// EIP161: We must check emptiness for the objects such that the account
 	// clearing (0,0,0 objects) can take effect.
-	if amount.Sign() == 0 {
+	if amount == nil || amount.Sign() == 0 {
 		if s.empty() {
 			s.touch()
 		}
@@ -399,6 +405,21 @@ func (s *stateObject) SubBalance(amount *big.Int) {
 	s.SetBalance(new(big.Int).Sub(s.Balance(), amount))
 }
 
+// SubBalance removes amount from s's balance.
+// It is used to remove funds from the origin account of a transfer.
+func (s *stateObject) SubBalancex(blockTime uint64, amount *big.Int) {
+	if amount.Sign() == 0 {
+		return
+	}
+	energy := s.calEnergy(blockTime)
+	bval := s.Balance()
+	if energy.Sign() > 0 {
+		bval = new(big.Int).Add(bval, energy)
+	}
+	s.SetBlockTime(blockTime)
+	s.SetBalance(new(big.Int).Sub(bval, amount))
+}
+
 func (s *stateObject) SetBalance(amount *big.Int) {
 	s.db.journal.append(balanceChange{
 		account: &s.address,
@@ -409,6 +430,38 @@ func (s *stateObject) SetBalance(amount *big.Int) {
 
 func (s *stateObject) setBalance(amount *big.Int) {
 	s.data.Balance = amount
+}
+
+// AddAsset adds amount to s's Asset balance.
+// It is used to add funds to the destination account of a transfer.
+func (s *stateObject) AddAssetBalance(amount *big.Int) {
+	// We must check emptiness for the objects such that the account
+	// clearing (0,0,0 objects) can take effect.
+	if amount == nil || amount.Sign() == 0 {
+		return
+	}
+	s.SetAssetBalance(new(big.Int).Add(s.AssetBalance(), amount))
+}
+
+// SubAsset removes amount from s's Asset Balance.
+// It is used to remove funds from the origin account of a transfer.
+func (s *stateObject) SubAssetBalance(amount *big.Int) {
+	if amount.Sign() == 0 {
+		return
+	}
+	s.SetAssetBalance(new(big.Int).Sub(s.AssetBalance(), amount))
+}
+
+func (s *stateObject) SetAssetBalance(amount *big.Int) {
+	s.db.journal.append(assetBalanceChange{
+		account: &s.address,
+		prev:    new(big.Int).Set(s.data.AssetBalance),
+	})
+	s.setAssetBalance(amount)
+}
+
+func (s *stateObject) setAssetBalance(amount *big.Int) {
+	s.data.AssetBalance = amount
 }
 
 // Return the gas back to the origin. Used by the Virtual machine or Closures
@@ -499,8 +552,43 @@ func (s *stateObject) setNonce(nonce uint64) {
 	s.data.Nonce = nonce
 }
 
+func (s *stateObject) SetBlockTime(blockTime uint64) {
+	s.db.journal.append(blockTimeChange{
+		account: &s.address,
+		prev:    s.data.BlockTime,
+	})
+	s.setBlockTime(blockTime)
+}
+
+func (s *stateObject) setBlockTime(blockTime uint64) {
+	s.data.BlockTime = blockTime
+}
+
 func (s *stateObject) CodeHash() []byte {
 	return s.data.CodeHash
+}
+
+// Balancex calculates avaliable gas based on current block time.
+func (s *stateObject) Balancex(blockTime uint64) *big.Int {
+	return new(big.Int).Add(s.data.Balance, s.calEnergy(blockTime))
+}
+
+// CalEnergy calculates avaliable gas based on current block time.
+func (s *stateObject) calEnergy(blockTime uint64) *big.Int {
+	if s.data.BlockTime == 0 {
+		return common.Big0
+	}
+	if s.data.AssetBalance.Sign() < params.Ether {
+		return common.Big0
+	}
+	if blockTime <= s.data.BlockTime {
+		return common.Big0
+	}
+	x := new(big.Int).SetUint64(blockTime - s.data.BlockTime)
+	x.Mul(x, s.data.AssetBalance)
+	x.Mul(x, params.EnergyGrowthRate)
+	x.Div(x, common.BigE18)
+	return new(big.Int).Set(x)
 }
 
 func (s *stateObject) Balance() *big.Int {
@@ -509,6 +597,14 @@ func (s *stateObject) Balance() *big.Int {
 
 func (s *stateObject) Nonce() uint64 {
 	return s.data.Nonce
+}
+
+func (s *stateObject) AssetBalance() *big.Int {
+	return s.data.AssetBalance
+}
+
+func (s *stateObject) BlockTime() uint64 {
+	return s.data.BlockTime
 }
 
 // Never called, but must be present to allow stateObject to be used
