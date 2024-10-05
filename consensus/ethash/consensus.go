@@ -460,13 +460,6 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	return hash
 }
 
-// Some weird constants to avoid constant memory allocs for them.
-var (
-	big8    = big.NewInt(8)
-	big32   = big.NewInt(32)
-	big1000 = big.NewInt(1000)
-)
-
 // AccumulateRewards credits the coinbase of the given block with the mining
 // reward. The total reward consists of the static block reward and rewards for
 // included uncles. The coinbase of each uncle block is also rewarded.
@@ -477,20 +470,20 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	reward := new(big.Int).Set(blockReward)
 	r := new(big.Int)
 	for _, uncle := range uncles {
-		r.Add(uncle.Number, big8)
+		r.Add(uncle.Number, common.Big8)
 		r.Sub(r, header.Number)
 		r.Mul(r, blockReward)
-		r.Div(r, big8)
+		r.Div(r, common.Big8)
 		b := new(big.Int).Set(r)
-		b.Div(b, big1000)
+		b.Div(b, common.Big1000)
 		state.AddBalance(uncle.Coinbase, b)
 		state.AddAssetBalance(uncle.Coinbase, r)
 
-		r.Div(blockReward, big32)
+		r.Div(blockReward, common.Big32)
 		reward.Add(reward, r)
 	}
 	c := new(big.Int).Set(reward)
-	c.Div(c, big1000)
+	c.Div(c, common.Big1000)
 	state.AddBalance(header.Coinbase, c)
 	state.AddAssetBalance(header.Coinbase, reward)
 }

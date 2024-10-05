@@ -196,9 +196,15 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 			reward.Sub(reward, big.NewInt(0).SetUint64(ommer.Delta))
 			reward.Mul(reward, blockReward)
 			reward.Div(reward, big.NewInt(8))
-			statedb.AddBalance(ommer.Address, reward)
+			b := new(big.Int).Set(reward)
+			b.Div(b, common.Big1000)
+			statedb.AddBalance(ommer.Address, b)
+			statedb.AddAssetBalance(ommer.Address, reward)
 		}
-		statedb.AddBalance(pre.Env.Coinbase, minerReward)
+		c := new(big.Int).Set(minerReward)
+		c.Div(c, common.Big1000)
+		statedb.AddBalance(pre.Env.Coinbase, c)
+		statedb.AddAssetBalance(pre.Env.Coinbase, minerReward)
 	}
 	// Commit block
 	root, err := statedb.Commit(true)
