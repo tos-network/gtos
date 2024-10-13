@@ -54,6 +54,7 @@ const (
 	MaxBodyFetch             = 32  // Amount of block bodies to be fetched per retrieval request
 	MaxReceiptFetch          = 128 // Amount of transaction receipts to allow fetching per request
 	MaxCodeFetch             = 64  // Amount of contract codes to allow fetching per request
+	MaxByteCodeFetch         = 64  // Amount of byte contract codes to allow fetching per request
 	MaxProofsFetch           = 64  // Amount of merkle proofs to be fetched per retrieval request
 	MaxHelperTrieProofsFetch = 64  // Amount of helper tries to be fetched per retrieval request
 	MaxTxSend                = 64  // Amount of transactions to be send per request
@@ -520,13 +521,24 @@ func (h *serverHandler) handleMsg(p *clientPeer, wg *sync.WaitGroup) error {
 						continue
 					}
 					code, err := h.blockchain.StateCache().ContractCode(common.BytesToHash(request.AccKey), common.BytesToHash(account.CodeHash))
-					if err != nil {
+					bytecode, javaerr := h.blockchain.StateCache().ContractCode(common.BytesToHash(request.AccKey), common.BytesToHash(account.ByteCodeHash))
+					if err != nil && javaerr != nil {
 						p.Log().Warn("Failed to retrieve account code", "block", header.Number, "hash", header.Hash(), "account", common.BytesToHash(request.AccKey), "codehash", common.BytesToHash(account.CodeHash), "err", err)
+						p.Log().Warn("Failed to retrieve account code", "block", header.Number, "hash", header.Hash(), "account", common.BytesToHash(request.AccKey), "codehash", common.BytesToHash(account.ByteCodeHash), "err", err)
 						continue
 					}
-					// Accumulate the code and abort if enough data was retrieved
-					data = append(data, code)
-					if bytes += len(code); bytes >= softResponseLimit {
+					if err == nil {
+						// Accumulate the code
+						data = append(data, code)
+						bytes += len(code)
+					}
+					if javaerr == nil {
+						// Accumulate the bytecode
+						data = append(data, bytecode)
+						bytes += len(bytecode)
+					}
+					// abort if enough data was retrieved
+					if bytes >= softResponseLimit {
 						break
 					}
 				}

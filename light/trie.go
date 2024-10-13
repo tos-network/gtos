@@ -92,6 +92,26 @@ func (db *odrDatabase) ContractCodeSize(addrHash, codeHash common.Hash) (int, er
 	return len(code), err
 }
 
+func (db *odrDatabase) ContractByteCode(addrHash, codeHash common.Hash) ([]byte, error) {
+	if codeHash == sha3Nil {
+		return nil, nil
+	}
+	bytecode := rawdb.ReadCode(db.backend.Database(), codeHash)
+	if len(bytecode) != 0 {
+		return bytecode, nil
+	}
+	id := *db.id
+	id.AccKey = addrHash[:]
+	req := &ByteCodeRequest{Id: &id, Hash: codeHash}
+	err := db.backend.Retrieve(db.ctx, req)
+	return req.Data, err
+}
+
+func (db *odrDatabase) ContractByteCodeSize(addrHash, codeHash common.Hash) (int, error) {
+	bytecode, err := db.ContractByteCode(addrHash, codeHash)
+	return len(bytecode), err
+}
+
 func (db *odrDatabase) TrieDB() *trie.Database {
 	return nil
 }

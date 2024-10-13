@@ -22,11 +22,11 @@ import (
 	"fmt"
 
 	"github.com/VictoriaMetrics/fastcache"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/ethdb"
 	"github.com/tos-network/gtos/trie"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 const (

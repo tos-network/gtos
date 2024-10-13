@@ -34,9 +34,11 @@ type NodeIterator struct {
 	stateIt trie.NodeIterator // Primary iterator for the global state trie
 	dataIt  trie.NodeIterator // Secondary iterator for the data trie of a contract
 
-	accountHash common.Hash // Hash of the node containing the account
-	codeHash    common.Hash // Hash of the contract source code
-	code        []byte      // Source code associated with a contract
+	accountHash  common.Hash // Hash of the node containing the account
+	codeHash     common.Hash // Hash of the contract source code
+	bytecodeHash common.Hash // Hash of the java contract source code
+	code         []byte      // Source code associated with a contract
+	bytecode     []byte      // Source code associated with a java contract
 
 	Hash   common.Hash // Hash of the current entry being iterated (nil if not standalone)
 	Parent common.Hash // Hash of the first full ancestor node (nil if current is the root)
@@ -92,6 +94,11 @@ func (it *NodeIterator) step() error {
 		it.code = nil
 		return nil
 	}
+	// If we had java source code previously, discard that
+	if it.bytecode != nil {
+		it.bytecode = nil
+		return nil
+	}
 	// Step to the next state trie node, terminating if we're out of nodes
 	if cont := it.stateIt.Next(true); !cont {
 		if it.stateIt.Error() != nil {
@@ -125,6 +132,14 @@ func (it *NodeIterator) step() error {
 			return fmt.Errorf("code %x: %v", account.CodeHash, err)
 		}
 	}
+	if !bytes.Equal(account.ByteCodeHash, emptyCodeHash) {
+		it.bytecodeHash = common.BytesToHash(account.ByteCodeHash)
+		addrHash := common.BytesToHash(it.stateIt.LeafKey())
+		it.bytecode, err = it.state.db.ContractCode(addrHash, common.BytesToHash(account.ByteCodeHash))
+		if err != nil {
+			return fmt.Errorf("bytecode %x: %v", account.ByteCodeHash, err)
+		}
+	}
 	it.accountHash = it.stateIt.Parent()
 	return nil
 }
@@ -148,6 +163,8 @@ func (it *NodeIterator) retrieve() bool {
 		}
 	case it.code != nil:
 		it.Hash, it.Parent = it.codeHash, it.accountHash
+	case it.bytecode != nil:
+		it.Hash, it.Parent = it.bytecodeHash, it.accountHash
 	case it.stateIt != nil:
 		it.Hash, it.Parent = it.stateIt.Hash(), it.stateIt.Parent()
 	}

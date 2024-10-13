@@ -444,8 +444,11 @@ func (test *snapshotTest) checkEqual(state, checkstate *StateDB) error {
 		checkeq("GetBalance", state.GetBalance(addr), checkstate.GetBalance(addr))
 		checkeq("GetNonce", state.GetNonce(addr), checkstate.GetNonce(addr))
 		checkeq("GetCode", state.GetCode(addr), checkstate.GetCode(addr))
-		checkeq("GetCodeHash", state.GetCodeHash(addr), checkstate.GetCodeHash(addr))
+		checkeq("GetByteCode", state.GetByteCode(addr), checkstate.GetByteCode(addr))
+		checkeq("GetByteCodeHash", state.GetByteCodeHash(addr), checkstate.GetByteCodeHash(addr))
 		checkeq("GetCodeSize", state.GetCodeSize(addr), checkstate.GetCodeSize(addr))
+		checkeq("GetByteCodeSize", state.GetByteCodeSize(addr), checkstate.GetByteCodeSize(addr))
+
 		// Check storage.
 		if obj := state.getStateObject(addr); obj != nil {
 			state.ForEachStorage(addr, func(key, value common.Hash) bool {
@@ -516,15 +519,19 @@ func TestCopyCommitCopy(t *testing.T) {
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 
-	state.SetBalance(addr, big.NewInt(42)) // Change the account trie
-	state.SetCode(addr, []byte("hello"))   // Change an external metadata
-	state.SetState(addr, skey, sval)       // Change the storage trie
+	state.SetBalance(addr, big.NewInt(42))        // Change the account trie
+	state.SetCode(addr, []byte("hello"))          // Change an external metadata
+	state.SetByteCode(addr, []byte("hello byte")) // Change an external metadata
+	state.SetState(addr, skey, sval)              // Change the storage trie
 
 	if balance := state.GetBalance(addr); balance.Cmp(big.NewInt(42)) != 0 {
 		t.Fatalf("initial balance mismatch: have %v, want %v", balance, 42)
 	}
 	if code := state.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("initial code mismatch: have %x, want %x", code, []byte("hello"))
+	}
+	if bytecode := state.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("initial code mismatch: have %x, want %x", bytecode, []byte("hello byte"))
 	}
 	if val := state.GetState(addr, skey); val != sval {
 		t.Fatalf("initial non-committed storage slot mismatch: have %x, want %x", val, sval)
@@ -540,6 +547,9 @@ func TestCopyCommitCopy(t *testing.T) {
 	if code := copyOne.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("first copy pre-commit code mismatch: have %x, want %x", code, []byte("hello"))
 	}
+	if bytecode := copyOne.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("first copy pre-commit code mismatch: have %x, want %x", bytecode, []byte("hello byte"))
+	}
 	if val := copyOne.GetState(addr, skey); val != sval {
 		t.Fatalf("first copy pre-commit non-committed storage slot mismatch: have %x, want %x", val, sval)
 	}
@@ -554,6 +564,9 @@ func TestCopyCommitCopy(t *testing.T) {
 	if code := copyOne.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("first copy post-commit code mismatch: have %x, want %x", code, []byte("hello"))
 	}
+	if bytecode := copyOne.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("first copy post-commit code mismatch: have %x, want %x", bytecode, []byte("hello byte"))
+	}
 	if val := copyOne.GetState(addr, skey); val != sval {
 		t.Fatalf("first copy post-commit non-committed storage slot mismatch: have %x, want %x", val, sval)
 	}
@@ -567,6 +580,9 @@ func TestCopyCommitCopy(t *testing.T) {
 	}
 	if code := copyTwo.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("second copy code mismatch: have %x, want %x", code, []byte("hello"))
+	}
+	if bytecode := copyTwo.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("second copy code mismatch: have %x, want %x", bytecode, []byte("hello byte"))
 	}
 	if val := copyTwo.GetState(addr, skey); val != sval {
 		t.Fatalf("second copy non-committed storage slot mismatch: have %x, want %x", val, sval)
@@ -588,15 +604,19 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 
-	state.SetBalance(addr, big.NewInt(42)) // Change the account trie
-	state.SetCode(addr, []byte("hello"))   // Change an external metadata
-	state.SetState(addr, skey, sval)       // Change the storage trie
+	state.SetBalance(addr, big.NewInt(42))        // Change the account trie
+	state.SetCode(addr, []byte("hello"))          // Change an external metadata
+	state.SetByteCode(addr, []byte("hello byte")) // Change an external metadata
+	state.SetState(addr, skey, sval)              // Change the storage trie
 
 	if balance := state.GetBalance(addr); balance.Cmp(big.NewInt(42)) != 0 {
 		t.Fatalf("initial balance mismatch: have %v, want %v", balance, 42)
 	}
 	if code := state.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("initial code mismatch: have %x, want %x", code, []byte("hello"))
+	}
+	if bytecode := state.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("initial bytecode mismatch: have %x, want %x", bytecode, []byte("hello byte"))
 	}
 	if val := state.GetState(addr, skey); val != sval {
 		t.Fatalf("initial non-committed storage slot mismatch: have %x, want %x", val, sval)
@@ -612,6 +632,9 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	if code := copyOne.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("first copy code mismatch: have %x, want %x", code, []byte("hello"))
 	}
+	if bytecode := copyOne.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("first copy bytecode mismatch: have %x, want %x", bytecode, []byte("hello byte"))
+	}
 	if val := copyOne.GetState(addr, skey); val != sval {
 		t.Fatalf("first copy non-committed storage slot mismatch: have %x, want %x", val, sval)
 	}
@@ -626,6 +649,9 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	if code := copyTwo.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("second copy pre-commit code mismatch: have %x, want %x", code, []byte("hello"))
 	}
+	if bytecode := copyTwo.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("second copy pre-commit bytecode mismatch: have %x, want %x", bytecode, []byte("hello byte"))
+	}
 	if val := copyTwo.GetState(addr, skey); val != sval {
 		t.Fatalf("second copy pre-commit non-committed storage slot mismatch: have %x, want %x", val, sval)
 	}
@@ -638,6 +664,9 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	}
 	if code := copyTwo.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("second copy post-commit code mismatch: have %x, want %x", code, []byte("hello"))
+	}
+	if bytecode := copyTwo.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("second copy post-commit bytecode mismatch: have %x, want %x", bytecode, []byte("hello byte"))
 	}
 	if val := copyTwo.GetState(addr, skey); val != sval {
 		t.Fatalf("second copy post-commit non-committed storage slot mismatch: have %x, want %x", val, sval)
@@ -652,6 +681,9 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	}
 	if code := copyThree.GetCode(addr); !bytes.Equal(code, []byte("hello")) {
 		t.Fatalf("third copy code mismatch: have %x, want %x", code, []byte("hello"))
+	}
+	if bytecode := copyThree.GetByteCode(addr); !bytes.Equal(bytecode, []byte("hello byte")) {
+		t.Fatalf("third copy bytecode mismatch: have %x, want %x", bytecode, []byte("hello byte"))
 	}
 	if val := copyThree.GetState(addr, skey); val != sval {
 		t.Fatalf("third copy non-committed storage slot mismatch: have %x, want %x", val, sval)
@@ -710,9 +742,11 @@ func TestMissingTrieNodes(t *testing.T) {
 	{
 		state.SetBalance(addr, big.NewInt(1))
 		state.SetCode(addr, []byte{1, 2, 3})
+		state.SetByteCode(addr, []byte{2, 3, 4})
 		a2 := toAddr([]byte("another"))
 		state.SetBalance(a2, big.NewInt(100))
 		state.SetCode(a2, []byte{1, 2, 4})
+		state.SetByteCode(a2, []byte{4, 5, 6})
 		root, _ = state.Commit(false)
 		t.Logf("root: %x", root)
 		// force-flush

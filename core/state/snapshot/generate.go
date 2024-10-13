@@ -202,11 +202,12 @@ func (dl *diskLayer) generate(stats *generatorStats) {
 			AssetBalance *big.Int
 			Root         common.Hash
 			CodeHash     []byte
+			ByteCodeHash []byte
 		}
 		if err := rlp.DecodeBytes(accIt.Value, &acc); err != nil {
 			log.Crit("Invalid account encountered during snapshot creation", "err", err)
 		}
-		data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.BlockTime, acc.AssetBalance, acc.Root, acc.CodeHash)
+		data := SlimAccountRLP(acc.Nonce, acc.Balance, acc.BlockTime, acc.AssetBalance, acc.Root, acc.CodeHash, acc.ByteCodeHash)
 
 		// If the account is not yet in-progress, write it out
 		if accMarker == nil || !bytes.Equal(accountHash[:], accMarker) {

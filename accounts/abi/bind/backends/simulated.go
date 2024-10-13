@@ -156,6 +156,19 @@ func (b *SimulatedBackend) CodeAt(ctx context.Context, contract common.Address, 
 	return stateDB.GetCode(contract), nil
 }
 
+// ByteCodeAt returns the code associated with a certain account in the blockchain.
+func (b *SimulatedBackend) ByteCodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	stateDB, err := b.stateByBlockNumber(ctx, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	return stateDB.GetByteCode(contract), nil
+}
+
 // BalanceAt returns the wei balance of a certain account in the blockchain.
 func (b *SimulatedBackend) BalanceAt(ctx context.Context, contract common.Address, blockNumber *big.Int) (*big.Int, error) {
 	b.mu.Lock()
@@ -345,6 +358,14 @@ func (b *SimulatedBackend) PendingCodeAt(ctx context.Context, contract common.Ad
 	defer b.mu.Unlock()
 
 	return b.pendingState.GetCode(contract), nil
+}
+
+// PendingByteCodeAt returns the code associated with an account in the pending state.
+func (b *SimulatedBackend) PendingByteCodeAt(ctx context.Context, contract common.Address) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.pendingState.GetByteCode(contract), nil
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {

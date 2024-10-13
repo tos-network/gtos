@@ -49,6 +49,11 @@ type StateDB interface {
 	SetCode(common.Address, []byte)
 	GetCodeSize(common.Address) int
 
+	GetByteCodeHash(common.Address) common.Hash
+	GetByteCode(common.Address) []byte
+	SetByteCode(common.Address, []byte)
+	GetByteCodeSize(common.Address) int
+
 	AddRefund(uint64)
 	SubRefund(uint64)
 	GetRefund() uint64

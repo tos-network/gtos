@@ -86,6 +86,7 @@ const (
 	MsgBlockHeaders = iota
 	MsgBlockBodies
 	MsgCode
+	MsgByteCode
 	MsgReceipts
 	MsgProofsV2
 	MsgHelperTrieProofs

@@ -105,6 +105,18 @@ func (req *CodeRequest) StoreResult(db ethdb.Database) {
 	rawdb.WriteCode(db, req.Hash, req.Data)
 }
 
+// ByteCodeRequest is the ODR request type for retrieving byte contract code
+type ByteCodeRequest struct {
+	Id   *TrieID // references storage trie of the account
+	Hash common.Hash
+	Data []byte
+}
+
+// StoreResult stores the retrieved data in local database
+func (req *ByteCodeRequest) StoreResult(db ethdb.Database) {
+	rawdb.WriteCode(db, req.Hash, req.Data)
+}
+
 // BlockRequest is the ODR request type for retrieving block bodies
 type BlockRequest struct {
 	Hash   common.Hash

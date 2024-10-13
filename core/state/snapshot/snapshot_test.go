@@ -42,10 +42,11 @@ func randomHash() common.Hash {
 func randomAccount() []byte {
 	root := randomHash()
 	a := Account{
-		Balance:  big.NewInt(rand.Int63()),
-		Nonce:    rand.Uint64(),
-		Root:     root[:],
-		CodeHash: emptyCode[:],
+		Balance:      big.NewInt(rand.Int63()),
+		Nonce:        rand.Uint64(),
+		Root:         root[:],
+		CodeHash:     emptyCode[:],
+		ByteCodeHash: emptyCode[:],
 	}
 	data, _ := rlp.EncodeToBytes(a)
 	return data

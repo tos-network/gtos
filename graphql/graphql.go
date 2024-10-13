@@ -23,7 +23,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/tos-network/gtos"
+	tosnetwk "github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -79,6 +79,14 @@ func (a *Account) Code(ctx context.Context) (hexutil.Bytes, error) {
 		return hexutil.Bytes{}, err
 	}
 	return state.GetCode(a.address), nil
+}
+
+func (a *Account) ByteCode(ctx context.Context) (hexutil.Bytes, error) {
+	state, err := a.getState(ctx)
+	if err != nil {
+		return hexutil.Bytes{}, err
+	}
+	return state.GetByteCode(a.address), nil
 }
 
 func (a *Account) Storage(ctx context.Context, args struct{ Slot common.Hash }) (common.Hash, error) {

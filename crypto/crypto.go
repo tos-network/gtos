@@ -37,7 +37,7 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-//SignatureLength indicates the byte length required to carry a signature with recovery id.
+// SignatureLength indicates the byte length required to carry a signature with recovery id.
 const SignatureLength = 64 + 1 // 64 bytes ECDSA signature + 1 byte recovery id
 
 // RecoveryIDOffset points to the byte offset within the signature that contains the recovery id.
@@ -59,6 +59,11 @@ var errInvalidPubkey = errors.New("invalid secp256k1 public key")
 type KeccakState interface {
 	hash.Hash
 	Read([]byte) (int, error)
+}
+
+// NewKeccakState creates a new KeccakState
+func NewKeccakState() KeccakState {
+	return sha3.NewLegacyKeccak256().(KeccakState)
 }
 
 // Keccak256 calculates and returns the Keccak256 hash of the input data.

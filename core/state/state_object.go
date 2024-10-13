@@ -78,8 +78,9 @@ type stateObject struct {
 	dbErr error
 
 	// Write caches.
-	trie Trie // storage trie, which becomes non-nil on first access
-	code Code // contract bytecode, which gets set when code is loaded
+	trie     Trie // storage trie, which becomes non-nil on first access
+	code     Code // contract bytecode, which gets set when code is loaded
+	bytecode Code // java contract bytecode, which gets set when bytecode is loaded
 
 	originStorage  Storage // Storage cache of original entries to dedup rewrites, reset for every transaction
 	pendingStorage Storage // Storage entries that need to be flushed to disk, at the end of an entire block
@@ -89,14 +90,17 @@ type stateObject struct {
 	// Cache flags.
 	// When an object is marked suicided it will be delete from the trie
 	// during the "update" phase of the state transition.
-	dirtyCode bool // true if the code was updated
-	suicided  bool
-	deleted   bool
+	dirtyCode     bool // true if the code was updated
+	dirtyByteCode bool // true if the bytecode was updated
+	suicided      bool
+	deleted       bool
 }
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
-	return s.data.Nonce == 0 && s.data.BlockTime == 0 && s.data.Balance.Sign() == 0 && s.data.AssetBalance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
+	return s.data.Nonce == 0 && s.data.BlockTime == 0 && s.data.Balance.Sign() == 0 &&
+		s.data.AssetBalance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash) &&
+		bytes.Equal(s.data.ByteCodeHash, emptyCodeHash)
 }
 
 // Account is the Tosnetwk consensus representation of accounts.
@@ -108,6 +112,7 @@ type Account struct {
 	AssetBalance *big.Int
 	Root         common.Hash // merkle root of the storage trie
 	CodeHash     []byte
+	ByteCodeHash []byte
 }
 
 // newObject creates a state object.
@@ -120,6 +125,9 @@ func newObject(db *StateDB, address common.Address, data Account) *stateObject {
 	}
 	if data.CodeHash == nil {
 		data.CodeHash = emptyCodeHash
+	}
+	if data.ByteCodeHash == nil {
+		data.ByteCodeHash = emptyCodeHash
 	}
 	if data.Root == (common.Hash{}) {
 		data.Root = emptyRoot
@@ -473,11 +481,13 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 		stateObject.trie = db.db.CopyTrie(s.trie)
 	}
 	stateObject.code = s.code
+	stateObject.bytecode = s.bytecode
 	stateObject.dirtyStorage = s.dirtyStorage.Copy()
 	stateObject.originStorage = s.originStorage.Copy()
 	stateObject.pendingStorage = s.pendingStorage.Copy()
 	stateObject.suicided = s.suicided
 	stateObject.dirtyCode = s.dirtyCode
+	stateObject.dirtyByteCode = s.dirtyByteCode
 	stateObject.deleted = s.deleted
 	return stateObject
 }
@@ -540,6 +550,55 @@ func (s *stateObject) setCode(codeHash common.Hash, code []byte) {
 	s.dirtyCode = true
 }
 
+// ByteCode returns the byte contract code associated with this object, if any.
+func (s *stateObject) ByteCode(db Database) []byte {
+	if s.bytecode != nil {
+		return s.bytecode
+	}
+	if bytes.Equal(s.ByteCodeHash(), emptyCodeHash) {
+		return nil
+	}
+	bytecode, err := db.ContractCode(s.addrHash, common.BytesToHash(s.ByteCodeHash()))
+	if err != nil {
+		s.setError(fmt.Errorf("can't load bytecode hash %x: %v", s.ByteCodeHash(), err))
+	}
+	s.bytecode = bytecode
+	return bytecode
+}
+
+// CodeSize returns the size of the contract byte code associated with this object,
+// or zero if none. This method is an almost mirror of ByteCode, but uses a cache
+// inside the database to avoid loading codes seen recently.
+func (s *stateObject) ByteCodeSize(db Database) int {
+	if s.bytecode != nil {
+		return len(s.bytecode)
+	}
+	if bytes.Equal(s.ByteCodeHash(), emptyCodeHash) {
+		return 0
+	}
+	size, err := db.ContractCodeSize(s.addrHash, common.BytesToHash(s.ByteCodeHash()))
+	if err != nil {
+		s.setError(fmt.Errorf("can't load bytecode size %x: %v", s.ByteCodeHash(), err))
+	}
+	return size
+}
+
+func (s *stateObject) SetByteCode(bytecodeHash common.Hash, bytecode []byte) {
+	prevcode := s.ByteCode(s.db.db)
+	s.db.journal.append(bytecodeChange{
+		account:      &s.address,
+		prevhash:     s.ByteCodeHash(),
+		prevbytecode: prevcode,
+	})
+	s.setByteCode(bytecodeHash, bytecode)
+}
+
+func (s *stateObject) setByteCode(bytecodeHash common.Hash, bytecode []byte) {
+	s.bytecode = bytecode
+	s.data.ByteCodeHash = bytecodeHash[:]
+	s.dirtyByteCode = true
+}
+
 func (s *stateObject) SetNonce(nonce uint64) {
 	s.db.journal.append(nonceChange{
 		account: &s.address,
@@ -566,6 +625,10 @@ func (s *stateObject) setBlockTime(blockTime uint64) {
 
 func (s *stateObject) CodeHash() []byte {
 	return s.data.CodeHash
+}
+
+func (s *stateObject) ByteCodeHash() []byte {
+	return s.data.ByteCodeHash
 }
 
 // Balancex calculates avaliable gas based on current block time.

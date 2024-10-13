@@ -21,8 +21,16 @@ package vm
 const (
 	GasQuickStep   uint64 = 0
 	GasFastestStep uint64 = 0
+	GasFastishStep uint64 = 0
 	GasFastStep    uint64 = 0
 	GasMidStep     uint64 = 0
 	GasSlowStep    uint64 = 0
 	GasExtStep     uint64 = 0
 )
+
+func DynamicGas(stackpos int) gasFunc {
+	return func(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
+		// Gas for expanding the memory
+		return GasQuickStep, nil
+	}
+}

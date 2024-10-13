@@ -83,6 +83,7 @@ func (ga *GenesisAlloc) UnmarshalJSON(data []byte) error {
 // GenesisAccount is an account in the state of the genesis block.
 type GenesisAccount struct {
 	Code         []byte                      `json:"code,omitempty"`
+	ByteCode     []byte                      `json:"bytecode,omitempty"`
 	Storage      map[common.Hash]common.Hash `json:"storage,omitempty"`
 	Balance      *big.Int                    `json:"balance" gencodec:"required"`
 	Nonce        uint64                      `json:"nonce,omitempty"`
@@ -105,6 +106,7 @@ type genesisSpecMarshaling struct {
 
 type genesisAccountMarshaling struct {
 	Code         hexutil.Bytes
+	ByteCode     hexutil.Bytes
 	Balance      *math.HexOrDecimal256
 	Nonce        math.HexOrDecimal64
 	AssetBalance *math.HexOrDecimal256
@@ -265,6 +267,7 @@ func (g *Genesis) ToBlock(db ethdb.Database) *types.Block {
 	for addr, account := range g.Alloc {
 		statedb.AddBalance(addr, account.Balance)
 		statedb.SetCode(addr, account.Code)
+		statedb.SetByteCode(addr, account.ByteCode)
 		statedb.SetNonce(addr, account.Nonce)
 		statedb.AddAssetBalance(addr, account.AssetBalance)
 		statedb.SetBlockTime(addr, account.BlockTime)

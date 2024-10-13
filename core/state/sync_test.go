@@ -33,10 +33,11 @@ import (
 
 // testAccount is the data associated with an account used by the state tests.
 type testAccount struct {
-	address common.Address
-	balance *big.Int
-	nonce   uint64
-	code    []byte
+	address  common.Address
+	balance  *big.Int
+	nonce    uint64
+	code     []byte
+	bytecode []byte
 }
 
 // makeTestState create a sample test state to test node-wise reconstruction.
@@ -60,6 +61,10 @@ func makeTestState() (Database, common.Hash, []*testAccount) {
 		if i%3 == 0 {
 			obj.SetCode(crypto.Keccak256Hash([]byte{i, i, i, i, i}), []byte{i, i, i, i, i})
 			acc.code = []byte{i, i, i, i, i}
+		}
+		if i%4 == 0 {
+			obj.SetByteCode(crypto.Keccak256Hash([]byte{i, i, i, i, i + 128}), []byte{i, i, i, i, i + 128})
+			acc.bytecode = []byte{i, i, i, i, i + 128}
 		}
 		if i%5 == 0 {
 			for j := byte(0); j < 5; j++ {
@@ -96,6 +101,9 @@ func checkStateAccounts(t *testing.T, db ethdb.Database, root common.Hash, accou
 		}
 		if code := state.GetCode(acc.address); !bytes.Equal(code, acc.code) {
 			t.Errorf("account %d: code mismatch: have %x, want %x", i, code, acc.code)
+		}
+		if bytecode := state.GetByteCode(acc.address); !bytes.Equal(bytecode, acc.bytecode) {
+			t.Errorf("account %d: byte code mismatch: have %x, want %x", i, bytecode, acc.bytecode)
 		}
 	}
 }
@@ -408,6 +416,9 @@ func TestIncompleteStateSync(t *testing.T) {
 	for _, acc := range srcAccounts {
 		if len(acc.code) > 0 {
 			isCode[crypto.Keccak256Hash(acc.code)] = struct{}{}
+		}
+		if len(acc.bytecode) > 0 {
+			isCode[crypto.Keccak256Hash(acc.bytecode)] = struct{}{}
 		}
 	}
 	isCode[common.BytesToHash(emptyCodeHash)] = struct{}{}

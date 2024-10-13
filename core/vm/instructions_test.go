@@ -24,10 +24,10 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
-	"github.com/holiman/uint256"
 )
 
 type TwoOperandTestcase struct {
@@ -559,7 +559,7 @@ func BenchmarkOpMstore(bench *testing.B) {
 	}
 }
 
-func BenchmarkOpSHA3(bench *testing.B) {
+func BenchmarkOpKeccak256(bench *testing.B) {
 	var (
 		env            = NewEVM(BlockContext{}, TxContext{}, nil, params.TestChainConfig, Config{})
 		stack, rstack  = newstack(), newReturnStack()
@@ -569,12 +569,12 @@ func BenchmarkOpSHA3(bench *testing.B) {
 	env.interpreter = evmInterpreter
 	mem.Resize(32)
 	pc := uint64(0)
-	start := uint256.NewInt()
+	start := new(uint256.Int)
 
 	bench.ResetTimer()
 	for i := 0; i < bench.N; i++ {
 		stack.pushN(*uint256.NewInt().SetUint64(32), *start)
-		opSha3(&pc, evmInterpreter, &callCtx{mem, stack, rstack, nil})
+		opKeccak256(&pc, evmInterpreter, &callCtx{mem, stack, rstack, nil})
 	}
 }
 

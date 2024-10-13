@@ -21,7 +21,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
-	"golang.org/x/crypto/sha3"
+	"github.com/tos-network/gtos/crypto"
 )
 
 func opAdd(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
@@ -231,12 +231,12 @@ func opSAR(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byt
 	return nil, nil
 }
 
-func opSha3(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+func opKeccak256(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
 	offset, size := callContext.stack.pop(), callContext.stack.peek()
 	data := callContext.memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
 
 	if interpreter.hasher == nil {
-		interpreter.hasher = sha3.NewLegacyKeccak256().(keccakState)
+		interpreter.hasher = crypto.NewKeccakState()
 	} else {
 		interpreter.hasher.Reset()
 	}
@@ -251,6 +251,7 @@ func opSha3(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]by
 	size.SetBytes(interpreter.hasherBuf[:])
 	return nil, nil
 }
+
 func opAddress(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
 	callContext.stack.push(new(uint256.Int).SetBytes(callContext.contract.Address().Bytes()))
 	return nil, nil
@@ -874,6 +875,105 @@ func opSuicide(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 	interpreter.evm.StateDB.AddBalance(beneficiary.Bytes20(), balance)
 	interpreter.evm.StateDB.Suicide(callContext.contract.Address())
 	return nil, nil
+}
+
+func opUndefined(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	return nil, &ErrInvalidOpCode{opcode: OpCode(callContext.contract.Code[*pc])}
+}
+
+// opRjump implements the RJUMP opcode.
+func opRjump(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opRjumpi implements the RJUMPI opcode
+func opRjumpi(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opRjumpv implements the RJUMPV opcode
+func opRjumpv(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opCallf implements the CALLF opcode
+func opCallf(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opRetf implements the RETF opcode
+func opRetf(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opJumpf implements the JUMPF opcode
+func opJumpf(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opEOFCreate implements the EOFCREATE opcode
+func opEOFCreate(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opReturnContract implements the RETURNCONTRACT opcode
+func opReturnContract(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opDataLoad implements the DATALOAD opcode
+func opDataLoad(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opDataLoadN implements the DATALOADN opcode
+func opDataLoadN(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opDataSize implements the DATASIZE opcode
+func opDataSize(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opDataCopy implements the DATACOPY opcode
+func opDataCopy(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opDupN implements the DUPN opcode
+func opDupN(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opSwapN implements the SWAPN opcode
+func opSwapN(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opExchange implements the EXCHANGE opcode
+func opExchange(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opReturnDataLoad implements the RETURNDATALOAD opcode
+func opReturnDataLoad(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opExtCall implements the EOFCREATE opcode
+func opExtCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opExtDelegateCall implements the EXTDELEGATECALL opcode
+func opExtDelegateCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
+}
+
+// opExtStaticCall implements the EXTSTATICCALL opcode
+func opExtStaticCall(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
+	panic("not implemented")
 }
 
 // following functions are used by the instruction jump  table

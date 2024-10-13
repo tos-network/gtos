@@ -215,6 +215,48 @@ func (s *Sync) AddCodeEntry(hash common.Hash, path []byte, parent common.Hash) {
 		hash: hash,
 		code: true,
 	}
+	// If this sub-trie has a designated parent, link them together
+	if parent != (common.Hash{}) {
+		ancestor := s.nodeReqs[parent] // the parent of codereq can ONLY be nodereq
+		if ancestor == nil {
+			panic(fmt.Sprintf("raw-entry ancestor not found: %x", parent))
+		}
+		ancestor.deps++
+		req.parents = append(req.parents, ancestor)
+	}
+	s.schedule(req)
+}
+
+// AddByteCodeEntry schedules the direct retrieval of a byte contract code that should not
+// be interpreted as a trie node, but rather accepted and stored into the database
+// as is.
+func (s *Sync) AddByteCodeEntry(hash common.Hash, path []byte, parent common.Hash) {
+	// Short circuit if the entry is empty or already known
+	if hash == emptyState {
+		return
+	}
+	if s.membatch.hasCode(hash) {
+		return
+	}
+	if s.bloom == nil || s.bloom.Contains(hash[:]) {
+		// Bloom filter says this might be a duplicate, double check.
+		// If database says yes, the blob is present for sure.
+		// Note we only check the existence with new code scheme, fast
+		// sync is expected to run with a fresh new node. Even there
+		// exists the code with legacy format, fetch and store with
+		// new scheme anyway.
+		if blob := rawdb.ReadCodeWithPrefix(s.database, hash); len(blob) > 0 {
+			return
+		}
+		// False positive, bump fault meter
+		bloomFaultMeter.Mark(1)
+	}
+	// Assemble the new sub-trie sync request
+	req := &request{
+		path: path,
+		hash: hash,
+		code: true,
+	}
 	// If this sub-trie has a designated parent, link them togtoser
 	if parent != (common.Hash{}) {
 		ancestor := s.nodeReqs[parent] // the parent of codereq can ONLY be nodereq

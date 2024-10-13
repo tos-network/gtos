@@ -78,6 +78,7 @@ var (
 	SnapshotAccountPrefix = []byte("a") // SnapshotAccountPrefix + account hash -> account trie value
 	SnapshotStoragePrefix = []byte("o") // SnapshotStoragePrefix + account hash + storage hash -> storage trie value
 	codePrefix            = []byte("c") // codePrefix + code hash -> account code
+	bytecodePrefix        = []byte("c") // bytecodePrefix + bytecode hash -> account code
 
 	preimagePrefix = []byte("secure-key-")      // preimagePrefix + hash -> preimage
 	configPrefix   = []byte("tosnetwk-config-") // config prefix for the db
@@ -211,6 +212,20 @@ func codeKey(hash common.Hash) []byte {
 func IsCodeKey(key []byte) (bool, []byte) {
 	if bytes.HasPrefix(key, codePrefix) && len(key) == common.HashLength+len(codePrefix) {
 		return true, key[len(codePrefix):]
+	}
+	return false, nil
+}
+
+// bytecodeKey = bytecodePrefix + hash
+func bytecodeKey(hash common.Hash) []byte {
+	return append(bytecodePrefix, hash.Bytes()...)
+}
+
+// IsByteCodeKey reports whether the given byte slice is the key of byte contract code,
+// if so return the raw code hash as well.
+func IsByteCodeKey(key []byte) (bool, []byte) {
+	if bytes.HasPrefix(key, bytecodePrefix) && len(key) == common.HashLength+len(bytecodePrefix) {
+		return true, key[len(bytecodePrefix):]
 	}
 	return false, nil
 }

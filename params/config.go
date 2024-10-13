@@ -28,8 +28,8 @@ import (
 
 // Genesis hashes to enforce below configs on.
 var (
-	MainnetGenesisHash = common.HexToHash("0x60a23d7e3337a9e3694af178e629cbe07cf160af3eef711e7f1c9405f38c19ab")
-	RopstenGenesisHash = common.HexToHash("0xb8977d2c9fca665cebc0f5145026d3dce4890a05c4714750ea9a20e2a1e03dec")
+	MainnetGenesisHash = common.HexToHash("0x538e7fbff206e78eb129bc1d8e6e9c5555445b865c15cbfda8b77643fc96eef3")
+	RopstenGenesisHash = common.HexToHash("0x135d2cbf38a8631b663a118434c6c43cd9bd696f26f0906d1b9e18fc4b122877")
 	RinkebyGenesisHash = common.HexToHash("0x6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177")
 	GoerliGenesisHash  = common.HexToHash("0xbf7e331f7f7c1dd2e05159666b3bf8bc7a8a3a9eb1d518969eab529dd9b88c1a")
 	// TODO: update with yolov2 values

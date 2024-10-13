@@ -563,6 +563,7 @@ type AccountResult struct {
 	AccountProof []string        `json:"accountProof"`
 	Balance      *hexutil.Big    `json:"balance"`
 	CodeHash     common.Hash     `json:"codeHash"`
+	ByteCodeHash common.Hash     `json:"bytecodeHash"`
 	Nonce        hexutil.Uint64  `json:"nonce"`
 	StorageHash  common.Hash     `json:"storageHash"`
 	StorageProof []StorageResult `json:"storageProof"`
@@ -583,6 +584,7 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 	storageTrie := state.StorageTrie(address)
 	storageHash := types.EmptyRootHash
 	codeHash := state.GetCodeHash(address)
+	bytecodeHash := state.GetByteCodeHash(address)
 	storageProof := make([]StorageResult, len(storageKeys))
 
 	// if we have a storageTrie, (which means the account exists), we can update the storagehash
@@ -591,6 +593,7 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 	} else {
 		// no storageTrie means the account does not exist, so the codeHash is the hash of an empty bytearray.
 		codeHash = crypto.Keccak256Hash(nil)
+		bytecodeHash = crypto.Keccak256Hash(nil)
 	}
 
 	// create the proof for the storageKeys
@@ -617,6 +620,7 @@ func (s *PublicBlockChainAPI) GetProof(ctx context.Context, address common.Addre
 		AccountProof: toHexSlice(accountProof),
 		Balance:      (*hexutil.Big)(state.GetBalance(address)),
 		CodeHash:     codeHash,
+		ByteCodeHash: bytecodeHash,
 		Nonce:        hexutil.Uint64(state.GetNonce(address)),
 		StorageHash:  storageHash,
 		StorageProof: storageProof,
@@ -651,10 +655,10 @@ func (s *PublicBlockChainAPI) GetHeaderByHash(ctx context.Context, hash common.H
 }
 
 // GetBlockByNumber returns the requested canonical block.
-// * When blockNr is -1 the chain head is returned.
-// * When blockNr is -2 the pending chain head is returned.
-// * When fullTx is true all transactions in the block are returned, otherwise
-//   only the transaction hash is returned.
+//   - When blockNr is -1 the chain head is returned.
+//   - When blockNr is -2 the pending chain head is returned.
+//   - When fullTx is true all transactions in the block are returned, otherwise
+//     only the transaction hash is returned.
 func (s *PublicBlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	block, err := s.b.BlockByNumber(ctx, number)
 	if block != nil && err == nil {
@@ -740,6 +744,16 @@ func (s *PublicBlockChainAPI) GetCode(ctx context.Context, address common.Addres
 	return code, state.Error()
 }
 
+// GetByteCode returns the bytecode stored at the given address in the state for the given block number.
+func (s *PublicBlockChainAPI) GetByteCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
+	}
+	bytecode := state.GetByteCode(address)
+	return bytecode, state.Error()
+}
+
 // GetStorageAt returns the storage from the state at the given address, key and
 // block number. The rpc.LatestBlockNumber and rpc.PendingBlockNumber meta block
 // numbers are also allowed.
@@ -810,6 +824,7 @@ func (args *CallArgs) ToMessage(globalGasCap uint64) types.Message {
 type account struct {
 	Nonce     *hexutil.Uint64              `json:"nonce"`
 	Code      *hexutil.Bytes               `json:"code"`
+	ByteCode  *hexutil.Bytes               `json:"bytecode"`
 	Balance   **hexutil.Big                `json:"balance"`
 	State     *map[common.Hash]common.Hash `json:"state"`
 	StateDiff *map[common.Hash]common.Hash `json:"stateDiff"`
@@ -831,6 +846,10 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 		// Override account(contract) code.
 		if account.Code != nil {
 			state.SetCode(addr, *account.Code)
+		}
+		// Override account(contract)  bytecode.
+		if account.ByteCode != nil {
+			state.SetByteCode(addr, *account.ByteCode)
 		}
 		// Override account balance.
 		if account.Balance != nil {

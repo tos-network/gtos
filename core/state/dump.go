@@ -38,14 +38,16 @@ type DumpCollector interface {
 
 // DumpAccount represents an account in the state.
 type DumpAccount struct {
-	Balance   string                 `json:"balance"`
-	Nonce     uint64                 `json:"nonce"`
-	Root      string                 `json:"root"`
-	CodeHash  string                 `json:"codeHash"`
-	Code      string                 `json:"code,omitempty"`
-	Storage   map[common.Hash]string `json:"storage,omitempty"`
-	Address   *common.Address        `json:"address,omitempty"` // Address only present in iterative (line-by-line) mode
-	SecureKey hexutil.Bytes          `json:"key,omitempty"`     // If we don't have address, we can output the key
+	Balance      string                 `json:"balance"`
+	Nonce        uint64                 `json:"nonce"`
+	Root         string                 `json:"root"`
+	CodeHash     string                 `json:"codeHash"`
+	ByteCodeHash string                 `json:"bytecodeHash"`
+	Code         string                 `json:"code,omitempty"`
+	ByteCode     string                 `json:"bytecode,omitempty"`
+	Storage      map[common.Hash]string `json:"storage,omitempty"`
+	Address      *common.Address        `json:"address,omitempty"` // Address only present in iterative (line-by-line) mode
+	SecureKey    hexutil.Bytes          `json:"key,omitempty"`     // If we don't have address, we can output the key
 
 }
 
@@ -90,14 +92,16 @@ type iterativeDump struct {
 // OnAccount implements DumpCollector interface
 func (d iterativeDump) OnAccount(addr common.Address, account DumpAccount) {
 	dumpAccount := &DumpAccount{
-		Balance:   account.Balance,
-		Nonce:     account.Nonce,
-		Root:      account.Root,
-		CodeHash:  account.CodeHash,
-		Code:      account.Code,
-		Storage:   account.Storage,
-		SecureKey: account.SecureKey,
-		Address:   nil,
+		Balance:      account.Balance,
+		Nonce:        account.Nonce,
+		Root:         account.Root,
+		CodeHash:     account.CodeHash,
+		ByteCodeHash: account.ByteCodeHash,
+		Code:         account.Code,
+		ByteCode:     account.ByteCode,
+		Storage:      account.Storage,
+		SecureKey:    account.SecureKey,
+		Address:      nil,
 	}
 	if addr != (common.Address{}) {
 		dumpAccount.Address = &addr
@@ -124,10 +128,11 @@ func (s *StateDB) DumpToCollector(c DumpCollector, excludeCode, excludeStorage, 
 			panic(err)
 		}
 		account := DumpAccount{
-			Balance:  data.Balance.String(),
-			Nonce:    data.Nonce,
-			Root:     common.Bytes2Hex(data.Root[:]),
-			CodeHash: common.Bytes2Hex(data.CodeHash),
+			Balance:      data.Balance.String(),
+			Nonce:        data.Nonce,
+			Root:         common.Bytes2Hex(data.Root[:]),
+			CodeHash:     common.Bytes2Hex(data.CodeHash),
+			ByteCodeHash: common.Bytes2Hex(data.ByteCodeHash),
 		}
 		addrBytes := s.trie.GetKey(it.Key)
 		if addrBytes == nil {
@@ -142,6 +147,7 @@ func (s *StateDB) DumpToCollector(c DumpCollector, excludeCode, excludeStorage, 
 		obj := newObject(nil, addr, data)
 		if !excludeCode {
 			account.Code = common.Bytes2Hex(obj.Code(s.db))
+			account.ByteCode = common.Bytes2Hex(obj.ByteCode(s.db))
 		}
 		if !excludeStorage {
 			account.Storage = make(map[common.Hash]string)

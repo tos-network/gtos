@@ -338,6 +338,30 @@ func (s *StateDB) GetCodeHash(addr common.Address) common.Hash {
 	return common.BytesToHash(stateObject.CodeHash())
 }
 
+func (s *StateDB) GetByteCode(addr common.Address) []byte {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.ByteCode(s.db)
+	}
+	return nil
+}
+
+func (s *StateDB) GetByteCodeSize(addr common.Address) int {
+	stateObject := s.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.ByteCodeSize(s.db)
+	}
+	return 0
+}
+
+func (s *StateDB) GetByteCodeHash(addr common.Address) common.Hash {
+	stateObject := s.getStateObject(addr)
+	if stateObject == nil {
+		return common.Hash{}
+	}
+	return common.BytesToHash(stateObject.ByteCodeHash())
+}
+
 // GetState retrieves a value from the given account's storage trie.
 func (s *StateDB) GetState(addr common.Address, hash common.Hash) common.Hash {
 	stateObject := s.getStateObject(addr)
@@ -479,6 +503,13 @@ func (s *StateDB) SetCode(addr common.Address, code []byte) {
 	}
 }
 
+func (s *StateDB) SetByteCode(addr common.Address, bytecode []byte) {
+	stateObject := s.GetOrNewStateObject(addr)
+	if stateObject != nil {
+		stateObject.SetByteCode(crypto.Keccak256Hash(bytecode), bytecode)
+	}
+}
+
 func (s *StateDB) SetState(addr common.Address, key, value common.Hash) {
 	stateObject := s.GetOrNewStateObject(addr)
 	if stateObject != nil {
@@ -496,7 +527,7 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 }
 
 // Suicide marks the given account as suicided.
-// This clears the account balance.
+// This clears the account balance, assetbalance.
 //
 // The account's state object is still available until the state is committed,
 // getStateObject will return a non-nil account after Suicide.
@@ -509,12 +540,14 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 	s.journal.append(suicideChange{
 		account:          &addr,
 		prev:             stateObject.suicided,
+		prevblocktime:    stateObject.BlockTime(),
 		prevbalance:      new(big.Int).Set(stateObject.Balance()),
 		prevassetbalance: new(big.Int).Set(stateObject.AssetBalance()),
-		prevblocktime:    stateObject.BlockTime(),
 	})
 	stateObject.markSuicided()
 	stateObject.data.Balance = new(big.Int)
+	stateObject.data.AssetBalance = new(big.Int)
+	stateObject.data.BlockTime = 0
 
 	return true
 }
@@ -545,7 +578,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 	// enough to track account updates at commit time, deletions need tracking
 	// at transaction boundary level to ensure we capture state clearing.
 	if s.snap != nil {
-		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.BlockTime, obj.data.AssetBalance, obj.data.Root, obj.data.CodeHash)
+		s.snapAccounts[obj.addrHash] = snapshot.SlimAccountRLP(obj.data.Nonce, obj.data.Balance, obj.data.BlockTime, obj.data.AssetBalance, obj.data.Root, obj.data.CodeHash, obj.data.ByteCodeHash)
 	}
 }
 
@@ -601,10 +634,14 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 				BlockTime:    acc.BlockTime,
 				AssetBalance: acc.AssetBalance,
 				CodeHash:     acc.CodeHash,
+				ByteCodeHash: acc.ByteCodeHash,
 				Root:         common.BytesToHash(acc.Root),
 			}
 			if len(data.CodeHash) == 0 {
 				data.CodeHash = emptyCodeHash
+			}
+			if len(data.ByteCodeHash) == 0 {
+				data.ByteCodeHash = emptyCodeHash
 			}
 			if data.Root == (common.Hash{}) {
 				data.Root = emptyRoot
@@ -919,6 +956,11 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 			if obj.code != nil && obj.dirtyCode {
 				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.CodeHash()), obj.code)
 				obj.dirtyCode = false
+			}
+			// Write any byte contract code associated with the state object
+			if obj.bytecode != nil && obj.dirtyByteCode {
+				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.ByteCodeHash()), obj.bytecode)
+				obj.dirtyByteCode = false
 			}
 			// Write any storage changes in the state object to its storage trie
 			if err := obj.CommitTrie(s.db); err != nil {
