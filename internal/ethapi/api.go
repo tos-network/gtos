@@ -822,12 +822,13 @@ func (args *CallArgs) ToMessage(globalGasCap uint64) types.Message {
 // if statDiff is set, all diff will be applied first and then execute the call
 // message.
 type account struct {
-	Nonce     *hexutil.Uint64              `json:"nonce"`
-	Code      *hexutil.Bytes               `json:"code"`
-	ByteCode  *hexutil.Bytes               `json:"bytecode"`
-	Balance   **hexutil.Big                `json:"balance"`
-	State     *map[common.Hash]common.Hash `json:"state"`
-	StateDiff *map[common.Hash]common.Hash `json:"stateDiff"`
+	Nonce        *hexutil.Uint64              `json:"nonce"`
+	Code         *hexutil.Bytes               `json:"code"`
+	ByteCode     *hexutil.Bytes               `json:"bytecode"`
+	Balance      **hexutil.Big                `json:"balance"`
+	AssetBalance **hexutil.Big                `json:"assetbalance"`
+	State        *map[common.Hash]common.Hash `json:"state"`
+	StateDiff    *map[common.Hash]common.Hash `json:"stateDiff"`
 }
 
 func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides map[common.Address]account, vmCfg vm.Config, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, error) {
@@ -855,6 +856,10 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 		if account.Balance != nil {
 			state.SetBalance(addr, (*big.Int)(*account.Balance))
 		}
+		if account.AssetBalance != nil {
+			state.SetAssetBalance(addr, (*big.Int)(*account.AssetBalance))
+		}
+
 		if account.State != nil && account.StateDiff != nil {
 			return nil, fmt.Errorf("account %s has both 'state' and 'stateDiff'", addr.Hex())
 		}

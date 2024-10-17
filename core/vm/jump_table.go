@@ -52,8 +52,7 @@ var (
 // JumpTable contains the EVM opcodes supported at a given fork.
 type JumpTable [256]*operation
 
-// newFrontierInstructionSet returns the frontier instructions
-// that can be executed during the frontier phase.
+// Return the default jump table.
 func newIstanbulInstructionSet() JumpTable {
 	return JumpTable{
 		STOP: {

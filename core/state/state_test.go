@@ -49,10 +49,13 @@ func TestDump(t *testing.T) {
 	// generate a few entries
 	obj1 := s.state.GetOrNewStateObject(toAddr([]byte{0x01}))
 	obj1.AddBalance(big.NewInt(22))
+	obj1.AddAssetBalance(big.NewInt(23))
 	obj2 := s.state.GetOrNewStateObject(toAddr([]byte{0x01, 0x02}))
 	obj2.SetCode(crypto.Keccak256Hash([]byte{3, 3, 3, 3, 3, 3, 3}), []byte{3, 3, 3, 3, 3, 3, 3})
+	obj2.SetByteCode(crypto.Keccak256Hash([]byte{4, 4, 4, 4, 4, 4, 4}), []byte{4, 4, 4, 4, 4, 4, 4})
 	obj3 := s.state.GetOrNewStateObject(toAddr([]byte{0x02}))
 	obj3.SetBalance(big.NewInt(44))
+	obj3.AddAssetBalance(big.NewInt(45))
 
 	// write some of them to the trie
 	s.state.updateStateObject(obj1)
@@ -62,10 +65,11 @@ func TestDump(t *testing.T) {
 	// check that DumpToCollector contains the state objects that are in trie
 	got := string(s.state.Dump(false, false, true))
 	want := `{
-    "root": "80591917dc7d06326279996422eb5cfcf9a34e434e978c2b3d25f6b3d5e4963d",
+    "root": "3a0af723ed54caae19bec15bf2f5bb9fe79ae1828ce354578a3e24ee543d9ce9",
     "accounts": {
         "0x0000000000000000000000000000000000000001": {
             "balance": "22",
+            "assetbalance": "23",
             "nonce": 0,
             "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
@@ -73,6 +77,7 @@ func TestDump(t *testing.T) {
         },
         "0x0000000000000000000000000000000000000002": {
             "balance": "44",
+            "assetbalance": "45",
             "nonce": 0,
             "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
@@ -80,11 +85,13 @@ func TestDump(t *testing.T) {
         },
         "0x0000000000000000000000000000000000000102": {
             "balance": "0",
+            "assetbalance": "0",
             "nonce": 0,
             "root": "56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "87874902497a5bb968da31a2998d8f22e949d1ef6214bcdedd8bae24cca4b9e3",
-            "bytecodeHash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "code": "03030303030303"
+            "bytecodeHash": "77e7289c49dfe41b14b4ece17ffda4afec4f410f270b5a82fa8b8e930e239c1e",
+            "code": "03030303030303",
+            "bytecode": "04040404040404"
         }
     }
 }`
