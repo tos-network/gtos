@@ -1,14 +1,14 @@
 package classfile
 
 import (
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestJava8HW(t *testing.T) {
-	bytes, err := ioutil.ReadFile("../test/testdata/java8/HelloWorld.class")
+	bytes, err := os.ReadFile("../testdata/java8/HelloWorld.class")
 	require.NoError(t, err)
 
 	cf, err := Parse(bytes)
@@ -27,7 +27,7 @@ func TestJava8HW(t *testing.T) {
 }
 
 func TestJava13HW(t *testing.T) {
-	bytes, err := ioutil.ReadFile("../test/testdata/java13/HelloWorld.class")
+	bytes, err := os.ReadFile("../testdata/java13/HelloWorld.class")
 	require.NoError(t, err)
 
 	cf, err := Parse(bytes)
@@ -37,7 +37,7 @@ func TestJava13HW(t *testing.T) {
 }
 
 func TestModuleInfo(t *testing.T) {
-	bytes, err := ioutil.ReadFile("../test/testdata/java13/module-info.class")
+	bytes, err := os.ReadFile("../testdata/java13/module-info.class")
 	require.NoError(t, err)
 
 	cf, err := Parse(bytes)

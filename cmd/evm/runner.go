@@ -215,7 +215,7 @@ func runCmd(ctx *cli.Context) error {
 			Tracer:         tracer,
 			Debug:          ctx.GlobalBool(DebugFlag.Name) || ctx.GlobalBool(MachineFlag.Name),
 			EVMInterpreter: ctx.GlobalString(EVMInterpreterFlag.Name),
-			EVMInterpreter: ctx.GlobalString(EVMInterpreterFlag.Name),
+			GVMInterpreter: ctx.GlobalString(GVMInterpreterFlag.Name),
 		},
 	}
 
