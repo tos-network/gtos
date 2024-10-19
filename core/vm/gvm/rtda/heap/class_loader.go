@@ -155,7 +155,7 @@ func (loader *ClassLoader) LoadClass(name string) *Class {
 
 func (loader *ClassLoader) reallyLoadClass(name string) *Class {
 	cpEntry, data := loader.readClassData(name)
-	class := loader.loadClass(name, data)
+	class, _ := loader.loadClass(name, data)
 	class.LoadedFrom = cpEntry
 
 	if loader.verbose {
@@ -184,7 +184,7 @@ func (loader *ClassLoader) parseClassData(name string, data []byte) *Class {
 	return newClass(cf)
 }
 
-func (loader *ClassLoader) loadClass(name string, data []byte) *Class {
+func (loader *ClassLoader) loadClass(name string, data []byte) (*Class, error) {
 	class := loader.parseClassData(name, data)
 	hackClass(class)
 	loader.resolveSuperClass(class)
@@ -202,7 +202,7 @@ func (loader *ClassLoader) loadClass(name string, data []byte) *Class {
 		class.JClass.Extra = class
 	}
 
-	return class
+	return class, nil
 }
 
 // todo
@@ -264,6 +264,6 @@ func prepare(class *Class) {
 }
 
 // todo
-func (loader *ClassLoader) DefineClass(name string, data []byte) *Class {
+func (loader *ClassLoader) DefineClass(name string, data []byte) (*Class, error) {
 	return loader.loadClass(name, data)
 }

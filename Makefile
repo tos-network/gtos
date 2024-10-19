@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos android ios gtos-cross evm all test clean
+.PHONY: gtos gvm android ios gtos-cross evm all test clean
 .PHONY: gtos-linux gtos-linux-386 gtos-linux-amd64 gtos-linux-mips64 gtos-linux-mips64le
 .PHONY: gtos-linux-arm gtos-linux-arm-5 gtos-linux-arm-6 gtos-linux-arm-7 gtos-linux-arm64
 .PHONY: gtos-darwin gtos-darwin-386 gtos-darwin-amd64
@@ -16,6 +16,11 @@ gtos:
 	$(GORUN) build/ci.go install ./cmd/gtos
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/gtos\" to launch gtos."
+
+gvm:
+	$(GORUN) build/ci.go install ./cmd/gvm
+	@echo "Done building gvm."
+	@echo "Run \"$(GOBIN)/gvm\" to launch gvm."
 
 all:
 	$(GORUN) build/ci.go install

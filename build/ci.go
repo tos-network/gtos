@@ -77,6 +77,7 @@ var (
 		executablePath("abigen"),
 		executablePath("bootnode"),
 		executablePath("evm"),
+		executablePath("gvm"),
 		executablePath("gtos"),
 		executablePath("puppeth"),
 		executablePath("rlpdump"),
@@ -96,6 +97,10 @@ var (
 		{
 			BinaryName:  "evm",
 			Description: "Developer utility version of the EVM (Tosnetwk Virtual Machine) that is capable of running bytecode snippets within a configurable environment and execution mode.",
+		},
+		{
+			BinaryName:  "gvm",
+			Description: "Developer utility version of the GVM (Golang Virtual Machine) that is capable of running bytecode snippets within a configurable environment and execution mode.",
 		},
 		{
 			BinaryName:  "gtos",

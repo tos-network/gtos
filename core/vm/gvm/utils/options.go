@@ -15,10 +15,8 @@ const (
 )
 
 type Options struct {
-	MainModule      string
 	MainClass       string
 	ClassPath       string
-	ModulePath      string
 	VerboseClass    bool
 	VerboseModule   bool
 	VerboseJNI      bool
@@ -33,21 +31,9 @@ type Options struct {
 }
 
 func (options *Options) Init() {
-	if options.ModulePath != "" {
-		options.AbsJavaHome = getJavaHome13(options.Xjre)
-	} else {
-		options.AbsJavaHome = getJavaHome8(options.Xjre, options.XUseJavaHome)
-		options.AbsJreLib = filepath.Join(options.AbsJavaHome, "lib")
-	}
+	options.AbsJavaHome = getJavaHome8(options.Xjre, options.XUseJavaHome)
+	options.AbsJreLib = filepath.Join(options.AbsJavaHome, "lib")
 	options.ThreadStackSize = parseXss(options.Xss)
-}
-
-func getJavaHome13(jreDir string) string {
-	if absJH, err := filepath.Abs(jreDir); err != nil {
-		panic(err) // TODO
-	} else {
-		return absJH
-	}
 }
 
 func getJavaHome8(jreDir string, useOsEnv bool) string {

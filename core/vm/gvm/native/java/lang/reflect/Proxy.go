@@ -45,6 +45,6 @@ func _loadClass(frame *rtda.Frame) {
 	data = data[off : off+_len]
 
 	// todo
-	class := frame.GetClassLoader().DefineClass(name, data)
+	class, _ := frame.GetClassLoader().DefineClass(name, data)
 	frame.PushRef(class.JClass)
 }

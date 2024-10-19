@@ -135,6 +135,11 @@ var (
 		Usage: "External EVM configuration (default = built-in interpreter)",
 		Value: "",
 	}
+	GVMInterpreterFlag = cli.StringFlag{
+		Name:  "vm.gvm",
+		Usage: "External GVM configuration",
+		Value: "",
+	}
 )
 
 var stateTransitionCommand = cli.Command{

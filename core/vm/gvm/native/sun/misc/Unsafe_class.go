@@ -27,7 +27,9 @@ func allocateInstance(frame *rtda.Frame) {
 }
 
 // public native Class defineClass(String name, byte[] b, int off, int len,
-//  		ClassLoader loader, ProtectionDomain protectionDomain)
+//
+//	ClassLoader loader, ProtectionDomain protectionDomain)
+//
 // (Ljava/lang/String;[BIILjava/lang/ClassLoader;Ljava/security/ProtectionDomain;)Ljava/lang/Class;
 func defineClass(frame *rtda.Frame) {
 	nameObj := frame.GetRefVar(1)
@@ -43,7 +45,7 @@ func defineClass(frame *rtda.Frame) {
 	data = data[off : off+_len]
 
 	// todo
-	class := frame.GetClassLoader().DefineClass(name, data)
+	class, _ := frame.GetClassLoader().DefineClass(name, data)
 	frame.PushRef(class.JClass)
 }
 

@@ -18,11 +18,17 @@
 package vm
 
 import (
+	"bytes"
 	"hash"
 	"sync/atomic"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
+	"github.com/tos-network/gtos/core/vm/gvm/classpath"
+	"github.com/tos-network/gtos/core/vm/gvm/cpu"
+	"github.com/tos-network/gtos/core/vm/gvm/rtda"
+	"github.com/tos-network/gtos/core/vm/gvm/rtda/heap"
+	"github.com/tos-network/gtos/core/vm/gvm/utils"
 )
 
 // Config are the configuration options for the Interpreter
@@ -36,6 +42,7 @@ type Config struct {
 
 	EWASMInterpreter string // External EWASM interpreter options
 	EVMInterpreter   string // External EVM interpreter options
+	GVMInterpreter   string // External GVM interpreter options
 
 	ExtraEips []int // Additional EIPS that are to be enabled
 }
@@ -271,5 +278,114 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 // CanRun tells if the contract, passed as an argument, can be
 // run by the current interpreter.
 func (in *EVMInterpreter) CanRun(code []byte) bool {
+	if len(code) >= 4 && bytes.Equal(code[:4], []byte{0xCA, 0xFE, 0xBA, 0xBE}) {
+		return false
+	}
 	return true
+}
+
+// GVMInterpreter represents an GVM interpreter
+type GVMInterpreter struct {
+	evm *EVM
+	cfg Config
+
+	readOnly   bool   // Whether to throw on stateful modifications
+	returnData []byte // Last CALL's return data for subsequent reuse
+
+	options *utils.Options
+	runtime *heap.Runtime
+}
+
+// NewGVMInterpreter returns a new instance of the Interpreter.
+func NewGVMInterpreter(evm *EVM, cfg Config) *GVMInterpreter {
+	// We use the STOP instruction whether to see
+	// the jump table was initialised. If it was not
+	// we'll set the default jump table.
+	if cfg.JumpTable[STOP] == nil {
+		cfg.JumpTable = istanbulInstructionSet
+	}
+
+	// Set default JVM options
+	opts := &utils.Options{
+		ClassPath:    ".",
+		MainClass:    "Main",
+		XUseJavaHome: true,
+	}
+
+	// Initialize classLoader and runtime
+	classpath := classpath.Parse(opts)
+	runtime := heap.NewRuntime(classpath, opts.VerboseClass)
+
+	return &GVMInterpreter{
+		evm:     evm,
+		cfg:     cfg,
+		options: opts,
+		runtime: runtime,
+	}
+}
+
+// Run loops and evaluates the contract's code with the given input data and returns
+// the return byte-slice and an error if one occurred.
+//
+// It's important to note that any errors returned by the interpreter should be
+// considered a revert-and-consume-all-gas operation except for
+// ErrExecutionReverted which means revert-and-keep-gas-left.
+func (in *GVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+
+	// Increment the call depth which is restricted to 1024
+	in.evm.depth++
+	defer func() { in.evm.depth-- }()
+
+	// Make sure the readOnly is only set if we aren't in readOnly yet.
+	// This makes also sure that the readOnly flag isn't removed for child calls.
+	if readOnly && !in.readOnly {
+		in.readOnly = true
+		defer func() { in.readOnly = false }()
+	}
+
+	// Reset the previous call's return data. It's unimportant to preserve the old buffer
+	// as every returning call will return new data anyway.
+	in.returnData = nil
+
+	// Don't bother with the execution if there's no code.
+	if len(contract.Code) == 0 {
+		return nil, nil
+	}
+
+	var (
+		stack   = newstack()       // local stack
+		returns = newReturnStack() // local returns stack
+	)
+	// Don't move this deferrred function, it's placed before the capturestate-deferred method,
+	// so that it get's executed _after_: the capturestate needs the stacks before
+	// they are returned to the pools
+	defer func() {
+		returnStack(stack)
+		returnRStack(returns)
+	}()
+	contract.Input = input
+
+	mainClass := utils.DotToSlash(in.options.MainClass)
+	bootArgs := []heap.Slot{heap.NewHackSlot(mainClass), heap.NewHackSlot(input)}
+
+	// todo
+	if _, err := in.runtime.BootLoader().DefineClass(mainClass, contract.Code); err != nil {
+		return nil, err
+	}
+
+	mainThread := rtda.NewThread(nil, in.options, in.runtime)
+	mainThread.InvokeMethodWithShim(rtda.ShimBootstrapMethod, bootArgs)
+
+	// The Interpreter main run loop (contextual).
+	cpu.Loop(mainThread)
+	cpu.KeepAlive()
+
+	return nil, nil
+}
+
+// CanRun tells if the contract, passed as an argument, can be
+// run by the current interpreter. gvm is a custom interpreter,
+// gvm code starts with 0xCAFEBABE
+func (in *GVMInterpreter) CanRun(code []byte) bool {
+	return len(code) >= 4 && bytes.Equal(code[:4], []byte{0xCA, 0xFE, 0xBA, 0xBE})
 }

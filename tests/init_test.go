@@ -38,6 +38,7 @@ import (
 // Command line flags to configure the interpreters.
 var (
 	testEVM   = flag.String("vm.evm", "", "EVM configuration")
+	testGVM   = flag.String("vm.gvm", "", "GVM configuration")
 	testEWASM = flag.String("vm.ewasm", "", "EWASM configuration")
 )
 

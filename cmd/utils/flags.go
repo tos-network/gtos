@@ -32,6 +32,7 @@ import (
 	"text/template"
 	"time"
 
+	pcsclite "github.com/gballet/go-libpcsclite"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/common"
@@ -64,7 +65,6 @@ import (
 	"github.com/tos-network/gtos/p2p/nat"
 	"github.com/tos-network/gtos/p2p/netutil"
 	"github.com/tos-network/gtos/params"
-	pcsclite "github.com/gballet/go-libpcsclite"
 	"gopkg.in/urfave/cli.v1"
 )
 
@@ -725,6 +725,11 @@ var (
 	EVMInterpreterFlag = cli.StringFlag{
 		Name:  "vm.evm",
 		Usage: "External EVM configuration (default = built-in interpreter)",
+		Value: "",
+	}
+	GVMInterpreterFlag = cli.StringFlag{
+		Name:  "vm.gvm",
+		Usage: "External GVM configuration (default = built-in interpreter)",
 		Value: "",
 	}
 )
@@ -1574,6 +1579,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *eth.Config) {
 	if ctx.GlobalIsSet(EVMInterpreterFlag.Name) {
 		cfg.EVMInterpreter = ctx.GlobalString(EVMInterpreterFlag.Name)
 	}
+
+	if ctx.GlobalIsSet(GVMInterpreterFlag.Name) {
+		cfg.GVMInterpreter = ctx.GlobalString(GVMInterpreterFlag.Name)
+	}
+
 	if ctx.GlobalIsSet(RPCGlobalGasCapFlag.Name) {
 		cfg.RPCGasCap = ctx.GlobalUint64(RPCGlobalGasCapFlag.Name)
 	}
