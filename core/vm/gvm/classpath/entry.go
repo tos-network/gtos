@@ -1,7 +1,6 @@
 package classpath
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,43 +14,55 @@ type Entry interface {
 	String() string
 }
 
-func parsePath(path string) []Entry {
+func parsePath(path string) ([]Entry, error) {
 	switch {
 	case strings.IndexByte(path, os.PathListSeparator) >= 0:
-		return splitPath(path)
+		return splitPath(path), nil
 	case strings.HasSuffix(path, "*"):
 		return spreadWildcardEntry(path)
 	case utils.IsJarFile(path) || utils.IsZipFile(path):
-		return []Entry{newZipEntry(path)}
+		zipEntry, err := newZipEntry(path)
+		if err != nil {
+			return nil, err
+		}
+		return []Entry{zipEntry}, nil
 	default:
-		return []Entry{newDirEntry(path)}
+		dirEntry, err := newDirEntry(path)
+		if err != nil {
+			return nil, err
+		}
+		return []Entry{dirEntry}, nil
 	}
 }
 
 func splitPath(pathList string) []Entry {
 	list := make([]Entry, 0, 4)
-
 	for _, path := range strings.Split(pathList, string(os.PathListSeparator)) {
-		list = append(list, parsePath(path)...)
+		if p, err := parsePath(path); err == nil {
+			list = append(list, p...)
+		}
 	}
 
 	return list
 }
 
-func spreadWildcardEntry(path string) []Entry {
+func spreadWildcardEntry(path string) ([]Entry, error) {
 	baseDir := path[:len(path)-1] // remove *
-	files, err := ioutil.ReadDir(baseDir)
+	files, err := os.ReadDir(baseDir)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 
 	list := make([]Entry, 0, 4)
 	for _, file := range files {
 		if utils.IsJarFile(file.Name()) {
 			filename := filepath.Join(baseDir, file.Name())
-			list = append(list, newZipEntry(filename))
+			zipEntry, err := newZipEntry(filename)
+			if err == nil {
+				list = append(list, zipEntry)
+			}
 		}
 	}
 
-	return list
+	return list, nil
 }

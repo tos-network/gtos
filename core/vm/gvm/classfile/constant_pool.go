@@ -1,12 +1,15 @@
 package classfile
 
-func readConstantPool(reader *ClassReader) []ConstantInfo {
+func readConstantPool(reader *ClassReader) ([]ConstantInfo, error) {
 	cpCount := int(reader.ReadUint16())
 	cp := make([]ConstantInfo, cpCount)
+	var err error
 
 	// The constant_pool table is indexed from 1 to constant_pool_count - 1.
 	for i := 1; i < cpCount; i++ {
-		cp[i] = readConstantInfo(reader)
+		if cp[i], err = readConstantInfo(reader); err != nil {
+			return nil, err
+		}
 		// http://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.4.5
 		// All 8-byte constants take up two entries in the constant_pool table of the class file.
 		// If a CONSTANT_Long_info or CONSTANT_Double_info structure is the item in the constant_pool
@@ -18,5 +21,5 @@ func readConstantPool(reader *ClassReader) []ConstantInfo {
 		}
 	}
 
-	return cp
+	return cp, nil
 }

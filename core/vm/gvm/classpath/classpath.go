@@ -21,18 +21,24 @@ func Parse(opts *utils.Options) *ClassPath {
 func (cp *ClassPath) parseBootAndExtClassPath(absJavaHome string) {
 	// jre/lib/*
 	jreLibPath := filepath.Join(absJavaHome, "lib", "*")
-	cp.entries = append(cp.entries, spreadWildcardEntry(jreLibPath)...)
+	if sp, err := spreadWildcardEntry(jreLibPath); err == nil {
+		cp.entries = append(cp.entries, sp...)
+	}
 
 	// jre/lib/ext/*
 	jreExtPath := filepath.Join(absJavaHome, "lib", "ext", "*")
-	cp.entries = append(cp.entries, spreadWildcardEntry(jreExtPath)...)
+	if sp, err := spreadWildcardEntry(jreExtPath); err == nil {
+		cp.entries = append(cp.entries, sp...)
+	}
 }
 
 func (cp *ClassPath) parseUserClassPath(cpOption string) {
 	if cpOption == "" {
 		cpOption = "."
 	}
-	cp.entries = append(cp.entries, parsePath(cpOption)...)
+	if p, err := parsePath(cpOption); err == nil {
+		cp.entries = append(cp.entries, p...)
+	}
 }
 
 // className: fully/qualified/ClassName
@@ -48,9 +54,7 @@ func (cp *ClassPath) ReadClass(className string) (Entry, []byte) {
 
 func IsBootClassPath(entry Entry, absJreLib string) bool {
 	if entry == nil {
-		// todo
 		return true
 	}
-
 	return strings.HasPrefix(entry.String(), absJreLib)
 }

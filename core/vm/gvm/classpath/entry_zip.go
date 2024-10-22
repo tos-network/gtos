@@ -6,11 +6,11 @@ type ZipEntry struct {
 	zipFile *utils.ZipFile
 }
 
-func newZipEntry(path string) *ZipEntry {
+func newZipEntry(path string) (*ZipEntry, error) {
 	if zipFile, err := utils.NewZipFile(path); err != nil {
-		panic(err) // TODO
+		return nil, err
 	} else {
-		return &ZipEntry{zipFile: zipFile}
+		return &ZipEntry{zipFile: zipFile}, nil
 	}
 }
 

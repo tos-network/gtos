@@ -1,30 +1,30 @@
 package classfile
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/tos-network/gtos/core/vm/gvm/utils"
 )
 
 /*
-ClassFile {
-    u4             magic;
-    u2             minor_version;
-    u2             major_version;
-    u2             constant_pool_count;
-    cp_info        constant_pool[constant_pool_count-1];
-    u2             access_flags;
-    u2             this_class;
-    u2             super_class;
-    u2             interfaces_count;
-    u2             interfaces[interfaces_count];
-    u2             fields_count;
-    field_info     fields[fields_count];
-    u2             methods_count;
-    method_info    methods[methods_count];
-    u2             attributes_count;
-    attribute_info attributes[attributes_count];
-}
+	ClassFile {
+	    u4             magic;
+	    u2             minor_version;
+	    u2             major_version;
+	    u2             constant_pool_count;
+	    cp_info        constant_pool[constant_pool_count-1];
+	    u2             access_flags;
+	    u2             this_class;
+	    u2             super_class;
+	    u2             interfaces_count;
+	    u2             interfaces[interfaces_count];
+	    u2             fields_count;
+	    field_info     fields[fields_count];
+	    u2             methods_count;
+	    method_info    methods[methods_count];
+	    u2             attributes_count;
+	    attribute_info attributes[attributes_count];
+	}
 */
 type ClassFile struct {
 	//magic      uint32
@@ -40,11 +40,19 @@ type ClassFile struct {
 	AttributeTable
 }
 
-func (cf *ClassFile) read(reader *ClassReader) {
+func (cf *ClassFile) read(reader *ClassReader) error {
 	reader.cf = cf
-	cf.readAndCheckMagic(reader)
-	cf.readAndCheckVersions(reader)
-	cf.ConstantPool = readConstantPool(reader)
+	var err error
+	if err = cf.readAndCheckMagic(reader); err != nil {
+		return err
+	}
+	if err = cf.readAndCheckVersions(reader); err != nil {
+		return err
+	}
+	cf.ConstantPool, err = readConstantPool(reader)
+	if err != nil {
+		return err
+	}
 	cf.AccessFlags = reader.ReadUint16()
 	cf.ThisClass = reader.ReadUint16()
 	cf.SuperClass = reader.ReadUint16()
@@ -52,29 +60,31 @@ func (cf *ClassFile) read(reader *ClassReader) {
 	cf.Fields = readMembers(reader)
 	cf.Methods = readMembers(reader)
 	cf.AttributeTable = readAttributes(reader)
+	return nil
 }
 
-func (cf *ClassFile) readAndCheckMagic(reader *ClassReader) {
+func (cf *ClassFile) readAndCheckMagic(reader *ClassReader) error {
 	magic := reader.ReadUint32()
 	if magic != 0xCAFEBABE {
-		panic("Bad magic!") // TODO
+		return errors.New("bad magic number") // Return an error instead of panicking
 	}
+	return nil
 }
 
-func (cf *ClassFile) readAndCheckVersions(reader *ClassReader) {
+func (cf *ClassFile) readAndCheckVersions(reader *ClassReader) error {
 	cf.MinorVersion = reader.ReadUint16()
 	cf.MajorVersion = reader.ReadUint16()
 
 	switch cf.MajorVersion {
 	case 45:
-		return
+		return nil
 	case 46, 47, 48, 49, 50, 51, 52,
 		53, 54, 55, 56, 57:
 		if cf.MinorVersion == 0 {
-			return
+			return nil
 		}
 	}
-	panic("java.lang.UnsupportedClassVersionError!")
+	return errors.New("java.lang.UnsupportedClassVersionError") // Return an error
 }
 
 func (cf *ClassFile) GetThisClassName() string {
@@ -88,7 +98,7 @@ func (cf *ClassFile) GetInterfaceNames() []string {
 }
 
 func (cf *ClassFile) GetNameAndType(cpIndex uint16) (name, _type string) {
-	if cpIndex > 0 {
+	if cpIndex > 0 && cf.isValidConstantInfo(cpIndex) {
 		ntInfo := cf.getConstantInfo(cpIndex).(ConstantNameAndTypeInfo)
 		name = cf.GetUTF8(ntInfo.NameIndex)
 		_type = cf.GetUTF8(ntInfo.DescriptorIndex)
@@ -97,21 +107,21 @@ func (cf *ClassFile) GetNameAndType(cpIndex uint16) (name, _type string) {
 }
 
 func (cf *ClassFile) GetClassName(cpIndex uint16) string {
-	if cpIndex == 0 {
+	if cpIndex == 0 || !cf.isValidConstantInfo(cpIndex) {
 		return ""
 	}
 	classInfo := cf.getConstantInfo(cpIndex).(ConstantClassInfo)
 	return cf.GetUTF8(classInfo.NameIndex)
 }
 func (cf *ClassFile) GetPackageName(cpIndex uint16) string {
-	if cpIndex == 0 {
+	if cpIndex == 0 || !cf.isValidConstantInfo(cpIndex) {
 		return ""
 	}
 	pkgInfo := cf.getConstantInfo(cpIndex).(ConstantPackageInfo)
 	return cf.GetUTF8(pkgInfo.NameIndex)
 }
 func (cf *ClassFile) GetModuleName(cpIndex uint16) string {
-	if cpIndex == 0 {
+	if cpIndex == 0 || !cf.isValidConstantInfo(cpIndex) {
 		return ""
 	}
 	modInfo := cf.getConstantInfo(cpIndex).(ConstantModuleInfo)
@@ -134,14 +144,14 @@ func (cf *ClassFile) GetModuleNames(cpIndexes []uint16) []string {
 }
 
 func (cf *ClassFile) GetRawUTF8(cpIndex uint16) string {
-	if cpIndex == 0 {
+	if cpIndex == 0 || !cf.isValidConstantInfo(cpIndex) {
 		return ""
 	}
 	rawBytes := cf.getConstantInfo(cpIndex).([]byte)
 	return string(rawBytes)
 }
 func (cf *ClassFile) GetUTF8(cpIndex uint16) string {
-	if cpIndex == 0 {
+	if cpIndex == 0 || !cf.isValidConstantInfo(cpIndex) {
 		return ""
 	}
 	bytes := cf.getConstantInfo(cpIndex).([]byte)
@@ -149,9 +159,13 @@ func (cf *ClassFile) GetUTF8(cpIndex uint16) string {
 }
 
 func (cf *ClassFile) getConstantInfo(cpIndex uint16) ConstantInfo {
-	if cpInfo := cf.ConstantPool[cpIndex]; cpInfo == nil {
-		panic(fmt.Errorf("invalid constant pool index: %d", cpIndex))
-	} else {
-		return cpInfo
+	return cf.ConstantPool[cpIndex]
+}
+
+func (cf *ClassFile) isValidConstantInfo(cpIndex uint16) bool {
+	// Check if the cpIndex is within the bounds of the ConstantPool slice
+	if cpIndex > 0 && int(cpIndex) < len(cf.ConstantPool) {
+		return cf.ConstantPool[cpIndex] != nil
 	}
+	return false
 }

@@ -8,11 +8,11 @@ type DirEntry struct {
 	dir *utils.Dir
 }
 
-func newDirEntry(path string) *DirEntry {
+func newDirEntry(path string) (*DirEntry, error) {
 	if dir, err := utils.NewDir(path); err != nil {
-		panic(err) // TODO
+		return nil, err
 	} else {
-		return &DirEntry{dir: dir}
+		return &DirEntry{dir: dir}, nil
 	}
 }
 
