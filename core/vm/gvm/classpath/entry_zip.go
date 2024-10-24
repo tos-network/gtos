@@ -15,14 +15,18 @@ func newZipEntry(path string) (*ZipEntry, error) {
 }
 
 func (entry *ZipEntry) readClass(className string) ([]byte, error) {
-	// TODO: close ZipFile
 	if !entry.zipFile.IsOpen() {
 		if err := entry.zipFile.Open(); err != nil {
 			return nil, err
 		}
 	}
 
-	return entry.zipFile.ReadFile(className)
+	data, err := entry.zipFile.ReadFile(className)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (entry *ZipEntry) String() string {

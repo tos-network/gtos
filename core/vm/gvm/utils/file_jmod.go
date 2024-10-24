@@ -3,7 +3,7 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
@@ -42,7 +42,7 @@ func (mf *JModFile) Close() {
 }
 
 func (mf *JModFile) Open() error {
-	data, err := ioutil.ReadFile(mf.absPath)
+	data, err := os.ReadFile(mf.absPath)
 	if err != nil {
 		return err
 	}

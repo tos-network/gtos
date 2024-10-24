@@ -32,7 +32,7 @@ func (instr *InvokeInterface) Execute(frame *rtda.Frame) {
 
 	ref := frame.TopRef(instr.argSlotCount)
 	if ref == nil {
-		panic("NPE") // todo
+		return
 	}
 
 	method := instr.kMethodRef.FindInterfaceMethod(ref)

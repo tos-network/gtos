@@ -1,8 +1,6 @@
 package instructions
 
 import (
-	"fmt"
-
 	"github.com/tos-network/gtos/core/vm/gvm/instructions/base"
 	. "github.com/tos-network/gtos/core/vm/gvm/instructions/comparisons"
 	. "github.com/tos-network/gtos/core/vm/gvm/instructions/constants"
@@ -575,12 +573,13 @@ func newInstruction(opcode byte) base.Instruction {
 		return &GotoW{}
 	case 0xc9:
 		return &JSR_W{}
-	//case 0xca: todo breakpoint
+	case 0xca:
+		return nop // breakpoint do nothing
 	case 0xfe:
 		return invoke_native // impdep1
 	case 0xff:
 		return &Bootstrap{} // impdep2
 	default:
-		panic(fmt.Errorf("invalid opcode: %v", opcode))
+		return nop // do nothing
 	}
 }

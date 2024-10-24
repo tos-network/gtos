@@ -25,18 +25,21 @@ func (n nativeEndian) Uint64(b []byte) uint64 {
 	return *(*uint64)(unsafe.Pointer(&b[0]))
 }
 
-func (n nativeEndian) PutUint16([]byte, uint16) {
-	panic("not implemented")
+func (n nativeEndian) PutUint16(b []byte, v uint16) {
+	_ = b[1]
+	*(*uint16)(unsafe.Pointer(&b[0])) = v
 }
 
-func (n nativeEndian) PutUint32([]byte, uint32) {
-	panic("not implemented")
+func (n nativeEndian) PutUint32(b []byte, v uint32) {
+	_ = b[3]
+	*(*uint32)(unsafe.Pointer(&b[0])) = v
 }
 
-func (n nativeEndian) PutUint64([]byte, uint64) {
-	panic("not implemented")
+func (n nativeEndian) PutUint64(b []byte, v uint64) {
+	_ = b[7]
+	*(*uint64)(unsafe.Pointer(&b[0])) = v
 }
 
 func (n nativeEndian) String() string {
-	panic("not implemented")
+	return "NativeEndian"
 }

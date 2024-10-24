@@ -3,7 +3,6 @@ package utils
 import (
 	"archive/zip"
 	"io"
-	"io/ioutil"
 	"path/filepath"
 )
 
@@ -79,6 +78,6 @@ func readFileInZip0(file *zip.File) ([]byte, error) {
 		return nil, err
 	} else {
 		defer rc.Close()
-		return ioutil.ReadAll(rc)
+		return io.ReadAll(rc)
 	}
 }
