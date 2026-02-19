@@ -21,11 +21,9 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/rand"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/internal/testlog"
