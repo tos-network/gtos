@@ -46,7 +46,7 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosclient"
 	"github.com/tos-network/gtos/tosstats"
 	"github.com/tos-network/gtos/les"
@@ -244,7 +244,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 	}
 
 	// Assemble the Ethereum light client protocol
-	cfg := ethconfig.Defaults
+	cfg := tosconfig.Defaults
 	cfg.SyncMode = downloader.LightSync
 	cfg.NetworkId = network
 	cfg.Genesis = genesis

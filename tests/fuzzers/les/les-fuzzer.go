@@ -23,7 +23,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -62,7 +62,7 @@ func makechain() (bc *core.BlockChain, addrHashes, txHashes []common.Hash) {
 	}
 	genesis := gspec.MustCommit(db)
 	signer := types.HomesteadSigner{}
-	blocks, _ := core.GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, testChainLen,
+	blocks, _ := core.GenerateChain(gspec.Config, genesis, tosash.NewFaker(), db, testChainLen,
 		func(i int, gen *core.BlockGen) {
 			var (
 				tx   *types.Transaction
@@ -80,7 +80,7 @@ func makechain() (bc *core.BlockChain, addrHashes, txHashes []common.Hash) {
 			addrHashes = append(addrHashes, crypto.Keccak256Hash(addr[:]))
 			txHashes = append(txHashes, tx.Hash())
 		})
-	bc, _ = core.NewBlockChain(db, nil, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+	bc, _ = core.NewBlockChain(db, nil, gspec.Config, tosash.NewFaker(), vm.Config{}, nil, nil)
 	if _, err := bc.InsertChain(blocks); err != nil {
 		panic(err)
 	}

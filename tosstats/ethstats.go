@@ -36,7 +36,7 @@ import (
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
-	ethproto "github.com/tos-network/gtos/tos/protocols/eth"
+	ethproto "github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/log"
@@ -470,7 +470,7 @@ func (s *Service) login(conn *connWrapper) error {
 		protocols = append(protocols, fmt.Sprintf("%s/%d", proto.Name, proto.Version))
 	}
 	var network string
-	if info := infos.Protocols["eth"]; info != nil {
+	if info := infos.Protocols["tos"]; info != nil {
 		network = fmt.Sprintf("%d", info.(*ethproto.NodeInfo).Network)
 	} else {
 		network = fmt.Sprintf("%d", infos.Protocols["les"].(*les.NodeInfo).Network)

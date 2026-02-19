@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/tos"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/p2p"
@@ -108,7 +108,7 @@ func setupGeth(stack *node.Node) error {
 		return err
 	}
 
-	backend, err := tos.New(stack, &ethconfig.Config{
+	backend, err := tos.New(stack, &tosconfig.Config{
 		Genesis:                 &chain.genesis,
 		NetworkId:               chain.genesis.Config.ChainID.Uint64(), // 19763
 		DatabaseCache:           10,

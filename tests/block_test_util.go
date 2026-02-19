@@ -29,7 +29,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
@@ -118,9 +118,9 @@ func (t *BlockTest) Run(snapshotter bool) error {
 	}
 	var engine consensus.Engine
 	if t.json.SealEngine == "NoProof" {
-		engine = ethash.NewFaker()
+		engine = tosash.NewFaker()
 	} else {
-		engine = ethash.NewShared()
+		engine = tosash.NewShared()
 	}
 	cache := &core.CacheConfig{TrieCleanLimit: 0}
 	if snapshotter {

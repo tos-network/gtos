@@ -23,7 +23,7 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core/types"
 )
 
@@ -129,9 +129,9 @@ func (f *fuzzer) fuzz() int {
 		bigFn  calculator
 		u256Fn calculator
 	}{
-		{ethash.FrontierDifficultyCalculator, ethash.CalcDifficultyFrontierU256},
-		{ethash.HomesteadDifficultyCalculator, ethash.CalcDifficultyHomesteadU256},
-		{ethash.DynamicDifficultyCalculator(bombDelay), ethash.MakeDifficultyCalculatorU256(bombDelay)},
+		{tosash.FrontierDifficultyCalculator, tosash.CalcDifficultyFrontierU256},
+		{tosash.HomesteadDifficultyCalculator, tosash.CalcDifficultyHomesteadU256},
+		{tosash.DynamicDifficultyCalculator(bombDelay), tosash.MakeDifficultyCalculatorU256(bombDelay)},
 	} {
 		want := pair.bigFn(time, header)
 		have := pair.u256Fn(time, header)

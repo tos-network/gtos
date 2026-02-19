@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -140,7 +140,7 @@ func testGappedAnnouncements(t *testing.T, protocol int) {
 
 	// Send a reorged announcement
 	blocks, _ := core.GenerateChain(rawdb.ReadChainConfig(s.db, s.backend.Blockchain().Genesis().Hash()), s.backend.Blockchain().GetBlockByNumber(3),
-		ethash.NewFaker(), s.db, 2, func(i int, gen *core.BlockGen) {
+		tosash.NewFaker(), s.db, 2, func(i int, gen *core.BlockGen) {
 			gen.OffsetTime(-9) // higher block difficulty
 		})
 	s.backend.Blockchain().InsertChain(blocks)

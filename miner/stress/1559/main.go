@@ -27,13 +27,13 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/fdlimit"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
@@ -56,7 +56,7 @@ func main() {
 		faucets[i], _ = crypto.GenerateKey()
 	}
 	// Pre-generate the ethash mining DAG so we don't race
-	ethash.MakeDataset(1, ethconfig.Defaults.Ethash.DatasetDir)
+	tosash.MakeDataset(1, tosconfig.Defaults.Tosash.DatasetDir)
 
 	// Create an Ethash network based off of the Ropsten config
 	genesis := makeGenesis(faucets)
@@ -195,7 +195,7 @@ func makeTransaction(nonce uint64, privKey *ecdsa.PrivateKey, signer types.Signe
 func makeGenesis(faucets []*ecdsa.PrivateKey) *core.Genesis {
 	genesis := core.DefaultRopstenGenesisBlock()
 
-	genesis.Config = params.AllEthashProtocolChanges
+	genesis.Config = params.AllTosashProtocolChanges
 	genesis.Config.LondonBlock = londonBlock
 	genesis.Difficulty = params.MinimumDifficulty
 
@@ -239,15 +239,15 @@ func makeMiner(genesis *core.Genesis) (*node.Node, *tos.TOS, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	ethBackend, err := tos.New(stack, &ethconfig.Config{
+	ethBackend, err := tos.New(stack, &tosconfig.Config{
 		Genesis:         genesis,
 		NetworkId:       genesis.Config.ChainID.Uint64(),
 		SyncMode:        downloader.FullSync,
 		DatabaseCache:   256,
 		DatabaseHandles: 256,
 		TxPool:          core.DefaultTxPoolConfig,
-		GPO:             ethconfig.Defaults.GPO,
-		Ethash:          ethconfig.Defaults.Ethash,
+		GPO:             tosconfig.Defaults.GPO,
+		Tosash:          tosconfig.Defaults.Tosash,
 		Miner: miner.Config{
 			Etherbase: common.Address{1},
 			GasCeil:   genesis.GasLimit * 11 / 10,

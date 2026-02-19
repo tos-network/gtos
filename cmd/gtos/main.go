@@ -300,7 +300,7 @@ func prepare(ctx *cli.Context) {
      your computer or losing power will wipe your entire block data and chain state for
      your dev environment.
   3. A random, pre-allocated developer account will be available and unlocked as
-     eth.coinbase, which can be used for testing. The random dev account is temporary,
+     tos.coinbase, which can be used for testing. The random dev account is temporary,
      stored on a ramdisk, and will be lost if your machine is restarted.
   4. Mining is enabled by default. However, the client will only seal blocks if transactions
      are pending in the mempool. The miner's minimum accepted gas price is 1.

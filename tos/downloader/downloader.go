@@ -459,7 +459,7 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td, ttd *
 	mode := d.getMode()
 
 	if !beaconMode {
-		log.Debug("Synchronising with the network", "peer", p.id, "eth", p.version, "head", hash, "td", td, "mode", mode)
+		log.Debug("Synchronising with the network", "peer", p.id, "tos", p.version, "head", hash, "td", td, "mode", mode)
 	} else {
 		log.Debug("Backfilling with the network", "mode", mode)
 	}

@@ -34,7 +34,7 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
@@ -200,14 +200,14 @@ func makeSealer(genesis *core.Genesis) (*node.Node, *tos.TOS, error) {
 		return nil, nil, err
 	}
 	// Create and register the backend
-	ethBackend, err := tos.New(stack, &ethconfig.Config{
+	ethBackend, err := tos.New(stack, &tosconfig.Config{
 		Genesis:         genesis,
 		NetworkId:       genesis.Config.ChainID.Uint64(),
 		SyncMode:        downloader.FullSync,
 		DatabaseCache:   256,
 		DatabaseHandles: 256,
 		TxPool:          core.DefaultTxPoolConfig,
-		GPO:             ethconfig.Defaults.GPO,
+		GPO:             tosconfig.Defaults.GPO,
 		Miner: miner.Config{
 			GasCeil:  genesis.GasLimit * 11 / 10,
 			GasPrice: big.NewInt(1),

@@ -19,29 +19,29 @@ package tos
 import (
 	"math/big"
 
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 )
 
-// ethPeerInfo represents a short summary of the `eth` sub-protocol metadata known
+// tosPeerInfo represents a short summary of the `eth` sub-protocol metadata known
 // about a connected peer.
-type ethPeerInfo struct {
+type tosPeerInfo struct {
 	Version    uint     `json:"version"`    // Ethereum protocol version negotiated
 	Difficulty *big.Int `json:"difficulty"` // Total difficulty of the peer's blockchain
 	Head       string   `json:"head"`       // Hex hash of the peer's best owned block
 }
 
-// ethPeer is a wrapper around eth.Peer to maintain a few extra metadata.
-type ethPeer struct {
-	*eth.Peer
+// tosPeer is a wrapper around tos.Peer to maintain a few extra metadata.
+type tosPeer struct {
+	*tos.Peer
 	snapExt *snapPeer // Satellite `snap` connection
 }
 
 // info gathers and returns some `eth` protocol metadata known about a peer.
-func (p *ethPeer) info() *ethPeerInfo {
+func (p *tosPeer) info() *tosPeerInfo {
 	hash, td := p.Head()
 
-	return &ethPeerInfo{
+	return &tosPeerInfo{
 		Version:    p.Version(),
 		Difficulty: td,
 		Head:       hash.Hex(),

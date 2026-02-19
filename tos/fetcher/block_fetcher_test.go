@@ -25,12 +25,12 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
 )
@@ -52,7 +52,7 @@ var (
 // contains a transaction and every 5th an uncle to allow testing correct block
 // reassembly.
 func makeChain(n int, seed byte, parent *types.Block) ([]common.Hash, map[common.Hash]*types.Block) {
-	blocks, _ := core.GenerateChain(params.TestChainConfig, parent, ethash.NewFaker(), testdb, n, func(i int, block *core.BlockGen) {
+	blocks, _ := core.GenerateChain(params.TestChainConfig, parent, tosash.NewFaker(), testdb, n, func(i int, block *core.BlockGen) {
 		block.SetCoinbase(common.Address{seed})
 
 		// If the block number is multiple of 3, send a bonus transaction to the miner
@@ -200,19 +200,19 @@ func (f *fetcherTester) makeHeaderFetcher(peer string, blocks map[common.Hash]*t
 		closure[hash] = block
 	}
 	// Create a function that return a header from the closure
-	return func(hash common.Hash, sink chan *eth.Response) (*eth.Request, error) {
+	return func(hash common.Hash, sink chan *tos.Response) (*tos.Request, error) {
 		// Gather the blocks to return
 		headers := make([]*types.Header, 0, 1)
 		if block, ok := closure[hash]; ok {
 			headers = append(headers, block.Header())
 		}
 		// Return on a new thread
-		req := &eth.Request{
+		req := &tos.Request{
 			Peer: peer,
 		}
-		res := &eth.Response{
+		res := &tos.Response{
 			Req:  req,
-			Res:  (*eth.BlockHeadersPacket)(&headers),
+			Res:  (*tos.BlockHeadersPacket)(&headers),
 			Time: drift,
 			Done: make(chan error, 1), // Ignore the returned status
 		}
@@ -230,7 +230,7 @@ func (f *fetcherTester) makeBodyFetcher(peer string, blocks map[common.Hash]*typ
 		closure[hash] = block
 	}
 	// Create a function that returns blocks from the closure
-	return func(hashes []common.Hash, sink chan *eth.Response) (*eth.Request, error) {
+	return func(hashes []common.Hash, sink chan *tos.Response) (*tos.Request, error) {
 		// Gather the block bodies to return
 		transactions := make([][]*types.Transaction, 0, len(hashes))
 		uncles := make([][]*types.Header, 0, len(hashes))
@@ -242,19 +242,19 @@ func (f *fetcherTester) makeBodyFetcher(peer string, blocks map[common.Hash]*typ
 			}
 		}
 		// Return on a new thread
-		bodies := make([]*eth.BlockBody, len(transactions))
+		bodies := make([]*tos.BlockBody, len(transactions))
 		for i, txs := range transactions {
-			bodies[i] = &eth.BlockBody{
+			bodies[i] = &tos.BlockBody{
 				Transactions: txs,
 				Uncles:       uncles[i],
 			}
 		}
-		req := &eth.Request{
+		req := &tos.Request{
 			Peer: peer,
 		}
-		res := &eth.Response{
+		res := &tos.Response{
 			Req:  req,
-			Res:  (*eth.BlockBodiesPacket)(&bodies),
+			Res:  (*tos.BlockBodiesPacket)(&bodies),
 			Time: drift,
 			Done: make(chan error, 1), // Ignore the returned status
 		}
@@ -413,11 +413,11 @@ func testConcurrentAnnouncements(t *testing.T, light bool) {
 	secondBodyFetcher := tester.makeBodyFetcher("second", blocks, 0)
 
 	counter := uint32(0)
-	firstHeaderWrapper := func(hash common.Hash, sink chan *eth.Response) (*eth.Request, error) {
+	firstHeaderWrapper := func(hash common.Hash, sink chan *tos.Response) (*tos.Request, error) {
 		atomic.AddUint32(&counter, 1)
 		return firstHeaderFetcher(hash, sink)
 	}
-	secondHeaderWrapper := func(hash common.Hash, sink chan *eth.Response) (*eth.Request, error) {
+	secondHeaderWrapper := func(hash common.Hash, sink chan *tos.Response) (*tos.Request, error) {
 		atomic.AddUint32(&counter, 1)
 		return secondHeaderFetcher(hash, sink)
 	}
@@ -513,11 +513,11 @@ func testPendingDeduplication(t *testing.T, light bool) {
 
 	delay := 50 * time.Millisecond
 	counter := uint32(0)
-	headerWrapper := func(hash common.Hash, sink chan *eth.Response) (*eth.Request, error) {
+	headerWrapper := func(hash common.Hash, sink chan *tos.Response) (*tos.Request, error) {
 		atomic.AddUint32(&counter, 1)
 
 		// Simulate a long running fetch
-		resink := make(chan *eth.Response)
+		resink := make(chan *tos.Response)
 		req, err := headerFetcher(hash, resink)
 		if err == nil {
 			go func() {

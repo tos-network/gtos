@@ -31,7 +31,7 @@ import (
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/tosapi"
@@ -83,12 +83,12 @@ type LightEthereum struct {
 }
 
 // New creates an instance of the light client.
-func New(stack *node.Node, config *ethconfig.Config) (*LightEthereum, error) {
-	chainDb, err := stack.OpenDatabase("lightchaindata", config.DatabaseCache, config.DatabaseHandles, "eth/db/chaindata/", false)
+func New(stack *node.Node, config *tosconfig.Config) (*LightEthereum, error) {
+	chainDb, err := stack.OpenDatabase("lightchaindata", config.DatabaseCache, config.DatabaseHandles, "tos/db/chaindata/", false)
 	if err != nil {
 		return nil, err
 	}
-	lesDb, err := stack.OpenDatabase("les.client", 0, 0, "eth/db/lesclient/", false)
+	lesDb, err := stack.OpenDatabase("les.client", 0, 0, "tos/db/lesclient/", false)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*LightEthereum, error) {
 		reqDist:         newRequestDistributor(peers, &mclock.System{}),
 		accountManager:  stack.AccountManager(),
 		merger:          merger,
-		engine:          ethconfig.CreateConsensusEngine(stack, chainConfig, &config.Ethash, nil, false, chainDb),
+		engine:          tosconfig.CreateConsensusEngine(stack, chainConfig, &config.Tosash, nil, false, chainDb),
 		bloomRequests:   make(chan chan *bloombits.Retrieval),
 		bloomIndexer:    core.NewBloomIndexer(chainDb, params.BloomBitsBlocksClient, params.HelperTrieConfirmations),
 		p2pServer:       stack.Server(),
@@ -292,10 +292,10 @@ func (s *LightEthereum) APIs() []rpc.API {
 	apis = append(apis, s.engine.APIs(s.BlockChain().HeaderChain())...)
 	return append(apis, []rpc.API{
 		{
-			Namespace: "eth",
+			Namespace: "tos",
 			Service:   &LightDummyAPI{},
 		}, {
-			Namespace: "eth",
+			Namespace: "tos",
 			Service:   downloader.NewDownloaderAPI(s.handler.downloader, s.eventMux),
 		}, {
 			Namespace: "net",

@@ -32,7 +32,7 @@ import (
 	"github.com/tos-network/gtos/accounts/usbwallet"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/log"
@@ -86,9 +86,9 @@ type ethstatsConfig struct {
 }
 
 type gethConfig struct {
-	Eth      ethconfig.Config
+	TOS      tosconfig.Config
 	Node     node.Config
-	Ethstats ethstatsConfig
+	TOSStats ethstatsConfig
 	Metrics  metrics.Config
 }
 
@@ -111,8 +111,8 @@ func defaultNodeConfig() node.Config {
 	cfg := node.DefaultConfig
 	cfg.Name = clientIdentifier
 	cfg.Version = params.VersionWithCommit(gitCommit, gitDate)
-	cfg.HTTPModules = append(cfg.HTTPModules, "eth")
-	cfg.WSModules = append(cfg.WSModules, "eth")
+	cfg.HTTPModules = append(cfg.HTTPModules, "tos")
+	cfg.WSModules = append(cfg.WSModules, "tos")
 	cfg.IPCPath = "gtos.ipc"
 	return cfg
 }
@@ -121,7 +121,7 @@ func defaultNodeConfig() node.Config {
 func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	// Load defaults.
 	cfg := gethConfig{
-		Eth:     ethconfig.Defaults,
+		TOS:     tosconfig.Defaults,
 		Node:    defaultNodeConfig(),
 		Metrics: metrics.DefaultConfig,
 	}
@@ -144,9 +144,9 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 		utils.Fatalf("Failed to set account manager backends: %v", err)
 	}
 
-	utils.SetEthConfig(ctx, stack, &cfg.Eth)
+	utils.SetTOSConfig(ctx, stack, &cfg.TOS)
 	if ctx.IsSet(utils.EthStatsURLFlag.Name) {
-		cfg.Ethstats.URL = ctx.String(utils.EthStatsURLFlag.Name)
+		cfg.TOSStats.URL = ctx.String(utils.EthStatsURLFlag.Name)
 	}
 	applyMetricConfig(ctx, &cfg)
 
@@ -157,25 +157,25 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	stack, cfg := makeConfigNode(ctx)
 	if ctx.IsSet(utils.OverrideTerminalTotalDifficulty.Name) {
-		cfg.Eth.OverrideTerminalTotalDifficulty = flags.GlobalBig(ctx, utils.OverrideTerminalTotalDifficulty.Name)
+		cfg.TOS.OverrideTerminalTotalDifficulty = flags.GlobalBig(ctx, utils.OverrideTerminalTotalDifficulty.Name)
 	}
 	if ctx.IsSet(utils.OverrideTerminalTotalDifficultyPassed.Name) {
 		override := ctx.Bool(utils.OverrideTerminalTotalDifficultyPassed.Name)
-		cfg.Eth.OverrideTerminalTotalDifficultyPassed = &override
+		cfg.TOS.OverrideTerminalTotalDifficultyPassed = &override
 	}
 
-	backend, eth := utils.RegisterTOSService(stack, &cfg.Eth)
+	backend, tosBackend := utils.RegisterTOSService(stack, &cfg.TOS)
 
 	// Warn users to migrate if they have a legacy freezer format.
-	if eth != nil && !ctx.IsSet(utils.IgnoreLegacyReceiptsFlag.Name) {
+	if tosBackend != nil && !ctx.IsSet(utils.IgnoreLegacyReceiptsFlag.Name) {
 		firstIdx := uint64(0)
 		// Hack to speed up check for mainnet because we know
 		// the first non-empty block.
-		ghash := rawdb.ReadCanonicalHash(eth.ChainDb(), 0)
-		if cfg.Eth.NetworkId == 1 && ghash == params.MainnetGenesisHash {
+		ghash := rawdb.ReadCanonicalHash(tosBackend.ChainDb(), 0)
+		if cfg.TOS.NetworkId == 1 && ghash == params.MainnetGenesisHash {
 			firstIdx = 46147
 		}
-		isLegacy, _, err := dbHasLegacyReceipts(eth.ChainDb(), firstIdx)
+		isLegacy, _, err := dbHasLegacyReceipts(tosBackend.ChainDb(), firstIdx)
 		if err != nil {
 			log.Error("Failed to check db for legacy receipts", "err", err)
 		} else if isLegacy {
@@ -185,7 +185,7 @@ func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	}
 
 	// Configure log filter RPC API.
-	filterSystem := utils.RegisterFilterAPI(stack, backend, &cfg.Eth)
+	filterSystem := utils.RegisterFilterAPI(stack, backend, &cfg.TOS)
 
 	// Configure GraphQL if requested.
 	if ctx.IsSet(utils.GraphQLEnabledFlag.Name) {
@@ -193,8 +193,8 @@ func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	}
 
 	// Add the Ethereum Stats daemon if requested.
-	if cfg.Ethstats.URL != "" {
-		utils.RegisterEthStatsService(stack, backend, cfg.Ethstats.URL)
+	if cfg.TOSStats.URL != "" {
+		utils.RegisterEthStatsService(stack, backend, cfg.TOSStats.URL)
 	}
 	return stack, backend
 }
@@ -204,8 +204,8 @@ func dumpConfig(ctx *cli.Context) error {
 	_, cfg := makeConfigNode(ctx)
 	comment := ""
 
-	if cfg.Eth.Genesis != nil {
-		cfg.Eth.Genesis = nil
+	if cfg.TOS.Genesis != nil {
+		cfg.TOS.Genesis = nil
 		comment += "# Note: this config doesn't contain the genesis block.\n\n"
 	}
 
@@ -275,9 +275,9 @@ func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
 
 func deprecated(field string) bool {
 	switch field {
-	case "ethconfig.Config.EVMInterpreter":
+	case "tosconfig.Config.EVMInterpreter":
 		return true
-	case "ethconfig.Config.EWASMInterpreter":
+	case "tosconfig.Config.EWASMInterpreter":
 		return true
 	default:
 		return false

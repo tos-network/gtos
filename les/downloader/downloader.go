@@ -33,7 +33,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
@@ -442,12 +442,12 @@ func (d *Downloader) syncWithPeer(p *peerConnection, hash common.Hash, td *big.I
 			d.mux.Post(DoneEvent{latest})
 		}
 	}()
-	if p.version < eth.ETH66 {
-		return fmt.Errorf("%w: advertized %d < required %d", errTooOld, p.version, eth.ETH66)
+	if p.version < tos.TOS66 {
+		return fmt.Errorf("%w: advertized %d < required %d", errTooOld, p.version, tos.TOS66)
 	}
 	mode := d.getMode()
 
-	log.Debug("Synchronising with the network", "peer", p.id, "eth", p.version, "head", hash, "td", td, "mode", mode)
+	log.Debug("Synchronising with the network", "peer", p.id, "tos", p.version, "head", hash, "td", td, "mode", mode)
 	defer func(start time.Time) {
 		log.Debug("Synchronisation terminated", "elapsed", common.PrettyDuration(time.Since(start)))
 	}(time.Now())

@@ -123,14 +123,14 @@ var (
 	}
 	SealEthashFlag = &cli.BoolFlag{
 		Name:  "seal.ethash",
-		Usage: "Seal block with ethash.",
+		Usage: "Seal block with tosash.",
 	}
 	SealEthashDirFlag = &cli.StringFlag{
-		Name:  "seal.ethash.dir",
+		Name:  "seal.tosash.dir",
 		Usage: "Path to ethash DAG. If none exists, a new DAG will be generated.",
 	}
 	SealEthashModeFlag = &cli.StringFlag{
-		Name:  "seal.ethash.mode",
+		Name:  "seal.tosash.mode",
 		Usage: "Defines the type and amount of PoW verification an ethash engine makes.",
 		Value: "normal",
 	}

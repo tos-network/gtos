@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/les/downloader"
 	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
@@ -481,7 +481,7 @@ func (d *downloaderPeerNotify) registerPeer(p *serverPeer) {
 		handler: h,
 		peer:    p,
 	}
-	h.downloader.RegisterLightPeer(p.id, eth.ETH66, pc)
+	h.downloader.RegisterLightPeer(p.id, tos.TOS66, pc)
 }
 
 func (d *downloaderPeerNotify) unregisterPeer(p *serverPeer) {

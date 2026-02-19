@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus/clique"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
@@ -72,9 +72,9 @@ type bbInput struct {
 	TxRlp     string       `json:"txs,omitempty"`
 	Clique    *cliqueInput `json:"clique,omitempty"`
 
-	Ethash    bool                 `json:"-"`
-	EthashDir string               `json:"-"`
-	PowMode   ethash.Mode          `json:"-"`
+	Tosash    bool                 `json:"-"`
+	TosashDir string               `json:"-"`
+	PowMode   tosash.Mode          `json:"-"`
 	Txs       []*types.Transaction `json:"-"`
 	Ommers    []*types.Header      `json:"-"`
 }
@@ -159,7 +159,7 @@ func (i *bbInput) ToBlock() *types.Block {
 // SealBlock seals the given block using the configured engine.
 func (i *bbInput) SealBlock(block *types.Block) (*types.Block, error) {
 	switch {
-	case i.Ethash:
+	case i.Tosash:
 		return i.sealEthash(block)
 	case i.Clique != nil:
 		return i.sealClique(block)
@@ -168,21 +168,21 @@ func (i *bbInput) SealBlock(block *types.Block) (*types.Block, error) {
 	}
 }
 
-// sealEthash seals the given block using ethash.
+// sealEthash seals the given block using tosash.
 func (i *bbInput) sealEthash(block *types.Block) (*types.Block, error) {
 	if i.Header.Nonce != nil {
 		return nil, NewError(ErrorConfig, fmt.Errorf("sealing with ethash will overwrite provided nonce"))
 	}
-	ethashConfig := ethash.Config{
+	tosashConfig := tosash.Config{
 		PowMode:        i.PowMode,
-		DatasetDir:     i.EthashDir,
-		CacheDir:       i.EthashDir,
+		DatasetDir:     i.TosashDir,
+		CacheDir:       i.TosashDir,
 		DatasetsInMem:  1,
 		DatasetsOnDisk: 2,
 		CachesInMem:    2,
 		CachesOnDisk:   3,
 	}
-	engine := ethash.New(ethashConfig, nil, true)
+	engine := tosash.New(tosashConfig, nil, true)
 	defer engine.Close()
 	// Use a buffered chan for results.
 	// If the testmode is used, the sealer will return quickly, and complain
@@ -272,15 +272,15 @@ func readInput(ctx *cli.Context) (*bbInput, error) {
 		return nil, NewError(ErrorConfig, fmt.Errorf("both ethash and clique sealing specified, only one may be chosen"))
 	}
 	if ethashOn {
-		inputData.Ethash = ethashOn
-		inputData.EthashDir = ethashDir
+		inputData.Tosash = ethashOn
+		inputData.TosashDir = ethashDir
 		switch ethashMode {
 		case "normal":
-			inputData.PowMode = ethash.ModeNormal
+			inputData.PowMode = tosash.ModeNormal
 		case "test":
-			inputData.PowMode = ethash.ModeTest
+			inputData.PowMode = tosash.ModeTest
 		case "fake":
-			inputData.PowMode = ethash.ModeFake
+			inputData.PowMode = tosash.ModeFake
 		default:
 			return nil, NewError(ErrorConfig, fmt.Errorf("unknown pow mode: %s, supported modes: test, fake, normal", ethashMode))
 		}

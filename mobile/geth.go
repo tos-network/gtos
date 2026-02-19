@@ -26,7 +26,7 @@ import (
 
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosclient"
 	"github.com/tos-network/gtos/tosstats"
 	"github.com/tos-network/gtos/internal/debug"
@@ -189,7 +189,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 	}
 	// Register the Ethereum protocol if requested
 	if config.EthereumEnabled {
-		ethConf := ethconfig.Defaults
+		ethConf := tosconfig.Defaults
 		ethConf.Genesis = genesis
 		ethConf.SyncMode = downloader.LightSync
 		ethConf.NetworkId = uint64(config.EthereumNetworkID)

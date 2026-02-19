@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/tos-network/gtos/cmd/utils"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/params"
 	"github.com/urfave/cli/v2"
 )
@@ -107,7 +107,7 @@ func makecache(ctx *cli.Context) error {
 	if err != nil {
 		utils.Fatalf("Invalid block number: %v", err)
 	}
-	ethash.MakeCache(block, args[1])
+	tosash.MakeCache(block, args[1])
 
 	return nil
 }
@@ -122,7 +122,7 @@ func makedag(ctx *cli.Context) error {
 	if err != nil {
 		utils.Fatalf("Invalid block number: %v", err)
 	}
-	ethash.MakeDataset(block, args[1])
+	tosash.MakeDataset(block, args[1])
 
 	return nil
 }

@@ -32,7 +32,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
@@ -1948,7 +1948,7 @@ func (api *DebugAPI) SeedHash(ctx context.Context, number uint64) (string, error
 	if block == nil {
 		return "", fmt.Errorf("block #%d not found", number)
 	}
-	return fmt.Sprintf("%#x", ethash.SeedHash(number)), nil
+	return fmt.Sprintf("%#x", tosash.SeedHash(number)), nil
 }
 
 // ChaindbProperty returns leveldb properties of the key-value database.

@@ -22,7 +22,7 @@ import (
 
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/flowcontrol"
 	vfs "github.com/tos-network/gtos/les/vflux/server"
@@ -76,8 +76,8 @@ type LesServer struct {
 	p2pSrv *p2p.Server
 }
 
-func NewLesServer(node *node.Node, e ethBackend, config *ethconfig.Config) (*LesServer, error) {
-	lesDb, err := node.OpenDatabase("les.server", 0, 0, "eth/db/lesserver/", false)
+func NewLesServer(node *node.Node, e ethBackend, config *tosconfig.Config) (*LesServer, error) {
+	lesDb, err := node.OpenDatabase("les.server", 0, 0, "tos/db/lesserver/", false)
 	if err != nil {
 		return nil, err
 	}

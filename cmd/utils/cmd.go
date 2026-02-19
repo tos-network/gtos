@@ -35,7 +35,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/internal/debug"
 	"github.com/tos-network/gtos/log"
@@ -77,7 +77,7 @@ func StartNode(ctx *cli.Context, stack *node.Node, isConsole bool) {
 		signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(sigc)
 
-		minFreeDiskSpace := 2 * ethconfig.Defaults.TrieDirtyCache // Default 2 * 256Mb
+		minFreeDiskSpace := 2 * tosconfig.Defaults.TrieDirtyCache // Default 2 * 256Mb
 		if ctx.IsSet(MinFreeDiskSpaceFlag.Name) {
 			minFreeDiskSpace = ctx.Int(MinFreeDiskSpaceFlag.Name)
 		} else if ctx.IsSet(CacheFlag.Name) || ctx.IsSet(CacheGCFlag.Name) {

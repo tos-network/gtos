@@ -25,7 +25,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/beacon"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -33,7 +33,7 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/params"
@@ -52,7 +52,7 @@ var (
 
 func generatePreMergeChain(n int) (*core.Genesis, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
-	config := params.AllEthashProtocolChanges
+	config := params.AllTosashProtocolChanges
 	genesis := &core.Genesis{
 		Config:     config,
 		Alloc:      core.GenesisAlloc{testAddr: {Balance: testBalance}},
@@ -70,7 +70,7 @@ func generatePreMergeChain(n int) (*core.Genesis, []*types.Block) {
 		testNonce++
 	}
 	gblock := genesis.MustCommit(db)
-	engine := ethash.NewFaker()
+	engine := tosash.NewFaker()
 	blocks, _ := core.GenerateChain(config, gblock, engine, db, n, generate)
 	totalDifficulty := big.NewInt(0)
 	for _, b := range blocks {
@@ -112,7 +112,7 @@ func TestEth2AssembleBlockWithAnotherBlocksTxs(t *testing.T) {
 	api := NewConsensusAPI(ethservice)
 
 	// Put the 10th block's tx in the pool and produce a new block
-	api.eth.TxPool().AddRemotesSync(blocks[9].Transactions())
+	api.tosNode.TxPool().AddRemotesSync(blocks[9].Transactions())
 	blockParams := beacon.PayloadAttributesV1{
 		Timestamp: blocks[8].Time() + 5,
 	}
@@ -403,7 +403,7 @@ func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block)
 		t.Fatal("can't create node:", err)
 	}
 
-	ethcfg := &ethconfig.Config{Genesis: genesis, Ethash: ethash.Config{PowMode: ethash.ModeFake}, SyncMode: downloader.FullSync, TrieTimeout: time.Minute, TrieDirtyCache: 256, TrieCleanCache: 256}
+	ethcfg := &tosconfig.Config{Genesis: genesis, Ethash: tosash.Config{PowMode: tosash.ModeFake}, SyncMode: downloader.FullSync, TrieTimeout: time.Minute, TrieDirtyCache: 256, TrieCleanCache: 256}
 	ethservice, err := tos.New(n, ethcfg)
 	if err != nil {
 		t.Fatal("can't create eth service:", err)
@@ -603,7 +603,7 @@ func TestNewPayloadOnInvalidChain(t *testing.T) {
 }
 
 func assembleBlock(api *ConsensusAPI, parentHash common.Hash, params *beacon.PayloadAttributesV1) (*beacon.ExecutableDataV1, error) {
-	block, err := api.eth.Miner().GetSealingBlockSync(parentHash, params.Timestamp, params.SuggestedFeeRecipient, params.Random, false)
+	block, err := api.tosNode.Miner().GetSealingBlockSync(parentHash, params.Timestamp, params.SuggestedFeeRecipient, params.Random, false)
 	if err != nil {
 		return nil, err
 	}
@@ -846,7 +846,7 @@ func TestNewPayloadOnInvalidTerminalBlock(t *testing.T) {
 		Random:                crypto.Keccak256Hash([]byte{byte(1)}),
 		SuggestedFeeRecipient: parent.Coinbase(),
 	}
-	empty, err := api.eth.Miner().GetSealingBlockSync(parent.Hash(), params.Timestamp, params.SuggestedFeeRecipient, params.Random, true)
+	empty, err := api.tosNode.Miner().GetSealingBlockSync(parent.Hash(), params.Timestamp, params.SuggestedFeeRecipient, params.Random, true)
 	if err != nil {
 		t.Fatalf("error preparing payload, err=%v", err)
 	}

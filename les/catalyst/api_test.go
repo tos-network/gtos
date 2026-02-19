@@ -21,14 +21,14 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/beacon"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
@@ -47,7 +47,7 @@ var (
 
 func generatePreMergeChain(n int) (*core.Genesis, []*types.Header, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
-	config := params.AllEthashProtocolChanges
+	config := params.AllTosashProtocolChanges
 	genesis := &core.Genesis{
 		Config:    config,
 		Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance}},
@@ -56,7 +56,7 @@ func generatePreMergeChain(n int) (*core.Genesis, []*types.Header, []*types.Bloc
 		BaseFee:   big.NewInt(params.InitialBaseFee),
 	}
 	gblock := genesis.MustCommit(db)
-	engine := ethash.NewFaker()
+	engine := tosash.NewFaker()
 	blocks, _ := core.GenerateChain(config, gblock, engine, db, n, nil)
 	totalDifficulty := big.NewInt(0)
 
@@ -213,9 +213,9 @@ func startLesService(t *testing.T, genesis *core.Genesis, headers []*types.Heade
 	if err != nil {
 		t.Fatal("can't create node:", err)
 	}
-	ethcfg := &ethconfig.Config{
+	ethcfg := &tosconfig.Config{
 		Genesis:        genesis,
-		Ethash:         ethash.Config{PowMode: ethash.ModeFake},
+		Ethash:         tosash.Config{PowMode: tosash.ModeFake},
 		SyncMode:       downloader.LightSync,
 		TrieDirtyCache: 256,
 		TrieCleanCache: 256,

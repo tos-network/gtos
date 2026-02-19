@@ -21,7 +21,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
 // fetchHeadersByHash is a blocking version of Peer.RequestHeadersByHash which
@@ -30,7 +30,7 @@ import (
 func (d *Downloader) fetchHeadersByHash(p *peerConnection, hash common.Hash, amount int, skip int, reverse bool) ([]*types.Header, []common.Hash, error) {
 	// Create the response sink and send the network request
 	start := time.Now()
-	resCh := make(chan *eth.Response)
+	resCh := make(chan *tos.Response)
 
 	req, err := p.peer.RequestHeadersByHash(hash, amount, skip, reverse, resCh)
 	if err != nil {
@@ -58,14 +58,14 @@ func (d *Downloader) fetchHeadersByHash(p *peerConnection, hash common.Hash, amo
 	case res := <-resCh:
 		// Headers successfully retrieved, update the metrics
 		headerReqTimer.Update(time.Since(start))
-		headerInMeter.Mark(int64(len(*res.Res.(*eth.BlockHeadersPacket))))
+		headerInMeter.Mark(int64(len(*res.Res.(*tos.BlockHeadersPacket))))
 
 		// Don't reject the packet even if it turns out to be bad, downloader will
 		// disconnect the peer on its own terms. Simply delivery the headers to
 		// be processed by the caller
 		res.Done <- nil
 
-		return *res.Res.(*eth.BlockHeadersPacket), res.Meta.([]common.Hash), nil
+		return *res.Res.(*tos.BlockHeadersPacket), res.Meta.([]common.Hash), nil
 	}
 }
 
@@ -75,7 +75,7 @@ func (d *Downloader) fetchHeadersByHash(p *peerConnection, hash common.Hash, amo
 func (d *Downloader) fetchHeadersByNumber(p *peerConnection, number uint64, amount int, skip int, reverse bool) ([]*types.Header, []common.Hash, error) {
 	// Create the response sink and send the network request
 	start := time.Now()
-	resCh := make(chan *eth.Response)
+	resCh := make(chan *tos.Response)
 
 	req, err := p.peer.RequestHeadersByNumber(number, amount, skip, reverse, resCh)
 	if err != nil {
@@ -103,13 +103,13 @@ func (d *Downloader) fetchHeadersByNumber(p *peerConnection, number uint64, amou
 	case res := <-resCh:
 		// Headers successfully retrieved, update the metrics
 		headerReqTimer.Update(time.Since(start))
-		headerInMeter.Mark(int64(len(*res.Res.(*eth.BlockHeadersPacket))))
+		headerInMeter.Mark(int64(len(*res.Res.(*tos.BlockHeadersPacket))))
 
 		// Don't reject the packet even if it turns out to be bad, downloader will
 		// disconnect the peer on its own terms. Simply delivery the headers to
 		// be processed by the caller
 		res.Done <- nil
 
-		return *res.Res.(*eth.BlockHeadersPacket), res.Meta.([]common.Hash), nil
+		return *res.Res.(*tos.BlockHeadersPacket), res.Meta.([]common.Hash), nil
 	}
 }

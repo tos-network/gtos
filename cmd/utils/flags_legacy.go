@@ -19,7 +19,7 @@ package utils
 import (
 	"fmt"
 
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/urfave/cli/v2"
 )
@@ -48,7 +48,7 @@ var (
 	LegacyMinerGasTargetFlag = &cli.Uint64Flag{
 		Name:     "miner.gastarget",
 		Usage:    "Target gas floor for mined blocks (deprecated)",
-		Value:    ethconfig.Defaults.Miner.GasFloor,
+		Value:    tosconfig.Defaults.Miner.GasFloor,
 		Category: flags.DeprecatedCategory,
 	}
 )

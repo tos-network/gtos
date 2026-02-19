@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/vm"
@@ -67,7 +67,7 @@ func getChain() *core.BlockChain {
 		Alloc:  ga,
 	}
 	genesis := gspec.MustCommit(db)
-	blocks, _ := core.GenerateChain(gspec.Config, genesis, ethash.NewFaker(), db, 2,
+	blocks, _ := core.GenerateChain(gspec.Config, genesis, tosash.NewFaker(), db, 2,
 		func(i int, gen *core.BlockGen) {})
 	cacheConf := &core.CacheConfig{
 		TrieCleanLimit:      0,
@@ -79,7 +79,7 @@ func getChain() *core.BlockChain {
 		SnapshotWait:        true,
 	}
 	trieRoot = blocks[len(blocks)-1].Root()
-	bc, _ := core.NewBlockChain(db, cacheConf, gspec.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+	bc, _ := core.NewBlockChain(db, cacheConf, gspec.Config, tosash.NewFaker(), vm.Config{}, nil, nil)
 	if _, err := bc.InsertChain(blocks); err != nil {
 		panic(err)
 	}

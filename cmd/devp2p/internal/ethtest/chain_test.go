@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/stretchr/testify/assert"
 )
@@ -145,8 +145,8 @@ func TestChain_GetHeaders(t *testing.T) {
 	}{
 		{
 			req: GetBlockHeaders{
-				GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-					Origin:  eth.HashOrNumber{Number: uint64(2)},
+				GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+					Origin:  tos.HashOrNumber{Number: uint64(2)},
 					Amount:  uint64(5),
 					Skip:    1,
 					Reverse: false,
@@ -162,8 +162,8 @@ func TestChain_GetHeaders(t *testing.T) {
 		},
 		{
 			req: GetBlockHeaders{
-				GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-					Origin:  eth.HashOrNumber{Number: uint64(chain.Len() - 1)},
+				GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+					Origin:  tos.HashOrNumber{Number: uint64(chain.Len() - 1)},
 					Amount:  uint64(3),
 					Skip:    0,
 					Reverse: true,
@@ -177,8 +177,8 @@ func TestChain_GetHeaders(t *testing.T) {
 		},
 		{
 			req: GetBlockHeaders{
-				GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-					Origin:  eth.HashOrNumber{Hash: chain.Head().Hash()},
+				GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+					Origin:  tos.HashOrNumber{Hash: chain.Head().Hash()},
 					Amount:  uint64(1),
 					Skip:    0,
 					Reverse: false,

@@ -34,14 +34,14 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/contracts/checkpointoracle/contract"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/les/checkpointoracle"
@@ -193,9 +193,9 @@ func testIndexers(db tosdb.Database, odr light.OdrBackend, config *light.Indexer
 func newTestClientHandler(backend *backends.SimulatedBackend, odr *LesOdr, indexers []*core.ChainIndexer, db tosdb.Database, peers *serverPeerSet, ulcServers []string, ulcFraction int) (*clientHandler, func()) {
 	var (
 		evmux  = new(event.TypeMux)
-		engine = ethash.NewFaker()
+		engine = tosash.NewFaker()
 		gspec  = core.Genesis{
-			Config:   params.AllEthashProtocolChanges,
+			Config:   params.AllTosashProtocolChanges,
 			Alloc:    core.GenesisAlloc{bankAddr: {Balance: bankFunds}},
 			GasLimit: 100000000,
 			BaseFee:  big.NewInt(params.InitialBaseFee),
@@ -225,8 +225,8 @@ func newTestClientHandler(backend *backends.SimulatedBackend, odr *LesOdr, index
 	client := &LightEthereum{
 		lesCommons: lesCommons{
 			genesis:     genesis.Hash(),
-			config:      &ethconfig.Config{LightPeers: 100, NetworkId: NetworkId},
-			chainConfig: params.AllEthashProtocolChanges,
+			config:      &tosconfig.Config{LightPeers: 100, NetworkId: NetworkId},
+			chainConfig: params.AllTosashProtocolChanges,
 			iConfig:     light.TestClientIndexerConfig,
 			chainDb:     db,
 			oracle:      oracle,
@@ -256,7 +256,7 @@ func newTestClientHandler(backend *backends.SimulatedBackend, odr *LesOdr, index
 func newTestServerHandler(blocks int, indexers []*core.ChainIndexer, db tosdb.Database, clock mclock.Clock) (*serverHandler, *backends.SimulatedBackend, func()) {
 	var (
 		gspec = core.Genesis{
-			Config:   params.AllEthashProtocolChanges,
+			Config:   params.AllTosashProtocolChanges,
 			Alloc:    core.GenesisAlloc{bankAddr: {Balance: bankFunds}},
 			GasLimit: 100000000,
 			BaseFee:  big.NewInt(params.InitialBaseFee),
@@ -293,8 +293,8 @@ func newTestServerHandler(blocks int, indexers []*core.ChainIndexer, db tosdb.Da
 	server := &LesServer{
 		lesCommons: lesCommons{
 			genesis:     genesis.Hash(),
-			config:      &ethconfig.Config{LightPeers: 100, NetworkId: NetworkId},
-			chainConfig: params.AllEthashProtocolChanges,
+			config:      &tosconfig.Config{LightPeers: 100, NetworkId: NetworkId},
+			chainConfig: params.AllTosashProtocolChanges,
 			iConfig:     light.TestServerIndexerConfig,
 			chainDb:     db,
 			chainReader: simulation.Blockchain(),

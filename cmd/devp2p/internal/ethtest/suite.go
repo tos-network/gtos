@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/p2p/enode"
 )
@@ -112,8 +112,8 @@ func (s *Suite) TestGetBlockHeaders(t *utesting.T) {
 	}
 	// write request
 	req := &GetBlockHeaders{
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin:  eth.HashOrNumber{Hash: s.chain.blocks[1].Hash()},
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin:  tos.HashOrNumber{Hash: s.chain.blocks[1].Hash()},
 			Amount:  2,
 			Skip:    1,
 			Reverse: false,
@@ -150,8 +150,8 @@ func (s *Suite) TestSimultaneousRequests(t *utesting.T) {
 	// create two requests
 	req1 := &GetBlockHeaders{
 		RequestId: uint64(111),
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{
 				Hash: s.chain.blocks[1].Hash(),
 			},
 			Amount:  2,
@@ -161,8 +161,8 @@ func (s *Suite) TestSimultaneousRequests(t *utesting.T) {
 	}
 	req2 := &GetBlockHeaders{
 		RequestId: uint64(222),
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{
 				Hash: s.chain.blocks[1].Hash(),
 			},
 			Amount:  4,
@@ -224,8 +224,8 @@ func (s *Suite) TestSameRequestID(t *utesting.T) {
 	reqID := uint64(1234)
 	request1 := &GetBlockHeaders{
 		RequestId: reqID,
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{
 				Number: 1,
 			},
 			Amount: 2,
@@ -233,8 +233,8 @@ func (s *Suite) TestSameRequestID(t *utesting.T) {
 	}
 	request2 := &GetBlockHeaders{
 		RequestId: reqID,
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{
 				Number: 33,
 			},
 			Amount: 2,
@@ -290,8 +290,8 @@ func (s *Suite) TestZeroRequestID(t *utesting.T) {
 		t.Fatalf("peering failed: %v", err)
 	}
 	req := &GetBlockHeaders{
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{Number: 0},
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{Number: 0},
 			Amount: 2,
 		},
 	}
@@ -322,7 +322,7 @@ func (s *Suite) TestGetBlockBodies(t *utesting.T) {
 	// create block bodies request
 	req := &GetBlockBodies{
 		RequestId: uint64(55),
-		GetBlockBodiesPacket: eth.GetBlockBodiesPacket{
+		GetBlockBodiesPacket: tos.GetBlockBodiesPacket{
 			s.chain.blocks[54].Hash(),
 			s.chain.blocks[75].Hash(),
 		},

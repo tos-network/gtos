@@ -29,7 +29,7 @@ import (
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/fdlimit"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/beacon"
 	"github.com/tos-network/gtos/core/types"
@@ -37,7 +37,7 @@ import (
 	"github.com/tos-network/gtos/tos"
 	ethcatalyst "github.com/tos-network/gtos/tos/catalyst"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/les"
 	lescatalyst "github.com/tos-network/gtos/les/catalyst"
 	"github.com/tos-network/gtos/log"
@@ -391,7 +391,7 @@ func main() {
 		faucets[i], _ = crypto.GenerateKey()
 	}
 	// Pre-generate the ethash mining DAG so we don't race
-	ethash.MakeDataset(1, filepath.Join(os.Getenv("HOME"), ".ethash"))
+	tosash.MakeDataset(1, filepath.Join(os.Getenv("HOME"), ".ethash"))
 
 	// Create an Ethash network based off of the Ropsten config
 	genesis := makeGenesis(faucets)
@@ -446,7 +446,7 @@ func makeGenesis(faucets []*ecdsa.PrivateKey) *core.Genesis {
 	genesis.GasLimit = 25000000
 
 	genesis.BaseFee = big.NewInt(params.InitialBaseFee)
-	genesis.Config = params.AllEthashProtocolChanges
+	genesis.Config = params.AllTosashProtocolChanges
 	genesis.Config.TerminalTotalDifficulty = transitionDifficulty
 
 	genesis.Alloc = core.GenesisAlloc{}
@@ -478,15 +478,15 @@ func makeFullNode(genesis *core.Genesis) (*node.Node, *tos.TOS, *ethcatalyst.Con
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	econfig := &ethconfig.Config{
+	econfig := &tosconfig.Config{
 		Genesis:         genesis,
 		NetworkId:       genesis.Config.ChainID.Uint64(),
 		SyncMode:        downloader.FullSync,
 		DatabaseCache:   256,
 		DatabaseHandles: 256,
 		TxPool:          core.DefaultTxPoolConfig,
-		GPO:             ethconfig.Defaults.GPO,
-		Ethash:          ethconfig.Defaults.Ethash,
+		GPO:             tosconfig.Defaults.GPO,
+		Tosash:          tosconfig.Defaults.Tosash,
 		Miner: miner.Config{
 			GasFloor: genesis.GasLimit * 9 / 10,
 			GasCeil:  genesis.GasLimit * 11 / 10,
@@ -529,15 +529,15 @@ func makeLightNode(genesis *core.Genesis) (*node.Node, *les.LightEthereum, *lesc
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	lesBackend, err := les.New(stack, &ethconfig.Config{
+	lesBackend, err := les.New(stack, &tosconfig.Config{
 		Genesis:         genesis,
 		NetworkId:       genesis.Config.ChainID.Uint64(),
 		SyncMode:        downloader.LightSync,
 		DatabaseCache:   256,
 		DatabaseHandles: 256,
 		TxPool:          core.DefaultTxPoolConfig,
-		GPO:             ethconfig.Defaults.GPO,
-		Ethash:          ethconfig.Defaults.Ethash,
+		GPO:             tosconfig.Defaults.GPO,
+		Tosash:          tosconfig.Defaults.Tosash,
 		LightPeers:      10,
 	})
 	if err != nil {

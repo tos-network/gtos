@@ -83,7 +83,7 @@ var dashboardContent = `
 									<li id="connect_menu"><a><i class="fa fa-plug"></i> Connect Yourself</a>
 										<ul id="connect_list" class="nav child_menu">
 											<li><a onclick="$('#connect_menu').removeClass('active'); $('#connect_list').toggle(); load('#gtos')">Go Ethereum: Geth</a></li>
-											<li><a onclick="$('#connect_menu').removeClass('active'); $('#connect_list').toggle(); load('#mobile')">Go Ethereum: Android & iOS</a></li>{{if .Ethash}}
+											<li><a onclick="$('#connect_menu').removeClass('active'); $('#connect_list').toggle(); load('#mobile')">Go Ethereum: Android & iOS</a></li>{{if .Tosash}}
 											<li><a onclick="$('#connect_menu').removeClass('active'); $('#connect_list').toggle(); load('#other')">Other Ethereum Clients</a></li>{{end}}
 										</ul>
 									</li>
@@ -174,7 +174,7 @@ var dashboardContent = `
 										<br/>
 										<p>To run an embedded node, download <a href="/{{.GethGenesis}}"><code>{{.GethGenesis}}</code></a> and start Geth with:
 											<pre>gtos --datadir=$HOME/.{{.Network}} init {{.GethGenesis}}</pre>
-											<pre>gtos --networkid={{.NetworkID}} --datadir=$HOME/.{{.Network}} --cache=16 --ethash.cachesinmem=1 --syncmode=light{{if .Ethstats}} --ethstats='{{.Ethstats}}'{{end}} --bootnodes={{.BootnodesFlat}}</pre>
+											<pre>gtos --networkid={{.NetworkID}} --datadir=$HOME/.{{.Network}} --cache=16 --tosash.cachesinmem=1 --syncmode=light{{if .Ethstats}} --ethstats='{{.Ethstats}}'{{end}} --bootnodes={{.BootnodesFlat}}</pre>
 										</p>
 										<br/>
 										<p>You can download Geth from <a href="https://gtos.ethereum.org/downloads/" target="about:blank">https://gtos.ethereum.org/downloads/</a>.</p>
@@ -257,7 +257,7 @@ try! node?.start();
 								</div>
 							</div>
 						</div>
-					</div>{{if .Ethash}}
+					</div>{{if .Tosash}}
 					<div id="other" hidden style="padding: 16px;">
 						<div class="page-title">
 							<div class="title_left">
@@ -561,7 +561,7 @@ func deployDashboard(client *sshClient, network string, conf *config, config *da
 		"Bootnodes":         conf.bootnodes,
 		"BootnodesFlat":     strings.Join(conf.bootnodes, ","),
 		"Ethstats":          statsLogin,
-		"Ethash":            conf.Genesis.Config.Ethash != nil,
+		"Ethash":            conf.Genesis.Config.Tosash != nil,
 		"CppGenesis":        network + "-cpp.json",
 		"CppBootnodes":      strings.Join(bootCpp, " "),
 		"HarmonyGenesis":    network + "-harmony.json",

@@ -44,49 +44,49 @@ import (
 type TOSAPIBackend struct {
 	extRPCEnabled       bool
 	allowUnprotectedTxs bool
-	eth                 *TOS
+	tos                 *TOS
 	gpo                 *gasprice.Oracle
 }
 
 // ChainConfig returns the active chain configuration.
 func (b *TOSAPIBackend) ChainConfig() *params.ChainConfig {
-	return b.eth.blockchain.Config()
+	return b.tos.blockchain.Config()
 }
 
 func (b *TOSAPIBackend) CurrentBlock() *types.Block {
-	return b.eth.blockchain.CurrentBlock()
+	return b.tos.blockchain.CurrentBlock()
 }
 
 func (b *TOSAPIBackend) SetHead(number uint64) {
-	b.eth.handler.downloader.Cancel()
-	b.eth.blockchain.SetHead(number)
+	b.tos.handler.downloader.Cancel()
+	b.tos.blockchain.SetHead(number)
 }
 
 func (b *TOSAPIBackend) HeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Header, error) {
 	// Pending block is only known by the miner
 	if number == rpc.PendingBlockNumber {
-		block := b.eth.miner.PendingBlock()
+		block := b.tos.miner.PendingBlock()
 		return block.Header(), nil
 	}
 	// Otherwise resolve and return the block
 	if number == rpc.LatestBlockNumber {
-		return b.eth.blockchain.CurrentBlock().Header(), nil
+		return b.tos.blockchain.CurrentBlock().Header(), nil
 	}
 	if number == rpc.FinalizedBlockNumber {
-		block := b.eth.blockchain.CurrentFinalizedBlock()
+		block := b.tos.blockchain.CurrentFinalizedBlock()
 		if block != nil {
 			return block.Header(), nil
 		}
 		return nil, errors.New("finalized block not found")
 	}
 	if number == rpc.SafeBlockNumber {
-		block := b.eth.blockchain.CurrentSafeBlock()
+		block := b.tos.blockchain.CurrentSafeBlock()
 		if block != nil {
 			return block.Header(), nil
 		}
 		return nil, errors.New("safe block not found")
 	}
-	return b.eth.blockchain.GetHeaderByNumber(uint64(number)), nil
+	return b.tos.blockchain.GetHeaderByNumber(uint64(number)), nil
 }
 
 func (b *TOSAPIBackend) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Header, error) {
@@ -94,11 +94,11 @@ func (b *TOSAPIBackend) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash 
 		return b.HeaderByNumber(ctx, blockNr)
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
-		header := b.eth.blockchain.GetHeaderByHash(hash)
+		header := b.tos.blockchain.GetHeaderByHash(hash)
 		if header == nil {
 			return nil, errors.New("header for hash not found")
 		}
-		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
+		if blockNrOrHash.RequireCanonical && b.tos.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, errors.New("hash is not currently canonical")
 		}
 		return header, nil
@@ -107,30 +107,30 @@ func (b *TOSAPIBackend) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash 
 }
 
 func (b *TOSAPIBackend) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
-	return b.eth.blockchain.GetHeaderByHash(hash), nil
+	return b.tos.blockchain.GetHeaderByHash(hash), nil
 }
 
 func (b *TOSAPIBackend) BlockByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Block, error) {
 	// Pending block is only known by the miner
 	if number == rpc.PendingBlockNumber {
-		block := b.eth.miner.PendingBlock()
+		block := b.tos.miner.PendingBlock()
 		return block, nil
 	}
 	// Otherwise resolve and return the block
 	if number == rpc.LatestBlockNumber {
-		return b.eth.blockchain.CurrentBlock(), nil
+		return b.tos.blockchain.CurrentBlock(), nil
 	}
 	if number == rpc.FinalizedBlockNumber {
-		return b.eth.blockchain.CurrentFinalizedBlock(), nil
+		return b.tos.blockchain.CurrentFinalizedBlock(), nil
 	}
 	if number == rpc.SafeBlockNumber {
-		return b.eth.blockchain.CurrentSafeBlock(), nil
+		return b.tos.blockchain.CurrentSafeBlock(), nil
 	}
-	return b.eth.blockchain.GetBlockByNumber(uint64(number)), nil
+	return b.tos.blockchain.GetBlockByNumber(uint64(number)), nil
 }
 
 func (b *TOSAPIBackend) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
-	return b.eth.blockchain.GetBlockByHash(hash), nil
+	return b.tos.blockchain.GetBlockByHash(hash), nil
 }
 
 func (b *TOSAPIBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error) {
@@ -138,14 +138,14 @@ func (b *TOSAPIBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash r
 		return b.BlockByNumber(ctx, blockNr)
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
-		header := b.eth.blockchain.GetHeaderByHash(hash)
+		header := b.tos.blockchain.GetHeaderByHash(hash)
 		if header == nil {
 			return nil, errors.New("header for hash not found")
 		}
-		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
+		if blockNrOrHash.RequireCanonical && b.tos.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, errors.New("hash is not currently canonical")
 		}
-		block := b.eth.blockchain.GetBlock(hash, header.Number.Uint64())
+		block := b.tos.blockchain.GetBlock(hash, header.Number.Uint64())
 		if block == nil {
 			return nil, errors.New("header found, but block body is missing")
 		}
@@ -155,13 +155,13 @@ func (b *TOSAPIBackend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash r
 }
 
 func (b *TOSAPIBackend) PendingBlockAndReceipts() (*types.Block, types.Receipts) {
-	return b.eth.miner.PendingBlockAndReceipts()
+	return b.tos.miner.PendingBlockAndReceipts()
 }
 
 func (b *TOSAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*state.StateDB, *types.Header, error) {
 	// Pending state is only known by the miner
 	if number == rpc.PendingBlockNumber {
-		block, state := b.eth.miner.Pending()
+		block, state := b.tos.miner.Pending()
 		return state, block.Header(), nil
 	}
 	// Otherwise resolve the block number and return its state
@@ -172,7 +172,7 @@ func (b *TOSAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.B
 	if header == nil {
 		return nil, nil, errors.New("header not found")
 	}
-	stateDb, err := b.eth.BlockChain().StateAt(header.Root)
+	stateDb, err := b.tos.BlockChain().StateAt(header.Root)
 	return stateDb, header, err
 }
 
@@ -188,26 +188,26 @@ func (b *TOSAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockN
 		if header == nil {
 			return nil, nil, errors.New("header for hash not found")
 		}
-		if blockNrOrHash.RequireCanonical && b.eth.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
+		if blockNrOrHash.RequireCanonical && b.tos.blockchain.GetCanonicalHash(header.Number.Uint64()) != hash {
 			return nil, nil, errors.New("hash is not currently canonical")
 		}
-		stateDb, err := b.eth.BlockChain().StateAt(header.Root)
+		stateDb, err := b.tos.BlockChain().StateAt(header.Root)
 		return stateDb, header, err
 	}
 	return nil, nil, errors.New("invalid arguments; neither block nor hash specified")
 }
 
 func (b *TOSAPIBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
-	return b.eth.blockchain.GetReceiptsByHash(hash), nil
+	return b.tos.blockchain.GetReceiptsByHash(hash), nil
 }
 
 func (b *TOSAPIBackend) GetLogs(ctx context.Context, hash common.Hash, number uint64) ([][]*types.Log, error) {
-	return rawdb.ReadLogs(b.eth.chainDb, hash, number, b.ChainConfig()), nil
+	return rawdb.ReadLogs(b.tos.chainDb, hash, number, b.ChainConfig()), nil
 }
 
 func (b *TOSAPIBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
-	if header := b.eth.blockchain.GetHeaderByHash(hash); header != nil {
-		return b.eth.blockchain.GetTd(hash, header.Number.Uint64())
+	if header := b.tos.blockchain.GetHeaderByHash(hash); header != nil {
+		return b.tos.blockchain.GetTd(hash, header.Number.Uint64())
 	}
 	return nil
 }
@@ -215,43 +215,43 @@ func (b *TOSAPIBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
 func (b *TOSAPIBackend) GetEVM(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
 	vmError := func() error { return nil }
 	if vmConfig == nil {
-		vmConfig = b.eth.blockchain.GetVMConfig()
+		vmConfig = b.tos.blockchain.GetVMConfig()
 	}
 	txContext := core.NewEVMTxContext(msg)
-	context := core.NewEVMBlockContext(header, b.eth.BlockChain(), nil)
-	return vm.NewEVM(context, txContext, state, b.eth.blockchain.Config(), *vmConfig), vmError, nil
+	context := core.NewEVMBlockContext(header, b.tos.BlockChain(), nil)
+	return vm.NewEVM(context, txContext, state, b.tos.blockchain.Config(), *vmConfig), vmError, nil
 }
 
 func (b *TOSAPIBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
-	return b.eth.BlockChain().SubscribeRemovedLogsEvent(ch)
+	return b.tos.BlockChain().SubscribeRemovedLogsEvent(ch)
 }
 
 func (b *TOSAPIBackend) SubscribePendingLogsEvent(ch chan<- []*types.Log) event.Subscription {
-	return b.eth.miner.SubscribePendingLogs(ch)
+	return b.tos.miner.SubscribePendingLogs(ch)
 }
 
 func (b *TOSAPIBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
-	return b.eth.BlockChain().SubscribeChainEvent(ch)
+	return b.tos.BlockChain().SubscribeChainEvent(ch)
 }
 
 func (b *TOSAPIBackend) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription {
-	return b.eth.BlockChain().SubscribeChainHeadEvent(ch)
+	return b.tos.BlockChain().SubscribeChainHeadEvent(ch)
 }
 
 func (b *TOSAPIBackend) SubscribeChainSideEvent(ch chan<- core.ChainSideEvent) event.Subscription {
-	return b.eth.BlockChain().SubscribeChainSideEvent(ch)
+	return b.tos.BlockChain().SubscribeChainSideEvent(ch)
 }
 
 func (b *TOSAPIBackend) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription {
-	return b.eth.BlockChain().SubscribeLogsEvent(ch)
+	return b.tos.BlockChain().SubscribeLogsEvent(ch)
 }
 
 func (b *TOSAPIBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
-	return b.eth.txPool.AddLocal(signedTx)
+	return b.tos.txPool.AddLocal(signedTx)
 }
 
 func (b *TOSAPIBackend) GetPoolTransactions() (types.Transactions, error) {
-	pending := b.eth.txPool.Pending(false)
+	pending := b.tos.txPool.Pending(false)
 	var txs types.Transactions
 	for _, batch := range pending {
 		txs = append(txs, batch...)
@@ -260,40 +260,40 @@ func (b *TOSAPIBackend) GetPoolTransactions() (types.Transactions, error) {
 }
 
 func (b *TOSAPIBackend) GetPoolTransaction(hash common.Hash) *types.Transaction {
-	return b.eth.txPool.Get(hash)
+	return b.tos.txPool.Get(hash)
 }
 
 func (b *TOSAPIBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
-	tx, blockHash, blockNumber, index := rawdb.ReadTransaction(b.eth.ChainDb(), txHash)
+	tx, blockHash, blockNumber, index := rawdb.ReadTransaction(b.tos.ChainDb(), txHash)
 	return tx, blockHash, blockNumber, index, nil
 }
 
 func (b *TOSAPIBackend) GetPoolNonce(ctx context.Context, addr common.Address) (uint64, error) {
-	return b.eth.txPool.Nonce(addr), nil
+	return b.tos.txPool.Nonce(addr), nil
 }
 
 func (b *TOSAPIBackend) Stats() (pending int, queued int) {
-	return b.eth.txPool.Stats()
+	return b.tos.txPool.Stats()
 }
 
 func (b *TOSAPIBackend) TxPoolContent() (map[common.Address]types.Transactions, map[common.Address]types.Transactions) {
-	return b.eth.TxPool().Content()
+	return b.tos.TxPool().Content()
 }
 
 func (b *TOSAPIBackend) TxPoolContentFrom(addr common.Address) (types.Transactions, types.Transactions) {
-	return b.eth.TxPool().ContentFrom(addr)
+	return b.tos.TxPool().ContentFrom(addr)
 }
 
 func (b *TOSAPIBackend) TxPool() *core.TxPool {
-	return b.eth.TxPool()
+	return b.tos.TxPool()
 }
 
 func (b *TOSAPIBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.Subscription {
-	return b.eth.TxPool().SubscribeNewTxsEvent(ch)
+	return b.tos.TxPool().SubscribeNewTxsEvent(ch)
 }
 
 func (b *TOSAPIBackend) SyncProgress() ethereum.SyncProgress {
-	return b.eth.Downloader().Progress()
+	return b.tos.Downloader().Progress()
 }
 
 func (b *TOSAPIBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
@@ -305,15 +305,15 @@ func (b *TOSAPIBackend) FeeHistory(ctx context.Context, blockCount int, lastBloc
 }
 
 func (b *TOSAPIBackend) ChainDb() tosdb.Database {
-	return b.eth.ChainDb()
+	return b.tos.ChainDb()
 }
 
 func (b *TOSAPIBackend) EventMux() *event.TypeMux {
-	return b.eth.EventMux()
+	return b.tos.EventMux()
 }
 
 func (b *TOSAPIBackend) AccountManager() *accounts.Manager {
-	return b.eth.AccountManager()
+	return b.tos.AccountManager()
 }
 
 func (b *TOSAPIBackend) ExtRPCEnabled() bool {
@@ -325,48 +325,48 @@ func (b *TOSAPIBackend) UnprotectedAllowed() bool {
 }
 
 func (b *TOSAPIBackend) RPCGasCap() uint64 {
-	return b.eth.config.RPCGasCap
+	return b.tos.config.RPCGasCap
 }
 
 func (b *TOSAPIBackend) RPCEVMTimeout() time.Duration {
-	return b.eth.config.RPCEVMTimeout
+	return b.tos.config.RPCEVMTimeout
 }
 
 func (b *TOSAPIBackend) RPCTxFeeCap() float64 {
-	return b.eth.config.RPCTxFeeCap
+	return b.tos.config.RPCTxFeeCap
 }
 
 func (b *TOSAPIBackend) BloomStatus() (uint64, uint64) {
-	sections, _, _ := b.eth.bloomIndexer.Sections()
+	sections, _, _ := b.tos.bloomIndexer.Sections()
 	return params.BloomBitsBlocks, sections
 }
 
 func (b *TOSAPIBackend) ServiceFilter(ctx context.Context, session *bloombits.MatcherSession) {
 	for i := 0; i < bloomFilterThreads; i++ {
-		go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, b.eth.bloomRequests)
+		go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, b.tos.bloomRequests)
 	}
 }
 
 func (b *TOSAPIBackend) Engine() consensus.Engine {
-	return b.eth.engine
+	return b.tos.engine
 }
 
 func (b *TOSAPIBackend) CurrentHeader() *types.Header {
-	return b.eth.blockchain.CurrentHeader()
+	return b.tos.blockchain.CurrentHeader()
 }
 
 func (b *TOSAPIBackend) Miner() *miner.Miner {
-	return b.eth.Miner()
+	return b.tos.Miner()
 }
 
 func (b *TOSAPIBackend) StartMining(threads int) error {
-	return b.eth.StartMining(threads)
+	return b.tos.StartMining(threads)
 }
 
 func (b *TOSAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive, preferDisk bool) (*state.StateDB, error) {
-	return b.eth.StateAtBlock(block, reexec, base, checkLive, preferDisk)
+	return b.tos.StateAtBlock(block, reexec, base, checkLive, preferDisk)
 }
 
 func (b *TOSAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
-	return b.eth.stateAtTransaction(block, txIndex, reexec)
+	return b.tos.stateAtTransaction(block, txIndex, reexec)
 }

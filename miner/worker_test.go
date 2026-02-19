@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/clique"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
@@ -130,7 +130,7 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 		e.Authorize(testBankAddress, func(account accounts.Account, s string, data []byte) ([]byte, error) {
 			return crypto.Sign(crypto.Keccak256(data), testBankKey)
 		})
-	case *ethash.Ethash:
+	case *tosash.Tosash:
 	default:
 		t.Fatalf("unexpected consensus engine type: %T", engine)
 	}
@@ -225,8 +225,8 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool) {
 		chainConfig.Clique = &params.CliqueConfig{Period: 1, Epoch: 30000}
 		engine = clique.New(chainConfig.Clique, db)
 	} else {
-		chainConfig = params.AllEthashProtocolChanges
-		engine = ethash.NewFaker()
+		chainConfig = params.AllTosashProtocolChanges
+		engine = tosash.NewFaker()
 	}
 
 	chainConfig.LondonBlock = big.NewInt(0)
@@ -270,7 +270,7 @@ func testGenerateBlockAndImport(t *testing.T, isClique bool) {
 }
 
 func TestEmptyWorkEthash(t *testing.T) {
-	testEmptyWork(t, ethashChainConfig, ethash.NewFaker())
+	testEmptyWork(t, ethashChainConfig, tosash.NewFaker())
 }
 func TestEmptyWorkClique(t *testing.T) {
 	testEmptyWork(t, cliqueChainConfig, clique.New(cliqueChainConfig.Clique, rawdb.NewMemoryDatabase()))
@@ -322,8 +322,8 @@ func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consens
 }
 
 func TestStreamUncleBlock(t *testing.T) {
-	ethash := ethash.NewFaker()
-	defer ethash.Close()
+	ethash := tosash.NewFaker()
+	defer tosash.Close()
 
 	w, b := newTestWorker(t, ethashChainConfig, ethash, rawdb.NewMemoryDatabase(), 1)
 	defer w.close()
@@ -373,7 +373,7 @@ func TestStreamUncleBlock(t *testing.T) {
 }
 
 func TestRegenerateMiningBlockEthash(t *testing.T) {
-	testRegenerateMiningBlock(t, ethashChainConfig, ethash.NewFaker())
+	testRegenerateMiningBlock(t, ethashChainConfig, tosash.NewFaker())
 }
 
 func TestRegenerateMiningBlockClique(t *testing.T) {
@@ -433,7 +433,7 @@ func testRegenerateMiningBlock(t *testing.T, chainConfig *params.ChainConfig, en
 }
 
 func TestAdjustIntervalEthash(t *testing.T) {
-	testAdjustInterval(t, ethashChainConfig, ethash.NewFaker())
+	testAdjustInterval(t, ethashChainConfig, tosash.NewFaker())
 }
 
 func TestAdjustIntervalClique(t *testing.T) {
@@ -527,7 +527,7 @@ func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine co
 }
 
 func TestGetSealingWorkEthash(t *testing.T) {
-	testGetSealingWork(t, ethashChainConfig, ethash.NewFaker(), false)
+	testGetSealingWork(t, ethashChainConfig, tosash.NewFaker(), false)
 }
 
 func TestGetSealingWorkClique(t *testing.T) {
@@ -538,7 +538,7 @@ func TestGetSealingWorkPostMerge(t *testing.T) {
 	local := new(params.ChainConfig)
 	*local = *ethashChainConfig
 	local.TerminalTotalDifficulty = big.NewInt(0)
-	testGetSealingWork(t, local, ethash.NewFaker(), true)
+	testGetSealingWork(t, local, tosash.NewFaker(), true)
 }
 
 func testGetSealingWork(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, postMerge bool) {

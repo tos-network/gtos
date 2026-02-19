@@ -1810,13 +1810,13 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/tos/ethconfig"
+			"github.com/tos-network/gtos/tos/tosconfig"
 	   `,
 		`
 			var (
 				key, _  = crypto.GenerateKey()
 				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
-				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, tosconfig.Defaults.Miner.GasCeil)
 			)
 			defer sim.Close()
 
@@ -1880,13 +1880,13 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/tos/ethconfig"
+			"github.com/tos-network/gtos/tos/tosconfig"
 	   `,
 		`
 			var (
 				key, _  = crypto.GenerateKey()
 				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
-				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, tosconfig.Defaults.Miner.GasCeil)
 			)
 			defer sim.Close()
 	
@@ -1932,13 +1932,13 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/tos/ethconfig"
+			"github.com/tos-network/gtos/tos/tosconfig"
 		`,
 		tester: `
 			var (
 				key, _  = crypto.GenerateKey()
 				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
-				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, tosconfig.Defaults.Miner.GasCeil)
 			)
 			defer sim.Close()
 
@@ -1980,13 +1980,13 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/tos/ethconfig"
+			"github.com/tos-network/gtos/tos/tosconfig"
 		`,
 		tester: `
 			var (
 				key, _  = crypto.GenerateKey()
 				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
-				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, tosconfig.Defaults.Miner.GasCeil)
 			)
 			defer sim.Close()
 
@@ -2020,13 +2020,13 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/tos/ethconfig"
+			"github.com/tos-network/gtos/tos/tosconfig"
 		`,
 		tester: `
 			var (
 				key, _  = crypto.GenerateKey()
 				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
-				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, tosconfig.Defaults.Miner.GasCeil)
 			)
 			_, tx, _, err := DeployRangeKeyword(user, sim)
 			if err != nil {

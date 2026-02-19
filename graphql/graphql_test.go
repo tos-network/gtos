@@ -28,13 +28,13 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tos/filters"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
@@ -63,7 +63,7 @@ func TestGraphQLBlockSerialization(t *testing.T) {
 	stack := createNode(t)
 	defer stack.Close()
 	genesis := &core.Genesis{
-		Config:     params.AllEthashProtocolChanges,
+		Config:     params.AllTosashProtocolChanges,
 		GasLimit:   11500000,
 		Difficulty: big.NewInt(1048576),
 	}
@@ -179,7 +179,7 @@ func TestGraphQLBlockSerializationEIP2718(t *testing.T) {
 	stack := createNode(t)
 	defer stack.Close()
 	genesis := &core.Genesis{
-		Config:     params.AllEthashProtocolChanges,
+		Config:     params.AllTosashProtocolChanges,
 		GasLimit:   11500000,
 		Difficulty: big.NewInt(1048576),
 		Alloc: core.GenesisAlloc{
@@ -274,7 +274,7 @@ func TestGraphQLTransactionLogs(t *testing.T) {
 		dadStr  = "0x0000000000000000000000000000000000000dad"
 		dad     = common.HexToAddress(dadStr)
 		genesis = &core.Genesis{
-			Config:     params.AllEthashProtocolChanges,
+			Config:     params.AllTosashProtocolChanges,
 			GasLimit:   11500000,
 			Difficulty: big.NewInt(1048576),
 			Alloc: core.GenesisAlloc{
@@ -333,10 +333,10 @@ func createNode(t *testing.T) *node.Node {
 }
 
 func newGQLService(t *testing.T, stack *node.Node, gspec *core.Genesis, genBlocks int, genfunc func(i int, gen *core.BlockGen)) *handler {
-	ethConf := &ethconfig.Config{
+	ethConf := &tosconfig.Config{
 		Genesis: gspec,
-		Ethash: ethash.Config{
-			PowMode: ethash.ModeFake,
+		Ethash: tosash.Config{
+			PowMode: tosash.ModeFake,
 		},
 		NetworkId:               1337,
 		TrieCleanCache:          5,
@@ -346,20 +346,20 @@ func newGQLService(t *testing.T, stack *node.Node, gspec *core.Genesis, genBlock
 		TrieTimeout:             60 * time.Minute,
 		SnapshotCache:           5,
 	}
-	ethBackend, err := tos.New(stack, ethConf)
+	tosBackend, err := tos.New(stack, ethConf)
 	if err != nil {
 		t.Fatalf("could not create eth backend: %v", err)
 	}
 	// Create some blocks and import them
-	chain, _ := core.GenerateChain(params.AllEthashProtocolChanges, ethBackend.BlockChain().Genesis(),
-		ethash.NewFaker(), ethBackend.ChainDb(), genBlocks, genfunc)
-	_, err = ethBackend.BlockChain().InsertChain(chain)
+	chain, _ := core.GenerateChain(params.AllTosashProtocolChanges, tosBackend.BlockChain().Genesis(),
+		tosash.NewFaker(), tosBackend.ChainDb(), genBlocks, genfunc)
+	_, err = tosBackend.BlockChain().InsertChain(chain)
 	if err != nil {
 		t.Fatalf("could not create import blocks: %v", err)
 	}
 	// Set up handler
-	filterSystem := filters.NewFilterSystem(ethBackend.APIBackend, filters.Config{})
-	handler, err := newHandler(stack, ethBackend.APIBackend, filterSystem, []string{}, []string{})
+	filterSystem := filters.NewFilterSystem(tosBackend.APIBackend, filters.Config{})
+	handler, err := newHandler(stack, tosBackend.APIBackend, filterSystem, []string{}, []string{})
 	if err != nil {
 		t.Fatalf("could not create graphql service: %v", err)
 	}

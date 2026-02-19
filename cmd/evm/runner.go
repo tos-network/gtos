@@ -234,7 +234,7 @@ func runCmd(ctx *cli.Context) error {
 	if chainConfig != nil {
 		runtimeConfig.ChainConfig = chainConfig
 	} else {
-		runtimeConfig.ChainConfig = params.AllEthashProtocolChanges
+		runtimeConfig.ChainConfig = params.AllTosashProtocolChanges
 	}
 
 	var hexInput []byte

@@ -27,7 +27,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/rlpx"
@@ -236,7 +236,7 @@ func (c *Conn) readAndServe(chain *Chain, timeout time.Duration) Message {
 			}
 			resp := &BlockHeaders{
 				RequestId:          msg.ReqID(),
-				BlockHeadersPacket: eth.BlockHeadersPacket(headers),
+				BlockHeadersPacket: tos.BlockHeadersPacket(headers),
 			}
 			if err := c.Write(resp); err != nil {
 				return errorf("could not write to connection: %v", err)
@@ -371,8 +371,8 @@ func (s *Suite) waitForBlockImport(conn *Conn, block *types.Block) error {
 	conn.SetReadDeadline(time.Now().Add(20 * time.Second))
 	// create request
 	req := &GetBlockHeaders{
-		GetBlockHeadersPacket: &eth.GetBlockHeadersPacket{
-			Origin: eth.HashOrNumber{Hash: block.Hash()},
+		GetBlockHeadersPacket: &tos.GetBlockHeadersPacket{
+			Origin: tos.HashOrNumber{Hash: block.Hash()},
 			Amount: 1,
 		},
 	}
@@ -597,7 +597,7 @@ func (s *Suite) hashAnnounce() error {
 	}
 	err = sendConn.Write(&BlockHeaders{
 		RequestId:          blockHeaderReq.ReqID(),
-		BlockHeadersPacket: eth.BlockHeadersPacket{nextBlock.Header()},
+		BlockHeadersPacket: tos.BlockHeadersPacket{nextBlock.Header()},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to write to connection: %v", err)

@@ -22,7 +22,7 @@ import (
 	"sync"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/p2p"
 )
@@ -40,15 +40,15 @@ var (
 	// a peer set, but no peer with the given id exists.
 	errPeerNotRegistered = errors.New("peer not registered")
 
-	// errSnapWithoutEth is returned if a peer attempts to connect only on the
+	// errSnapWithoutTos is returned if a peer attempts to connect only on the
 	// snap protocol without advertising the eth main protocol.
-	errSnapWithoutEth = errors.New("peer connected on snap without compatible eth support")
+	errSnapWithoutTos = errors.New("peer connected on snap without compatible tos support")
 )
 
 // peerSet represents the collection of active peers currently participating in
 // the `eth` protocol, with or without the `snap` extension.
 type peerSet struct {
-	peers     map[string]*ethPeer // Peers connected on the `eth` protocol
+	peers     map[string]*tosPeer // Peers connected on the `eth` protocol
 	snapPeers int                 // Number of `snap` compatible peers for connection prioritization
 
 	snapWait map[string]chan *snap.Peer // Peers connected on `eth` waiting for their snap extension
@@ -61,7 +61,7 @@ type peerSet struct {
 // newPeerSet creates a new peer set to track the active participants.
 func newPeerSet() *peerSet {
 	return &peerSet{
-		peers:    make(map[string]*ethPeer),
+		peers:    make(map[string]*tosPeer),
 		snapWait: make(map[string]chan *snap.Peer),
 		snapPend: make(map[string]*snap.Peer),
 	}
@@ -73,8 +73,8 @@ func newPeerSet() *peerSet {
 func (ps *peerSet) registerSnapExtension(peer *snap.Peer) error {
 	// Reject the peer if it advertises `snap` without `eth` as `snap` is only a
 	// satellite protocol meaningful with the chain selection of `eth`
-	if !peer.RunningCap(eth.ProtocolName, eth.ProtocolVersions) {
-		return errSnapWithoutEth
+	if !peer.RunningCap(tos.ProtocolName, tos.ProtocolVersions) {
+		return errSnapWithoutTos
 	}
 	// Ensure nobody can double connect
 	ps.lock.Lock()
@@ -99,7 +99,7 @@ func (ps *peerSet) registerSnapExtension(peer *snap.Peer) error {
 
 // waitExtensions blocks until all satellite protocols are connected and tracked
 // by the peerset.
-func (ps *peerSet) waitSnapExtension(peer *eth.Peer) (*snap.Peer, error) {
+func (ps *peerSet) waitSnapExtension(peer *tos.Peer) (*snap.Peer, error) {
 	// If the peer does not support a compatible `snap`, don't wait
 	if !peer.RunningCap(snap.ProtocolName, snap.ProtocolVersions) {
 		return nil, nil
@@ -133,7 +133,7 @@ func (ps *peerSet) waitSnapExtension(peer *eth.Peer) (*snap.Peer, error) {
 
 // registerPeer injects a new `eth` peer into the working set, or returns an error
 // if the peer is already known.
-func (ps *peerSet) registerPeer(peer *eth.Peer, ext *snap.Peer) error {
+func (ps *peerSet) registerPeer(peer *tos.Peer, ext *snap.Peer) error {
 	// Start tracking the new peer
 	ps.lock.Lock()
 	defer ps.lock.Unlock()
@@ -145,14 +145,14 @@ func (ps *peerSet) registerPeer(peer *eth.Peer, ext *snap.Peer) error {
 	if _, ok := ps.peers[id]; ok {
 		return errPeerAlreadyRegistered
 	}
-	eth := &ethPeer{
+	tosPeerInst := &tosPeer{
 		Peer: peer,
 	}
 	if ext != nil {
-		eth.snapExt = &snapPeer{ext}
+		tosPeerInst.snapExt = &snapPeer{ext}
 		ps.snapPeers++
 	}
-	ps.peers[id] = eth
+	ps.peers[id] = tosPeerInst
 	return nil
 }
 
@@ -174,7 +174,7 @@ func (ps *peerSet) unregisterPeer(id string) error {
 }
 
 // peer retrieves the registered peer with the given id.
-func (ps *peerSet) peer(id string) *ethPeer {
+func (ps *peerSet) peer(id string) *tosPeer {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()
 
@@ -183,11 +183,11 @@ func (ps *peerSet) peer(id string) *ethPeer {
 
 // peersWithoutBlock retrieves a list of peers that do not have a given block in
 // their set of known hashes so it might be propagated to them.
-func (ps *peerSet) peersWithoutBlock(hash common.Hash) []*ethPeer {
+func (ps *peerSet) peersWithoutBlock(hash common.Hash) []*tosPeer {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()
 
-	list := make([]*ethPeer, 0, len(ps.peers))
+	list := make([]*tosPeer, 0, len(ps.peers))
 	for _, p := range ps.peers {
 		if !p.KnownBlock(hash) {
 			list = append(list, p)
@@ -198,11 +198,11 @@ func (ps *peerSet) peersWithoutBlock(hash common.Hash) []*ethPeer {
 
 // peersWithoutTransaction retrieves a list of peers that do not have a given
 // transaction in their set of known hashes.
-func (ps *peerSet) peersWithoutTransaction(hash common.Hash) []*ethPeer {
+func (ps *peerSet) peersWithoutTransaction(hash common.Hash) []*tosPeer {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()
 
-	list := make([]*ethPeer, 0, len(ps.peers))
+	list := make([]*tosPeer, 0, len(ps.peers))
 	for _, p := range ps.peers {
 		if !p.KnownTransaction(hash) {
 			list = append(list, p)
@@ -231,12 +231,12 @@ func (ps *peerSet) snapLen() int {
 
 // peerWithHighestTD retrieves the known peer with the currently highest total
 // difficulty, but below the given PoS switchover threshold.
-func (ps *peerSet) peerWithHighestTD() *eth.Peer {
+func (ps *peerSet) peerWithHighestTD() *tos.Peer {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()
 
 	var (
-		bestPeer *eth.Peer
+		bestPeer *tos.Peer
 		bestTd   *big.Int
 	)
 	for _, p := range ps.peers {

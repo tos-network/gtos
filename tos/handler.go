@@ -32,7 +32,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/fetcher"
-	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
@@ -308,7 +308,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 
 // runEthPeer registers an eth peer into the joint eth/snap peerset, adds it to
 // various subsystems and starts handling messages.
-func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
+func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 	// If the peer has a `snap` extension, wait for it to connect so we can have
 	// a uniform initialization/teardown mechanism
 	snap, err := h.peers.waitSnapExtension(peer)
@@ -368,7 +368,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 	}
 	// Register the peer in the downloader. If the downloader considers it banned, we disconnect
 	if err := h.downloader.RegisterPeer(peer.ID(), peer.Version(), peer); err != nil {
-		peer.Log().Error("Failed to register peer in eth syncer", "err", err)
+		peer.Log().Error("Failed to register peer in tos syncer", "err", err)
 		return err
 	}
 	if snap != nil {
@@ -390,7 +390,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 	// If we have a trusted CHT, reject all peers below that (avoid fast sync eclipse)
 	if h.checkpointHash != (common.Hash{}) {
 		// Request the peer's checkpoint header for chain height/weight validation
-		resCh := make(chan *eth.Response)
+		resCh := make(chan *tos.Response)
 		if _, err := peer.RequestHeadersByNumber(h.checkpointNumber, 1, 0, false, resCh); err != nil {
 			return err
 		}
@@ -401,7 +401,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 
 			select {
 			case res := <-resCh:
-				headers := ([]*types.Header)(*res.Res.(*eth.BlockHeadersPacket))
+				headers := ([]*types.Header)(*res.Res.(*tos.BlockHeadersPacket))
 				if len(headers) == 0 {
 					// If we're doing a snap sync, we must enforce the checkpoint
 					// block to avoid eclipse attacks. Unsynced nodes are welcome
@@ -436,7 +436,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 	}
 	// If we have any explicit peer required block hashes, request them
 	for number, hash := range h.requiredBlocks {
-		resCh := make(chan *eth.Response)
+		resCh := make(chan *tos.Response)
 		if _, err := peer.RequestHeadersByNumber(number, 1, 0, false, resCh); err != nil {
 			return err
 		}
@@ -446,7 +446,7 @@ func (h *handler) runEthPeer(peer *eth.Peer, handler eth.Handler) error {
 
 			select {
 			case res := <-resCh:
-				headers := ([]*types.Header)(*res.Res.(*eth.BlockHeadersPacket))
+				headers := ([]*types.Header)(*res.Res.(*tos.BlockHeadersPacket))
 				if len(headers) == 0 {
 					// Required blocks are allowed to be missing if the remote
 					// node is not yet synced
@@ -622,8 +622,8 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		directCount int // Count of the txs sent directly to peers
 		directPeers int // Count of the peers that were sent transactions directly
 
-		txset = make(map[*ethPeer][]common.Hash) // Set peer->hash to transfer directly
-		annos = make(map[*ethPeer][]common.Hash) // Set peer->hash to announce
+		txset = make(map[*tosPeer][]common.Hash) // Set peer->hash to transfer directly
+		annos = make(map[*tosPeer][]common.Hash) // Set peer->hash to announce
 
 	)
 	// Broadcast transactions to a batch of peers not knowing about it

@@ -23,7 +23,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
-	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -291,7 +291,7 @@ func rlpHash(x interface{}) (h common.Hash) {
 	return h
 }
 
-// calcDifficulty is based on ethash.CalcDifficulty. This method is used in case
+// calcDifficulty is based on tosash.CalcDifficulty. This method is used in case
 // the caller does not provide an explicit difficulty, but instead provides only
 // parent timestamp + difficulty.
 // Note: this method only works for ethash engine.
@@ -308,5 +308,5 @@ func calcDifficulty(config *params.ChainConfig, number, currentTime, parentTime 
 		Number:     new(big.Int).SetUint64(number - 1),
 		Time:       parentTime,
 	}
-	return ethash.CalcDifficulty(config, currentTime, parent)
+	return tosash.CalcDifficulty(config, currentTime, parent)
 }

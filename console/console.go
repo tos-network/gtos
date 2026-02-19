@@ -205,7 +205,7 @@ func (c *Console) initExtensions() error {
 	if err != nil {
 		return fmt.Errorf("api modules: %v", err)
 	}
-	aliases := map[string]struct{}{"eth": {}, "personal": {}}
+	aliases := map[string]struct{}{"tos": {}, "personal": {}}
 	for api := range apis {
 		if api == "web3" {
 			continue
@@ -243,19 +243,19 @@ func (c *Console) initAdmin(vm *goja.Runtime, bridge *bridge) {
 //
 // If the console is in interactive mode and the 'personal' API is available, override
 // the openWallet, unlockAccount, newAccount and sign methods since these require user
-// interaction. The original web3 callbacks are stored in 'jeth'. These will be called
+// interaction. The original web3 callbacks are stored in 'jtos'. These will be called
 // by the bridge after the prompt and send the original web3 request to the backend.
 func (c *Console) initPersonal(vm *goja.Runtime, bridge *bridge) {
 	personal := getObject(vm, "personal")
 	if personal == nil || c.prompter == nil {
 		return
 	}
-	jeth := vm.NewObject()
-	vm.Set("jeth", jeth)
-	jeth.Set("openWallet", personal.Get("openWallet"))
-	jeth.Set("unlockAccount", personal.Get("unlockAccount"))
-	jeth.Set("newAccount", personal.Get("newAccount"))
-	jeth.Set("sign", personal.Get("sign"))
+	jtos := vm.NewObject()
+	vm.Set("jtos", jtos)
+	jtos.Set("openWallet", personal.Get("openWallet"))
+	jtos.Set("unlockAccount", personal.Get("unlockAccount"))
+	jtos.Set("newAccount", personal.Get("newAccount"))
+	jtos.Set("sign", personal.Get("sign"))
 	personal.Set("openWallet", jsre.MakeCallback(vm, bridge.OpenWallet))
 	personal.Set("unlockAccount", jsre.MakeCallback(vm, bridge.UnlockAccount))
 	personal.Set("newAccount", jsre.MakeCallback(vm, bridge.NewAccount))
@@ -319,9 +319,9 @@ func (c *Console) Welcome() {
 	if res, err := c.jsre.Run(`
 		var message = "instance: " + web3.version.node + "\n";
 		try {
-			message += "coinbase: " + eth.coinbase + "\n";
+			message += "coinbase: " + tos.coinbase + "\n";
 		} catch (err) {}
-		message += "at block: " + eth.blockNumber + " (" + new Date(1000 * eth.getBlock(eth.blockNumber).timestamp) + ")\n";
+		message += "at block: " + tos.blockNumber + " (" + new Date(1000 * tos.getBlock(tos.blockNumber).timestamp) + ")\n";
 		try {
 			message += " datadir: " + admin.datadir + "\n";
 		} catch (err) {}

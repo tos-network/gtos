@@ -25,7 +25,7 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosclient"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/checkpointoracle"
@@ -48,7 +48,7 @@ type chainReader interface {
 // lesCommons contains fields needed by both server and client.
 type lesCommons struct {
 	genesis                      common.Hash
-	config                       *ethconfig.Config
+	config                       *tosconfig.Config
 	chainConfig                  *params.ChainConfig
 	iConfig                      *light.IndexerConfig
 	chainDb, lesDb               tosdb.Database
@@ -138,7 +138,7 @@ func (c *lesCommons) localCheckpoint(index uint64) params.TrustedCheckpoint {
 }
 
 // setupOracle sets up the checkpoint oracle contract client.
-func (c *lesCommons) setupOracle(node *node.Node, genesis common.Hash, ethconfig *ethconfig.Config) *checkpointoracle.CheckpointOracle {
+func (c *lesCommons) setupOracle(node *node.Node, genesis common.Hash, ethconfig *tosconfig.Config) *checkpointoracle.CheckpointOracle {
 	config := ethconfig.CheckpointOracle
 	if config == nil {
 		// Try loading default config.
