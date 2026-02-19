@@ -21,9 +21,9 @@ import (
 	"errors"
 	"os"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/log"
 	bloomfilter "github.com/holiman/bloomfilter/v2"
 )
 

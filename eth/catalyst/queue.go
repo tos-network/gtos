@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/beacon"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/beacon"
+	"github.com/tos-network/gtos/core/types"
 )
 
 // maxTrackedPayloads is the maximum number of prepared payloads the execution

@@ -23,11 +23,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/tos-network/gtos/accounts/abi"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/eth/tracers"
 )
 
 func init() {

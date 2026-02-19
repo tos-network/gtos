@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/trie"
 )
 
 // StateAtBlock retrieves the state database associated with a certain block.

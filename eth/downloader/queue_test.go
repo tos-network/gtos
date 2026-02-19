@@ -24,13 +24,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/trie"
 )
 
 // makeChain creates a chain of n blocks starting at and including parent.

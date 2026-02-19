@@ -25,10 +25,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/ethdb/memorydb"
 )
 
 func init() {

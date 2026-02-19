@@ -24,11 +24,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/console/prompt"
-	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
-	"github.com/ethereum/go-ethereum/p2p/enode"
+	"github.com/tos-network/gtos/accounts/keystore"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/console/prompt"
+	"github.com/tos-network/gtos/p2p/dnsdisc"
+	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/urfave/cli/v2"
 )
 

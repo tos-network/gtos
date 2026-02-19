@@ -21,10 +21,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ethereum/go-ethereum/internal/debug"
-	"github.com/ethereum/go-ethereum/internal/flags"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tos-network/gtos/internal/debug"
+	"github.com/tos-network/gtos/internal/flags"
+	"github.com/tos-network/gtos/p2p/enode"
+	"github.com/tos-network/gtos/params"
 	"github.com/urfave/cli/v2"
 )
 

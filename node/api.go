@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/internal/debug"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tos-network/gtos/common/hexutil"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/internal/debug"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/p2p"
+	"github.com/tos-network/gtos/p2p/enode"
+	"github.com/tos-network/gtos/rpc"
 )
 
 // apis returns the collection of built-in RPC APIs.

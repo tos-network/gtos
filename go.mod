@@ -1,4 +1,4 @@
-module github.com/ethereum/go-ethereum
+module github.com/tos-network/gtos
 
 go 1.17
 

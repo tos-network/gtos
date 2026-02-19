@@ -19,11 +19,11 @@ package core
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/trie"
 )
 
 // BlockValidator is responsible for validating block headers, uncles and

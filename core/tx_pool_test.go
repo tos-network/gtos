@@ -27,14 +27,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/trie"
 )
 
 var (

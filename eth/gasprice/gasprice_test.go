@@ -22,16 +22,16 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rpc"
 )
 
 const testHead = 32

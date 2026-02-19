@@ -21,12 +21,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/prque"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/common/prque"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/rlp"
 )
 
 // InitDatabaseFromFreezer reinitializes an empty database from a previous batch

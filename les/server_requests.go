@@ -20,15 +20,15 @@ import (
 	"encoding/binary"
 	"encoding/json"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/light"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/light"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/metrics"
+	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/trie"
 )
 
 // serverBackend defines the backend functions needed for serving LES requests

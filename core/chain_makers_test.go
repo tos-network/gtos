@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/params"
 )
 
 func ExampleGenerateChain() {

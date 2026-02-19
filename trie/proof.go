@@ -21,10 +21,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/log"
 )
 
 // Prove constructs a merkle proof for key. The result contains all encoded nodes

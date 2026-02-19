@@ -24,13 +24,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/metrics"
+	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/trie"
 )
 
 var (

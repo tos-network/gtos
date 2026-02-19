@@ -22,13 +22,13 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/params"
 )
 
 // So we can deterministically seed different blockchains

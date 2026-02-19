@@ -21,10 +21,10 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/eth/protocols/eth"
-	"github.com/ethereum/go-ethereum/eth/protocols/snap"
-	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/eth/protocols/eth"
+	"github.com/tos-network/gtos/eth/protocols/snap"
+	"github.com/tos-network/gtos/p2p"
 )
 
 var (

@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ethereum/go-ethereum/common/fdlimit"
-	"github.com/ethereum/go-ethereum/internal/flags"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/tos-network/gtos/common/fdlimit"
+	"github.com/tos-network/gtos/internal/flags"
+	"github.com/tos-network/gtos/log"
 	"github.com/urfave/cli/v2"
 )
 

@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/cmd/devp2p/internal/v5test"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/p2p/discover"
+	"github.com/tos-network/gtos/cmd/devp2p/internal/v5test"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/p2p/discover"
 	"github.com/urfave/cli/v2"
 )
 

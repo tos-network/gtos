@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/mclock"
-	"github.com/ethereum/go-ethereum/p2p/nodestate"
+	"github.com/tos-network/gtos/common/mclock"
+	"github.com/tos-network/gtos/p2p/nodestate"
 )
 
 var (

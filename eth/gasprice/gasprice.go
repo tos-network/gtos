@@ -22,13 +22,13 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rpc"
 	lru "github.com/hashicorp/golang-lru"
 )
 

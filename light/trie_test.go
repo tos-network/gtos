@@ -24,13 +24,13 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tos-network/gtos/consensus/ethash"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/trie"
 )
 
 func TestNodeIterator(t *testing.T) {

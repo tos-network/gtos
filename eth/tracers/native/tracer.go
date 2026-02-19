@@ -38,7 +38,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/tos-network/gtos/eth/tracers"
 )
 
 // init registers itself this packages as a lookup for tracers.
