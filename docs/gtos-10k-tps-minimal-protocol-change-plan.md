@@ -27,6 +27,7 @@ To reach 10k TPS with minimal protocol surface:
 3. Keep 1s block time.
 4. Set block gas limit target high enough.
 5. Keep execution deterministic and preserve serial fallback.
+6. Since GTOS is still pre-mainnet, use **direct parameter updates** now (no fork-gating in this phase).
 
 Recommended V1 target parameters:
 
@@ -40,9 +41,10 @@ Then theoretical ceiling:
 
 ---
 
-## 3. Change Set A (Absolute Minimal, New Network / Regenesis)
+## 3. Change Set A (Do Now: Pre-mainnet Direct Changes)
 
-This is the smallest code delta if you can start from a new genesis.
+GTOS is still under active development, so the minimal and recommended path is to
+directly update transfer gas parameters without adding fork compatibility logic.
 
 ## 3.1 Consensus Cost Constant
 
@@ -81,11 +83,22 @@ Important:
   - `MinerGasLimitFlag` default follows `tosconfig.Defaults.Miner.GasCeil`
   - Optional: `DeveloperGasLimitFlag` default to benchmark target for easier local validation
 
+## 3.4 Explicitly Not Needed in This Phase
+
+For current GTOS stage, do **not** implement these yet:
+
+- `TransferGasForkBlock` in `params/config.go`
+- extra constants like `TxGasTransferPostFork`
+- fork-conditional intrinsic-gas branches in execution/txpool
+
+These are only needed when backward compatibility with an already-running network becomes mandatory.
+
 ---
 
-## 4. Change Set B (Live Network Safe Path, Hard-Forked)
+## 4. Change Set B (Future: Live Network Safe Path, Hard-Forked)
 
-If network is already running, do not directly overwrite `TxGas` without fork gating.
+If GTOS later runs a production network with historical compatibility requirements,
+do not directly overwrite `TxGas`; use fork gating.
 
 ## 4.1 Add Fork Gate in Chain Config
 
@@ -98,15 +111,12 @@ If network is already running, do not directly overwrite `TxGas` without fork ga
   - `CheckConfigForkOrder`
   - `checkCompatible`
 
-## 4.2 Add New Transfer Gas Constants
+## 4.2 Add New Transfer Gas Constants (Future)
 
 - File: `params/protocol_params.go`
-- Keep old:
-  - `TxGas = 21000` (pre-fork)
-- Add new:
-  - `TxGasTransferPostFork = 3000` (or final tuned value)
+- Keep old constant semantics for pre-fork blocks, and add a post-fork transfer constant.
 
-## 4.3 Apply Forked Intrinsic-Gas Logic
+## 4.3 Apply Forked Intrinsic-Gas Logic (Future)
 
 - File: `core/state_transition.go`
 - Location: `IntrinsicGas(...)` / `TransitionDb()`
@@ -164,9 +174,10 @@ Reason:
 ## 6.1 Correctness
 
 - `go test ./core/... ./miner/... ./consensus/...`
-- Add tests for fork boundary (if Change Set B used):
-  - pre-fork block rejects tx with gas < 21000
-  - post-fork block accepts plain transfer with gas >= new minimum
+- For current pre-mainnet direct-change path:
+  - verify plain transfer succeeds with `gas >= 3000`
+  - verify txpool and block execution use identical intrinsic-gas validation
+- Add fork-boundary tests only when Change Set B is implemented.
 
 ## 6.2 Throughput
 
@@ -210,4 +221,3 @@ Expected:
 3. No sharding/multi-chain split in V1.
 
 These can be phase-2 if you want >10k with safer gas economics.
-
