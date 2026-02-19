@@ -37,7 +37,7 @@ import (
 	"golang.org/x/term"
 )
 
-// config contains all the configurations needed by puppeth that should be saved
+// config contains all the configurations needed by pupptos that should be saved
 // between sessions.
 type config struct {
 	path      string   // File containing the configuration values
@@ -65,7 +65,7 @@ func (c config) flush() {
 
 	out, _ := json.MarshalIndent(c, "", "  ")
 	if err := os.WriteFile(c.path, out, 0644); err != nil {
-		log.Warn("Failed to save puppeth configs", "file", c.path, "err", err)
+		log.Warn("Failed to save pupptos configs", "file", c.path, "err", err)
 	}
 }
 

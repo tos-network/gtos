@@ -59,7 +59,7 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	config.Tosash.PowMode = tosash.ModeFake
 	ethservice, err := tos.New(n, config)
 	if err != nil {
-		t.Fatalf("can't create new ethereum service: %v", err)
+		t.Fatalf("can't create new tos service: %v", err)
 	}
 	filterSystem := filters.NewFilterSystem(ethservice.APIBackend, filters.Config{})
 	n.RegisterAPIs([]rpc.API{{
@@ -146,7 +146,7 @@ func TestGethClient(t *testing.T) {
 func testAccessList(t *testing.T, client *rpc.Client) {
 	ec := New(client)
 	// Test transfer
-	msg := ethereum.CallMsg{
+	msg := gtos.CallMsg{
 		From:     testAddr,
 		To:       &common.Address{},
 		Gas:      21000,
@@ -167,7 +167,7 @@ func testAccessList(t *testing.T, client *rpc.Client) {
 		t.Fatalf("unexpected length of accesslist: %v", len(*al))
 	}
 	// Test reverting transaction
-	msg = ethereum.CallMsg{
+	msg = gtos.CallMsg{
 		From:     testAddr,
 		To:       nil,
 		Gas:      100000,
@@ -306,7 +306,7 @@ func testSubscribePendingTransactions(t *testing.T, client *rpc.Client) {
 
 func testCallContract(t *testing.T, client *rpc.Client) {
 	ec := New(client)
-	msg := ethereum.CallMsg{
+	msg := gtos.CallMsg{
 		From:     testAddr,
 		To:       &common.Address{},
 		Gas:      21000,

@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"strings"
 
-	ethereum "github.com/tos-network/gtos"
+	gtos "github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/accounts/abi/bind"
 	"github.com/tos-network/gtos/common"
@@ -19,7 +19,7 @@ import (
 var (
 	_ = big.NewInt
 	_ = strings.NewReader
-	_ = ethereum.NotFound
+	_ = gtos.NotFound
 	_ = bind.Bind
 	_ = common.Big1
 	_ = types.BloomLookup
@@ -288,7 +288,7 @@ type CheckpointOracleNewCheckpointVoteIterator struct {
 	event    string              // Event name to use for unpacking event data
 
 	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	sub  gtos.Subscription // Subscription for errors, completion and termination
 	done bool                  // Whether the subscription completed delivering logs
 	fail error                 // Occurred error to stop iteration
 }

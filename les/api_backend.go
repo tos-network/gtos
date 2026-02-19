@@ -255,7 +255,7 @@ func (b *LesApiBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEven
 	return b.les.blockchain.SubscribeRemovedLogsEvent(ch)
 }
 
-func (b *LesApiBackend) SyncProgress() ethereum.SyncProgress {
+func (b *LesApiBackend) SyncProgress() gtos.SyncProgress {
 	return b.les.Downloader().Progress()
 }
 

@@ -292,7 +292,7 @@ func (b *TOSAPIBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.S
 	return b.tos.TxPool().SubscribeNewTxsEvent(ch)
 }
 
-func (b *TOSAPIBackend) SyncProgress() ethereum.SyncProgress {
+func (b *TOSAPIBackend) SyncProgress() gtos.SyncProgress {
 	return b.tos.Downloader().Progress()
 }
 

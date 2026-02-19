@@ -83,7 +83,7 @@ var (
 )
 
 func init() {
-	app = flags.NewApp(gitCommit, gitDate, "ethereum checkpoint helper tool")
+	app = flags.NewApp(gitCommit, gitDate, "tos checkpoint helper tool")
 	app.Name = "abigen"
 	app.Flags = []cli.Flag{
 		abiFlag,

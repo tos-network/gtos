@@ -37,7 +37,7 @@ var (
 )
 
 func init() {
-	app = flags.NewApp(gitCommit, gitDate, "ethereum checkpoint helper tool")
+	app = flags.NewApp(gitCommit, gitDate, "tos checkpoint helper tool")
 	app.Commands = []*cli.Command{
 		commandStatus,
 		commandDeploy,

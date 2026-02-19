@@ -87,7 +87,7 @@ var dashboardContent = `
 											<li><a onclick="$('#connect_menu').removeClass('active'); $('#connect_list').toggle(); load('#other')">Other Ethereum Clients</a></li>{{end}}
 										</ul>
 									</li>
-									<li id="about_menu"><a onclick="load('#about')"><i class="fa fa-heartbeat"></i> About Puppeth</a></li>
+									<li id="about_menu"><a onclick="load('#about')"><i class="fa fa-heartbeat"></i> About Pupptos</a></li>
 								</ul>
 							</div>
 						</div>
@@ -357,19 +357,19 @@ try! node?.start();
 							<div style="margin: 0 auto;">
 								<div class="x_panel">
 									<div class="x_title">
-										<h3>Puppeth &ndash; Your Ethereum private network manager</h3>
+										<h3>Pupptos &ndash; Your Ethereum private network manager</h3>
 										<div class="clearfix"></div>
 									</div>
 									<div style="display: inline-block; vertical-align: bottom; width: 623px; margin-top: 16px;">
-										<p>Puppeth is a tool to aid you in creating a new Ethereum network down to the genesis block, bootnodes, signers, ethstats server, crypto faucet,  block explorer, dashboard and more; without the hassle that it would normally entail to manually configure all these services one by one.</p>
-										<p>Puppeth uses ssh to dial in to remote servers, and builds its network components out of docker containers using docker-compose. The user is guided through the process via a command line wizard that does the heavy lifting and topology configuration automatically behind the scenes.</p>
+										<p>Pupptos is a tool to aid you in creating a new Ethereum network down to the genesis block, bootnodes, signers, ethstats server, crypto faucet,  block explorer, dashboard and more; without the hassle that it would normally entail to manually configure all these services one by one.</p>
+										<p>Pupptos uses ssh to dial in to remote servers, and builds its network components out of docker containers using docker-compose. The user is guided through the process via a command line wizard that does the heavy lifting and topology configuration automatically behind the scenes.</p>
 										<br/>
-										<p>Puppeth is distributed as part of the <a href="https://gtos.ethereum.org/downloads/" target="about:blank">Geth &amp; Tools</a> bundles, but can also be installed separately via:<pre>go get github.com/tos-network/gtos/cmd/puppeth</pre></p>
+										<p>Pupptos is distributed as part of the <a href="https://gtos.ethereum.org/downloads/" target="about:blank">Geth &amp; Tools</a> bundles, but can also be installed separately via:<pre>go get github.com/tos-network/gtos/cmd/pupptos</pre></p>
 										<br/>
 										<p><em>Copyright 2017. The go-ethereum Authors.</em></p>
 									</div>
 									<div style="display: inline-block; vertical-align: bottom; width: 217px;">
-										<img src="puppeth.png" style="height: 256px; margin: 16px 16px 16px 16px"></img>
+										<img src="pupptos.png" style="height: 256px; margin: 16px 16px 16px 16px"></img>
 									</div>
 								</div>
 							</div>
@@ -477,7 +477,7 @@ ADD {{.Network}}-harmony.json /dashboard/{{.Network}}-harmony.json
 ADD {{.Network}}-parity.json /dashboard/{{.Network}}-parity.json
 ADD {{.Network}}-python.json /dashboard/{{.Network}}-python.json
 ADD index.html /dashboard/index.html
-ADD puppeth.png /dashboard/puppeth.png
+ADD pupptos.png /dashboard/pupptos.png
 
 EXPOSE 80
 
@@ -581,7 +581,7 @@ func deployDashboard(client *sshClient, network string, conf *config, config *da
 	// Marshal the genesis spec files for go-ethereum and all the other clients
 	genesis, _ := conf.Genesis.MarshalJSON()
 	files[filepath.Join(workdir, network+".json")] = genesis
-	files[filepath.Join(workdir, "puppeth.png")] = dashboardMascot
+	files[filepath.Join(workdir, "pupptos.png")] = dashboardMascot
 
 	// Upload the deployment files to the remote server (and clean up afterwards)
 	if out, err := client.Upload(files); err != nil {
