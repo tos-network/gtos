@@ -33,6 +33,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/staking"
 	"github.com/tos-network/gtos/trie"
 	"golang.org/x/crypto/sha3"
 )
@@ -600,6 +601,10 @@ func (tosash *Tosash) Prepare(chain consensus.ChainHeaderReader, header *types.H
 func (tosash *Tosash) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 	// Accumulate any block and uncle rewards and commit the final state root
 	accumulateRewards(chain.Config(), state, header, uncles)
+	// Distribute TOS staking rewards to the block proposer (coinbase) node.
+	// Phase 1: only the coinbase earns staking rewards; full validator-set
+	// distribution will be added when a validator registry is available.
+	staking.DistributeBlockRewards(state, header, []common.Address{header.Coinbase})
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 }
 

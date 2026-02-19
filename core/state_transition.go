@@ -27,6 +27,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 var emptyCodeHash = common.HexToHash("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
@@ -233,9 +234,9 @@ func (st *StateTransition) preCheck() error {
 //
 // GTOS transaction rules:
 //  1. Contract creation (To == nil): rejected
-//  2. Transactions with non-empty data to non-system addresses: rejected
+//  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  4. System action address: consume gas only (sysaction handler invoked externally)
+//  4. Transactions with non-empty data to non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
@@ -266,24 +267,43 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// Increment nonce
 		st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
 
-		// Check sender has enough balance for value transfer
-		if msg.Value().Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
-			return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
-		}
-
 		toAddr := st.to()
-		toCode := st.state.GetCode(toAddr)
 
-		if len(st.data) > 0 && len(toCode) == 0 {
-			// Data with no contract code at destination: reject
-			vmerr = ErrContractNotSupported
-		} else if len(toCode) > 0 {
-			// Destination has contract code: reject (no EVM execution)
-			vmerr = ErrContractNotSupported
-		} else {
-			// Plain TOS transfer
+		if toAddr == params.SystemActionAddress {
+			// System action: transfer any attached value to StakingAddress, then execute.
 			if msg.Value().Sign() > 0 {
-				st.evm.Context.Transfer(st.state, msg.From(), toAddr, msg.Value())
+				if !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
+					return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+				}
+				st.evm.Context.Transfer(st.state, msg.From(), params.StakingAddress, msg.Value())
+			}
+			gasUsed, execErr := sysaction.Execute(msg, st.state)
+			// Deduct sysaction-specific gas on top of intrinsic gas.
+			if st.gas >= gasUsed {
+				st.gas -= gasUsed
+			} else {
+				st.gas = 0
+			}
+			vmerr = execErr
+		} else {
+			// Check sender has enough balance for value transfer
+			if msg.Value().Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
+				return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+			}
+
+			toCode := st.state.GetCode(toAddr)
+
+			if len(st.data) > 0 && len(toCode) == 0 {
+				// Data with no contract code at destination: reject
+				vmerr = ErrContractNotSupported
+			} else if len(toCode) > 0 {
+				// Destination has contract code: reject (no EVM execution)
+				vmerr = ErrContractNotSupported
+			} else {
+				// Plain TOS transfer
+				if msg.Value().Sign() > 0 {
+					st.evm.Context.Transfer(st.state, msg.From(), toAddr, msg.Value())
+				}
 			}
 		}
 	}
