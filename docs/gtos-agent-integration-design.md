@@ -1,14 +1,14 @@
-# GTOS Agent Integration Design (Based on geth v1.10.25)
+# GTOS Agent Integration Design (v1.10.25 Chain-Core Baseline)
 
 ## 1. Goal
 
-Build `gtos` as a unified node stack based on `geth v1.10.25`:
+Build `gtos` as a unified node stack based on a v1.10.25 chain-core baseline:
 
-- Reuse geth as the deterministic chain core (accounts, transfer, consensus, replay).
+- Reuse the chain core as the deterministic state layer (accounts, transfer, consensus, replay).
 - Integrate key `tosd` capabilities into the same node process.
 - Expose Agent-facing control and discovery APIs (including MCP extensions).
 
-This means we do **not** run a separate `tosd + geth` pair per node. Instead, each node runs one `gtos` binary with chain + agent capabilities.
+This means we do **not** run a separate dual-daemon pair per node. Instead, each node runs one `gtos` binary with chain + agent capabilities.
 
 ## 2. Core Idea
 
@@ -137,7 +137,7 @@ Benefits:
 - clear upgrade path from current `tosd` architecture
 
 Tradeoff:
-- higher node complexity than pure geth
+- higher node complexity than a pure chain-only client
 - requires careful module boundaries to avoid long-term fork-maintenance burden
 
 ## 11. Next Implementation Deliverables
@@ -147,4 +147,3 @@ Tradeoff:
 3. implement event indexer: chain events -> local capability index
 4. expose initial RPC endpoints (`agent_*`, `discover_*`, `mcp_*`)
 5. add integration tests for registration/discovery/challenge/slash/jail flows
-
