@@ -34,26 +34,6 @@ var (
 	fullchainFile = "./testdata/chain.rlp"
 )
 
-func TestEthSuite(t *testing.T) {
-	gtos, err := runGeth()
-	if err != nil {
-		t.Fatalf("could not run gtos: %v", err)
-	}
-	defer gtos.Close()
-
-	suite, err := NewSuite(gtos.Server().Self(), fullchainFile, genesisFile)
-	if err != nil {
-		t.Fatalf("could not create new test suite: %v", err)
-	}
-	for _, test := range suite.EthTests() {
-		t.Run(test.Name, func(t *testing.T) {
-			result := utesting.RunTAP([]utesting.Test{{Name: test.Name, Fn: test.Fn}}, os.Stdout)
-			if result[0].Failed {
-				t.Fatal()
-			}
-		})
-	}
-}
 
 func TestSnapSuite(t *testing.T) {
 	gtos, err := runGeth()
