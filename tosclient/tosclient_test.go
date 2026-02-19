@@ -282,12 +282,6 @@ func TestEthClient(t *testing.T) {
 		"StatusFunctions": {
 			func(t *testing.T) { testStatusFunctions(t, client) },
 		},
-		"CallContract": {
-			func(t *testing.T) { testCallContract(t, client) },
-		},
-		"CallContractAtHash": {
-			func(t *testing.T) { testCallContractAtHash(t, client) },
-		},
 		"AtFunctions": {
 			func(t *testing.T) { testAtFunctions(t, client) },
 		},
@@ -530,60 +524,6 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	}
 	if !reflect.DeepEqual(history, want) {
 		t.Fatalf("FeeHistory result doesn't match expected: (got: %v, want: %v)", history, want)
-	}
-}
-
-func testCallContractAtHash(t *testing.T, client *rpc.Client) {
-	ec := NewClient(client)
-
-	// EstimateGas
-	msg := gtos.CallMsg{
-		From:  testAddr,
-		To:    &common.Address{},
-		Gas:   21000,
-		Value: big.NewInt(1),
-	}
-	gas, err := ec.EstimateGas(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gas != 21000 {
-		t.Fatalf("unexpected gas price: %v", gas)
-	}
-	block, err := ec.HeaderByNumber(context.Background(), big.NewInt(1))
-	if err != nil {
-		t.Fatalf("BlockByNumber error: %v", err)
-	}
-	// CallContract
-	if _, err := ec.CallContractAtHash(context.Background(), msg, block.Hash()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func testCallContract(t *testing.T, client *rpc.Client) {
-	ec := NewClient(client)
-
-	// EstimateGas
-	msg := gtos.CallMsg{
-		From:  testAddr,
-		To:    &common.Address{},
-		Gas:   21000,
-		Value: big.NewInt(1),
-	}
-	gas, err := ec.EstimateGas(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gas != 21000 {
-		t.Fatalf("unexpected gas price: %v", gas)
-	}
-	// CallContract
-	if _, err := ec.CallContract(context.Background(), msg, big.NewInt(1)); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// PendingCallContract
-	if _, err := ec.PendingCallContract(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

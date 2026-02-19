@@ -99,7 +99,7 @@ func newTester(t *testing.T, confOverride func(*tosconfig.Config)) *tester {
 		Miner: miner.Config{
 			Etherbase: common.HexToAddress(testAddress),
 		},
-		Ethash: tosash.Config{
+		Tosash: tosash.Config{
 			PowMode: tosash.ModeTest,
 		},
 	}

@@ -226,6 +226,11 @@ func (c *Console) initExtensions() error {
 				vm.Set(name, v)
 			}
 		}
+		// Also set eth as an alias to web3.eth for backward compatibility.
+		// This allows JS code that uses "eth.getBlock()" to work.
+		if eth := web3.Get("eth"); eth != nil {
+			vm.Set("eth", eth)
+		}
 	})
 	return nil
 }
@@ -315,19 +320,44 @@ func (c *Console) AutoCompleteInput(line string, pos int) (string, []string, str
 func (c *Console) Welcome() {
 	message := "Welcome to the Geth JavaScript console!\n\n"
 
-	// Print some generic Geth metadata
-	if res, err := c.jsre.Run(`
-		var message = "instance: " + web3.version.node + "\n";
-		try {
-			message += "coinbase: " + tos.coinbase + "\n";
-		} catch (err) {}
-		message += "at block: " + tos.blockNumber + " (" + new Date(1000 * tos.getBlock(tos.blockNumber).timestamp) + ")\n";
-		try {
-			message += " datadir: " + admin.datadir + "\n";
-		} catch (err) {}
-		message
-	`); err == nil {
-		message += res.String()
+	// Print some generic Geth metadata via direct RPC calls.
+	// Use web3_clientVersion for instance name.
+	if res, err := c.jsre.Run(`web3.version.node`); err == nil {
+		if s := res.String(); s != "" && s != "undefined" {
+			message += "instance: " + s + "\n"
+		}
+	}
+	// Use tos_coinbase for coinbase address.
+	var coinbase string
+	if err := c.client.Call(&coinbase, "tos_coinbase"); err == nil && coinbase != "" {
+		message += "coinbase: " + coinbase + "\n"
+	}
+	// Use tos_blockNumber and tos_getBlockByNumber for block info.
+	var blockNum string
+	_ = c.client.Call(&blockNum, "tos_blockNumber")
+	if blockNum == "" {
+		blockNum = "0x0"
+	}
+	{
+		// Get block timestamp via tos_getBlockByNumber.
+		var blockInfo map[string]interface{}
+		_ = c.client.Call(&blockInfo, "tos_getBlockByNumber", blockNum, false)
+		tsHex := "0x0"
+		if blockInfo != nil {
+			if ts, ok := blockInfo["timestamp"].(string); ok && ts != "" {
+				tsHex = ts
+			}
+		}
+		// Use JS to format with proper date string.
+		jsCode := fmt.Sprintf("(function() { var bn = parseInt(%q, 16); var ts = parseInt(%q, 16) || 0; return \"at block: \" + bn + \" (\" + new Date(1000 * ts) + \")\\n\"; })()", blockNum, tsHex)
+		if res, err := c.jsre.Run(jsCode); err == nil {
+			message += res.String()
+		}
+	}
+	// Use admin_datadir for data directory.
+	var datadir string
+	if err := c.client.Call(&datadir, "admin_datadir"); err == nil && datadir != "" {
+		message += " datadir: " + datadir + "\n"
 	}
 	// List all the supported modules for the user to call
 	if apis, err := c.client.SupportedModules(); err == nil {
