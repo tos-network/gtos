@@ -31,7 +31,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
@@ -212,16 +211,6 @@ func (b *TOSAPIBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
 	return nil
 }
 
-func (b *TOSAPIBackend) GetEVM(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
-	vmError := func() error { return nil }
-	if vmConfig == nil {
-		vmConfig = b.tos.blockchain.GetVMConfig()
-	}
-	txContext := core.NewEVMTxContext(msg)
-	context := core.NewEVMBlockContext(header, b.tos.BlockChain(), nil)
-	return vm.NewEVM(context, txContext, state, b.tos.blockchain.Config(), *vmConfig), vmError, nil
-}
-
 func (b *TOSAPIBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
 	return b.tos.BlockChain().SubscribeRemovedLogsEvent(ch)
 }
@@ -367,6 +356,6 @@ func (b *TOSAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, re
 	return b.tos.StateAtBlock(block, reexec, base, checkLive, preferDisk)
 }
 
-func (b *TOSAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (b *TOSAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, *state.StateDB, error) {
 	return b.tos.stateAtTransaction(block, txIndex, reexec)
 }

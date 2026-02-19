@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/event"
@@ -256,7 +255,7 @@ func createMiner(t *testing.T) (*Miner, *event.TypeMux, func(skipMiner bool)) {
 	// Create consensus engine
 	engine := clique.New(chainConfig.Clique, chainDB)
 	// Create Ethereum backend
-	bc, err := core.NewBlockChain(chainDB, nil, chainConfig, engine, vm.Config{}, nil, nil)
+	bc, err := core.NewBlockChain(chainDB, nil, chainConfig, engine, nil, nil)
 	if err != nil {
 		t.Fatalf("can't create new chain %v", err)
 	}

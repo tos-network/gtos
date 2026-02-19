@@ -31,7 +31,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
@@ -179,15 +178,6 @@ func (b *LesApiBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
 	return nil
 }
 
-func (b *LesApiBackend) GetEVM(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
-	if vmConfig == nil {
-		vmConfig = new(vm.Config)
-	}
-	txContext := core.NewEVMTxContext(msg)
-	context := core.NewEVMBlockContext(header, b.les.blockchain, nil)
-	return vm.NewEVM(context, txContext, state, b.les.chainConfig, *vmConfig), state.Error, nil
-}
-
 func (b *LesApiBackend) SendTx(ctx context.Context, signedTx *types.Transaction) error {
 	return b.les.txPool.Add(ctx, signedTx)
 }
@@ -325,6 +315,6 @@ func (b *LesApiBackend) StateAtBlock(ctx context.Context, block *types.Block, re
 	return b.les.stateAtBlock(ctx, block, reexec)
 }
 
-func (b *LesApiBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (b *LesApiBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, *state.StateDB, error) {
 	return b.les.stateAtTransaction(ctx, block, txIndex, reexec)
 }

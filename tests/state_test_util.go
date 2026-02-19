@@ -215,23 +215,21 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 		}
 	}
 
-	// Prepare the EVM.
-	txContext := core.NewEVMTxContext(msg)
-	context := core.NewEVMBlockContext(block.Header(), nil, &t.json.Env.Coinbase)
-	context.GetHash = vmTestBlockHash
-	context.BaseFee = baseFee
-	context.Random = nil
+	// Prepare the block context.
+	blockCtx := core.NewEVMBlockContext(block.Header(), nil, &t.json.Env.Coinbase)
+	blockCtx.GetHash = vmTestBlockHash
+	blockCtx.BaseFee = baseFee
+	blockCtx.Random = nil
 	if config.IsLondon(new(big.Int)) && t.json.Env.Random != nil {
 		rnd := common.BigToHash(t.json.Env.Random)
-		context.Random = &rnd
-		context.Difficulty = big.NewInt(0)
+		blockCtx.Random = &rnd
+		blockCtx.Difficulty = big.NewInt(0)
 	}
-	evm := vm.NewEVM(context, txContext, statedb, config, vmconfig)
 	// Execute the message.
 	snapshot := statedb.Snapshot()
 	gaspool := new(core.GasPool)
 	gaspool.AddGas(block.GasLimit())
-	if _, err := core.ApplyMessage(evm, msg, gaspool); err != nil {
+	if _, err := core.ApplyMessage(blockCtx, config, msg, gaspool, statedb); err != nil {
 		statedb.RevertToSnapshot(snapshot)
 	}
 	// Add 0-value mining reward. This only makes a difference in the cases

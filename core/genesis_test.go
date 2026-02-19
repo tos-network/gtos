@@ -25,7 +25,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
 )
@@ -117,7 +116,7 @@ func TestSetupGenesis(t *testing.T) {
 				// Advance to block #4, past the homestead transition block of customg.
 				genesis := oldcustomg.MustCommit(db)
 
-				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, tosash.NewFullFaker(), vm.Config{}, nil, nil)
+				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, tosash.NewFullFaker(), nil, nil)
 				defer bc.Stop()
 
 				blocks, _ := GenerateChain(oldcustomg.Config, genesis, tosash.NewFaker(), db, 4, nil)

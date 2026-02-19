@@ -31,7 +31,6 @@ import (
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/event"
@@ -105,8 +104,8 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		genesisNoFork  = gspecNoFork.MustCommit(dbNoFork)
 		genesisProFork = gspecProFork.MustCommit(dbProFork)
 
-		chainNoFork, _  = core.NewBlockChain(dbNoFork, nil, configNoFork, engine, vm.Config{}, nil, nil)
-		chainProFork, _ = core.NewBlockChain(dbProFork, nil, configProFork, engine, vm.Config{}, nil, nil)
+		chainNoFork, _  = core.NewBlockChain(dbNoFork, nil, configNoFork, engine, nil, nil)
+		chainProFork, _ = core.NewBlockChain(dbProFork, nil, configProFork, engine, nil, nil)
 
 		blocksNoFork, _  = core.GenerateChain(configNoFork, genesisNoFork, engine, dbNoFork, 2, nil)
 		blocksProFork, _ = core.GenerateChain(configProFork, genesisProFork, engine, dbProFork, 2, nil)

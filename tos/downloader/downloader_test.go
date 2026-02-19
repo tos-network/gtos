@@ -33,7 +33,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/event"
@@ -74,7 +73,7 @@ func newTesterWithNotification(t *testing.T, success func()) *downloadTester {
 	}
 	gspec.MustCommit(db)
 
-	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), vm.Config{}, nil, nil)
+	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
 	if err != nil {
 		panic(err)
 	}

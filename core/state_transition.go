@@ -33,19 +33,21 @@ import (
 var emptyCodeHash = common.HexToHash("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
 
 // StateTransition handles GTOS state transitions.
-// Smart contract execution is not supported; only plain TOS transfers are allowed.
+// Smart contract execution is not supported; only plain TOS transfers and
+// system actions are allowed.
 type StateTransition struct {
-	gp         *GasPool
-	msg        Message
-	gas        uint64
-	gasPrice   *big.Int
-	gasFeeCap  *big.Int
-	gasTipCap  *big.Int
-	initialGas uint64
-	value      *big.Int
-	data       []byte
-	state      vm.StateDB
-	evm        *vm.EVM
+	gp          *GasPool
+	msg         Message
+	gas         uint64
+	gasPrice    *big.Int
+	gasFeeCap   *big.Int
+	gasTipCap   *big.Int
+	initialGas  uint64
+	value       *big.Int
+	data        []byte
+	state       vm.StateDB
+	blockCtx    vm.BlockContext
+	chainConfig *params.ChainConfig
 }
 
 // Message represents a message sent to a contract.
@@ -138,24 +140,25 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(evm *vm.EVM, msg Message, gp *GasPool) *StateTransition {
+func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) *StateTransition {
 	return &StateTransition{
-		gp:        gp,
-		evm:       evm,
-		msg:       msg,
-		gasPrice:  msg.GasPrice(),
-		gasFeeCap: msg.GasFeeCap(),
-		gasTipCap: msg.GasTipCap(),
-		value:     msg.Value(),
-		data:      msg.Data(),
-		state:     evm.StateDB,
+		gp:          gp,
+		msg:         msg,
+		gasPrice:    msg.GasPrice(),
+		gasFeeCap:   msg.GasFeeCap(),
+		gasTipCap:   msg.GasTipCap(),
+		value:       msg.Value(),
+		data:        msg.Data(),
+		state:       statedb,
+		blockCtx:    blockCtx,
+		chainConfig: chainConfig,
 	}
 }
 
 // ApplyMessage computes the new state by applying the given message
 // against the old state within the environment.
-func ApplyMessage(evm *vm.EVM, msg Message, gp *GasPool) (*ExecutionResult, error) {
-	return NewStateTransition(evm, msg, gp).TransitionDb()
+func ApplyMessage(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) (*ExecutionResult, error) {
+	return NewStateTransition(blockCtx, chainConfig, msg, gp, statedb).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -207,24 +210,22 @@ func (st *StateTransition) preCheck() error {
 		}
 	}
 	// London: validate gas fee cap vs base fee
-	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
-		if !st.evm.Config.NoBaseFee || st.gasFeeCap.BitLen() > 0 || st.gasTipCap.BitLen() > 0 {
-			if l := st.gasFeeCap.BitLen(); l > 256 {
-				return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
-					st.msg.From().Hex(), l)
-			}
-			if l := st.gasTipCap.BitLen(); l > 256 {
-				return fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", ErrTipVeryHigh,
-					st.msg.From().Hex(), l)
-			}
-			if st.gasFeeCap.Cmp(st.gasTipCap) < 0 {
-				return fmt.Errorf("%w: address %v, maxPriorityFeePerGas: %s, maxFeePerGas: %s", ErrTipAboveFeeCap,
-					st.msg.From().Hex(), st.gasTipCap, st.gasFeeCap)
-			}
-			if st.gasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
-				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
-					st.msg.From().Hex(), st.gasFeeCap, st.evm.Context.BaseFee)
-			}
+	if st.chainConfig.IsLondon(st.blockCtx.BlockNumber) {
+		if l := st.gasFeeCap.BitLen(); l > 256 {
+			return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
+				st.msg.From().Hex(), l)
+		}
+		if l := st.gasTipCap.BitLen(); l > 256 {
+			return fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", ErrTipVeryHigh,
+				st.msg.From().Hex(), l)
+		}
+		if st.gasFeeCap.Cmp(st.gasTipCap) < 0 {
+			return fmt.Errorf("%w: address %v, maxPriorityFeePerGas: %s, maxFeePerGas: %s", ErrTipAboveFeeCap,
+				st.msg.From().Hex(), st.gasTipCap, st.gasFeeCap)
+		}
+		if st.blockCtx.BaseFee != nil && st.gasFeeCap.Cmp(st.blockCtx.BaseFee) < 0 {
+			return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
+				st.msg.From().Hex(), st.gasFeeCap, st.blockCtx.BaseFee)
 		}
 	}
 	return st.buyGas()
@@ -244,7 +245,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	var (
 		msg              = st.msg
-		rules            = st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Random != nil)
+		rules            = st.chainConfig.Rules(st.blockCtx.BlockNumber, st.blockCtx.Random != nil)
 		contractCreation = msg.To() == nil
 	)
 
@@ -272,10 +273,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		if toAddr == params.SystemActionAddress {
 			// System action: transfer any attached value to StakingAddress, then execute.
 			if msg.Value().Sign() > 0 {
-				if !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
+				if !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
 					return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 				}
-				st.evm.Context.Transfer(st.state, msg.From(), params.StakingAddress, msg.Value())
+				st.blockCtx.Transfer(st.state, msg.From(), params.StakingAddress, msg.Value())
 			}
 			gasUsed, execErr := sysaction.Execute(msg, st.state)
 			// Deduct sysaction-specific gas on top of intrinsic gas.
@@ -287,7 +288,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			vmerr = execErr
 		} else {
 			// Check sender has enough balance for value transfer
-			if msg.Value().Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From(), msg.Value()) {
+			if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
 				return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 			}
 
@@ -302,7 +303,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			} else {
 				// Plain TOS transfer
 				if msg.Value().Sign() > 0 {
-					st.evm.Context.Transfer(st.state, msg.From(), toAddr, msg.Value())
+					st.blockCtx.Transfer(st.state, msg.From(), toAddr, msg.Value())
 				}
 			}
 		}
@@ -318,15 +319,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Pay miner tip
 	effectiveTip := st.gasPrice
 	if rules.IsLondon {
-		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
+		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.blockCtx.BaseFee))
 	}
-	if st.evm.Config.NoBaseFee && st.gasFeeCap.Sign() == 0 && st.gasTipCap.Sign() == 0 {
-		// Skip fee payment for simulated calls with NoBaseFee
-	} else {
-		fee := new(big.Int).SetUint64(st.gasUsed())
-		fee.Mul(fee, effectiveTip)
-		st.state.AddBalance(st.evm.Context.Coinbase, fee)
-	}
+	fee := new(big.Int).SetUint64(st.gasUsed())
+	fee.Mul(fee, effectiveTip)
+	st.state.AddBalance(st.blockCtx.Coinbase, fee)
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),

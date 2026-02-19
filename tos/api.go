@@ -411,7 +411,7 @@ func (api *DebugAPI) StorageRangeAt(blockHash common.Hash, txIndex int, contract
 	if block == nil {
 		return StorageRangeResult{}, fmt.Errorf("block %#x not found", blockHash)
 	}
-	_, _, statedb, err := api.tosNode.stateAtTransaction(block, txIndex, 0)
+	_, statedb, err := api.tosNode.stateAtTransaction(block, txIndex, 0)
 	if err != nil {
 		return StorageRangeResult{}, err
 	}

@@ -27,7 +27,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
@@ -219,7 +218,7 @@ func newTestBlockchain(blocks []*types.Block) *core.BlockChain {
 		db := rawdb.NewMemoryDatabase()
 		testGspec.MustCommit(db)
 
-		chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), vm.Config{}, nil, nil)
+		chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
 		if err != nil {
 			panic(err)
 		}

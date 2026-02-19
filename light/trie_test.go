@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
 )
@@ -44,7 +43,7 @@ func TestNodeIterator(t *testing.T) {
 		genesis = gspec.MustCommit(fulldb)
 	)
 	gspec.MustCommit(lightdb)
-	blockchain, _ := core.NewBlockChain(fulldb, nil, params.TestChainConfig, tosash.NewFullFaker(), vm.Config{}, nil, nil)
+	blockchain, _ := core.NewBlockChain(fulldb, nil, params.TestChainConfig, tosash.NewFullFaker(), nil, nil)
 	gchain, _ := core.GenerateChain(params.TestChainConfig, genesis, tosash.NewFaker(), fulldb, 4, testChainGen)
 	if _, err := blockchain.InsertChain(gchain); err != nil {
 		panic(err)

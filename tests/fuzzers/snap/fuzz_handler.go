@@ -27,7 +27,6 @@ import (
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/enode"
@@ -79,7 +78,7 @@ func getChain() *core.BlockChain {
 		SnapshotWait:        true,
 	}
 	trieRoot = blocks[len(blocks)-1].Root()
-	bc, _ := core.NewBlockChain(db, cacheConf, gspec.Config, tosash.NewFaker(), vm.Config{}, nil, nil)
+	bc, _ := core.NewBlockChain(db, cacheConf, gspec.Config, tosash.NewFaker(), nil, nil)
 	if _, err := bc.InsertChain(blocks); err != nil {
 		panic(err)
 	}

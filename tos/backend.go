@@ -37,7 +37,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/pruner"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tos/gasprice"
@@ -193,9 +192,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		}
 	}
 	var (
-		vmConfig = vm.Config{
-			EnablePreimageRecording: config.EnablePreimageRecording,
-		}
 		cacheConfig = &core.CacheConfig{
 			TrieCleanLimit:      config.TrieCleanCache,
 			TrieCleanJournal:    stack.ResolvePath(config.TrieCleanCacheJournal),
@@ -208,7 +204,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 			Preimages:           config.Preimages,
 		}
 	)
-	tosNode.blockchain, err = core.NewBlockChain(chainDb, cacheConfig, chainConfig, tosNode.engine, vmConfig, tosNode.shouldPreserve, &config.TxLookupLimit)
+	tosNode.blockchain, err = core.NewBlockChain(chainDb, cacheConfig, chainConfig, tosNode.engine, tosNode.shouldPreserve, &config.TxLookupLimit)
 	if err != nil {
 		return nil, err
 	}

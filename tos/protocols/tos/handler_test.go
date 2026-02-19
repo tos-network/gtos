@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/p2p"
@@ -68,7 +67,7 @@ func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)
 		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
 	}).MustCommit(db)
 
-	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), vm.Config{}, nil, nil)
+	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
 
 	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), tosash.NewFaker(), db, blocks, generator)
 	if _, err := chain.InsertChain(bs); err != nil {

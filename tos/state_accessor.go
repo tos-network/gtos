@@ -25,7 +25,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/trie"
 )
@@ -131,7 +130,7 @@ func (tosNode *TOS) StateAtBlock(block *types.Block, reexec uint64, base *state.
 		if current = tosNode.blockchain.GetBlockByNumber(next); current == nil {
 			return nil, fmt.Errorf("block #%d not found", next)
 		}
-		_, _, _, err := tosNode.blockchain.Processor().Process(current, statedb, vm.Config{})
+		_, _, _, err := tosNode.blockchain.Processor().Process(current, statedb)
 		if err != nil {
 			return nil, fmt.Errorf("processing block %d failed: %v", current.NumberU64(), err)
 		}
@@ -158,45 +157,41 @@ func (tosNode *TOS) StateAtBlock(block *types.Block, reexec uint64, base *state.
 	return statedb, nil
 }
 
-// stateAtTransaction returns the execution environment of a certain transaction.
-func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+// stateAtTransaction returns the message and state at the start of a given transaction.
+func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, *state.StateDB, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
-		return nil, vm.BlockContext{}, nil, errors.New("no transaction in genesis")
+		return nil, nil, errors.New("no transaction in genesis")
 	}
 	// Create the parent state database
 	parent := tosNode.blockchain.GetBlock(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
-		return nil, vm.BlockContext{}, nil, fmt.Errorf("parent %#x not found", block.ParentHash())
+		return nil, nil, fmt.Errorf("parent %#x not found", block.ParentHash())
 	}
 	// Lookup the statedb of parent block from the live database,
 	// otherwise regenerate it on the flight.
 	statedb, err := tosNode.StateAtBlock(parent, reexec, nil, true, false)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, err
+		return nil, nil, err
 	}
 	if txIndex == 0 && len(block.Transactions()) == 0 {
-		return nil, vm.BlockContext{}, statedb, nil
+		return nil, statedb, nil
 	}
 	// Recompute transactions up to the target index.
 	signer := types.MakeSigner(tosNode.blockchain.Config(), block.Number())
+	blockCtx := core.NewEVMBlockContext(block.Header(), tosNode.blockchain, nil)
 	for idx, tx := range block.Transactions() {
-		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
-		txContext := core.NewEVMTxContext(msg)
-		context := core.NewEVMBlockContext(block.Header(), tosNode.blockchain, nil)
 		if idx == txIndex {
-			return msg, context, statedb, nil
+			return msg, statedb, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
-		vmenv := vm.NewEVM(context, txContext, statedb, tosNode.blockchain.Config(), vm.Config{})
 		statedb.Prepare(tx.Hash(), idx)
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
-			return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		if _, err := core.ApplyMessage(blockCtx, tosNode.blockchain.Config(), msg, new(core.GasPool).AddGas(tx.Gas()), statedb); err != nil {
+			return nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Ensure any modifications are committed to the state
-		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		statedb.Finalise(tosNode.blockchain.Config().IsEIP158(block.Number()))
 	}
-	return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+	return nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }

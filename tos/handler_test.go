@@ -27,7 +27,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tosdb"
@@ -138,7 +137,7 @@ func newTestHandlerWithBlocks(blocks int) *testHandler {
 		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(1000000)}},
 	}).MustCommit(db)
 
-	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), vm.Config{}, nil, nil)
+	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
 
 	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), tosash.NewFaker(), db, blocks, nil)
 	if _, err := chain.InsertChain(bs); err != nil {
