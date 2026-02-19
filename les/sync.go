@@ -24,7 +24,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/les/downloader"
-	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
@@ -53,38 +52,9 @@ const (
 // several legacy hardcoded checkpoints in our codebase. These checkpoints are
 // also considered as valid.
 func (h *clientHandler) validateCheckpoint(peer *serverPeer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	// Fetch the block header corresponding to the checkpoint registration.
-	wrapPeer := &peerConnection{handler: h, peer: peer}
-	header, err := wrapPeer.RetrieveSingleHeaderByNumber(ctx, peer.checkpointNumber)
-	if err != nil {
-		return err
-	}
-	// Fetch block logs associated with the block header.
-	logs, err := light.GetUntrustedBlockLogs(ctx, h.backend.odr, header)
-	if err != nil {
-		return err
-	}
-	events := h.backend.oracle.Contract().LookupCheckpointEvents(logs, peer.checkpoint.SectionIndex, peer.checkpoint.Hash())
-	if len(events) == 0 {
-		return errInvalidCheckpoint
-	}
-	var (
-		index      = events[0].Index
-		hash       = events[0].CheckpointHash
-		signatures [][]byte
-	)
-	for _, event := range events {
-		signatures = append(signatures, append(event.R[:], append(event.S[:], event.V)...))
-	}
-	valid, signers := h.backend.oracle.VerifySigners(index, hash, signatures)
-	if !valid {
-		return errInvalidCheckpoint
-	}
-	log.Warn("Verified advertised checkpoint", "peer", peer.id, "signers", len(signers))
-	return nil
+	// The on-chain checkpoint oracle has been removed in GTOS.
+	// On-chain checkpoint verification is not supported.
+	return errInvalidCheckpoint
 }
 
 // synchronise tries to sync up our local chain with a remote peer.

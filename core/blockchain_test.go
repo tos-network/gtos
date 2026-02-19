@@ -36,7 +36,6 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/tracers/logger"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
@@ -3027,10 +3026,7 @@ func TestDeleteRecreateSlots(t *testing.T) {
 	// Import the canonical chain
 	diskdb := rawdb.NewMemoryDatabase()
 	gspec.MustCommit(diskdb)
-	chain, err := NewBlockChain(diskdb, nil, params.TestChainConfig, engine, vm.Config{
-		Debug:  true,
-		Tracer: logger.NewJSONLogger(nil, os.Stdout),
-	}, nil, nil)
+	chain, err := NewBlockChain(diskdb, nil, params.TestChainConfig, engine, vm.Config{}, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create tester chain: %v", err)
 	}
@@ -3107,10 +3103,7 @@ func TestDeleteRecreateAccount(t *testing.T) {
 	// Import the canonical chain
 	diskdb := rawdb.NewMemoryDatabase()
 	gspec.MustCommit(diskdb)
-	chain, err := NewBlockChain(diskdb, nil, params.TestChainConfig, engine, vm.Config{
-		Debug:  true,
-		Tracer: logger.NewJSONLogger(nil, os.Stdout),
-	}, nil, nil)
+	chain, err := NewBlockChain(diskdb, nil, params.TestChainConfig, engine, vm.Config{}, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create tester chain: %v", err)
 	}

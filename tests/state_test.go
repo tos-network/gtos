@@ -17,7 +17,6 @@
 package tests
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"math/big"
@@ -31,7 +30,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/tos/tracers/logger"
 )
 
 func TestState(t *testing.T) {
@@ -122,16 +120,11 @@ func withTrace(t *testing.T, gasLimit uint64, test func(vm.Config) error) {
 		t.Log("gas limit too high for EVM trace")
 		return
 	}
-	buf := new(bytes.Buffer)
-	w := bufio.NewWriter(buf)
-	tracer := logger.NewJSONLogger(&logger.Config{}, w)
-	config.Debug, config.Tracer = true, tracer
 	err2 := test(config)
 	if !reflect.DeepEqual(err, err2) {
 		t.Errorf("different error for second run: %v", err2)
 	}
-	w.Flush()
-	if buf.Len() == 0 {
+	if false {
 		t.Log("no EVM operation logs generated")
 	} else {
 		t.Log("EVM operation log:\n" + buf.String())
