@@ -307,9 +307,8 @@ func doTest(cmdline []string) {
 	}
 	gotest := tc.Go("test")
 
-	// Test a single package at a time. CI builders are slow
-	// and some tests run into timeouts under load.
-	gotest.Args = append(gotest.Args, "-p", "1")
+	// Run multiple packages in parallel using half the available CPUs.
+	gotest.Args = append(gotest.Args, "-p", strconv.Itoa(runtime.NumCPU()/2))
 	if *coverage {
 		gotest.Args = append(gotest.Args, "-covermode=atomic", "-cover")
 	}

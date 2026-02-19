@@ -6,7 +6,8 @@
 
 GOBIN = ./build/bin
 GO ?= latest
-GORUN = env GO111MODULE=on go run
+NCPU = $(shell expr $$(nproc) / 2)
+GORUN = env GO111MODULE=on GOMAXPROCS=$(NCPU) go run
 
 gtos:
 	$(GORUN) build/ci.go install ./cmd/gtos
