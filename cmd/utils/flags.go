@@ -39,7 +39,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tos"
-	ethcatalyst "github.com/tos-network/gtos/tos/catalyst"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tos/filters"
@@ -50,7 +49,6 @@ import (
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/les"
-	lescatalyst "github.com/tos-network/gtos/les/catalyst"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/metrics/exp"
@@ -1990,10 +1988,7 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 		if err != nil {
 			Fatalf("Failed to register the Ethereum service: %v", err)
 		}
-			if err := lescatalyst.Register(stack, backend); err != nil {
-			Fatalf("Failed to register the Engine API service: %v", err)
-		}
-		return backend.ApiBackend, nil
+			return backend.ApiBackend, nil
 	}
 	backend, err := tos.New(stack, cfg)
 	if err != nil {
@@ -2004,9 +1999,6 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 		if err != nil {
 			Fatalf("Failed to create the LES server: %v", err)
 		}
-	}
-	if err := ethcatalyst.Register(stack, backend); err != nil {
-		Fatalf("Failed to register the Engine API service: %v", err)
 	}
 	return backend.APIBackend, backend
 }

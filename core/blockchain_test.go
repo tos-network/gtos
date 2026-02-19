@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/beacon"
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
@@ -1697,8 +1696,8 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 	// Generate a canonical chain to act as the main dataset
 	var (
 		merger    = consensus.NewMerger(rawdb.NewMemoryDatabase())
-		genEngine = beacon.New(tosash.NewFaker())
-		runEngine = beacon.New(tosash.NewFaker())
+		genEngine = tosash.NewFaker()
+		runEngine = tosash.NewFaker()
 		db        = rawdb.NewMemoryDatabase()
 
 		key, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -1974,26 +1973,24 @@ func testInsertKnownChainDataWithMerging(t *testing.T, typ string, mergeHeight i
 		db        = rawdb.NewMemoryDatabase()
 		genesis   = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee), Config: &chainConfig}).MustCommit(db)
 		runMerger = consensus.NewMerger(db)
-		runEngine = beacon.New(tosash.NewFaker())
-		genEngine = beacon.New(tosash.NewFaker())
+		runEngine = tosash.NewFaker()
+		genEngine = tosash.NewFaker()
 	)
-	applyMerge := func(engine *beacon.Beacon, height int) {
-		if engine != nil {
-			runMerger.FinalizePoS()
-			// Set the terminal total difficulty in the config
-			chainConfig.TerminalTotalDifficulty = big.NewInt(int64(height))
-		}
+	applyMerge := func(height int) {
+		runMerger.FinalizePoS()
+		// Set the terminal total difficulty in the config
+		chainConfig.TerminalTotalDifficulty = big.NewInt(int64(height))
 	}
 
 	// Apply merging since genesis
 	if mergeHeight == 0 {
-		applyMerge(genEngine, 0)
+		applyMerge(0)
 	}
 	blocks, receipts := GenerateChain(&chainConfig, genesis, genEngine, db, 32, func(i int, b *BlockGen) { b.SetCoinbase(common.Address{1}) })
 
 	// Apply merging after the first segment
 	if mergeHeight == 1 {
-		applyMerge(genEngine, len(blocks))
+		applyMerge(len(blocks))
 	}
 	// Longer chain and shorter chain
 	blocks2, receipts2 := GenerateChain(&chainConfig, blocks[len(blocks)-1], genEngine, db, 65, func(i int, b *BlockGen) { b.SetCoinbase(common.Address{1}) })
@@ -2065,7 +2062,7 @@ func testInsertKnownChainDataWithMerging(t *testing.T, typ string, mergeHeight i
 
 	// Apply merging since genesis if required
 	if mergeHeight == 0 {
-		applyMerge(runEngine, 0)
+		applyMerge(0)
 	}
 	if err := inserter(blocks, receipts); err != nil {
 		t.Fatalf("failed to insert chain data: %v", err)
@@ -2088,7 +2085,7 @@ func testInsertKnownChainDataWithMerging(t *testing.T, typ string, mergeHeight i
 
 	// Apply merging after the first segment
 	if mergeHeight == 1 {
-		applyMerge(runEngine, len(blocks))
+		applyMerge(len(blocks))
 	}
 
 	// Import a longer chain with some known data as prefix.

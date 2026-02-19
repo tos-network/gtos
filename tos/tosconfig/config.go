@@ -27,7 +27,6 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/beacon"
 	"github.com/tos-network/gtos/consensus/clique"
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
@@ -245,5 +244,5 @@ func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, co
 		}, notify, noverify)
 		engine.(*tosash.Tosash).SetThreads(-1) // Disable CPU mining
 	}
-	return beacon.New(engine)
+	return engine
 }

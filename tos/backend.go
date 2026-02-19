@@ -30,7 +30,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/beacon"
 	"github.com/tos-network/gtos/consensus/clique"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/bloombits"
@@ -461,10 +460,6 @@ func (s *TOS) StartMining(threads int) error {
 		var cli *clique.Clique
 		if c, ok := s.engine.(*clique.Clique); ok {
 			cli = c
-		} else if cl, ok := s.engine.(*beacon.Beacon); ok {
-			if c, ok := cl.InnerEngine().(*clique.Clique); ok {
-				cli = c
-			}
 		}
 		if cli != nil {
 			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})

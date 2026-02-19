@@ -26,7 +26,6 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/beacon"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
@@ -219,11 +218,6 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		// the chain has finished the transition or not, the PoS headers
 		// should only come from the trusted consensus layer instead of
 		// p2p network.
-		if beacon, ok := h.chain.Engine().(*beacon.Beacon); ok {
-			if beacon.IsPoSHeader(header) {
-				return errors.New("unexpected post-merge header")
-			}
-		}
 		return h.chain.Engine().VerifyHeader(h.chain, header, true)
 	}
 	heighter := func() uint64 {
@@ -574,12 +568,6 @@ func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {
 	// stage. The block propagation is delegated to the consensus layer.
 	if h.merger.PoSFinalized() {
 		return
-	}
-	// Disable the block propagation if it's the post-merge block.
-	if beacon, ok := h.chain.Engine().(*beacon.Beacon); ok {
-		if beacon.IsPoSHeader(block.Header()) {
-			return
-		}
 	}
 	hash := block.Hash()
 	peers := h.peers.peersWithoutBlock(hash)

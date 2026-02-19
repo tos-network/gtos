@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	ipcAPIs  = "admin:1.0 agent:1.0 debug:1.0 discover:1.0 engine:1.0 miner:1.0 net:1.0 personal:1.0 rpc:1.0 tos:1.0 tosash:1.0 txpool:1.0 web3:1.0"
+	ipcAPIs  = "admin:1.0 agent:1.0 debug:1.0 discover:1.0 miner:1.0 net:1.0 personal:1.0 rpc:1.0 tos:1.0 tosash:1.0 txpool:1.0 web3:1.0"
 	httpAPIs = "net:1.0 rpc:1.0 tos:1.0 web3:1.0"
 )
 
