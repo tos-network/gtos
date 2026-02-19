@@ -10,7 +10,7 @@ This plan is based on the current `~/gtos` code paths:
   - no contract creation/call
   - `params.SystemActionAddress` goes through `sysaction.Execute`
   - plain transfer is the main successful user tx path
-- System actions mutate staking/agent state and must stay deterministic (`sysaction/executor.go`, `staking/*`).
+- System actions mutate agent state and must stay deterministic (`sysaction/executor.go`).
 - `state.StateDB` is not safe for concurrent mutation, but supports copy/snapshot (`core/state/statedb.go`).
 
 Conclusion: the safest MVP is **parallelize only plain transfer txs**, keep all system actions and unsupported tx shapes on the serial path.

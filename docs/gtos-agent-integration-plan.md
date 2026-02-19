@@ -51,8 +51,7 @@ gtos/
 │
 └── internal/agentapi/          # RPC namespace implementations
     ├── agent_api.go            # agent_* methods
-    ├── discover_api.go         # discover_* methods
-    └── staking_api.go          # staking_* stub (query only, no write methods here)
+    └── discover_api.go         # discover_* methods
 ```
 
 ### Key Existing Packages (Modified)
@@ -279,4 +278,4 @@ go test ./agent/... ./agentidx/... ./sysaction/... ./internal/agentapi/...
 - On-chain ranking index (ranking stays in-memory, off-chain)
 - Full dispute arbitration workflow
 - Multi-region discovery routing
-- Node staking and delegation (designed separately)
+- Node staking and delegation (DPoS consensus, designed separately)

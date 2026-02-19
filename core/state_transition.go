@@ -271,13 +271,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
-			// System action: transfer any attached value to StakingAddress, then execute.
-			if msg.Value().Sign() > 0 {
-				if !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
-					return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
-				}
-				st.blockCtx.Transfer(st.state, msg.From(), params.StakingAddress, msg.Value())
-			}
 			gasUsed, execErr := sysaction.Execute(msg, st.state)
 			// Deduct sysaction-specific gas on top of intrinsic gas.
 			if st.gas >= gasUsed {

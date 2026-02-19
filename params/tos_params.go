@@ -17,8 +17,6 @@
 package params
 
 import (
-	"math/big"
-
 	"github.com/tos-network/gtos/common"
 )
 
@@ -31,35 +29,6 @@ var (
 
 	// AgentRegistryAddress stores on-chain agent registry state via storage slots.
 	AgentRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000054534F32") // "TOS2"
-
-	// StakingAddress stores on-chain staking / delegation state via storage slots.
-	StakingAddress = common.HexToAddress("0x0000000000000000000000000000000054534F33") // "TOS3"
-)
-
-// TOS staking parameters.
-var (
-	// MinNodeStake is the minimum self-stake (in wei) required for a node to be
-	// considered active and eligible for block rewards.
-	// Default: 10,000 TOS  (10000 * 1e18 wei)
-	MinNodeStake = new(big.Int).Mul(big.NewInt(10_000), big.NewInt(1e18))
-
-	// BlockReward is the total TOS minted per block and distributed to active
-	// nodes (and their delegators) by the consensus Finalize() hook.
-	// Default: 2 TOS per block
-	BlockReward = new(big.Int).Mul(big.NewInt(2), big.NewInt(1e18))
-
-	// BaseBlockReward is an alias for BlockReward, used by the staking reward distributor.
-	BaseBlockReward = BlockReward
-
-	// UnstakeLockBlocks is the number of blocks a node must wait after calling
-	// NODE_UNSTAKE before the stake is actually withdrawable.
-	UnstakeLockBlocks = uint64(50_400) // ~7 days at 12 s/block
-
-	// UndelegateLockBlocks is the lock period for delegators after UNDELEGATE.
-	UndelegateLockBlocks = uint64(25_200) // ~3.5 days
-
-	// MaxCommissionBPS is the maximum commission a node may charge, in basis points.
-	MaxCommissionBPS = uint64(5_000) // 50%
 )
 
 // SysActionGas is the fixed gas cost charged for any system action transaction,

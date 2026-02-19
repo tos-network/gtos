@@ -3,8 +3,8 @@
 ## Background
 
 GTOS uses fixed system contract addresses with direct Go execution for all on-chain logic
-(agent registration, staking, delegation, reward distribution). No user-deployed smart
-contracts are supported. This makes the full EVM interpreter unnecessary dead weight.
+(agent registration). No user-deployed smart contracts are supported. This makes the full
+EVM interpreter unnecessary dead weight.
 
 However, `core/vm/contracts.go` contains cryptographic primitives (precompiled contracts)
 that are used independently of the EVM interpreter and must be retained.

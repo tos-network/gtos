@@ -18,7 +18,7 @@ type Context struct {
 	ChainConfig *params.ChainConfig
 }
 
-// Handler is implemented by agent and staking sub-systems.
+// Handler is implemented by sub-systems that process system actions (e.g. agent).
 type Handler interface {
 	CanHandle(kind ActionKind) bool
 	Handle(ctx *Context, sa *SysAction) error
