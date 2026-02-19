@@ -17,7 +17,7 @@
 // Contains all the wrappers from the node package to support client side node
 // management on mobile platforms.
 
-package geth
+package gtos
 
 import (
 	"encoding/json"
@@ -25,10 +25,10 @@ import (
 	"path/filepath"
 
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/ethclient"
-	"github.com/tos-network/gtos/ethstats"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tosclient"
+	"github.com/tos-network/gtos/tosstats"
 	"github.com/tos-network/gtos/internal/debug"
 	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/node"
@@ -200,7 +200,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 		}
 		// If netstats reporting is requested, do it
 		if config.EthereumNetStats != "" {
-			if err := ethstats.New(rawStack, lesBackend.ApiBackend, lesBackend.Engine(), config.EthereumNetStats); err != nil {
+			if err := tosstats.New(rawStack, lesBackend.ApiBackend, lesBackend.Engine(), config.EthereumNetStats); err != nil {
 				return nil, fmt.Errorf("netstats init: %v", err)
 			}
 		}
@@ -226,7 +226,7 @@ func (n *Node) GetEthereumClient() (client *EthereumClient, _ error) {
 	if err != nil {
 		return nil, err
 	}
-	return &EthereumClient{ethclient.NewClient(rpc)}, nil
+	return &EthereumClient{tosclient.NewClient(rpc)}, nil
 }
 
 // GetNodeInfo gathers and returns a collection of metadata known about the host.

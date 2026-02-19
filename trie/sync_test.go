@@ -23,7 +23,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 )
 
 // makeTestTrie create a sample test trie to test node-wise reconstruction.

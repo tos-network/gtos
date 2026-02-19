@@ -31,10 +31,10 @@ import (
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/eth/gasprice"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/event"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/les/downloader"
 	"github.com/tos-network/gtos/les/vflux"
@@ -73,7 +73,7 @@ type LightEthereum struct {
 	eventMux       *event.TypeMux
 	engine         consensus.Engine
 	accountManager *accounts.Manager
-	netRPCService  *ethapi.NetAPI
+	netRPCService  *tosapi.NetAPI
 
 	p2pServer  *p2p.Server
 	p2pConfig  *p2p.Config
@@ -188,7 +188,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*LightEthereum, error) {
 		leth.blockchain.DisableCheckFreq()
 	}
 
-	leth.netRPCService = ethapi.NewNetAPI(leth.p2pServer, leth.config.NetworkId)
+	leth.netRPCService = tosapi.NewNetAPI(leth.p2pServer, leth.config.NetworkId)
 
 	// Register the backend on the node
 	stack.RegisterAPIs(leth.APIs())
@@ -288,7 +288,7 @@ func (s *LightDummyAPI) Mining() bool {
 // APIs returns the collection of RPC services the ethereum package offers.
 // NOTE, some of these services probably need to be moved to somewhere else.
 func (s *LightEthereum) APIs() []rpc.API {
-	apis := ethapi.GetAPIs(s.ApiBackend)
+	apis := tosapi.GetAPIs(s.ApiBackend)
 	apis = append(apis, s.engine.APIs(s.BlockChain().HeaderChain())...)
 	return append(apis, []rpc.API{
 		{

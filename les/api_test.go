@@ -30,9 +30,9 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus/ethash"
-	"github.com/tos-network/gtos/eth"
-	ethdownloader "github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/eth/ethconfig"
+	"github.com/tos-network/gtos/tos"
+	ethdownloader "github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/ethconfig"
 	"github.com/tos-network/gtos/les/downloader"
 	"github.com/tos-network/gtos/les/flowcontrol"
 	"github.com/tos-network/gtos/log"
@@ -503,7 +503,7 @@ func newLesServerService(ctx *adapters.ServiceContext, stack *node.Node) (node.L
 	config.SyncMode = (ethdownloader.SyncMode)(downloader.FullSync)
 	config.LightServ = testServerCapacity
 	config.LightPeers = testMaxClients
-	ethereum, err := eth.New(stack, &config)
+	ethereum, err := tos.New(stack, &config)
 	if err != nil {
 		return nil, err
 	}

@@ -36,8 +36,8 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth/tracers/logger"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/tracers/logger"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
 )
@@ -51,7 +51,7 @@ var (
 // newCanonical creates a chain database, and injects a deterministic canonical
 // chain. Depending on the full flag, if creates either a full block chain or a
 // header only chain.
-func newCanonical(engine consensus.Engine, n int, full bool) (ethdb.Database, *BlockChain, error) {
+func newCanonical(engine consensus.Engine, n int, full bool) (tosdb.Database, *BlockChain, error) {
 	var (
 		db      = rawdb.NewMemoryDatabase()
 		genesis = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
@@ -882,7 +882,7 @@ func TestLightVsFastVsFullChainHeads(t *testing.T) {
 	blocks, receipts := GenerateChain(gspec.Config, genesis, ethash.NewFaker(), gendb, int(height), nil)
 
 	// makeDb creates a db instance for testing.
-	makeDb := func() ethdb.Database {
+	makeDb := func() tosdb.Database {
 		dir := t.TempDir()
 		db, err := rawdb.NewDatabaseWithFreezer(rawdb.NewMemoryDatabase(), dir, "", false)
 		if err != nil {

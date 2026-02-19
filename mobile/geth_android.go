@@ -17,7 +17,7 @@
 //go:build android
 // +build android
 
-package geth
+package gtos
 
 // clientIdentifier is a hard coded identifier to report into the network.
 var clientIdentifier = "GethDroid"

@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tos-network/gtos/eth"
-	"github.com/tos-network/gtos/eth/ethconfig"
+	"github.com/tos-network/gtos/tos"
+	"github.com/tos-network/gtos/tos/ethconfig"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/p2p"
@@ -35,13 +35,13 @@ var (
 )
 
 func TestEthSuite(t *testing.T) {
-	geth, err := runGeth()
+	gtos, err := runGeth()
 	if err != nil {
-		t.Fatalf("could not run geth: %v", err)
+		t.Fatalf("could not run gtos: %v", err)
 	}
-	defer geth.Close()
+	defer gtos.Close()
 
-	suite, err := NewSuite(geth.Server().Self(), fullchainFile, genesisFile)
+	suite, err := NewSuite(gtos.Server().Self(), fullchainFile, genesisFile)
 	if err != nil {
 		t.Fatalf("could not create new test suite: %v", err)
 	}
@@ -56,13 +56,13 @@ func TestEthSuite(t *testing.T) {
 }
 
 func TestSnapSuite(t *testing.T) {
-	geth, err := runGeth()
+	gtos, err := runGeth()
 	if err != nil {
-		t.Fatalf("could not run geth: %v", err)
+		t.Fatalf("could not run gtos: %v", err)
 	}
-	defer geth.Close()
+	defer gtos.Close()
 
-	suite, err := NewSuite(geth.Server().Self(), fullchainFile, genesisFile)
+	suite, err := NewSuite(gtos.Server().Self(), fullchainFile, genesisFile)
 	if err != nil {
 		t.Fatalf("could not create new test suite: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSnapSuite(t *testing.T) {
 	}
 }
 
-// runGeth creates and starts a geth node
+// runGeth creates and starts a gtos node
 func runGeth() (*node.Node, error) {
 	stack, err := node.New(&node.Config{
 		P2P: p2p.Config{
@@ -108,7 +108,7 @@ func setupGeth(stack *node.Node) error {
 		return err
 	}
 
-	backend, err := eth.New(stack, &ethconfig.Config{
+	backend, err := tos.New(stack, &ethconfig.Config{
 		Genesis:                 &chain.genesis,
 		NetworkId:               chain.genesis.Config.ChainID.Uint64(), // 19763
 		DatabaseCache:           10,

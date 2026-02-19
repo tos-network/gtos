@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -172,7 +172,7 @@ func genUncles(i int, gen *BlockGen) {
 
 func benchInsertChain(b *testing.B, disk bool, gen func(int, *BlockGen)) {
 	// Create the database in memory or in a temporary directory.
-	var db ethdb.Database
+	var db tosdb.Database
 	var err error
 	if !disk {
 		db = rawdb.NewMemoryDatabase()
@@ -244,7 +244,7 @@ func BenchmarkChainWrite_full_500k(b *testing.B) {
 
 // makeChainForBench writes a given number of headers or empty blocks/receipts
 // into a database.
-func makeChainForBench(db ethdb.Database, full bool, count uint64) {
+func makeChainForBench(db tosdb.Database, full bool, count uint64) {
 	var hash common.Hash
 	for n := uint64(0); n < count; n++ {
 		header := &types.Header{

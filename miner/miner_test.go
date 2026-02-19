@@ -29,8 +29,8 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/trie"
 )

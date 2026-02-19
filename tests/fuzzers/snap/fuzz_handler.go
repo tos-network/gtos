@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/eth/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"

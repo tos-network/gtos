@@ -22,8 +22,8 @@ import (
 
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/flowcontrol"
 	vfs "github.com/tos-network/gtos/les/vflux/server"
 	"github.com/tos-network/gtos/light"
@@ -47,7 +47,7 @@ type ethBackend interface {
 	ArchiveMode() bool
 	BlockChain() *core.BlockChain
 	BloomIndexer() *core.ChainIndexer
-	ChainDb() ethdb.Database
+	ChainDb() tosdb.Database
 	Synced() bool
 	TxPool() *core.TxPool
 }

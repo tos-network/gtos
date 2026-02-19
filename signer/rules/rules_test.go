@@ -26,7 +26,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/signer/core"
 	"github.com/tos-network/gtos/signer/core/apitypes"
 	"github.com/tos-network/gtos/signer/storage"
@@ -108,7 +108,7 @@ func (alwaysDenyUI) ShowInfo(message string) {
 	panic("implement me")
 }
 
-func (alwaysDenyUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
+func (alwaysDenyUI) OnApprovedTx(tx tosapi.SignTransactionResult) {
 	panic("implement me")
 }
 
@@ -235,7 +235,7 @@ func (d *dummyUI) ShowInfo(message string) {
 	d.calls = append(d.calls, "ShowInfo")
 }
 
-func (d *dummyUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
+func (d *dummyUI) OnApprovedTx(tx tosapi.SignTransactionResult) {
 	d.calls = append(d.calls, "OnApprovedTx")
 }
 
@@ -262,7 +262,7 @@ func TestForwarding(t *testing.T) {
 	r.ShowInfo("test")
 
 	//This one is not forwarded
-	r.OnApprovedTx(ethapi.SignTransactionResult{})
+	r.OnApprovedTx(tosapi.SignTransactionResult{})
 
 	expCalls := 6
 	if len(ui.calls) != expCalls {
@@ -475,7 +475,7 @@ func TestLimitWindow(t *testing.T) {
 		}
 		// Create a dummy signed transaction
 
-		response := ethapi.SignTransactionResult{
+		response := tosapi.SignTransactionResult{
 			Tx:  dummySigned(v),
 			Raw: common.Hex2Bytes("deadbeef"),
 		}
@@ -532,7 +532,7 @@ func (d *dontCallMe) ShowInfo(message string) {
 	d.t.Fatalf("Did not expect next-handler to be called")
 }
 
-func (d *dontCallMe) OnApprovedTx(tx ethapi.SignTransactionResult) {
+func (d *dontCallMe) OnApprovedTx(tx tosapi.SignTransactionResult) {
 	d.t.Fatalf("Did not expect next-handler to be called")
 }
 

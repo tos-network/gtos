@@ -16,7 +16,7 @@
 
 // Contains initialization code for the mobile library.
 
-package geth
+package gtos
 
 import (
 	"os"

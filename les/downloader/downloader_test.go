@@ -31,8 +31,8 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/protocols/eth"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/trie"
 )
@@ -50,8 +50,8 @@ type downloadTester struct {
 	downloader *Downloader
 
 	genesis *types.Block   // Genesis blocks used by the tester and peers
-	stateDb ethdb.Database // Database used by the tester for syncing from peers
-	peerDb  ethdb.Database // Database of the peers containing all data
+	stateDb tosdb.Database // Database used by the tester for syncing from peers
+	peerDb  tosdb.Database // Database of the peers containing all data
 	peers   map[string]*downloadTesterPeer
 
 	ownHashes   []common.Hash                  // Hash chain belonging to the tester

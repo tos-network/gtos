@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tos-network/gtos/eth/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/eth"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/rlpx"
 	"github.com/tos-network/gtos/rlp"

@@ -21,7 +21,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 )
 
@@ -29,13 +29,13 @@ import (
 // upon start. It needs to be started after a successful start-up and stopped
 // after a successful shutdown, just before the db is closed.
 type ShutdownTracker struct {
-	db     ethdb.Database
+	db     tosdb.Database
 	stopCh chan struct{}
 }
 
 // NewShutdownTracker creates a new ShutdownTracker instance and has
 // no other side-effect.
-func NewShutdownTracker(db ethdb.Database) *ShutdownTracker {
+func NewShutdownTracker(db tosdb.Database) *ShutdownTracker {
 	return &ShutdownTracker{
 		db:     db,
 		stopCh: make(chan struct{}),

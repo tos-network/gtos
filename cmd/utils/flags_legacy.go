@@ -19,7 +19,7 @@ package utils
 import (
 	"fmt"
 
-	"github.com/tos-network/gtos/eth/ethconfig"
+	"github.com/tos-network/gtos/tos/ethconfig"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/urfave/cli/v2"
 )

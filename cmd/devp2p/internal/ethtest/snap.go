@@ -24,7 +24,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/trie"

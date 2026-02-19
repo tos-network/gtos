@@ -32,8 +32,8 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/eth/gasprice"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/gasprice"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/params"
@@ -271,7 +271,7 @@ func (b *LesApiBackend) FeeHistory(ctx context.Context, blockCount int, lastBloc
 	return b.gpo.FeeHistory(ctx, blockCount, lastBlock, rewardPercentiles)
 }
 
-func (b *LesApiBackend) ChainDb() ethdb.Database {
+func (b *LesApiBackend) ChainDb() tosdb.Database {
 	return b.eth.chainDb
 }
 

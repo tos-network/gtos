@@ -23,7 +23,7 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/rlp"
 )
 

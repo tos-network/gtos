@@ -24,7 +24,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/trie"
 	"golang.org/x/crypto/sha3"
@@ -409,7 +409,7 @@ func (s *stateSync) loop() (err error) {
 }
 
 func (s *stateSync) commit(force bool) error {
-	if !force && s.bytesUncommitted < ethdb.IdealBatchSize {
+	if !force && s.bytesUncommitted < tosdb.IdealBatchSize {
 		return nil
 	}
 	start := time.Now()

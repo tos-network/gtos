@@ -22,7 +22,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/signer/core/apitypes"
 )
@@ -44,7 +44,7 @@ func (l *AuditLogger) New(ctx context.Context) (common.Address, error) {
 	return l.api.New(ctx)
 }
 
-func (l *AuditLogger) SignTransaction(ctx context.Context, args apitypes.SendTxArgs, methodSelector *string) (*ethapi.SignTransactionResult, error) {
+func (l *AuditLogger) SignTransaction(ctx context.Context, args apitypes.SendTxArgs, methodSelector *string) (*tosapi.SignTransactionResult, error) {
 	sel := "<nil>"
 	if methodSelector != nil {
 		sel = *methodSelector

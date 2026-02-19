@@ -25,7 +25,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
@@ -118,7 +118,7 @@ func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot common.Hash) {
 	defer accIt.Release()
 
 	snapRoot, err := generateTrieRoot(nil, accIt, common.Hash{}, stackTrieGenerate,
-		func(db ethdb.KeyValueWriter, accountHash, codeHash common.Hash, stat *generateStats) (common.Hash, error) {
+		func(db tosdb.KeyValueWriter, accountHash, codeHash common.Hash, stat *generateStats) (common.Hash, error) {
 			storageIt, _ := snap.StorageIterator(accountHash, common.Hash{})
 			defer storageIt.Release()
 
@@ -140,7 +140,7 @@ func checkSnapRoot(t *testing.T, snap *diskLayer, trieRoot common.Hash) {
 }
 
 type testHelper struct {
-	diskdb  ethdb.Database
+	diskdb  tosdb.Database
 	triedb  *trie.Database
 	accTrie *trie.StateTrie
 	nodes   *trie.MergedNodeSet
@@ -769,7 +769,7 @@ func decKey(key []byte) []byte {
 	return key
 }
 
-func populateDangling(disk ethdb.KeyValueStore) {
+func populateDangling(disk tosdb.KeyValueStore) {
 	populate := func(accountHash common.Hash, keys []string, vals []string) {
 		for i, key := range keys {
 			rawdb.WriteStorageSnapshot(disk, accountHash, hashData([]byte(key)), []byte(vals[i]))

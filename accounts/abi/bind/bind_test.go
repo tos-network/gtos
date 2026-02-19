@@ -1810,7 +1810,7 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/eth/ethconfig"
+			"github.com/tos-network/gtos/tos/ethconfig"
 	   `,
 		`
 			var (
@@ -1880,7 +1880,7 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/eth/ethconfig"
+			"github.com/tos-network/gtos/tos/ethconfig"
 	   `,
 		`
 			var (
@@ -1932,7 +1932,7 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/eth/ethconfig"
+			"github.com/tos-network/gtos/tos/ethconfig"
 		`,
 		tester: `
 			var (
@@ -1980,7 +1980,7 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/eth/ethconfig"
+			"github.com/tos-network/gtos/tos/ethconfig"
 		`,
 		tester: `
 			var (
@@ -2020,7 +2020,7 @@ var bindTests = []struct {
 			"github.com/tos-network/gtos/accounts/abi/bind/backends"
 			"github.com/tos-network/gtos/core"
 			"github.com/tos-network/gtos/crypto"
-			"github.com/tos-network/gtos/eth/ethconfig"
+			"github.com/tos-network/gtos/tos/ethconfig"
 		`,
 		tester: `
 			var (
@@ -2174,7 +2174,7 @@ func TestJavaBindings(t *testing.T) {
 
 package bindtest;
 
-import org.ethereum.geth.*;
+import org.ethereum.gtos.*;
 import java.util.*;
 
 public class Test {

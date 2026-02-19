@@ -34,10 +34,10 @@ import (
 	"github.com/tos-network/gtos/core/beacon"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth"
-	ethcatalyst "github.com/tos-network/gtos/eth/catalyst"
-	"github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/eth/ethconfig"
+	"github.com/tos-network/gtos/tos"
+	ethcatalyst "github.com/tos-network/gtos/tos/catalyst"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/ethconfig"
 	"github.com/tos-network/gtos/les"
 	lescatalyst "github.com/tos-network/gtos/les/catalyst"
 	"github.com/tos-network/gtos/log"
@@ -92,7 +92,7 @@ type ethNode struct {
 	stack      *node.Node
 	enode      *enode.Node
 	api        *ethcatalyst.ConsensusAPI
-	ethBackend *eth.Ethereum
+	ethBackend *tos.TOS
 	lapi       *lescatalyst.ConsensusAPI
 	lesBackend *les.LightEthereum
 }
@@ -103,7 +103,7 @@ func newNode(typ nodetype, genesis *core.Genesis, enodes []*enode.Node) *ethNode
 		api        *ethcatalyst.ConsensusAPI
 		lapi       *lescatalyst.ConsensusAPI
 		stack      *node.Node
-		ethBackend *eth.Ethereum
+		ethBackend *tos.TOS
 		lesBackend *les.LightEthereum
 	)
 	// Start the node and wait until it's up
@@ -458,12 +458,12 @@ func makeGenesis(faucets []*ecdsa.PrivateKey) *core.Genesis {
 	return genesis
 }
 
-func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Ethereum, *ethcatalyst.ConsensusAPI, error) {
+func makeFullNode(genesis *core.Genesis) (*node.Node, *tos.TOS, *ethcatalyst.ConsensusAPI, error) {
 	// Define the basic configurations for the Ethereum node
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
-		Name:    "geth",
+		Name:    "gtos",
 		Version: params.Version,
 		DataDir: datadir,
 		P2P: p2p.Config{
@@ -497,7 +497,7 @@ func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Ethereum, *ethcatalys
 		LightPeers:       10,
 		LightNoSyncServe: true,
 	}
-	ethBackend, err := eth.New(stack, econfig)
+	ethBackend, err := tos.New(stack, econfig)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -514,7 +514,7 @@ func makeLightNode(genesis *core.Genesis) (*node.Node, *les.LightEthereum, *lesc
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
-		Name:    "geth",
+		Name:    "gtos",
 		Version: params.Version,
 		DataDir: datadir,
 		P2P: p2p.Config{

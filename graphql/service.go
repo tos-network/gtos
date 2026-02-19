@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/tos-network/gtos/eth/filters"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/tos/filters"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/node"
 	"github.com/graph-gophers/graphql-go"
 )
@@ -56,14 +56,14 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // New constructs a new GraphQL service instance.
-func New(stack *node.Node, backend ethapi.Backend, filterSystem *filters.FilterSystem, cors, vhosts []string) error {
+func New(stack *node.Node, backend tosapi.Backend, filterSystem *filters.FilterSystem, cors, vhosts []string) error {
 	_, err := newHandler(stack, backend, filterSystem, cors, vhosts)
 	return err
 }
 
 // newHandler returns a new `http.Handler` that will answer GraphQL queries.
 // It additionally exports an interactive query browser on the / endpoint.
-func newHandler(stack *node.Node, backend ethapi.Backend, filterSystem *filters.FilterSystem, cors, vhosts []string) (*handler, error) {
+func newHandler(stack *node.Node, backend tosapi.Backend, filterSystem *filters.FilterSystem, cors, vhosts []string) (*handler, error) {
 	q := Resolver{backend, filterSystem}
 
 	s, err := graphql.ParseSchema(schema, &q)

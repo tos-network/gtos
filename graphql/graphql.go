@@ -32,8 +32,8 @@ import (
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/filters"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/tos/filters"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 )
@@ -1061,7 +1061,7 @@ func (c *CallResult) Status() Long {
 }
 
 func (b *Block) Call(ctx context.Context, args struct {
-	Data ethapi.TransactionArgs
+	Data tosapi.TransactionArgs
 }) (*CallResult, error) {
 	if b.numberOrHash == nil {
 		_, err := b.resolve(ctx)
@@ -1069,7 +1069,7 @@ func (b *Block) Call(ctx context.Context, args struct {
 			return nil, err
 		}
 	}
-	result, err := ethapi.DoCall(ctx, b.r.backend, args.Data, *b.numberOrHash, nil, b.r.backend.RPCEVMTimeout(), b.r.backend.RPCGasCap())
+	result, err := tosapi.DoCall(ctx, b.r.backend, args.Data, *b.numberOrHash, nil, b.r.backend.RPCEVMTimeout(), b.r.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
@@ -1086,7 +1086,7 @@ func (b *Block) Call(ctx context.Context, args struct {
 }
 
 func (b *Block) EstimateGas(ctx context.Context, args struct {
-	Data ethapi.TransactionArgs
+	Data tosapi.TransactionArgs
 }) (Long, error) {
 	if b.numberOrHash == nil {
 		_, err := b.resolveHeader(ctx)
@@ -1094,7 +1094,7 @@ func (b *Block) EstimateGas(ctx context.Context, args struct {
 			return 0, err
 		}
 	}
-	gas, err := ethapi.DoEstimateGas(ctx, b.r.backend, args.Data, *b.numberOrHash, b.r.backend.RPCGasCap())
+	gas, err := tosapi.DoEstimateGas(ctx, b.r.backend, args.Data, *b.numberOrHash, b.r.backend.RPCGasCap())
 	return Long(gas), err
 }
 
@@ -1136,10 +1136,10 @@ func (p *Pending) Account(ctx context.Context, args struct {
 }
 
 func (p *Pending) Call(ctx context.Context, args struct {
-	Data ethapi.TransactionArgs
+	Data tosapi.TransactionArgs
 }) (*CallResult, error) {
 	pendingBlockNr := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
-	result, err := ethapi.DoCall(ctx, p.r.backend, args.Data, pendingBlockNr, nil, p.r.backend.RPCEVMTimeout(), p.r.backend.RPCGasCap())
+	result, err := tosapi.DoCall(ctx, p.r.backend, args.Data, pendingBlockNr, nil, p.r.backend.RPCEVMTimeout(), p.r.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
@@ -1156,16 +1156,16 @@ func (p *Pending) Call(ctx context.Context, args struct {
 }
 
 func (p *Pending) EstimateGas(ctx context.Context, args struct {
-	Data ethapi.TransactionArgs
+	Data tosapi.TransactionArgs
 }) (Long, error) {
 	pendingBlockNr := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
-	gas, err := ethapi.DoEstimateGas(ctx, p.r.backend, args.Data, pendingBlockNr, p.r.backend.RPCGasCap())
+	gas, err := tosapi.DoEstimateGas(ctx, p.r.backend, args.Data, pendingBlockNr, p.r.backend.RPCGasCap())
 	return Long(gas), err
 }
 
 // Resolver is the top-level object in the GraphQL hierarchy.
 type Resolver struct {
-	backend      ethapi.Backend
+	backend      tosapi.Backend
 	filterSystem *filters.FilterSystem
 }
 
@@ -1270,7 +1270,7 @@ func (r *Resolver) SendRawTransaction(ctx context.Context, args struct{ Data hex
 	if err := tx.UnmarshalBinary(args.Data); err != nil {
 		return common.Hash{}, err
 	}
-	hash, err := ethapi.SubmitTransaction(ctx, r.backend, tx)
+	hash, err := tosapi.SubmitTransaction(ctx, r.backend, tx)
 	return hash, err
 }
 

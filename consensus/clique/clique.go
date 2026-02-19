@@ -35,7 +35,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
@@ -171,7 +171,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 // Ethereum testnet following the Ropsten attacks.
 type Clique struct {
 	config *params.CliqueConfig // Consensus engine configuration parameters
-	db     ethdb.Database       // Database to store and retrieve snapshot checkpoints
+	db     tosdb.Database       // Database to store and retrieve snapshot checkpoints
 
 	recents    *lru.ARCCache // Snapshots for recent block to speed up reorgs
 	signatures *lru.ARCCache // Signatures of recent blocks to speed up mining
@@ -188,7 +188,7 @@ type Clique struct {
 
 // New creates a Clique proof-of-authority consensus engine with the initial
 // signers set to the ones provided by the user.
-func New(config *params.CliqueConfig, db ethdb.Database) *Clique {
+func New(config *params.CliqueConfig, db tosdb.Database) *Clique {
 	// Set any missing consensus parameters to their defaults
 	conf := *config
 	if conf.Epoch == 0 {

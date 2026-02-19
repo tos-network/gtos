@@ -39,18 +39,18 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth"
-	ethcatalyst "github.com/tos-network/gtos/eth/catalyst"
-	"github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/eth/filters"
-	"github.com/tos-network/gtos/eth/gasprice"
-	"github.com/tos-network/gtos/eth/tracers"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/remotedb"
-	"github.com/tos-network/gtos/ethstats"
+	"github.com/tos-network/gtos/tos"
+	ethcatalyst "github.com/tos-network/gtos/tos/catalyst"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/filters"
+	"github.com/tos-network/gtos/tos/gasprice"
+	"github.com/tos-network/gtos/tos/tracers"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/remotedb"
+	"github.com/tos-network/gtos/tosstats"
 	"github.com/tos-network/gtos/graphql"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/les"
 	lescatalyst "github.com/tos-network/gtos/les/catalyst"
@@ -1329,7 +1329,7 @@ func MakeAddress(ks *keystore.KeyStore, account string) (accounts.Account, error
 	log.Warn("-------------------------------------------------------------------")
 	log.Warn("Referring to accounts by order in the keystore folder is dangerous!")
 	log.Warn("This functionality is deprecated and will be removed in the future!")
-	log.Warn("Please use explicit addresses! (can search via `geth account list`)")
+	log.Warn("Please use explicit addresses! (can search via `gtos account list`)")
 	log.Warn("-------------------------------------------------------------------")
 
 	accs := ks.Accounts()
@@ -1984,10 +1984,10 @@ func SetDNSDiscoveryDefaults(cfg *ethconfig.Config, genesis common.Hash) {
 	}
 }
 
-// RegisterEthService adds an Ethereum client to the stack.
+// RegisterTOSService adds an Ethereum client to the stack.
 // The second return value is the full node instance, which may be nil if the
 // node is running as a light client.
-func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend, *eth.Ethereum) {
+func RegisterTOSService(stack *node.Node, cfg *ethconfig.Config) (tosapi.Backend, *tos.TOS) {
 	if cfg.SyncMode == downloader.LightSync {
 		backend, err := les.New(stack, cfg)
 		if err != nil {
@@ -1999,7 +1999,7 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 		}
 		return backend.ApiBackend, nil
 	}
-	backend, err := eth.New(stack, cfg)
+	backend, err := tos.New(stack, cfg)
 	if err != nil {
 		Fatalf("Failed to register the Ethereum service: %v", err)
 	}
@@ -2017,14 +2017,14 @@ func RegisterEthService(stack *node.Node, cfg *ethconfig.Config) (ethapi.Backend
 }
 
 // RegisterEthStatsService configures the Ethereum Stats daemon and adds it to the node.
-func RegisterEthStatsService(stack *node.Node, backend ethapi.Backend, url string) {
-	if err := ethstats.New(stack, backend, backend.Engine(), url); err != nil {
+func RegisterEthStatsService(stack *node.Node, backend tosapi.Backend, url string) {
+	if err := tosstats.New(stack, backend, backend.Engine(), url); err != nil {
 		Fatalf("Failed to register the Ethereum Stats service: %v", err)
 	}
 }
 
 // RegisterGraphQLService adds the GraphQL API to the node.
-func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSystem *filters.FilterSystem, cfg *node.Config) {
+func RegisterGraphQLService(stack *node.Node, backend tosapi.Backend, filterSystem *filters.FilterSystem, cfg *node.Config) {
 	err := graphql.New(stack, backend, filterSystem, cfg.GraphQLCors, cfg.GraphQLVirtualHosts)
 	if err != nil {
 		Fatalf("Failed to register the GraphQL service: %v", err)
@@ -2032,7 +2032,7 @@ func RegisterGraphQLService(stack *node.Node, backend ethapi.Backend, filterSyst
 }
 
 // RegisterFilterAPI adds the eth log filtering RPC API to the node.
-func RegisterFilterAPI(stack *node.Node, backend ethapi.Backend, ethcfg *ethconfig.Config) *filters.FilterSystem {
+func RegisterFilterAPI(stack *node.Node, backend tosapi.Backend, ethcfg *ethconfig.Config) *filters.FilterSystem {
 	isLightClient := ethcfg.SyncMode == downloader.LightSync
 	filterSystem := filters.NewFilterSystem(backend, filters.Config{
 		LogCacheSize: ethcfg.FilterLogCacheSize,
@@ -2086,13 +2086,13 @@ func SetupMetrics(ctx *cli.Context) {
 
 			log.Info("Enabling metrics export to InfluxDB")
 
-			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, "geth.", tagsMap)
+			go influxdb.InfluxDBWithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, database, username, password, "gtos.", tagsMap)
 		} else if enableExportV2 {
 			tagsMap := SplitTagsFlag(ctx.String(MetricsInfluxDBTagsFlag.Name))
 
 			log.Info("Enabling metrics export to InfluxDB (v2)")
 
-			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, token, bucket, organization, "geth.", tagsMap)
+			go influxdb.InfluxDBV2WithTags(metrics.DefaultRegistry, 10*time.Second, endpoint, token, bucket, organization, "gtos.", tagsMap)
 		}
 
 		if ctx.IsSet(MetricsHTTPFlag.Name) {
@@ -2121,13 +2121,13 @@ func SplitTagsFlag(tagsFlag string) map[string]string {
 }
 
 // MakeChainDatabase open an LevelDB using the flags passed to the client and will hard crash if it fails.
-func MakeChainDatabase(ctx *cli.Context, stack *node.Node, readonly bool) ethdb.Database {
+func MakeChainDatabase(ctx *cli.Context, stack *node.Node, readonly bool) tosdb.Database {
 	var (
 		cache   = ctx.Int(CacheFlag.Name) * ctx.Int(CacheDatabaseFlag.Name) / 100
 		handles = MakeDatabaseHandles(ctx.Int(FDLimitFlag.Name))
 
 		err     error
-		chainDb ethdb.Database
+		chainDb tosdb.Database
 	)
 	switch {
 	case ctx.IsSet(RemoteDBFlag.Name):
@@ -2166,7 +2166,7 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 }
 
 // MakeChain creates a chain manager from set command line flags.
-func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chainDb ethdb.Database) {
+func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chainDb tosdb.Database) {
 	var err error
 	chainDb = MakeChainDatabase(ctx, stack, false) // TODO(rjl493456442) support read-only database
 	config, _, err := core.SetupGenesisBlock(chainDb, MakeGenesis(ctx))

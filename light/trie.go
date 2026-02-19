@@ -26,7 +26,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
@@ -183,7 +183,7 @@ func (t *odrTrie) GetKey(sha []byte) []byte {
 	return nil
 }
 
-func (t *odrTrie) Prove(key []byte, fromLevel uint, proofDb ethdb.KeyValueWriter) error {
+func (t *odrTrie) Prove(key []byte, fromLevel uint, proofDb tosdb.KeyValueWriter) error {
 	return errors.New("not implemented, needs client/server interface split")
 }
 

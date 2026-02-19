@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/eth"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/stretchr/testify/assert"
 )

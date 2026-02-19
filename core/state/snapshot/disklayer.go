@@ -23,14 +23,14 @@ import (
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
 
 // diskLayer is a low level persistent snapshot built on top of a key-value store.
 type diskLayer struct {
-	diskdb ethdb.KeyValueStore // Key-value store containing the base snapshot
+	diskdb tosdb.KeyValueStore // Key-value store containing the base snapshot
 	triedb *trie.Database      // Trie node cache for reconstruction purposes
 	cache  *fastcache.Cache    // Cache to avoid hitting the disk for direct access
 

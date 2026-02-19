@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/p2p/enr"
 )
@@ -51,7 +51,7 @@ func testNodeIndex(id enode.ID) int {
 }
 
 type ServerPoolTest struct {
-	db                   ethdb.KeyValueStore
+	db                   tosdb.KeyValueStore
 	clock                *mclock.Simulated
 	quit                 chan chan struct{}
 	preNeg, preNegFail   bool

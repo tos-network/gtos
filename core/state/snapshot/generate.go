@@ -28,8 +28,8 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
@@ -62,7 +62,7 @@ var (
 // generateSnapshot regenerates a brand new snapshot based on an existing state
 // database and head block asynchronously. The snapshot is returned immediately
 // and generation is continued in the background until done.
-func generateSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, root common.Hash) *diskLayer {
+func generateSnapshot(diskdb tosdb.KeyValueStore, triedb *trie.Database, cache int, root common.Hash) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
 		stats     = &generatorStats{start: time.Now()}
@@ -89,7 +89,7 @@ func generateSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache i
 }
 
 // journalProgress persists the generator stats into the database to resume later.
-func journalProgress(db ethdb.KeyValueWriter, marker []byte, stats *generatorStats) {
+func journalProgress(db tosdb.KeyValueWriter, marker []byte, stats *generatorStats) {
 	// Write out the generator marker. Note it's a standalone disk layer generator
 	// which is not mixed with journal. It's ok if the generator is persisted while
 	// journal is not.
@@ -359,7 +359,7 @@ func (dl *diskLayer) generateRange(ctx *generatorContext, owner common.Hash, roo
 	}
 	// We use the snap data to build up a cache which can be used by the
 	// main account trie as a primary lookup when resolving hashes
-	var snapNodeCache ethdb.KeyValueStore
+	var snapNodeCache tosdb.KeyValueStore
 	if len(result.keys) > 0 {
 		snapNodeCache = memorydb.New()
 		snapTrieDb := trie.NewDatabase(snapNodeCache)
@@ -476,7 +476,7 @@ func (dl *diskLayer) checkAndFlush(ctx *generatorContext, current []byte) error 
 	case abort = <-dl.genAbort:
 	default:
 	}
-	if ctx.batch.ValueSize() > ethdb.IdealBatchSize || abort != nil {
+	if ctx.batch.ValueSize() > tosdb.IdealBatchSize || abort != nil {
 		if bytes.Compare(current, dl.genMarker) < 0 {
 			log.Error("Snapshot generator went backwards", "current", fmt.Sprintf("%x", current), "genMarker", fmt.Sprintf("%x", dl.genMarker))
 		}

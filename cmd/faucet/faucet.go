@@ -45,10 +45,10 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/downloader"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/ethclient"
-	"github.com/tos-network/gtos/ethstats"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tosclient"
+	"github.com/tos-network/gtos/tosstats"
 	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/node"
@@ -199,7 +199,7 @@ type request struct {
 type faucet struct {
 	config *params.ChainConfig // Chain configurations for signing
 	stack  *node.Node          // Ethereum protocol stack
-	client *ethclient.Client   // Client connection to the Ethereum chain
+	client *tosclient.Client   // Client connection to the Ethereum chain
 	index  []byte              // Index page to serve up on the web
 
 	keystore *keystore.KeyStore // Keystore containing the single signer
@@ -227,7 +227,7 @@ type wsConn struct {
 func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network uint64, stats string, ks *keystore.KeyStore, index []byte) (*faucet, error) {
 	// Assemble the raw devp2p protocol stack
 	stack, err := node.New(&node.Config{
-		Name:    "geth",
+		Name:    "gtos",
 		Version: params.VersionWithCommit(gitCommit, gitDate),
 		DataDir: filepath.Join(os.Getenv("HOME"), ".faucet"),
 		P2P: p2p.Config{
@@ -257,7 +257,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 
 	// Assemble the ethstats monitoring and reporting service'
 	if stats != "" {
-		if err := ethstats.New(stack, lesBackend.ApiBackend, lesBackend.Engine(), stats); err != nil {
+		if err := tosstats.New(stack, lesBackend.ApiBackend, lesBackend.Engine(), stats); err != nil {
 			return nil, err
 		}
 	}
@@ -277,7 +277,7 @@ func newFaucet(genesis *core.Genesis, port int, enodes []*enode.Node, network ui
 		stack.Close()
 		return nil, err
 	}
-	client := ethclient.NewClient(api)
+	client := tosclient.NewClient(api)
 
 	return &faucet{
 		config:   genesis.Config,

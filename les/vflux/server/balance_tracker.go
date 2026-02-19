@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/utils"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/p2p/enr"
@@ -59,7 +59,7 @@ type balanceTracker struct {
 }
 
 // newBalanceTracker creates a new balanceTracker
-func newBalanceTracker(ns *nodestate.NodeStateMachine, setup *serverSetup, db ethdb.KeyValueStore, clock mclock.Clock, posExp, negExp utils.ValueExpirer) *balanceTracker {
+func newBalanceTracker(ns *nodestate.NodeStateMachine, setup *serverSetup, db tosdb.KeyValueStore, clock mclock.Clock, posExp, negExp utils.ValueExpirer) *balanceTracker {
 	ndb := newNodeDB(db, clock)
 	bt := &balanceTracker{
 		ns:           ns,

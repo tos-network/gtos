@@ -21,13 +21,13 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
 
 // NewStateSync create a new state trie download scheduler.
-func NewStateSync(root common.Hash, database ethdb.KeyValueReader, onLeaf func(keys [][]byte, leaf []byte) error) *trie.Sync {
+func NewStateSync(root common.Hash, database tosdb.KeyValueReader, onLeaf func(keys [][]byte, leaf []byte) error) *trie.Sync {
 	// Register the storage slot callback if the external callback is specified.
 	var onSlot func(keys [][]byte, path []byte, leaf []byte, parent common.Hash, parentPath []byte) error
 	if onLeaf != nil {

@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/prometheus/tsdb/fileutil"
@@ -223,7 +223,7 @@ func (f *Freezer) AncientSize(kind string) (uint64, error) {
 
 // ReadAncients runs the given read operation while ensuring that no writes take place
 // on the underlying freezer.
-func (f *Freezer) ReadAncients(fn func(ethdb.AncientReaderOp) error) (err error) {
+func (f *Freezer) ReadAncients(fn func(tosdb.AncientReaderOp) error) (err error) {
 	f.writeLock.RLock()
 	defer f.writeLock.RUnlock()
 
@@ -231,7 +231,7 @@ func (f *Freezer) ReadAncients(fn func(ethdb.AncientReaderOp) error) (err error)
 }
 
 // ModifyAncients runs the given write operation.
-func (f *Freezer) ModifyAncients(fn func(ethdb.AncientWriteOp) error) (writeSize int64, err error) {
+func (f *Freezer) ModifyAncients(fn func(tosdb.AncientWriteOp) error) (writeSize int64, err error) {
 	if f.readonly {
 		return 0, errReadOnly
 	}

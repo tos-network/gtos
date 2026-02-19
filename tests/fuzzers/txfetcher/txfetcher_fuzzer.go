@@ -26,7 +26,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/fetcher"
+	"github.com/tos-network/gtos/tos/fetcher"
 )
 
 var (

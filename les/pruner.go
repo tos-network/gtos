@@ -22,20 +22,20 @@ import (
 
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 )
 
 // pruner is responsible for pruning historical light chain data.
 type pruner struct {
-	db       ethdb.Database
+	db       tosdb.Database
 	indexers []*core.ChainIndexer
 	closeCh  chan struct{}
 	wg       sync.WaitGroup
 }
 
 // newPruner returns a light chain pruner instance.
-func newPruner(db ethdb.Database, indexers ...*core.ChainIndexer) *pruner {
+func newPruner(db tosdb.Database, indexers ...*core.ChainIndexer) *pruner {
 	pruner := &pruner{
 		db:       db,
 		indexers: indexers,

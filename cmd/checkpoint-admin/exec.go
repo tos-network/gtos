@@ -32,7 +32,7 @@ import (
 	"github.com/tos-network/gtos/contracts/checkpointoracle"
 	"github.com/tos-network/gtos/contracts/checkpointoracle/contract"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethclient"
+	"github.com/tos-network/gtos/tosclient"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
@@ -160,7 +160,7 @@ func sign(ctx *cli.Context) error {
 		reqCtx, cancelFn := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelFn()
 
-		head, err := ethclient.NewClient(node).HeaderByNumber(reqCtx, nil)
+		head, err := tosclient.NewClient(node).HeaderByNumber(reqCtx, nil)
 		if err != nil {
 			return err
 		}
@@ -283,12 +283,12 @@ func publish(ctx *cli.Context) error {
 	reqCtx, cancelFn := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelFn()
 
-	head, err := ethclient.NewClient(client).HeaderByNumber(reqCtx, nil)
+	head, err := tosclient.NewClient(client).HeaderByNumber(reqCtx, nil)
 	if err != nil {
 		return err
 	}
 	num := head.Number.Uint64()
-	recent, err := ethclient.NewClient(client).HeaderByNumber(reqCtx, big.NewInt(int64(num-128)))
+	recent, err := tosclient.NewClient(client).HeaderByNumber(reqCtx, big.NewInt(int64(num-128)))
 	if err != nil {
 		return err
 	}

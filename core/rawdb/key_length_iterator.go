@@ -16,18 +16,18 @@
 
 package rawdb
 
-import "github.com/tos-network/gtos/ethdb"
+import "github.com/tos-network/gtos/tosdb"
 
 // KeyLengthIterator is a wrapper for a database iterator that ensures only key-value pairs
 // with a specific key length will be returned.
 type KeyLengthIterator struct {
 	requiredKeyLength int
-	ethdb.Iterator
+	tosdb.Iterator
 }
 
 // NewKeyLengthIterator returns a wrapped version of the iterator that will only return key-value
 // pairs where keys with a specific key length will be returned.
-func NewKeyLengthIterator(it ethdb.Iterator, keyLen int) ethdb.Iterator {
+func NewKeyLengthIterator(it tosdb.Iterator, keyLen int) tosdb.Iterator {
 	return &KeyLengthIterator{
 		Iterator:          it,
 		requiredKeyLength: keyLen,

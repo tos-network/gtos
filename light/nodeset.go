@@ -22,7 +22,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/rlp"
 )
 
@@ -115,7 +115,7 @@ func (db *NodeSet) NodeList() NodeList {
 }
 
 // Store writes the contents of the set to the given database
-func (db *NodeSet) Store(target ethdb.KeyValueWriter) {
+func (db *NodeSet) Store(target tosdb.KeyValueWriter) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
@@ -124,11 +124,11 @@ func (db *NodeSet) Store(target ethdb.KeyValueWriter) {
 	}
 }
 
-// NodeList stores an ordered list of trie nodes. It implements ethdb.KeyValueWriter.
+// NodeList stores an ordered list of trie nodes. It implements tosdb.KeyValueWriter.
 type NodeList []rlp.RawValue
 
 // Store writes the contents of the list to the given database
-func (n NodeList) Store(db ethdb.KeyValueWriter) {
+func (n NodeList) Store(db tosdb.KeyValueWriter) {
 	for _, node := range n {
 		db.Put(crypto.Keccak256(node), node)
 	}

@@ -32,7 +32,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
@@ -51,7 +51,7 @@ var (
 type LightChain struct {
 	hc            *core.HeaderChain
 	indexerConfig *IndexerConfig
-	chainDb       ethdb.Database
+	chainDb       tosdb.Database
 	engine        consensus.Engine
 	odr           OdrBackend
 	chainFeed     event.Feed

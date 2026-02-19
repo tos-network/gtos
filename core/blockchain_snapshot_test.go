@@ -33,7 +33,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -51,8 +51,8 @@ type snapshotTestBasic struct {
 
 	// share fields, set in runtime
 	datadir string
-	db      ethdb.Database
-	gendb   ethdb.Database
+	db      tosdb.Database
+	gendb   tosdb.Database
 	engine  consensus.Engine
 }
 

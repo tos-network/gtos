@@ -31,7 +31,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/eth/tracers/logger"
+	"github.com/tos-network/gtos/tos/tracers/logger"
 )
 
 func TestState(t *testing.T) {

@@ -26,8 +26,8 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 )
 
 func TestEmptyIterator(t *testing.T) {
@@ -480,7 +480,7 @@ func checkIteratorNoDups(t *testing.T, it NodeIterator, seen map[string]bool) in
 
 type loggingDb struct {
 	getCount uint64
-	backend  ethdb.KeyValueStore
+	backend  tosdb.KeyValueStore
 }
 
 func (l *loggingDb) Has(key []byte) (bool, error) {
@@ -500,19 +500,19 @@ func (l *loggingDb) Delete(key []byte) error {
 	return l.backend.Delete(key)
 }
 
-func (l *loggingDb) NewBatch() ethdb.Batch {
+func (l *loggingDb) NewBatch() tosdb.Batch {
 	return l.backend.NewBatch()
 }
 
-func (l *loggingDb) NewBatchWithSize(size int) ethdb.Batch {
+func (l *loggingDb) NewBatchWithSize(size int) tosdb.Batch {
 	return l.backend.NewBatchWithSize(size)
 }
 
-func (l *loggingDb) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
+func (l *loggingDb) NewIterator(prefix []byte, start []byte) tosdb.Iterator {
 	return l.backend.NewIterator(prefix, start)
 }
 
-func (l *loggingDb) NewSnapshot() (ethdb.Snapshot, error) {
+func (l *loggingDb) NewSnapshot() (tosdb.Snapshot, error) {
 	return l.backend.NewSnapshot()
 }
 

@@ -31,7 +31,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
@@ -145,7 +145,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		rnd := common.BigToHash(pre.Env.Random)
 		vmContext.Random = &rnd
 	}
-	// If DAO is supported/enabled, we need to handle it here. In geth 'proper', it's
+	// If DAO is supported/enabled, we need to handle it here. In gtos 'proper', it's
 	// done in StateProcessor.Process(block, ...), right before transactions are applied.
 	if chainConfig.DAOForkSupport &&
 		chainConfig.DAOForkBlock != nil &&
@@ -267,7 +267,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 	return statedb, execRs, nil
 }
 
-func MakePreState(db ethdb.Database, accounts core.GenesisAlloc) *state.StateDB {
+func MakePreState(db tosdb.Database, accounts core.GenesisAlloc) *state.StateDB {
 	sdb := state.NewDatabaseWithConfig(db, &trie.Config{Preimages: true})
 	statedb, _ := state.New(common.Hash{}, sdb, nil)
 	for addr, a := range accounts {

@@ -17,7 +17,7 @@
 //go:build ios
 // +build ios
 
-package geth
+package gtos
 
 // clientIdentifier is a hard coded identifier to report into the network.
 var clientIdentifier = "iGeth"

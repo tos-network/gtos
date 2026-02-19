@@ -33,7 +33,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth/tracers/logger"
+	"github.com/tos-network/gtos/tos/tracers/logger"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"

@@ -27,7 +27,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/eth"
 	"github.com/tos-network/gtos/internal/utesting"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/rlpx"

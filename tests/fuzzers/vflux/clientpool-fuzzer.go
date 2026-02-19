@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/les/vflux"
 	vfs "github.com/tos-network/gtos/les/vflux/server"
 	"github.com/tos-network/gtos/log"

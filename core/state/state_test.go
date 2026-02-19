@@ -24,12 +24,12 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 )
 
 type stateTest struct {
-	db    ethdb.Database
+	db    tosdb.Database
 	state *StateDB
 }
 

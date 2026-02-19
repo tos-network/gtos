@@ -148,7 +148,7 @@ In `APIs()`, append the new RPC namespaces:
 {Namespace: "staking",  Service: agentapi.NewStakingAPI(stakingState, s.APIBackend)},
 ```
 
-### 5. `cmd/geth/main.go` (or renamed `cmd/gtos/`)
+### 5. `cmd/gtos/main.go` (or renamed `cmd/gtos/`)
 On node startup, initialize and start the agent chain indexer:
 
 ```go
@@ -256,7 +256,7 @@ staking_claimReward(ctx) → txHash
 7. **Modify consensus `Finalize()`** — Add per-block staking reward distribution
 8. **Create `internal/agentapi` package** — Implement three RPC namespaces
 9. **Modify `eth/backend.go`** — Register new APIs
-10. **Modify `cmd/geth` entrypoint** — Wire up agent indexer on startup
+10. **Modify `cmd/gtos` entrypoint** — Wire up agent indexer on startup
 
 ---
 
@@ -267,7 +267,7 @@ staking_claimReward(ctx) → txHash
 cd ~/gtos && go build ./...
 
 # Start dev node with agent/discover/staking APIs enabled
-./build/bin/geth --dev --http --http.api agent,discover,staking,eth,net
+./build/bin/gtos --dev --http --http.api agent,discover,staking,eth,net
 
 # Register an agent
 curl -s -X POST http://localhost:8545 \

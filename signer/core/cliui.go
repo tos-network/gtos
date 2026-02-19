@@ -26,7 +26,7 @@ import (
 
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/console/prompt"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
 )
 
@@ -232,7 +232,7 @@ func (ui *CommandlineUI) ShowInfo(message string) {
 	fmt.Printf("## Info \n%s\n", message)
 }
 
-func (ui *CommandlineUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
+func (ui *CommandlineUI) OnApprovedTx(tx tosapi.SignTransactionResult) {
 	fmt.Printf("Transaction signed:\n ")
 	if jsn, err := json.MarshalIndent(tx.Tx, "  ", "  "); err != nil {
 		fmt.Printf("WARN: marshalling error %v\n", err)

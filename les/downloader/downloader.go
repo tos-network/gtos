@@ -33,9 +33,9 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/protocols/eth"
-	"github.com/tos-network/gtos/eth/protocols/snap"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/protocols/eth"
+	"github.com/tos-network/gtos/tos/protocols/snap"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -96,7 +96,7 @@ type Downloader struct {
 	queue      *queue   // Scheduler for selecting the hashes to download
 	peers      *peerSet // Set of active peers from which download can proceed
 
-	stateDB ethdb.Database // Database to state sync into (and deduplicate via)
+	stateDB tosdb.Database // Database to state sync into (and deduplicate via)
 
 	// Statistics
 	syncStatsChainOrigin uint64 // Origin block number where syncing started at
@@ -205,7 +205,7 @@ type BlockChain interface {
 }
 
 // New creates a new downloader to fetch hashes and blocks from remote peers.
-func New(checkpoint uint64, stateDb ethdb.Database, mux *event.TypeMux, chain BlockChain, lightchain LightChain, dropPeer peerDropFn) *Downloader {
+func New(checkpoint uint64, stateDb tosdb.Database, mux *event.TypeMux, chain BlockChain, lightchain LightChain, dropPeer peerDropFn) *Downloader {
 	if lightchain == nil {
 		lightchain = chain
 	}

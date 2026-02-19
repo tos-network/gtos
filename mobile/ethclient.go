@@ -16,23 +16,23 @@
 
 // Contains a wrapper for the Ethereum client.
 
-package geth
+package gtos
 
 import (
 	"math/big"
 
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/ethclient"
+	"github.com/tos-network/gtos/tosclient"
 )
 
 // EthereumClient provides access to the Ethereum APIs.
 type EthereumClient struct {
-	client *ethclient.Client
+	client *tosclient.Client
 }
 
 // NewEthereumClient connects a client to the given URL.
 func NewEthereumClient(rawurl string) (client *EthereumClient, _ error) {
-	rawClient, err := ethclient.Dial(rawurl)
+	rawClient, err := tosclient.Dial(rawurl)
 	return &EthereumClient{rawClient}, err
 }
 

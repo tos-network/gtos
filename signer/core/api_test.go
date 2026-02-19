@@ -31,7 +31,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/signer/core"
 	"github.com/tos-network/gtos/signer/core/apitypes"
@@ -52,7 +52,7 @@ func (ui *headlessUi) OnInputRequired(info core.UserInputRequest) (core.UserInpu
 
 func (ui *headlessUi) OnSignerStartup(info core.StartupInfo)        {}
 func (ui *headlessUi) RegisterUIServer(api *core.UIServerAPI)       {}
-func (ui *headlessUi) OnApprovedTx(tx ethapi.SignTransactionResult) {}
+func (ui *headlessUi) OnApprovedTx(tx tosapi.SignTransactionResult) {}
 
 func (ui *headlessUi) ApproveTx(request *core.SignTxRequest) (core.SignTxResponse, error) {
 	switch <-ui.approveCh {
@@ -237,7 +237,7 @@ func mkTestTx(from common.MixedcaseAddress) apitypes.SendTxArgs {
 func TestSignTx(t *testing.T) {
 	var (
 		list      []common.Address
-		res, res2 *ethapi.SignTransactionResult
+		res, res2 *tosapi.SignTransactionResult
 		err       error
 	)
 

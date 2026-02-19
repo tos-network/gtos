@@ -25,9 +25,9 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/ethclient"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tosclient"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/checkpointoracle"
 	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
@@ -51,7 +51,7 @@ type lesCommons struct {
 	config                       *ethconfig.Config
 	chainConfig                  *params.ChainConfig
 	iConfig                      *light.IndexerConfig
-	chainDb, lesDb               ethdb.Database
+	chainDb, lesDb               tosdb.Database
 	chainReader                  chainReader
 	chtIndexer, bloomTrieIndexer *core.ChainIndexer
 	oracle                       *checkpointoracle.CheckpointOracle
@@ -154,7 +154,7 @@ func (c *lesCommons) setupOracle(node *node.Node, genesis common.Hash, ethconfig
 	}
 	oracle := checkpointoracle.New(config, c.localCheckpoint)
 	rpcClient, _ := node.Attach()
-	client := ethclient.NewClient(rpcClient)
+	client := tosclient.NewClient(rpcClient)
 	oracle.Start(client)
 	log.Info("Configured checkpoint oracle", "address", config.Address, "signers", len(config.Signers), "threshold", config.Threshold)
 	return oracle

@@ -25,7 +25,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
@@ -77,7 +77,7 @@ func makeTestState() (Database, common.Hash, []*testAccount) {
 
 // checkStateAccounts cross references a reconstructed state with an expected
 // account array.
-func checkStateAccounts(t *testing.T, db ethdb.Database, root common.Hash, accounts []*testAccount) {
+func checkStateAccounts(t *testing.T, db tosdb.Database, root common.Hash, accounts []*testAccount) {
 	// Check root availability and state contents
 	state, err := New(root, NewDatabase(db), nil)
 	if err != nil {
@@ -100,7 +100,7 @@ func checkStateAccounts(t *testing.T, db ethdb.Database, root common.Hash, accou
 }
 
 // checkTrieConsistency checks that all nodes in a (sub-)trie are indeed present.
-func checkTrieConsistency(db ethdb.Database, root common.Hash) error {
+func checkTrieConsistency(db tosdb.Database, root common.Hash) error {
 	if v, _ := db.Get(root[:]); v == nil {
 		return nil // Consider a non existent state consistent.
 	}
@@ -115,7 +115,7 @@ func checkTrieConsistency(db ethdb.Database, root common.Hash) error {
 }
 
 // checkStateConsistency checks that all data of a state root is present.
-func checkStateConsistency(db ethdb.Database, root common.Hash) error {
+func checkStateConsistency(db tosdb.Database, root common.Hash) error {
 	// Create and iterate a state trie rooted in a sub-node
 	if _, err := db.Get(root.Bytes()); err != nil {
 		return nil // Consider a non existent state consistent.
@@ -553,7 +553,7 @@ func TestIncompleteStateSync(t *testing.T) {
 		}
 	}
 	isCode[common.BytesToHash(emptyCodeHash)] = struct{}{}
-	checkTrieConsistency(srcDb.TrieDB().DiskDB().(ethdb.Database), srcRoot)
+	checkTrieConsistency(srcDb.TrieDB().DiskDB().(tosdb.Database), srcRoot)
 
 	// Create a destination state and sync with the scheduler
 	dstDb := rawdb.NewMemoryDatabase()

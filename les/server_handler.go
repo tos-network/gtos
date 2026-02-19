@@ -28,7 +28,7 @@ import (
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/flowcontrol"
 	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
@@ -61,7 +61,7 @@ var (
 type serverHandler struct {
 	forkFilter forkid.Filter
 	blockchain *core.BlockChain
-	chainDb    ethdb.Database
+	chainDb    tosdb.Database
 	txpool     *core.TxPool
 	server     *LesServer
 
@@ -73,7 +73,7 @@ type serverHandler struct {
 	addTxsSync bool
 }
 
-func newServerHandler(server *LesServer, blockchain *core.BlockChain, chainDb ethdb.Database, txpool *core.TxPool, synced func() bool) *serverHandler {
+func newServerHandler(server *LesServer, blockchain *core.BlockChain, chainDb tosdb.Database, txpool *core.TxPool, synced func() bool) *serverHandler {
 	handler := &serverHandler{
 		forkFilter: forkid.NewFilter(blockchain),
 		server:     server,

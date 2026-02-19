@@ -23,7 +23,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // Iterator is an iterator to step over all the accounts or the specific
@@ -163,7 +163,7 @@ func (it *diffAccountIterator) Release() {}
 // contained within a disk layer.
 type diskAccountIterator struct {
 	layer *diskLayer
-	it    ethdb.Iterator
+	it    tosdb.Iterator
 }
 
 // AccountIterator creates an account iterator over a disk layer.
@@ -332,7 +332,7 @@ func (it *diffStorageIterator) Release() {}
 type diskStorageIterator struct {
 	layer   *diskLayer
 	account common.Hash
-	it      ethdb.Iterator
+	it      tosdb.Iterator
 }
 
 // StorageIterator creates a storage iterator over a disk layer.

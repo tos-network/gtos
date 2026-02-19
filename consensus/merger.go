@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/rlp"
 )
@@ -37,13 +37,13 @@ type transitionStatus struct {
 // Merger is an internal help structure used to track the eth1/2 transition status.
 // It's a common structure can be used in both full node and light client.
 type Merger struct {
-	db     ethdb.KeyValueStore
+	db     tosdb.KeyValueStore
 	status transitionStatus
 	mu     sync.RWMutex
 }
 
 // NewMerger creates a new Merger which stores its transition status in the provided db.
-func NewMerger(db ethdb.KeyValueStore) *Merger {
+func NewMerger(db tosdb.KeyValueStore) *Merger {
 	var status transitionStatus
 	blob := rawdb.ReadTransitionStatus(db)
 	if len(blob) != 0 {

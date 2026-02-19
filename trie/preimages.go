@@ -21,19 +21,19 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // preimageStore is the store for caching preimages of node key.
 type preimageStore struct {
 	lock          sync.RWMutex
-	disk          ethdb.KeyValueStore
+	disk          tosdb.KeyValueStore
 	preimages     map[common.Hash][]byte // Preimages of nodes from the secure trie
 	preimagesSize common.StorageSize     // Storage size of the preimages cache
 }
 
 // newPreimageStore initializes the store for caching preimages.
-func newPreimageStore(disk ethdb.KeyValueStore) *preimageStore {
+func newPreimageStore(disk tosdb.KeyValueStore) *preimageStore {
 	return &preimageStore{
 		disk:      disk,
 		preimages: make(map[common.Hash][]byte),

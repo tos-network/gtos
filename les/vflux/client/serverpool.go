@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/utils"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -56,7 +56,7 @@ const (
 type ServerPool struct {
 	clock    mclock.Clock
 	unixTime func() int64
-	db       ethdb.KeyValueStore
+	db       tosdb.KeyValueStore
 
 	ns                  *nodestate.NodeStateMachine
 	vt                  *ValueTracker
@@ -151,7 +151,7 @@ var (
 )
 
 // NewServerPool creates a new server pool
-func NewServerPool(db ethdb.KeyValueStore, dbKey []byte, mixTimeout time.Duration, query QueryFunc, clock mclock.Clock, trustedURLs []string, requestList []RequestInfo) (*ServerPool, enode.Iterator) {
+func NewServerPool(db tosdb.KeyValueStore, dbKey []byte, mixTimeout time.Duration, query QueryFunc, clock mclock.Clock, trustedURLs []string, requestList []RequestInfo) (*ServerPool, enode.Iterator) {
 	s := &ServerPool{
 		db:           db,
 		clock:        clock,

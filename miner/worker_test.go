@@ -35,7 +35,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 )
@@ -110,14 +110,14 @@ func init() {
 
 // testWorkerBackend implements worker.Backend interfaces and wraps all information needed during the testing.
 type testWorkerBackend struct {
-	db         ethdb.Database
+	db         tosdb.Database
 	txPool     *core.TxPool
 	chain      *core.BlockChain
 	genesis    *core.Genesis
 	uncleBlock *types.Block
 }
 
-func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, n int) *testWorkerBackend {
+func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, n int) *testWorkerBackend {
 	var gspec = core.Genesis{
 		Config: chainConfig,
 		Alloc:  core.GenesisAlloc{testBankAddress: {Balance: testBankFunds}},
@@ -198,7 +198,7 @@ func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
 	return tx
 }
 
-func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db ethdb.Database, blocks int) (*worker, *testWorkerBackend) {
+func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, blocks int) (*worker, *testWorkerBackend) {
 	backend := newTestWorkerBackend(t, chainConfig, engine, db, blocks)
 	backend.txPool.AddLocals(pendingTxs)
 	w := newWorker(testConfig, chainConfig, engine, backend, new(event.TypeMux), nil, false)

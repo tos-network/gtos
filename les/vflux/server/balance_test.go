@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/les/utils"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/p2p/enr"
@@ -44,13 +44,13 @@ func (client balanceTestClient) FreeClientId() string { return "" }
 
 type balanceTestSetup struct {
 	clock *mclock.Simulated
-	db    ethdb.KeyValueStore
+	db    tosdb.KeyValueStore
 	ns    *nodestate.NodeStateMachine
 	setup *serverSetup
 	bt    *balanceTracker
 }
 
-func newBalanceTestSetup(db ethdb.KeyValueStore, posExp, negExp utils.ValueExpirer) *balanceTestSetup {
+func newBalanceTestSetup(db tosdb.KeyValueStore, posExp, negExp utils.ValueExpirer) *balanceTestSetup {
 	// Initialize and customize the setup for the balance testing
 	clock := &mclock.Simulated{}
 	setup := newServerSetup()

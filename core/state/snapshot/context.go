@@ -25,8 +25,8 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/ethdb"
-	"github.com/tos-network/gtos/ethdb/memorydb"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/memorydb"
 	"github.com/tos-network/gtos/log"
 )
 
@@ -88,15 +88,15 @@ func (gs *generatorStats) Log(msg string, root common.Hash, marker []byte) {
 // generatorContext carries a few global values to be shared by all generation functions.
 type generatorContext struct {
 	stats   *generatorStats     // Generation statistic collection
-	db      ethdb.KeyValueStore // Key-value store containing the snapshot data
+	db      tosdb.KeyValueStore // Key-value store containing the snapshot data
 	account *holdableIterator   // Iterator of account snapshot data
 	storage *holdableIterator   // Iterator of storage snapshot data
-	batch   ethdb.Batch         // Database batch for writing batch data atomically
+	batch   tosdb.Batch         // Database batch for writing batch data atomically
 	logged  time.Time           // The timestamp when last generation progress was displayed
 }
 
 // newGeneratorContext initializes the context for generation.
-func newGeneratorContext(stats *generatorStats, db ethdb.KeyValueStore, accMarker []byte, storageMarker []byte) *generatorContext {
+func newGeneratorContext(stats *generatorStats, db tosdb.KeyValueStore, accMarker []byte, storageMarker []byte) *generatorContext {
 	ctx := &generatorContext{
 		stats:  stats,
 		db:     db,
@@ -178,7 +178,7 @@ func (ctx *generatorContext) removeStorageBefore(account common.Hash) {
 		}
 		count++
 		ctx.batch.Delete(key)
-		if ctx.batch.ValueSize() > ethdb.IdealBatchSize {
+		if ctx.batch.ValueSize() > tosdb.IdealBatchSize {
 			ctx.batch.Write()
 			ctx.batch.Reset()
 		}
@@ -209,7 +209,7 @@ func (ctx *generatorContext) removeStorageAt(account common.Hash) error {
 		}
 		count++
 		ctx.batch.Delete(key)
-		if ctx.batch.ValueSize() > ethdb.IdealBatchSize {
+		if ctx.batch.ValueSize() > tosdb.IdealBatchSize {
 			ctx.batch.Write()
 			ctx.batch.Reset()
 		}
@@ -230,7 +230,7 @@ func (ctx *generatorContext) removeStorageLeft() {
 	for iter.Next() {
 		count++
 		ctx.batch.Delete(iter.Key())
-		if ctx.batch.ValueSize() > ethdb.IdealBatchSize {
+		if ctx.batch.ValueSize() > tosdb.IdealBatchSize {
 			ctx.batch.Write()
 			ctx.batch.Reset()
 		}

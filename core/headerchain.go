@@ -30,7 +30,7 @@ import (
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
@@ -58,7 +58,7 @@ const (
 // the necessary mutex locking/unlocking.
 type HeaderChain struct {
 	config        *params.ChainConfig
-	chainDb       ethdb.Database
+	chainDb       tosdb.Database
 	genesisHeader *types.Header
 
 	currentHeader     atomic.Value // Current head of the header chain (may be above the block chain!)
@@ -76,7 +76,7 @@ type HeaderChain struct {
 
 // NewHeaderChain creates a new HeaderChain structure. ProcInterrupt points
 // to the parent's interrupt semaphore.
-func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine consensus.Engine, procInterrupt func() bool) (*HeaderChain, error) {
+func NewHeaderChain(chainDb tosdb.Database, config *params.ChainConfig, engine consensus.Engine, procInterrupt func() bool) (*HeaderChain, error) {
 	headerCache, _ := lru.New(headerCacheLimit)
 	tdCache, _ := lru.New(tdCacheLimit)
 	numberCache, _ := lru.New(numberCacheLimit)
@@ -562,11 +562,11 @@ type (
 	// before head header is updated. The method will return the actual block it
 	// updated the head to (missing state) and a flag if setHead should continue
 	// rewinding till that forcefully (exceeded ancient limits)
-	UpdateHeadBlocksCallback func(ethdb.KeyValueWriter, *types.Header) (uint64, bool)
+	UpdateHeadBlocksCallback func(tosdb.KeyValueWriter, *types.Header) (uint64, bool)
 
 	// DeleteBlockContentCallback is a callback function that is called by SetHead
 	// before each header is deleted.
-	DeleteBlockContentCallback func(ethdb.KeyValueWriter, common.Hash, uint64)
+	DeleteBlockContentCallback func(tosdb.KeyValueWriter, common.Hash, uint64)
 )
 
 // SetHead rewinds the local chain to a new head. Everything above the new head
@@ -587,7 +587,7 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 		}
 		parentHash = parent.Hash()
 
-		// Notably, since geth has the possibility for setting the head to a low
+		// Notably, since gtos has the possibility for setting the head to a low
 		// height which is even lower than ancient head.
 		// In order to ensure that the head is always no higher than the data in
 		// the database (ancient store or active store), we need to update head

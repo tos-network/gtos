@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/dop251/goja"
-	"github.com/tos-network/gtos/internal/ethapi"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/jsre/deps"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/signer/core"
@@ -226,7 +226,7 @@ func (r *rulesetUI) OnSignerStartup(info core.StartupInfo) {
 	}
 }
 
-func (r *rulesetUI) OnApprovedTx(tx ethapi.SignTransactionResult) {
+func (r *rulesetUI) OnApprovedTx(tx tosapi.SignTransactionResult) {
 	jsonTx, err := json.Marshal(tx)
 	if err != nil {
 		log.Warn("failed marshalling transaction", "tx", tx)

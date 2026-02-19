@@ -29,8 +29,8 @@ import (
 	"github.com/tos-network/gtos/consensus/ethash"
 	"github.com/tos-network/gtos/console/prompt"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/eth"
-	"github.com/tos-network/gtos/eth/ethconfig"
+	"github.com/tos-network/gtos/tos"
+	"github.com/tos-network/gtos/tos/ethconfig"
 	"github.com/tos-network/gtos/internal/jsre"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
@@ -77,7 +77,7 @@ func (p *hookedPrompter) SetWordCompleter(completer prompt.WordCompleter) {}
 type tester struct {
 	workspace string
 	stack     *node.Node
-	ethereum  *eth.Ethereum
+	ethereum  *tos.TOS
 	console   *Console
 	input     *hookedPrompter
 	output    *bytes.Buffer
@@ -106,7 +106,7 @@ func newTester(t *testing.T, confOverride func(*ethconfig.Config)) *tester {
 	if confOverride != nil {
 		confOverride(ethConf)
 	}
-	ethBackend, err := eth.New(stack, ethConf)
+	ethBackend, err := tos.New(stack, ethConf)
 	if err != nil {
 		t.Fatalf("failed to register Ethereum protocol: %v", err)
 	}

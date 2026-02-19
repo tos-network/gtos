@@ -23,7 +23,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/utils"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p/enode"
@@ -56,7 +56,7 @@ var (
 )
 
 type nodeDB struct {
-	db            ethdb.KeyValueStore
+	db            tosdb.KeyValueStore
 	cache         *lru.Cache
 	auxbuf        []byte                                              // 37-byte auxiliary buffer for key encoding
 	verbuf        [2]byte                                             // 2-byte auxiliary buffer for db version
@@ -66,7 +66,7 @@ type nodeDB struct {
 	cleanupHook   func() // Test hook used for testing
 }
 
-func newNodeDB(db ethdb.KeyValueStore, clock mclock.Clock) *nodeDB {
+func newNodeDB(db tosdb.KeyValueStore, clock mclock.Clock) *nodeDB {
 	cache, _ := lru.New(balanceCacheLimit)
 	ndb := &nodeDB{
 		db:      db,

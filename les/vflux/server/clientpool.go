@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common/mclock"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/les/utils"
 	"github.com/tos-network/gtos/les/vflux"
 	"github.com/tos-network/gtos/log"
@@ -81,7 +81,7 @@ type clientPeer interface {
 }
 
 // NewClientPool creates a new client pool
-func NewClientPool(balanceDb ethdb.KeyValueStore, minCap uint64, connectedBias time.Duration, clock mclock.Clock, synced func() bool) *ClientPool {
+func NewClientPool(balanceDb tosdb.KeyValueStore, minCap uint64, connectedBias time.Duration, clock mclock.Clock, synced func() bool) *ClientPool {
 	setup := newServerSetup()
 	ns := nodestate.NewNodeStateMachine(nil, nil, clock, setup.setup)
 	cp := &ClientPool{

@@ -32,12 +32,12 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/eth/tracers"
-	"github.com/tos-network/gtos/eth/tracers/logger"
+	"github.com/tos-network/gtos/tos/tracers"
+	"github.com/tos-network/gtos/tos/tracers/logger"
 	"github.com/tos-network/gtos/params"
 
 	// force-load js tracers to trigger registration
-	_ "github.com/tos-network/gtos/eth/tracers/js"
+	_ "github.com/tos-network/gtos/tos/tracers/js"
 )
 
 func TestDefaults(t *testing.T) {

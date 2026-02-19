@@ -33,9 +33,9 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/eth"
-	"github.com/tos-network/gtos/eth/ethconfig"
-	"github.com/tos-network/gtos/eth/filters"
+	"github.com/tos-network/gtos/tos"
+	"github.com/tos-network/gtos/tos/ethconfig"
+	"github.com/tos-network/gtos/tos/filters"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
 
@@ -346,7 +346,7 @@ func newGQLService(t *testing.T, stack *node.Node, gspec *core.Genesis, genBlock
 		TrieTimeout:             60 * time.Minute,
 		SnapshotCache:           5,
 	}
-	ethBackend, err := eth.New(stack, ethConf)
+	ethBackend, err := tos.New(stack, ethConf)
 	if err != nil {
 		t.Fatalf("could not create eth backend: %v", err)
 	}

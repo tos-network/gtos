@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
@@ -85,7 +85,7 @@ func (f *chainFreezer) Close() error {
 //
 // This functionality is deliberately broken off from block importing to avoid
 // incurring additional data shuffling delays on block propagation.
-func (f *chainFreezer) freeze(db ethdb.KeyValueStore) {
+func (f *chainFreezer) freeze(db tosdb.KeyValueStore) {
 	nfdb := &nofreezedb{KeyValueStore: db}
 
 	var (
@@ -253,7 +253,7 @@ func (f *chainFreezer) freeze(db ethdb.KeyValueStore) {
 func (f *chainFreezer) freezeRange(nfdb *nofreezedb, number, limit uint64) (hashes []common.Hash, err error) {
 	hashes = make([]common.Hash, 0, limit-number)
 
-	_, err = f.ModifyAncients(func(op ethdb.AncientWriteOp) error {
+	_, err = f.ModifyAncients(func(op tosdb.AncientWriteOp) error {
 		for ; number <= limit; number++ {
 			// Retrieve all the components of the canonical block.
 			hash := ReadCanonicalHash(nfdb, number)

@@ -16,7 +16,7 @@
 
 package ethtest
 
-import "github.com/tos-network/gtos/eth/protocols/snap"
+import "github.com/tos-network/gtos/tos/protocols/snap"
 
 // GetAccountRange represents an account range query.
 type GetAccountRange snap.GetAccountRangePacket

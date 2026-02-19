@@ -27,7 +27,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/ethdb"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/rpc"
 
@@ -171,7 +171,7 @@ func TestNodeOpenDatabaseFromLifecycleStart(t *testing.T) {
 	stack, _ := New(testNodeConfig())
 	defer stack.Close()
 
-	var db ethdb.Database
+	var db tosdb.Database
 	var err error
 	stack.RegisterLifecycle(&InstrumentedService{
 		startHook: func() {
