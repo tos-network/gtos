@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos android ios evm all test clean
+.PHONY: gtos android ios evm all test clean tps
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -38,6 +38,9 @@ lint: ## Run linters.
 clean:
 	env GO111MODULE=on go clean -cache
 	rm -fr build/_workspace/pkg/ $(GOBIN)/*
+
+tps: gtos
+	bash ./scripts/tps_bench.sh
 
 # The devtools target installs tools required for 'go generate'.
 # You need to put $GOBIN (or $GOPATH/bin) in your PATH to use 'go generate'.

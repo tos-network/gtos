@@ -82,6 +82,23 @@ make all
 
 > Note: these commands reflect the current chain-core baseline phase. GTOS-specific subcommands and Agent/RPC extensions will be added in later iterations.
 
+## TPS Benchmark
+
+GTOS includes a local TPS benchmark helper:
+
+```bash
+make tps
+```
+
+Latest benchmark report:
+
+- `docs/benchmarks/tps/2026-02-19-dev-transfer-tps.md`
+
+Note:
+
+- The current report is a local `--dev` synthetic transfer benchmark.
+- Use it for relative performance tracking across code changes.
+
 ## Roadmap (Short)
 
 1. Define internal GTOS module boundaries (`chaincore`, `agentcore`, `discovery`, `mcpapi`).
