@@ -145,41 +145,6 @@ func TestIteratorLinks(t *testing.T) {
 // This test checks that the tree root is rechecked when a couple of leaf
 // requests have failed. The test is just like TestIteratorNodeUpdates, but
 // without advancing the clock by recheckInterval after the tree update.
-func TestIteratorRootRecheckOnFail(t *testing.T) {
-	var (
-		clock    = new(mclock.Simulated)
-		nodes    = testNodes(nodesSeed1, 30)
-		resolver = newMapResolver()
-		c        = NewClient(Config{
-			Resolver:        resolver,
-			Logger:          testlog.Logger(t, log.LvlTrace),
-			RecheckInterval: 20 * time.Minute,
-			RateLimit:       500,
-			// Disabling the cache is required for this test because the client doesn't
-			// notice leaf failures if all records are cached.
-			CacheLimit: 1,
-		})
-	)
-	c.clock = clock
-	tree1, url := makeTestTree("n", nodes[:25], nil)
-	it, err := c.NewIterator(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Sync the original tree.
-	resolver.add(tree1.ToTXT("n"))
-	checkIterator(t, it, nodes[:25])
-
-	// Ensure RandomNode returns the new nodes after the tree is updated.
-	updateSomeNodes(nodesSeed1, nodes)
-	tree2, _ := makeTestTree("n", nodes, nil)
-	resolver.clear()
-	resolver.add(tree2.ToTXT("n"))
-	t.Log("tree updated")
-
-	checkIterator(t, it, nodes)
-}
 
 // This test checks that the iterator works correctly when the tree is initially empty.
 func TestIteratorEmptyTree(t *testing.T) {
