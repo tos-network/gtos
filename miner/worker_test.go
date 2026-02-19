@@ -323,7 +323,7 @@ func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consens
 
 func TestStreamUncleBlock(t *testing.T) {
 	ethash := tosash.NewFaker()
-	defer tosash.Close()
+	defer ethash.Close()
 
 	w, b := newTestWorker(t, ethashChainConfig, ethash, rawdb.NewMemoryDatabase(), 1)
 	defer w.close()

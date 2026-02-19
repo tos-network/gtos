@@ -45,11 +45,9 @@ import (
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tos/filters"
 	"github.com/tos-network/gtos/tos/gasprice"
-	"github.com/tos-network/gtos/tos/tracers"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/tosdb/remotedb"
 	"github.com/tos-network/gtos/tosstats"
-	"github.com/tos-network/gtos/graphql"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/les"
@@ -1993,8 +1991,7 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 		if err != nil {
 			Fatalf("Failed to register the Ethereum service: %v", err)
 		}
-		stack.RegisterAPIs(tracers.APIs(backend.ApiBackend))
-		if err := lescatalyst.Register(stack, backend); err != nil {
+			if err := lescatalyst.Register(stack, backend); err != nil {
 			Fatalf("Failed to register the Engine API service: %v", err)
 		}
 		return backend.ApiBackend, nil
@@ -2012,7 +2009,6 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 	if err := ethcatalyst.Register(stack, backend); err != nil {
 		Fatalf("Failed to register the Engine API service: %v", err)
 	}
-	stack.RegisterAPIs(tracers.APIs(backend.APIBackend))
 	return backend.APIBackend, backend
 }
 
@@ -2023,12 +2019,9 @@ func RegisterEthStatsService(stack *node.Node, backend tosapi.Backend, url strin
 	}
 }
 
-// RegisterGraphQLService adds the GraphQL API to the node.
+// RegisterGraphQLService is a no-op stub: GraphQL has been removed from GTOS.
 func RegisterGraphQLService(stack *node.Node, backend tosapi.Backend, filterSystem *filters.FilterSystem, cfg *node.Config) {
-	err := graphql.New(stack, backend, filterSystem, cfg.GraphQLCors, cfg.GraphQLVirtualHosts)
-	if err != nil {
-		Fatalf("Failed to register the GraphQL service: %v", err)
-	}
+	// GraphQL service removed; graphql/ directory was deleted as part of EVM removal.
 }
 
 // RegisterFilterAPI adds the eth log filtering RPC API to the node.

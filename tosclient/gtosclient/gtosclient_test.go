@@ -22,7 +22,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
@@ -111,10 +110,6 @@ func TestGethClient(t *testing.T) {
 		test func(t *testing.T)
 	}{
 		{
-			"TestAccessList",
-			func(t *testing.T) { testAccessList(t, client) },
-		},
-		{
 			"TestGetProof",
 			func(t *testing.T) { testGetProof(t, client) },
 		}, {
@@ -132,68 +127,11 @@ func TestGethClient(t *testing.T) {
 		}, {
 			"TestSubscribePendingTxs",
 			func(t *testing.T) { testSubscribePendingTransactions(t, client) },
-		}, {
-			"TestCallContract",
-			func(t *testing.T) { testCallContract(t, client) },
 		},
 	}
 	t.Parallel()
 	for _, tt := range tests {
 		t.Run(tt.name, tt.test)
-	}
-}
-
-func testAccessList(t *testing.T, client *rpc.Client) {
-	ec := New(client)
-	// Test transfer
-	msg := gtos.CallMsg{
-		From:     testAddr,
-		To:       &common.Address{},
-		Gas:      21000,
-		GasPrice: big.NewInt(765625000),
-		Value:    big.NewInt(1),
-	}
-	al, gas, vmErr, err := ec.CreateAccessList(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if vmErr != "" {
-		t.Fatalf("unexpected vm error: %v", vmErr)
-	}
-	if gas != 21000 {
-		t.Fatalf("unexpected gas used: %v", gas)
-	}
-	if len(*al) != 0 {
-		t.Fatalf("unexpected length of accesslist: %v", len(*al))
-	}
-	// Test reverting transaction
-	msg = gtos.CallMsg{
-		From:     testAddr,
-		To:       nil,
-		Gas:      100000,
-		GasPrice: big.NewInt(1000000000),
-		Value:    big.NewInt(1),
-		Data:     common.FromHex("0x608060806080608155fd"),
-	}
-	al, gas, vmErr, err = ec.CreateAccessList(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if vmErr == "" {
-		t.Fatalf("wanted vmErr, got none")
-	}
-	if gas == 21000 {
-		t.Fatalf("unexpected gas used: %v", gas)
-	}
-	if len(*al) != 1 || al.StorageKeys() != 1 {
-		t.Fatalf("unexpected length of accesslist: %v", len(*al))
-	}
-	// address changes between calls, so we can't test for it.
-	if (*al)[0].Address == common.HexToAddress("0x0") {
-		t.Fatalf("unexpected address: %v", (*al)[0].Address)
-	}
-	if (*al)[0].StorageKeys[0] != common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000081") {
-		t.Fatalf("unexpected storage key: %v", (*al)[0].StorageKeys[0])
 	}
 }
 
@@ -304,26 +242,3 @@ func testSubscribePendingTransactions(t *testing.T, client *rpc.Client) {
 	}
 }
 
-func testCallContract(t *testing.T, client *rpc.Client) {
-	ec := New(client)
-	msg := gtos.CallMsg{
-		From:     testAddr,
-		To:       &common.Address{},
-		Gas:      21000,
-		GasPrice: big.NewInt(1000000000),
-		Value:    big.NewInt(1),
-	}
-	// CallContract without override
-	if _, err := ec.CallContract(context.Background(), msg, big.NewInt(0), nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// CallContract with override
-	override := OverrideAccount{
-		Nonce: 1,
-	}
-	mapAcc := make(map[common.Address]OverrideAccount)
-	mapAcc[testAddr] = override
-	if _, err := ec.CallContract(context.Background(), msg, big.NewInt(0), &mapAcc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}

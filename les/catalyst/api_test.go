@@ -215,7 +215,7 @@ func startLesService(t *testing.T, genesis *core.Genesis, headers []*types.Heade
 	}
 	ethcfg := &tosconfig.Config{
 		Genesis:        genesis,
-		Ethash:         tosash.Config{PowMode: tosash.ModeFake},
+		Tosash: tosash.Config{PowMode: tosash.ModeFake},
 		SyncMode:       downloader.LightSync,
 		TrieDirtyCache: 256,
 		TrieCleanCache: 256,

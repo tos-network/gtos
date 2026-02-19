@@ -88,8 +88,8 @@ func (db *Database) ValidateTransaction(selector *string, tx *apitypes.SendTxArg
 	return messages, nil
 }
 
-// ValidateCallData checks if the ABI call-data + method selector (if given) can
-// be parsed and seems to match.
+// ValidateCallData checks if the call-data + method selector (if given) can
+// be parsed. ABI decoding is not supported after EVM removal.
 func (db *Database) ValidateCallData(selector *string, data []byte, messages *apitypes.ValidationMessages) {
 	// If the data is empty, we have a plain value transfer, nothing more to do
 	if len(data) == 0 {
@@ -103,14 +103,10 @@ func (db *Database) ValidateCallData(selector *string, data []byte, messages *ap
 	if n := len(data) - 4; n%32 != 0 {
 		messages.Warn(fmt.Sprintf("Transaction data is not valid ABI (length should be a multiple of 32 (was %d))", n))
 	}
-	// If a custom method selector was provided, validate with that
+	// If a custom method selector was provided, add it to the DB
 	if selector != nil {
-		if info, err := verifySelector(*selector, data); err != nil {
-			messages.Warn(fmt.Sprintf("Transaction contains data, but provided ABI signature could not be matched: %v", err))
-		} else {
-			messages.Info(fmt.Sprintf("Transaction invokes the following method: %q", info.String()))
-			db.AddSelector(*selector, data[:4])
-		}
+		db.AddSelector(*selector, data[:4])
+		messages.Info(fmt.Sprintf("Transaction contains data with selector: %v", *selector))
 		return
 	}
 	// No method selector was provided, check the database for embedded ones
@@ -119,9 +115,5 @@ func (db *Database) ValidateCallData(selector *string, data []byte, messages *ap
 		messages.Warn(fmt.Sprintf("Transaction contains data, but the ABI signature could not be found: %v", err))
 		return
 	}
-	if info, err := verifySelector(embedded, data); err != nil {
-		messages.Warn(fmt.Sprintf("Transaction contains data, but provided ABI signature could not be verified: %v", err))
-	} else {
-		messages.Info(fmt.Sprintf("Transaction invokes the following method: %q", info.String()))
-	}
+	messages.Info(fmt.Sprintf("Transaction invokes the following method: %q", embedded))
 }

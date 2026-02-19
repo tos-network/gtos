@@ -16,39 +16,40 @@
 
 package vm
 
-import (
-	"fmt"
-)
+import "fmt"
 
-// OpCode is an EVM opcode
+// OpCode is an EVM opcode (constants kept for assembler and test compatibility).
 type OpCode byte
 
-// IsPush specifies if an opcode is a PUSH opcode.
-func (op OpCode) IsPush() bool {
-	switch op {
-	case PUSH1, PUSH2, PUSH3, PUSH4, PUSH5, PUSH6, PUSH7, PUSH8, PUSH9, PUSH10, PUSH11, PUSH12, PUSH13, PUSH14, PUSH15, PUSH16, PUSH17, PUSH18, PUSH19, PUSH20, PUSH21, PUSH22, PUSH23, PUSH24, PUSH25, PUSH26, PUSH27, PUSH28, PUSH29, PUSH30, PUSH31, PUSH32:
-		return true
+func (op OpCode) String() string {
+	if name, ok := opCodeToString[op]; ok {
+		return name
 	}
-	return false
+	return fmt.Sprintf("opcode 0x%x not defined", int(op))
 }
 
-// 0x0 range - arithmetic ops.
+// IsPush returns true if op is a PUSH opcode.
+func (op OpCode) IsPush() bool {
+	return op >= PUSH1 && op <= PUSH32
+}
+
+// Arithmetic and logic opcodes
 const (
-	STOP       OpCode = 0x0
-	ADD        OpCode = 0x1
-	MUL        OpCode = 0x2
-	SUB        OpCode = 0x3
-	DIV        OpCode = 0x4
-	SDIV       OpCode = 0x5
-	MOD        OpCode = 0x6
-	SMOD       OpCode = 0x7
-	ADDMOD     OpCode = 0x8
-	MULMOD     OpCode = 0x9
-	EXP        OpCode = 0xa
-	SIGNEXTEND OpCode = 0xb
+	STOP       OpCode = 0x00
+	ADD        OpCode = 0x01
+	MUL        OpCode = 0x02
+	SUB        OpCode = 0x03
+	DIV        OpCode = 0x04
+	SDIV       OpCode = 0x05
+	MOD        OpCode = 0x06
+	SMOD       OpCode = 0x07
+	ADDMOD     OpCode = 0x08
+	MULMOD     OpCode = 0x09
+	EXP        OpCode = 0x0a
+	SIGNEXTEND OpCode = 0x0b
 )
 
-// 0x10 range - comparison ops.
+// Comparison & bitwise logic opcodes
 const (
 	LT     OpCode = 0x10
 	GT     OpCode = 0x11
@@ -66,12 +67,12 @@ const (
 	SAR    OpCode = 0x1d
 )
 
-// 0x20 range - crypto.
+// SHA3 opcode
 const (
-	KECCAK256 OpCode = 0x20
+	SHA3 OpCode = 0x20
 )
 
-// 0x30 range - closure state.
+// Environmental information opcodes
 const (
 	ADDRESS        OpCode = 0x30
 	BALANCE        OpCode = 0x31
@@ -91,21 +92,20 @@ const (
 	EXTCODEHASH    OpCode = 0x3f
 )
 
-// 0x40 range - block operations.
+// Block information opcodes
 const (
 	BLOCKHASH   OpCode = 0x40
 	COINBASE    OpCode = 0x41
 	TIMESTAMP   OpCode = 0x42
 	NUMBER      OpCode = 0x43
 	DIFFICULTY  OpCode = 0x44
-	RANDOM      OpCode = 0x44 // Same as DIFFICULTY
 	GASLIMIT    OpCode = 0x45
 	CHAINID     OpCode = 0x46
 	SELFBALANCE OpCode = 0x47
 	BASEFEE     OpCode = 0x48
 )
 
-// 0x50 range - 'storage' and execution.
+// Stack, memory, storage and flow opcodes
 const (
 	POP      OpCode = 0x50
 	MLOAD    OpCode = 0x51
@@ -119,95 +119,99 @@ const (
 	MSIZE    OpCode = 0x59
 	GAS      OpCode = 0x5a
 	JUMPDEST OpCode = 0x5b
-	PUSH0    OpCode = 0x5f
 )
 
-// 0x60 range - pushes.
+// Push opcodes (EIP-3855)
 const (
-	PUSH1 OpCode = 0x60 + iota
-	PUSH2
-	PUSH3
-	PUSH4
-	PUSH5
-	PUSH6
-	PUSH7
-	PUSH8
-	PUSH9
-	PUSH10
-	PUSH11
-	PUSH12
-	PUSH13
-	PUSH14
-	PUSH15
-	PUSH16
-	PUSH17
-	PUSH18
-	PUSH19
-	PUSH20
-	PUSH21
-	PUSH22
-	PUSH23
-	PUSH24
-	PUSH25
-	PUSH26
-	PUSH27
-	PUSH28
-	PUSH29
-	PUSH30
-	PUSH31
-	PUSH32
+	PUSH0 OpCode = 0x5f
 )
 
-// 0x80 range - dups.
+// Push data opcodes
 const (
-	DUP1 = 0x80 + iota
-	DUP2
-	DUP3
-	DUP4
-	DUP5
-	DUP6
-	DUP7
-	DUP8
-	DUP9
-	DUP10
-	DUP11
-	DUP12
-	DUP13
-	DUP14
-	DUP15
-	DUP16
+	PUSH1  OpCode = 0x60
+	PUSH2  OpCode = 0x61
+	PUSH3  OpCode = 0x62
+	PUSH4  OpCode = 0x63
+	PUSH5  OpCode = 0x64
+	PUSH6  OpCode = 0x65
+	PUSH7  OpCode = 0x66
+	PUSH8  OpCode = 0x67
+	PUSH9  OpCode = 0x68
+	PUSH10 OpCode = 0x69
+	PUSH11 OpCode = 0x6a
+	PUSH12 OpCode = 0x6b
+	PUSH13 OpCode = 0x6c
+	PUSH14 OpCode = 0x6d
+	PUSH15 OpCode = 0x6e
+	PUSH16 OpCode = 0x6f
+	PUSH17 OpCode = 0x70
+	PUSH18 OpCode = 0x71
+	PUSH19 OpCode = 0x72
+	PUSH20 OpCode = 0x73
+	PUSH21 OpCode = 0x74
+	PUSH22 OpCode = 0x75
+	PUSH23 OpCode = 0x76
+	PUSH24 OpCode = 0x77
+	PUSH25 OpCode = 0x78
+	PUSH26 OpCode = 0x79
+	PUSH27 OpCode = 0x7a
+	PUSH28 OpCode = 0x7b
+	PUSH29 OpCode = 0x7c
+	PUSH30 OpCode = 0x7d
+	PUSH31 OpCode = 0x7e
+	PUSH32 OpCode = 0x7f
 )
 
-// 0x90 range - swaps.
+// Duplication operations
 const (
-	SWAP1 = 0x90 + iota
-	SWAP2
-	SWAP3
-	SWAP4
-	SWAP5
-	SWAP6
-	SWAP7
-	SWAP8
-	SWAP9
-	SWAP10
-	SWAP11
-	SWAP12
-	SWAP13
-	SWAP14
-	SWAP15
-	SWAP16
+	DUP1  OpCode = 0x80
+	DUP2  OpCode = 0x81
+	DUP3  OpCode = 0x82
+	DUP4  OpCode = 0x83
+	DUP5  OpCode = 0x84
+	DUP6  OpCode = 0x85
+	DUP7  OpCode = 0x86
+	DUP8  OpCode = 0x87
+	DUP9  OpCode = 0x88
+	DUP10 OpCode = 0x89
+	DUP11 OpCode = 0x8a
+	DUP12 OpCode = 0x8b
+	DUP13 OpCode = 0x8c
+	DUP14 OpCode = 0x8d
+	DUP15 OpCode = 0x8e
+	DUP16 OpCode = 0x8f
 )
 
-// 0xa0 range - logging ops.
+// Exchange operations
 const (
-	LOG0 OpCode = 0xa0 + iota
-	LOG1
-	LOG2
-	LOG3
-	LOG4
+	SWAP1  OpCode = 0x90
+	SWAP2  OpCode = 0x91
+	SWAP3  OpCode = 0x92
+	SWAP4  OpCode = 0x93
+	SWAP5  OpCode = 0x94
+	SWAP6  OpCode = 0x95
+	SWAP7  OpCode = 0x96
+	SWAP8  OpCode = 0x97
+	SWAP9  OpCode = 0x98
+	SWAP10 OpCode = 0x99
+	SWAP11 OpCode = 0x9a
+	SWAP12 OpCode = 0x9b
+	SWAP13 OpCode = 0x9c
+	SWAP14 OpCode = 0x9d
+	SWAP15 OpCode = 0x9e
+	SWAP16 OpCode = 0x9f
 )
 
-// 0xf0 range - closures.
+// Logging operations
+const (
+	LOG0 OpCode = 0xa0
+	LOG1 OpCode = 0xa1
+	LOG2 OpCode = 0xa2
+	LOG3 OpCode = 0xa3
+	LOG4 OpCode = 0xa4
+)
+
+// System operations
 const (
 	CREATE       OpCode = 0xf0
 	CALL         OpCode = 0xf1
@@ -215,16 +219,15 @@ const (
 	RETURN       OpCode = 0xf3
 	DELEGATECALL OpCode = 0xf4
 	CREATE2      OpCode = 0xf5
-
 	STATICCALL   OpCode = 0xfa
 	REVERT       OpCode = 0xfd
 	INVALID      OpCode = 0xfe
 	SELFDESTRUCT OpCode = 0xff
 )
 
-// Since the opcodes aren't all in order we can't use a regular slice.
+// opCodeToString maps opcode values to their names.
 var opCodeToString = map[OpCode]string{
-	// 0x0 range - arithmetic ops.
+	// Arithmetic
 	STOP:       "STOP",
 	ADD:        "ADD",
 	MUL:        "MUL",
@@ -242,8 +245,7 @@ var opCodeToString = map[OpCode]string{
 	EQ:         "EQ",
 	ISZERO:     "ISZERO",
 	SIGNEXTEND: "SIGNEXTEND",
-
-	// 0x10 range - bit ops.
+	// Bitwise
 	AND:    "AND",
 	OR:     "OR",
 	XOR:    "XOR",
@@ -253,11 +255,9 @@ var opCodeToString = map[OpCode]string{
 	SAR:    "SAR",
 	ADDMOD: "ADDMOD",
 	MULMOD: "MULMOD",
-
-	// 0x20 range - crypto.
-	KECCAK256: "KECCAK256",
-
-	// 0x30 range - closure state.
+	// SHA3
+	SHA3: "SHA3",
+	// Environmental
 	ADDRESS:        "ADDRESS",
 	BALANCE:        "BALANCE",
 	ORIGIN:         "ORIGIN",
@@ -274,22 +274,18 @@ var opCodeToString = map[OpCode]string{
 	RETURNDATASIZE: "RETURNDATASIZE",
 	RETURNDATACOPY: "RETURNDATACOPY",
 	EXTCODEHASH:    "EXTCODEHASH",
-
-	// 0x40 range - block operations.
+	// Block
 	BLOCKHASH:   "BLOCKHASH",
 	COINBASE:    "COINBASE",
 	TIMESTAMP:   "TIMESTAMP",
 	NUMBER:      "NUMBER",
-	DIFFICULTY:  "DIFFICULTY", // TODO (MariusVanDerWijden) rename to RANDOM post merge
+	DIFFICULTY:  "DIFFICULTY",
 	GASLIMIT:    "GASLIMIT",
 	CHAINID:     "CHAINID",
 	SELFBALANCE: "SELFBALANCE",
 	BASEFEE:     "BASEFEE",
-
-	// 0x50 range - 'storage' and execution.
-	POP: "POP",
-	//DUP:     "DUP",
-	//SWAP:    "SWAP",
+	// Stack, memory
+	POP:      "POP",
 	MLOAD:    "MLOAD",
 	MSTORE:   "MSTORE",
 	MSTORE8:  "MSTORE8",
@@ -302,8 +298,7 @@ var opCodeToString = map[OpCode]string{
 	GAS:      "GAS",
 	JUMPDEST: "JUMPDEST",
 	PUSH0:    "PUSH0",
-
-	// 0x60 range - push.
+	// Push
 	PUSH1:  "PUSH1",
 	PUSH2:  "PUSH2",
 	PUSH3:  "PUSH3",
@@ -336,7 +331,7 @@ var opCodeToString = map[OpCode]string{
 	PUSH30: "PUSH30",
 	PUSH31: "PUSH31",
 	PUSH32: "PUSH32",
-
+	// Dup
 	DUP1:  "DUP1",
 	DUP2:  "DUP2",
 	DUP3:  "DUP3",
@@ -353,7 +348,7 @@ var opCodeToString = map[OpCode]string{
 	DUP14: "DUP14",
 	DUP15: "DUP15",
 	DUP16: "DUP16",
-
+	// Swap
 	SWAP1:  "SWAP1",
 	SWAP2:  "SWAP2",
 	SWAP3:  "SWAP3",
@@ -370,17 +365,17 @@ var opCodeToString = map[OpCode]string{
 	SWAP14: "SWAP14",
 	SWAP15: "SWAP15",
 	SWAP16: "SWAP16",
-	LOG0:   "LOG0",
-	LOG1:   "LOG1",
-	LOG2:   "LOG2",
-	LOG3:   "LOG3",
-	LOG4:   "LOG4",
-
-	// 0xf0 range.
+	// Log
+	LOG0: "LOG0",
+	LOG1: "LOG1",
+	LOG2: "LOG2",
+	LOG3: "LOG3",
+	LOG4: "LOG4",
+	// System
 	CREATE:       "CREATE",
 	CALL:         "CALL",
-	RETURN:       "RETURN",
 	CALLCODE:     "CALLCODE",
+	RETURN:       "RETURN",
 	DELEGATECALL: "DELEGATECALL",
 	CREATE2:      "CREATE2",
 	STATICCALL:   "STATICCALL",
@@ -389,15 +384,12 @@ var opCodeToString = map[OpCode]string{
 	SELFDESTRUCT: "SELFDESTRUCT",
 }
 
-func (op OpCode) String() string {
-	str := opCodeToString[op]
-	if len(str) == 0 {
-		return fmt.Sprintf("opcode %#x not defined", int(op))
-	}
-
-	return str
+// StringToOp returns the opcode corresponding to the given string name.
+func StringToOp(str string) OpCode {
+	return stringToOp[str]
 }
 
+// stringToOp maps opcode names to their values.
 var stringToOp = map[string]OpCode{
 	"STOP":           STOP,
 	"ADD":            ADD,
@@ -407,25 +399,25 @@ var stringToOp = map[string]OpCode{
 	"SDIV":           SDIV,
 	"MOD":            MOD,
 	"SMOD":           SMOD,
+	"ADDMOD":         ADDMOD,
+	"MULMOD":         MULMOD,
 	"EXP":            EXP,
-	"NOT":            NOT,
+	"SIGNEXTEND":     SIGNEXTEND,
 	"LT":             LT,
 	"GT":             GT,
 	"SLT":            SLT,
 	"SGT":            SGT,
 	"EQ":             EQ,
 	"ISZERO":         ISZERO,
-	"SIGNEXTEND":     SIGNEXTEND,
 	"AND":            AND,
 	"OR":             OR,
 	"XOR":            XOR,
+	"NOT":            NOT,
 	"BYTE":           BYTE,
 	"SHL":            SHL,
 	"SHR":            SHR,
 	"SAR":            SAR,
-	"ADDMOD":         ADDMOD,
-	"MULMOD":         MULMOD,
-	"KECCAK256":      KECCAK256,
+	"SHA3":           SHA3,
 	"ADDRESS":        ADDRESS,
 	"BALANCE":        BALANCE,
 	"ORIGIN":         ORIGIN,
@@ -434,10 +426,6 @@ var stringToOp = map[string]OpCode{
 	"CALLDATALOAD":   CALLDATALOAD,
 	"CALLDATASIZE":   CALLDATASIZE,
 	"CALLDATACOPY":   CALLDATACOPY,
-	"CHAINID":        CHAINID,
-	"BASEFEE":        BASEFEE,
-	"DELEGATECALL":   DELEGATECALL,
-	"STATICCALL":     STATICCALL,
 	"CODESIZE":       CODESIZE,
 	"CODECOPY":       CODECOPY,
 	"GASPRICE":       GASPRICE,
@@ -452,7 +440,9 @@ var stringToOp = map[string]OpCode{
 	"NUMBER":         NUMBER,
 	"DIFFICULTY":     DIFFICULTY,
 	"GASLIMIT":       GASLIMIT,
+	"CHAINID":        CHAINID,
 	"SELFBALANCE":    SELFBALANCE,
+	"BASEFEE":        BASEFEE,
 	"POP":            POP,
 	"MLOAD":          MLOAD,
 	"MSTORE":         MSTORE,
@@ -536,16 +526,18 @@ var stringToOp = map[string]OpCode{
 	"LOG3":           LOG3,
 	"LOG4":           LOG4,
 	"CREATE":         CREATE,
-	"CREATE2":        CREATE2,
 	"CALL":           CALL,
-	"RETURN":         RETURN,
 	"CALLCODE":       CALLCODE,
+	"RETURN":         RETURN,
+	"DELEGATECALL":   DELEGATECALL,
+	"CREATE2":        CREATE2,
+	"STATICCALL":     STATICCALL,
 	"REVERT":         REVERT,
 	"INVALID":        INVALID,
 	"SELFDESTRUCT":   SELFDESTRUCT,
 }
 
-// StringToOp finds the opcode whose name is stored in `str`.
-func StringToOp(str string) OpCode {
-	return stringToOp[str]
+// ValidEip returns whether the given EIP is valid/supported (stub, always false).
+func ValidEip(eipNum int) bool {
+	return false
 }

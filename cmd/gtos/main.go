@@ -41,8 +41,6 @@ import (
 	"github.com/tos-network/gtos/node"
 
 	// Force-load the tracer engines to trigger registration
-	_ "github.com/tos-network/gtos/tos/tracers/js"
-	_ "github.com/tos-network/gtos/tos/tracers/native"
 
 	"github.com/urfave/cli/v2"
 )

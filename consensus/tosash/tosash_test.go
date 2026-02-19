@@ -167,7 +167,7 @@ func TestClosedRemoteSealer(t *testing.T) {
 	tosash.Close()
 
 	api := &API{tosash}
-	if _, err := api.GetWork(); err != errEthashStopped {
+	if _, err := api.GetWork(); err != errTosashStopped {
 		t.Error("expect to return an error to indicate ethash is stopped")
 	}
 
