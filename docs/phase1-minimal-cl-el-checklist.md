@@ -29,7 +29,7 @@
 - [x] `cmd/gtos` 增加 `engine.*` 配置与 CLI flags 接线
 - [x] `gtos` 启动时可注入 Engine bridge 客户端（stub，未切换出块主路径）
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`；新增 `engine.allow-txpool-fallback` 兼容开关（默认关闭）
-- [x] 导入区块前接入 `NewPayload` 校验钩子；校验 `state_hash` 与区块 `stateRoot` 一致；链头更新触发 `ForkchoiceUpdated`（当前失败降级）
+- [x] 导入区块前接入 `NewPayload` 校验钩子；校验 `state_hash` 与区块 `stateRoot` 一致；`ForkchoiceUpdated` 改为按 `head/safe/finalized` 变化触发（失败降级）
 
 ## 1. Phase 1 范围（只做“能跑通”）
 

@@ -104,8 +104,9 @@ type TOS struct {
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
 
 	// External execution layer bridge (phase-1 scaffold).
-	engineAPIConfig engineclient.Config
-	engineAPIClient engineclient.Client
+	engineAPIConfig     engineclient.Config
+	engineAPIClient     engineclient.Client
+	lastForkchoiceState *engineclient.ForkchoiceState
 }
 
 // New creates a new Ethereum object (including the
@@ -579,6 +580,7 @@ func (s *TOS) ConfigureEngineAPI(cfg engineclient.Config) {
 	defer s.lock.Unlock()
 
 	s.engineAPIConfig = cfg
+	s.lastForkchoiceState = nil
 	if !cfg.Enabled {
 		s.engineAPIClient = nil
 		log.Info("Engine API bridge disabled")
@@ -665,8 +667,13 @@ func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {
 	s.lock.RLock()
 	client := s.engineAPIClient
 	cfg := s.engineAPIConfig
+	prev := cloneForkchoiceState(s.lastForkchoiceState)
 	s.lock.RUnlock()
-	if client == nil {
+	if client == nil || head == nil {
+		return
+	}
+	state := resolveForkchoiceState(head, s.blockchain.CurrentSafeBlock(), s.blockchain.CurrentFinalizedBlock())
+	if state == nil || sameForkchoiceState(state, prev) {
 		return
 	}
 	timeout := cfg.RequestTimeout
@@ -676,12 +683,48 @@ func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	state := &engineclient.ForkchoiceState{
-		HeadHash:      head.Hash().Hex(),
-		SafeHash:      head.Hash().Hex(),
-		FinalizedHash: head.Hash().Hex(),
-	}
 	if err := client.ForkchoiceUpdated(ctx, state); err != nil && !errors.Is(err, engineclient.ErrNotImplemented) {
 		log.Warn("Engine ForkchoiceUpdated failed", "head", head.Hash(), "err", err)
+		return
+	}
+	s.lock.Lock()
+	s.lastForkchoiceState = cloneForkchoiceState(state)
+	s.lock.Unlock()
+}
+
+func resolveForkchoiceState(head, safe, finalized *types.Block) *engineclient.ForkchoiceState {
+	if head == nil {
+		return nil
+	}
+	if safe == nil {
+		safe = head
+	}
+	if finalized == nil {
+		finalized = safe
+	}
+	return &engineclient.ForkchoiceState{
+		HeadHash:      head.Hash().Hex(),
+		SafeHash:      safe.Hash().Hex(),
+		FinalizedHash: finalized.Hash().Hex(),
+	}
+}
+
+func sameForkchoiceState(a, b *engineclient.ForkchoiceState) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.HeadHash == b.HeadHash &&
+		a.SafeHash == b.SafeHash &&
+		a.FinalizedHash == b.FinalizedHash
+}
+
+func cloneForkchoiceState(state *engineclient.ForkchoiceState) *engineclient.ForkchoiceState {
+	if state == nil {
+		return nil
+	}
+	return &engineclient.ForkchoiceState{
+		HeadHash:      state.HeadHash,
+		SafeHash:      state.SafeHash,
+		FinalizedHash: state.FinalizedHash,
 	}
 }
