@@ -21,6 +21,11 @@
 - `state_hash`
 - `receipts_hash`
 
+Phase 1 约定（当前 gtos 适配器）：
+
+- `payload` 编码先采用 `RLP(types.Transactions)`。
+- 若执行层未实现该接口或返回无法解码数据，gtos 允许回退到本地 txpool（临时兼容路径）。
+
 ## 2. `NewPayload`
 
 用途：validator 在投票前执行校验。

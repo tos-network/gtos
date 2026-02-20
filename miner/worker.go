@@ -17,6 +17,7 @@
 package miner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -31,9 +32,11 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -75,6 +78,9 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
+
+	// engineAPIPayloadRequestTimeout bounds proposer payload requests to execution layer.
+	engineAPIPayloadRequestTimeout = 2 * time.Second
 )
 
 var (
@@ -1041,6 +1047,10 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
 func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
+	if usedEnginePayload, err := w.fillTransactionsFromEngine(interrupt, env); usedEnginePayload || err != nil {
+		return err
+	}
+
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
 	pending := w.tos.TxPool().Pending(true)
@@ -1064,6 +1074,70 @@ func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
 		}
 	}
 	return nil
+}
+
+func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) (bool, error) {
+	client := w.tos.EngineAPIClient()
+	if client == nil {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), engineAPIPayloadRequestTimeout)
+	defer cancel()
+
+	resp, err := client.GetPayload(ctx, &engineclient.GetPayloadRequest{
+		ParentHash: env.header.ParentHash.Hex(),
+		Height:     env.header.Number.Uint64(),
+		Timestamp:  env.header.Time,
+	})
+	if err != nil {
+		if !errors.Is(err, engineclient.ErrNotImplemented) {
+			log.Warn("Engine payload request failed, falling back to local txpool", "err", err)
+		}
+		return false, nil
+	}
+	if len(resp.Payload) == 0 {
+		log.Debug("Engine payload is empty")
+		return true, nil
+	}
+
+	if env.gasPool == nil {
+		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
+	}
+
+	var txs types.Transactions
+	if err := rlp.DecodeBytes(resp.Payload, &txs); err != nil {
+		log.Warn("Engine payload decode failed, falling back to local txpool", "err", err)
+		return false, nil
+	}
+	coalescedLogs := make([]*types.Log, 0)
+	for _, tx := range txs {
+		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
+			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
+				w.resubmitAdjustCh <- &intervalAdjust{inc: true}
+				return true, errBlockInterruptedByRecommit
+			}
+			return true, errBlockInterruptedByNewHead
+		}
+		logs, err := w.commitTransaction(env, tx)
+		if err != nil {
+			return true, err
+		}
+		env.tcount++
+		coalescedLogs = append(coalescedLogs, logs...)
+	}
+	if !w.isRunning() && len(coalescedLogs) > 0 {
+		cpy := make([]*types.Log, len(coalescedLogs))
+		for i, l := range coalescedLogs {
+			cpy[i] = new(types.Log)
+			*cpy[i] = *l
+		}
+		w.pendingLogsFeed.Send(cpy)
+	}
+	if interrupt != nil {
+		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
+	}
+	log.Debug("Filled block transactions from engine payload", "count", len(txs), "statehash", resp.StateHash)
+	return true, nil
 }
 
 // generateWork generates a sealing block based on the given parameters.

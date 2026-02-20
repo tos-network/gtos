@@ -17,6 +17,7 @@
 package miner
 
 import (
+	"context"
 	"errors"
 	"math/big"
 	"math/rand"
@@ -35,6 +36,7 @@ import (
 	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/tosdb"
 )
 
@@ -106,6 +108,7 @@ type testWorkerBackend struct {
 	chain      *core.BlockChain
 	genesis    *core.Genesis
 	uncleBlock *types.Block
+	engine     engineclient.Client
 }
 
 func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, n int) *testWorkerBackend {
@@ -147,10 +150,30 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 func (b *testWorkerBackend) BlockChain() *core.BlockChain { return b.chain }
 func (b *testWorkerBackend) TxPool() *core.TxPool         { return b.txPool }
 func (b *testWorkerBackend) EngineAPIClient() engineclient.Client {
-	return nil
+	return b.engine
 }
 func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
 	return nil, errors.New("not supported")
+}
+
+type mockEngineClient struct {
+	payload []byte
+	err     error
+}
+
+func (m *mockEngineClient) GetPayload(context.Context, *engineclient.GetPayloadRequest) (*engineclient.GetPayloadResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &engineclient.GetPayloadResponse{Payload: m.payload}, nil
+}
+
+func (m *mockEngineClient) NewPayload(context.Context, *engineclient.NewPayloadRequest) (*engineclient.NewPayloadResponse, error) {
+	return nil, engineclient.ErrNotImplemented
+}
+
+func (m *mockEngineClient) ForkchoiceUpdated(context.Context, *engineclient.ForkchoiceState) error {
+	return engineclient.ErrNotImplemented
 }
 
 func (b *testWorkerBackend) newRandomUncle() *types.Block {
@@ -469,6 +492,39 @@ func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine co
 	case <-progress:
 	case <-time.NewTimer(time.Second).C:
 		t.Error("interval reset timeout")
+	}
+}
+
+func TestFillTransactionsFromEnginePayload(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
+	if err != nil {
+		t.Fatalf("failed to encode engine payload: %v", err)
+	}
+	b.engine = &mockEngineClient{payload: payload}
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err != nil {
+		t.Fatalf("failed to fill transactions from engine payload: %v", err)
+	}
+	if len(work.txs) != 1 {
+		t.Fatalf("unexpected tx count from engine payload: got %d want %d", len(work.txs), 1)
+	}
+	if work.txs[0].Hash() != pendingTxs[0].Hash() {
+		t.Fatalf("unexpected tx selected from engine payload: got %s want %s", work.txs[0].Hash(), pendingTxs[0].Hash())
 	}
 }
 
