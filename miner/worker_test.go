@@ -587,6 +587,60 @@ func TestFillTransactionsFromEngineErrorWithFallback(t *testing.T) {
 	}
 }
 
+func TestFillTransactionsFromEngineDecodeErrorWithoutFallback(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	b.engine = &mockEngineClient{payload: []byte{0xff, 0x00, 0x11}}
+	b.allowTxPoolFallback = false
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err == nil {
+		t.Fatalf("expected fillTransactions to fail when engine payload decode fails and fallback is disabled")
+	}
+	if len(work.txs) != 0 {
+		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
+	}
+}
+
+func TestFillTransactionsFromEngineDecodeErrorWithFallback(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	b.engine = &mockEngineClient{payload: []byte{0xff, 0x00, 0x11}}
+	b.allowTxPoolFallback = true
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err != nil {
+		t.Fatalf("expected local txpool fallback to succeed on decode failure, got error: %v", err)
+	}
+	if len(work.txs) == 0 {
+		t.Fatalf("expected txpool fallback to include pending txs")
+	}
+}
+
 func TestGetSealingWork(t *testing.T) {
 	testGetSealingWork(t, ethashChainConfig, dpos.NewFaker(), false)
 }
