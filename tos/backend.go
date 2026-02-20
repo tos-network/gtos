@@ -43,10 +43,7 @@ import (
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
-	agentpkg "github.com/tos-network/gtos/agent"
-	"github.com/tos-network/gtos/agentidx"
 	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
-	"github.com/tos-network/gtos/internal/agentapi"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/log"
@@ -101,10 +98,6 @@ type TOS struct {
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
-
-	// TOS Agent Network components
-	agentRegistry *agentpkg.Registry
-	agentIndexer  *agentidx.Indexer
 }
 
 // New creates a new Ethereum object (including the
@@ -270,10 +263,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	// Start the RPC service
 	tosNode.netRPCService = tosapi.NewNetAPI(tosNode.p2pServer, config.NetworkId)
 
-	// Initialize the agent registry and chain indexer.
-	tosNode.agentRegistry = agentpkg.NewRegistry()
-	tosNode.agentIndexer = agentidx.NewIndexer(tosNode.blockchain, tosNode.agentRegistry)
-
 	// Register the backend on the node
 	stack.RegisterAPIs(tosNode.APIs())
 	stack.RegisterProtocols(tosNode.Protocols())
@@ -330,12 +319,6 @@ func (s *TOS) APIs() []rpc.API {
 		}, {
 			Namespace: "net",
 			Service:   s.netRPCService,
-		}, {
-			Namespace: "agent",
-			Service:   agentapi.NewAgentAPI(s.agentRegistry),
-		}, {
-			Namespace: "discover",
-			Service:   agentapi.NewDiscoverAPI(s.agentRegistry),
 		},
 	}...)
 }
@@ -539,8 +522,6 @@ func (s *TOS) Start() error {
 	}
 	// Start the networking layer and the light server if requested
 	s.handler.Start(maxPeers)
-	// Start the agent chain indexer.
-	s.agentIndexer.Start()
 	return nil
 }
 
@@ -551,7 +532,6 @@ func (s *TOS) Stop() error {
 	s.tosDialCandidates.Close()
 	s.snapDialCandidates.Close()
 	s.handler.Stop()
-	s.agentIndexer.Stop()
 
 	// Then stop everything else.
 	s.bloomIndexer.Close()
