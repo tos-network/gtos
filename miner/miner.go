@@ -29,10 +29,11 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/downloader"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tos/downloader"
 )
 
 // Backend wraps all methods required for mining. Only full node is capable
@@ -40,6 +41,7 @@ import (
 type Backend interface {
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
+	EngineAPIClient() engineclient.Client
 }
 
 // Config is the configuration parameters of mining.

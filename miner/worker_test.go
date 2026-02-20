@@ -32,9 +32,10 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tosdb"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 const (
@@ -145,6 +146,9 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 
 func (b *testWorkerBackend) BlockChain() *core.BlockChain { return b.chain }
 func (b *testWorkerBackend) TxPool() *core.TxPool         { return b.txPool }
+func (b *testWorkerBackend) EngineAPIClient() engineclient.Client {
+	return nil
+}
 func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
 	return nil, errors.New("not supported")
 }

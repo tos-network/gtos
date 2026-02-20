@@ -169,6 +169,9 @@ func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	}
 
 	backend, tosBackend := utils.RegisterTOSService(stack, &cfg.TOS)
+	if tosBackend != nil {
+		tosBackend.ConfigureEngineAPI(cfg.EngineAPI)
+	}
 
 	// Warn users to migrate if they have a legacy freezer format.
 	if tosBackend != nil && !ctx.IsSet(utils.IgnoreLegacyReceiptsFlag.Name) {

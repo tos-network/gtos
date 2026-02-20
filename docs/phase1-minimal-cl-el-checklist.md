@@ -27,6 +27,7 @@
 - [x] 新增 `engineapi/proto/engine.proto`
 - [x] 新增 `engineapi/client/client.go`（week-1 scaffold）
 - [x] `cmd/gtos` 增加 `engine.*` 配置与 CLI flags 接线
+- [x] `gtos` 启动时可注入 Engine bridge 客户端（stub，未切换出块主路径）
 
 ## 1. Phase 1 范围（只做“能跑通”）
 

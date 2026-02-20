@@ -36,16 +36,10 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/pruner"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/tosconfig"
-	"github.com/tos-network/gtos/tos/gasprice"
-	"github.com/tos-network/gtos/tos/protocols/tos"
-	"github.com/tos-network/gtos/tos/protocols/snap"
-	"github.com/tos-network/gtos/tosdb"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
-	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
-	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
@@ -55,6 +49,13 @@ import (
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/gasprice"
+	"github.com/tos-network/gtos/tos/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/tos"
+	"github.com/tos-network/gtos/tos/tosconfig"
+	"github.com/tos-network/gtos/tosdb"
+	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
 )
 
 // Config contains the configuration options of the ETH protocol.
@@ -98,6 +99,10 @@ type TOS struct {
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
+
+	// External execution layer bridge (phase-1 scaffold).
+	engineAPIConfig engineclient.Config
+	engineAPIClient engineclient.Client
 }
 
 // New creates a new Ethereum object (including the
@@ -147,17 +152,17 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	}
 	merger := consensus.NewMerger(chainDb)
 	tosNode := &TOS{
-		config:            config,
-		merger:            merger,
-		chainDb:           chainDb,
-		eventMux:          stack.EventMux(),
-		accountManager:    stack.AccountManager(),
+		config:         config,
+		merger:         merger,
+		chainDb:        chainDb,
+		eventMux:       stack.EventMux(),
+		accountManager: stack.AccountManager(),
 		engine: func() consensus.Engine {
-				if config.Engine != nil {
-					return config.Engine
-				}
-				return tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb)
-			}(),
+			if config.Engine != nil {
+				return config.Engine
+			}
+			return tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb)
+		}(),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
 		gasPrice:          config.Miner.GasPrice,
@@ -548,4 +553,28 @@ func (s *TOS) Stop() error {
 	s.eventMux.Stop()
 
 	return nil
+}
+
+// ConfigureEngineAPI configures the local engine API bridge client.
+// In phase-1 this wires the client object only; integration into proposal/vote
+// flow will be added incrementally.
+func (s *TOS) ConfigureEngineAPI(cfg engineclient.Config) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.engineAPIConfig = cfg
+	if !cfg.Enabled {
+		s.engineAPIClient = nil
+		log.Info("Engine API bridge disabled")
+		return
+	}
+	s.engineAPIClient = engineclient.NewRPCClient(cfg)
+	log.Info("Engine API bridge configured", "endpoint", cfg.Endpoint, "timeout", cfg.RequestTimeout)
+}
+
+// EngineAPIClient returns the configured engine API bridge client.
+func (s *TOS) EngineAPIClient() engineclient.Client {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.engineAPIClient
 }
