@@ -29,6 +29,8 @@ import (
 	"strings"
 	"time"
 
+	pcsclite "github.com/gballet/go-libpcsclite"
+	gopsutil "github.com/shirou/gopsutil/mem"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/common"
@@ -36,16 +38,9 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/tosconfig"
-	"github.com/tos-network/gtos/tos/filters"
-	"github.com/tos-network/gtos/tos/gasprice"
-	"github.com/tos-network/gtos/tosdb"
-	"github.com/tos-network/gtos/tosdb/remotedb"
-	"github.com/tos-network/gtos/tosstats"
-	"github.com/tos-network/gtos/internal/tosapi"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/internal/flags"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -59,8 +54,14 @@ import (
 	"github.com/tos-network/gtos/p2p/netutil"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
-	pcsclite "github.com/gballet/go-libpcsclite"
-	gopsutil "github.com/shirou/gopsutil/mem"
+	"github.com/tos-network/gtos/tos"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/filters"
+	"github.com/tos-network/gtos/tos/gasprice"
+	"github.com/tos-network/gtos/tos/tosconfig"
+	"github.com/tos-network/gtos/tosdb"
+	"github.com/tos-network/gtos/tosdb/remotedb"
+	"github.com/tos-network/gtos/tosstats"
 	"github.com/urfave/cli/v2"
 )
 
@@ -245,6 +246,28 @@ var (
 	EthRequiredBlocksFlag = &cli.StringFlag{
 		Name:     "tos.requiredblocks",
 		Usage:    "Comma separated block number-to-hash mappings to require for peering (<number>=<hash>)",
+		Category: flags.EthCategory,
+	}
+	EngineAPIEnabledFlag = &cli.BoolFlag{
+		Name:     "engine.enabled",
+		Usage:    "Enable external execution layer bridge (phase-1 scaffold)",
+		Category: flags.EthCategory,
+	}
+	EngineAPIEndpointFlag = &cli.StringFlag{
+		Name:     "engine.endpoint",
+		Usage:    "Execution layer Engine API endpoint",
+		Value:    engineclient.DefaultConfig.Endpoint,
+		Category: flags.EthCategory,
+	}
+	EngineAPIJWTSecretFlag = &flags.DirectoryFlag{
+		Name:     "engine.jwtsecret",
+		Usage:    "Path to JWT secret file used by Engine API",
+		Category: flags.EthCategory,
+	}
+	EngineAPIRequestTimeoutFlag = &cli.DurationFlag{
+		Name:     "engine.timeout",
+		Usage:    "Engine API request timeout",
+		Value:    engineclient.DefaultConfig.RequestTimeout,
 		Category: flags.EthCategory,
 	}
 	LegacyWhitelistFlag = &cli.StringFlag{
@@ -1550,7 +1573,6 @@ func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	}
 }
 
-
 func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.IsSet(MinerNotifyFlag.Name) {
 		cfg.Notify = strings.Split(ctx.String(MinerNotifyFlag.Name), ",")
@@ -1601,6 +1623,22 @@ func setRequiredBlocks(ctx *cli.Context, cfg *tosconfig.Config) {
 			Fatalf("Invalid required block hash %s: %v", parts[1], err)
 		}
 		cfg.RequiredBlocks[number] = hash
+	}
+}
+
+// SetEngineAPIConfig applies engine bridge related CLI flags.
+func SetEngineAPIConfig(ctx *cli.Context, cfg *engineclient.Config) {
+	if ctx.IsSet(EngineAPIEnabledFlag.Name) {
+		cfg.Enabled = ctx.Bool(EngineAPIEnabledFlag.Name)
+	}
+	if ctx.IsSet(EngineAPIEndpointFlag.Name) {
+		cfg.Endpoint = ctx.String(EngineAPIEndpointFlag.Name)
+	}
+	if ctx.IsSet(EngineAPIJWTSecretFlag.Name) {
+		cfg.JWTSecretFile = ctx.String(EngineAPIJWTSecretFlag.Name)
+	}
+	if ctx.IsSet(EngineAPIRequestTimeoutFlag.Name) {
+		cfg.RequestTimeout = ctx.Duration(EngineAPIRequestTimeoutFlag.Name)
 	}
 }
 
@@ -1913,7 +1951,7 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 		if err != nil {
 			Fatalf("Failed to register the Ethereum service: %v", err)
 		}
-			return backend.ApiBackend, nil
+		return backend.ApiBackend, nil
 	}
 	backend, err := tos.New(stack, cfg)
 	if err != nil {

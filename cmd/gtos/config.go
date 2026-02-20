@@ -26,20 +26,21 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/naoina/toml"
 	"github.com/tos-network/gtos/accounts/external"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accounts/scwallet"
 	"github.com/tos-network/gtos/accounts/usbwallet"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/tos/tosconfig"
-	"github.com/tos-network/gtos/internal/tosapi"
+	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/internal/flags"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
-	"github.com/naoina/toml"
+	"github.com/tos-network/gtos/tos/tosconfig"
 )
 
 var (
@@ -86,10 +87,11 @@ type ethstatsConfig struct {
 }
 
 type gethConfig struct {
-	TOS      tosconfig.Config
-	Node     node.Config
-	TOSStats ethstatsConfig
-	Metrics  metrics.Config
+	TOS       tosconfig.Config
+	Node      node.Config
+	TOSStats  ethstatsConfig
+	Metrics   metrics.Config
+	EngineAPI engineclient.Config
 }
 
 func loadConfig(file string, cfg *gethConfig) error {
@@ -121,9 +123,10 @@ func defaultNodeConfig() node.Config {
 func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	// Load defaults.
 	cfg := gethConfig{
-		TOS:     tosconfig.Defaults,
-		Node:    defaultNodeConfig(),
-		Metrics: metrics.DefaultConfig,
+		TOS:       tosconfig.Defaults,
+		Node:      defaultNodeConfig(),
+		Metrics:   metrics.DefaultConfig,
+		EngineAPI: engineclient.DefaultConfig,
 	}
 
 	// Load config file.
@@ -145,6 +148,7 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 
 	utils.SetTOSConfig(ctx, stack, &cfg.TOS)
+	utils.SetEngineAPIConfig(ctx, &cfg.EngineAPI)
 	if ctx.IsSet(utils.EthStatsURLFlag.Name) {
 		cfg.TOSStats.URL = ctx.String(utils.EthStatsURLFlag.Name)
 	}

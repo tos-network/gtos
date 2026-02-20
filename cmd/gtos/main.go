@@ -30,15 +30,15 @@ import (
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/console/prompt"
-	"github.com/tos-network/gtos/tos"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tosclient"
 	"github.com/tos-network/gtos/internal/debug"
-	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/flags"
+	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/node"
+	"github.com/tos-network/gtos/tos"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tosclient"
 
 	// Force-load the tracer engines to trigger registration
 
@@ -96,6 +96,10 @@ var (
 		utils.UltraLightOnlyAnnounceFlag,
 		utils.LightNoSyncServeFlag,
 		utils.EthRequiredBlocksFlag,
+		utils.EngineAPIEnabledFlag,
+		utils.EngineAPIEndpointFlag,
+		utils.EngineAPIJWTSecretFlag,
+		utils.EngineAPIRequestTimeoutFlag,
 		utils.LegacyWhitelistFlag,
 		utils.BloomFilterSizeFlag,
 		utils.CacheFlag,

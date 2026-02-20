@@ -3,7 +3,7 @@
 ## 0. 当前完成状态（截至 2026-02-20）
 
 - 总体状态：`Phase 1 进行中（早期）`
-- Week 1：`未开始`
+- Week 1：`部分完成（仅 ~/gtos）`
 - Week 2：`未开始`
 - Week 3：`部分完成（仅 ~/tos）`
 - Week 4：`未开始`
@@ -19,6 +19,14 @@
 - [ ] Engine API 客户端接入（`GetPayload/NewPayload/ForkchoiceUpdated`）
 - [ ] proposer/validator 路径切换到执行层校验
 - [ ] QC 最终性消息与投票池最小闭环
+
+已完成（`~/gtos`）：
+- [x] 新增 `docs/spec/block.md`
+- [x] 新增 `docs/spec/engine_api.md`
+- [x] 新增 `docs/spec/state_hash.md`
+- [x] 新增 `engineapi/proto/engine.proto`
+- [x] 新增 `engineapi/client/client.go`（week-1 scaffold）
+- [x] `cmd/gtos` 增加 `engine.*` 配置与 CLI flags 接线
 
 ## 1. Phase 1 范围（只做“能跑通”）
 
