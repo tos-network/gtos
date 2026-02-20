@@ -1,5 +1,25 @@
 # GTOS->CL + TOS->EL Phase 1 最小落地改造清单（按周）
 
+## 0. 当前完成状态（截至 2026-02-20）
+
+- 总体状态：`Phase 1 进行中（早期）`
+- Week 1：`未开始`
+- Week 2：`未开始`
+- Week 3：`部分完成（仅 ~/tos）`
+- Week 4：`未开始`
+- Week 5：`未开始`
+
+已完成（`~/tos`，分支 `feature/execution-layer`）：
+- [x] 新增执行层模式开关：`--execution-layer-mode`
+- [x] 执行层模式下自动禁用 `getwork` 与 mining RPC 注册
+- [x] 新增执行层入块 RPC：`submit_execution_block`
+- [x] 编译检查通过：`cargo check`
+
+未开始（`~/gtos`）：
+- [ ] Engine API 客户端接入（`GetPayload/NewPayload/ForkchoiceUpdated`）
+- [ ] proposer/validator 路径切换到执行层校验
+- [ ] QC 最终性消息与投票池最小闭环
+
 ## 1. Phase 1 范围（只做“能跑通”）
 
 - 目标：`~/gtos` 负责提议/投票/QC最终性/验证者集；`~/tos` 负责 txpool/执行/状态/查询。
