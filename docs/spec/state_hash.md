@@ -1,6 +1,6 @@
 # State Hash Spec (Phase 1)
 
-状态：`Draft (Phase 1)`
+状态：`Phase 1 规格已冻结，实现联调进行中（截至 2026-02-20）`
 
 ## 目标
 

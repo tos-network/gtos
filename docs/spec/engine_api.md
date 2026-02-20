@@ -1,6 +1,6 @@
 # Engine API Spec (Phase 1)
 
-状态：`Draft (Phase 1)`
+状态：`Phase 1 规格已冻结，双端实现部分完成（截至 2026-02-20）`
 
 共识层（`gtos`）与执行层（`tos`）使用本地 Engine API 交互。
 

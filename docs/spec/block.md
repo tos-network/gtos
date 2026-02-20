@@ -1,6 +1,6 @@
 # CL/EL Block Spec (Phase 1)
 
-状态：`Draft (Phase 1)`
+状态：`Phase 1 规格已冻结，gtos 侧已部分落地（截至 2026-02-20）`
 
 ## Header 字段（最小集）
 

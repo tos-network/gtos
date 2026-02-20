@@ -2,22 +2,12 @@
 
 ## 0. 当前完成状态（截至 2026-02-20）
 
-- 总体状态：`Phase 1 进行中（早期）`
-- Week 1：`部分完成（仅 ~/gtos）`
-- Week 2：`部分完成（~/gtos 进行中，~/tos 未开始）`
-- Week 3：`部分完成（仅 ~/tos）`
-- Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架）`
+- 总体状态：`Phase 1 进行中（中段）：~/gtos 进度领先，~/tos 仍在早段`
+- Week 1：`部分完成（~/gtos 已完成规格与客户端骨架；~/tos 的 engine_api server 骨架未落地）`
+- Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 服务端未落地）`
+- Week 3：`部分完成（~/tos 已完成 execution_layer_mode 与外部入块 RPC；NewPayload/ForkchoiceUpdated 未落地）`
+- Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架+网络桥接+签名校验；3 节点闭环联调未完成）`
 - Week 5：`未开始`
-
-已完成（`~/tos`，分支 `feature/execution-layer`）：
-- [x] 新增执行层模式开关：`--execution-layer-mode`
-- [x] 执行层模式下自动禁用 `getwork` 与 mining RPC 注册
-- [x] 新增执行层入块 RPC：`submit_execution_block`
-- [x] 编译检查通过：`cargo check`
-
-未开始（`~/gtos`）：
-- [ ] proposer/validator 路径切换到执行层校验
-- [ ] QC 最终性消息与投票池最小闭环（网络消息+投票池+safe/finalized 推进已接入，3 节点闭环联调未完成）
 
 已完成（`~/gtos`）：
 - [x] 新增 `docs/spec/block.md`
@@ -35,6 +25,19 @@
 - [x] QC 到达后推进本地 `chain safe/finalized`，并回调触发 `ForkchoiceUpdated` 通知执行层
 - [x] 链头事件触发本地验证者自动投票（DPoS 签名），并抑制重复 vote/QC 广播
 - [x] `Vote/QC` 接收侧增加签名校验与 QC 见证集合一致性校验
+- [x] `tos/bft_bridge.go` 拆分为 `bft_codec.go / bft_finality.go / bft_verifier.go`，并补充桥接测试覆盖
+- [x] 新增 `crypto/tosalign/*`，引入与 `~/tos` 对齐的地址与签名相关算法实现
+
+已完成（`~/tos`，分支 `feature/execution-layer`）：
+- [x] 新增执行层模式开关：`execution_layer_mode`
+- [x] 执行层模式下自动禁用 `getwork` 与 mining RPC 注册
+- [x] 新增执行层入块 RPC：`submit_execution_block`
+
+进行中 / 未完成（Phase 1 关键阻塞）：
+- [ ] `~/tos` 尚未提供 `engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`
+- [ ] `~/tos` 尚未形成“按 Engine API 驱动 finalized/safe 持久化推进”的稳定路径
+- [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
+- [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go`、`~/tos` 侧 Engine API Phase1 测试仍需补齐
 
 ## 1. Phase 1 范围（只做“能跑通”）
 
