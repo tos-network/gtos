@@ -159,7 +159,12 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		chainDb:           chainDb,
 		eventMux:          stack.EventMux(),
 		accountManager:    stack.AccountManager(),
-		engine:            tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb),
+		engine: func() consensus.Engine {
+				if config.Engine != nil {
+					return config.Engine
+				}
+				return tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb)
+			}(),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
 		gasPrice:          config.Miner.GasPrice,

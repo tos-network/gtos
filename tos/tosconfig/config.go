@@ -175,14 +175,25 @@ type Config struct {
 
 	// OverrideTerminalTotalDifficultyPassed (TODO: remove after the fork)
 	OverrideTerminalTotalDifficultyPassed *bool `toml:",omitempty"`
+
+	// Engine, if non-nil, is used as the consensus engine instead of creating
+	// one via CreateConsensusEngine. Intended for tests that need dpos.NewFaker().
+	Engine consensus.Engine `toml:"-"`
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
+// If chainConfig.DPoS is nil (e.g. custom genesis files or legacy network configs that
+// predate the DPoS section), it falls back to the protocol defaults.
 func CreateConsensusEngine(_ *node.Node, chainConfig *params.ChainConfig, db tosdb.Database) consensus.Engine {
-	if chainConfig.DPoS == nil {
-		panic("chain config missing DPoS section")
+	cfg := chainConfig.DPoS
+	if cfg == nil {
+		cfg = &params.DPoSConfig{
+			Period:        params.DPoSBlockPeriod,
+			Epoch:         params.DPoSEpochLength,
+			MaxValidators: params.DPoSMaxValidators,
+		}
 	}
-	e, err := dpos.New(chainConfig.DPoS, db)
+	e, err := dpos.New(cfg, db)
 	if err != nil {
 		panic(fmt.Sprintf("invalid dpos config: %v", err))
 	}
