@@ -18,6 +18,7 @@
 package tos
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
@@ -80,6 +82,7 @@ type TOS struct {
 	eventMux       *event.TypeMux
 	engine         consensus.Engine
 	accountManager *accounts.Manager
+	engineHeadSub  event.Subscription
 
 	bloomRequests     chan chan *bloombits.Retrieval // Channel receiving bloom data retrieval requests
 	bloomIndexer      *core.ChainIndexer             // Bloom indexer operating during block imports
@@ -231,6 +234,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		Chain:          tosNode.blockchain,
 		TxPool:         tosNode.txPool,
 		Merger:         merger,
+		BlockValidator: tosNode.validateImportedBlockWithEngine,
 		Network:        config.NetworkId,
 		Sync:           config.SyncMode,
 		BloomCache:     uint64(cacheLimit),
@@ -527,6 +531,14 @@ func (s *TOS) Start() error {
 	}
 	// Start the networking layer and the light server if requested
 	s.handler.Start(maxPeers)
+	if s.EngineAPIClient() != nil {
+		headCh := make(chan core.ChainHeadEvent, 16)
+		s.engineHeadSub = s.blockchain.SubscribeChainHeadEvent(headCh)
+		go s.engineHeadLoop(s.engineHeadSub, headCh)
+		if head := s.blockchain.CurrentBlock(); head != nil {
+			s.notifyForkchoiceUpdated(head)
+		}
+	}
 	return nil
 }
 
@@ -537,6 +549,10 @@ func (s *TOS) Stop() error {
 	s.tosDialCandidates.Close()
 	s.snapDialCandidates.Close()
 	s.handler.Stop()
+	if s.engineHeadSub != nil {
+		s.engineHeadSub.Unsubscribe()
+		s.engineHeadSub = nil
+	}
 
 	// Then stop everything else.
 	s.bloomIndexer.Close()
@@ -577,4 +593,78 @@ func (s *TOS) EngineAPIClient() engineclient.Client {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.engineAPIClient
+}
+
+func (s *TOS) validateImportedBlockWithEngine(block *types.Block) error {
+	s.lock.RLock()
+	client := s.engineAPIClient
+	cfg := s.engineAPIConfig
+	s.lock.RUnlock()
+	if client == nil {
+		return nil
+	}
+	payload, err := rlp.EncodeToBytes(block.Transactions())
+	if err != nil {
+		return fmt.Errorf("encode engine payload for block %s: %w", block.Hash(), err)
+	}
+	timeout := cfg.RequestTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	resp, err := client.NewPayload(ctx, &engineclient.NewPayloadRequest{
+		Payload:    payload,
+		ParentHash: block.ParentHash().Hex(),
+	})
+	if err != nil {
+		if errors.Is(err, engineclient.ErrNotImplemented) {
+			return nil
+		}
+		log.Warn("Engine NewPayload failed, allowing local import fallback", "hash", block.Hash(), "err", err)
+		return nil
+	}
+	if resp != nil && !resp.Valid {
+		return fmt.Errorf("engine rejected block %s (state=%s)", block.Hash(), resp.StateHash)
+	}
+	return nil
+}
+
+func (s *TOS) engineHeadLoop(sub event.Subscription, headCh <-chan core.ChainHeadEvent) {
+	for {
+		select {
+		case ev := <-headCh:
+			if ev.Block != nil {
+				s.notifyForkchoiceUpdated(ev.Block)
+			}
+		case <-sub.Err():
+			return
+		}
+	}
+}
+
+func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {
+	s.lock.RLock()
+	client := s.engineAPIClient
+	cfg := s.engineAPIConfig
+	s.lock.RUnlock()
+	if client == nil {
+		return
+	}
+	timeout := cfg.RequestTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	state := &engineclient.ForkchoiceState{
+		HeadHash:      head.Hash().Hex(),
+		SafeHash:      head.Hash().Hex(),
+		FinalizedHash: head.Hash().Hex(),
+	}
+	if err := client.ForkchoiceUpdated(ctx, state); err != nil && !errors.Is(err, engineclient.ErrNotImplemented) {
+		log.Warn("Engine ForkchoiceUpdated failed", "head", head.Hash(), "err", err)
+	}
 }

@@ -29,15 +29,15 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/fetcher"
-	"github.com/tos-network/gtos/tos/protocols/tos"
-	"github.com/tos-network/gtos/tos/protocols/snap"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/fetcher"
+	"github.com/tos-network/gtos/tos/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/tos"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 const (
@@ -80,6 +80,7 @@ type handlerConfig struct {
 	Chain          *core.BlockChain          // Blockchain to serve data from
 	TxPool         txPool                    // Transaction pool to propagate from
 	Merger         *consensus.Merger         // The manager for eth1/2 transition
+	BlockValidator func(*types.Block) error  // Optional external validation hook before block import
 	Network        uint64                    // Network identifier to adfvertise
 	Sync           downloader.SyncMode       // Whether to snap or full sync
 	BloomCache     uint64                    // Megabytes to alloc for snap sync bloom
@@ -115,6 +116,7 @@ type handler struct {
 	minedBlockSub *event.TypeMuxSubscription
 
 	requiredBlocks map[uint64]common.Hash
+	blockValidator func(*types.Block) error
 
 	// channels for fetcher, syncer, txsyncLoop
 	quitSync chan struct{}
@@ -139,6 +141,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		chain:          config.Chain,
 		peers:          newPeerSet(),
 		merger:         config.Merger,
+		blockValidator: config.BlockValidator,
 		requiredBlocks: config.RequiredBlocks,
 		quitSync:       make(chan struct{}),
 	}
@@ -256,6 +259,14 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		if atomic.LoadUint32(&h.snapSync) == 1 {
 			log.Warn("Snap syncing, discarded propagated block", "number", blocks[0].Number(), "hash", blocks[0].Hash())
 			return 0, nil
+		}
+		if h.blockValidator != nil {
+			for i, block := range blocks {
+				if err := h.blockValidator(block); err != nil {
+					log.Warn("Discarded propagated block rejected by external validator", "number", block.Number(), "hash", block.Hash(), "err", err)
+					return i, err
+				}
+			}
 		}
 		if h.merger.TDDReached() {
 			// The blocks from the p2p network is regarded as untrusted
