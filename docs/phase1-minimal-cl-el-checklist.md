@@ -17,7 +17,7 @@
 
 未开始（`~/gtos`）：
 - [ ] proposer/validator 路径切换到执行层校验
-- [ ] QC 最终性消息与投票池最小闭环
+- [ ] QC 最终性消息与投票池最小闭环（本地骨架与网络消息已接入，闭环联调未完成）
 
 已完成（`~/gtos`）：
 - [x] 新增 `docs/spec/block.md`
@@ -31,6 +31,7 @@
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`；新增 `engine.allow-txpool-fallback` 兼容开关（默认关闭）
 - [x] 导入区块前接入 `NewPayload` 校验钩子；校验 `state_hash` 与区块 `stateRoot` 一致；`ForkchoiceUpdated` 改为按 `head/safe/finalized` 变化触发（失败降级）
 - [x] 新增 `consensus/bft` 最小骨架：`types.go`、`vote_pool.go`、`qc.go`、`reactor.go`（含单测）
+- [x] `tos` 协议层接入 `Vote/QC` 消息（`protocol/handler/peer`）并桥接到 `consensus/bft`（含广播与接收处理）
 
 ## 1. Phase 1 范围（只做“能跑通”）
 

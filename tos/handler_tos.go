@@ -25,8 +25,8 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/p2p/enode"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
 // tosHandler implements the tos.Backend interface to handle the various network
@@ -75,6 +75,12 @@ func (h *tosHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 
 	case *tos.PooledTransactionsPacket:
 		return h.txFetcher.Enqueue(peer.ID(), *packet, true)
+
+	case *tos.VotePacket:
+		return (*handler)(h).handleVotePacket(packet)
+
+	case *tos.QCPacket:
+		return (*handler)(h).handleQCPacket(packet)
 
 	default:
 		return fmt.Errorf("unexpected tos packet type: %T", packet)

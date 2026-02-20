@@ -284,6 +284,22 @@ func (p *Peer) SendNewBlock(block *types.Block, td *big.Int) error {
 	})
 }
 
+// SendVote propagates a BFT vote to a remote peer.
+func (p *Peer) SendVote(vote *VotePacket) error {
+	if vote == nil {
+		return nil
+	}
+	return p2p.Send(p.rw, VoteMsg, vote)
+}
+
+// SendQC propagates a quorum certificate to a remote peer.
+func (p *Peer) SendQC(qc *QCPacket) error {
+	if qc == nil {
+		return nil
+	}
+	return p2p.Send(p.rw, QCMsg, qc)
+}
+
 // AsyncSendNewBlock queues an entire block for propagation to a remote peer. If
 // the peer's broadcast queue is full, the event is silently dropped.
 func (p *Peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {

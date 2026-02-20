@@ -526,3 +526,19 @@ func handlePooledTransactions66(backend Backend, msg Decoder, peer *Peer) error 
 
 	return backend.Handle(peer, &txs.PooledTransactionsPacket)
 }
+
+func handleVote(backend Backend, msg Decoder, peer *Peer) error {
+	vote := new(VotePacket)
+	if err := msg.Decode(vote); err != nil {
+		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
+	}
+	return backend.Handle(peer, vote)
+}
+
+func handleQC(backend Backend, msg Decoder, peer *Peer) error {
+	qc := new(QCPacket)
+	if err := msg.Decode(qc); err != nil {
+		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
+	}
+	return backend.Handle(peer, qc)
+}

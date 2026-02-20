@@ -22,9 +22,9 @@ import (
 	"sync"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tos/protocols/tos"
-	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/p2p"
+	"github.com/tos-network/gtos/tos/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
 var (
@@ -207,6 +207,18 @@ func (ps *peerSet) peersWithoutTransaction(hash common.Hash) []*tosPeer {
 		if !p.KnownTransaction(hash) {
 			list = append(list, p)
 		}
+	}
+	return list
+}
+
+// allPeers retrieves all currently tracked peers.
+func (ps *peerSet) allPeers() []*tosPeer {
+	ps.lock.RLock()
+	defer ps.lock.RUnlock()
+
+	list := make([]*tosPeer, 0, len(ps.peers))
+	for _, p := range ps.peers {
+		list = append(list, p)
 	}
 	return list
 }

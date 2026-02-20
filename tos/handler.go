@@ -26,6 +26,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/bft"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
@@ -118,6 +119,11 @@ type handler struct {
 	requiredBlocks map[uint64]common.Hash
 	blockValidator func(*types.Block) error
 
+	bftReactor  *bft.Reactor
+	bftMu       sync.RWMutex
+	bftLatestQC *bft.QC
+	bftSeenQCs  map[string]struct{}
+
 	// channels for fetcher, syncer, txsyncLoop
 	quitSync chan struct{}
 
@@ -143,8 +149,16 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		merger:         config.Merger,
 		blockValidator: config.BlockValidator,
 		requiredBlocks: config.RequiredBlocks,
+		bftSeenQCs:     make(map[string]struct{}),
 		quitSync:       make(chan struct{}),
 	}
+	totalWeight := params.DPoSMaxValidators
+	if cfg := config.Chain.Config().DPoS; cfg != nil && cfg.MaxValidators > 0 {
+		totalWeight = cfg.MaxValidators
+	}
+	h.bftReactor = bft.NewReactor(bft.NewVotePool(totalWeight), &handlerBFTBroadcaster{h: h}, func(qc *bft.QC) {
+		h.setLatestQC(qc)
+	})
 	if config.Sync == downloader.FullSync {
 		// The database seems empty as the current block is the genesis. Yet the snap
 		// block is ahead, so snap sync was enabled for this node at a certain point.
