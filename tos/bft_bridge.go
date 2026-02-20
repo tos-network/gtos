@@ -1,6 +1,7 @@
 package tos
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/tos-network/gtos/common"
@@ -14,6 +15,8 @@ import (
 type handlerBFTBroadcaster struct {
 	h *handler
 }
+
+var errInvalidBFTVoteSignature = errors.New("invalid bft vote signature")
 
 type localVoteSigner interface {
 	ValidatorAddress() common.Address
@@ -40,7 +43,11 @@ func (h *handler) handleVotePacket(packet *tosp.VotePacket) error {
 	if packet == nil || h.bftReactor == nil {
 		return nil
 	}
-	_, err := h.bftReactor.HandleIncomingVote(packetToBFTVote(packet))
+	vote := packetToBFTVote(packet)
+	if err := verifyVoteSignature(vote); err != nil {
+		return err
+	}
+	_, err := h.bftReactor.HandleIncomingVote(vote)
 	return err
 }
 
@@ -50,6 +57,9 @@ func (h *handler) handleQCPacket(packet *tosp.QCPacket) error {
 	}
 	qc := packetToBFTQC(packet)
 	if err := qc.Verify(); err != nil {
+		return err
+	}
+	if err := verifyQCAttestations(qc); err != nil {
 		return err
 	}
 	h.markQCSeen(qc)
@@ -140,14 +150,18 @@ func (h *handler) proposeVoteForBlock(block *types.Block) error {
 	if err != nil {
 		return err
 	}
-	return h.bftReactor.ProposeVote(bft.Vote{
+	vote := bft.Vote{
 		Height:    height,
 		Round:     round,
 		BlockHash: block.Hash(),
 		Validator: validator,
 		Weight:    1,
 		Signature: signature,
-	})
+	}
+	if err := verifyVoteSignature(vote); err != nil {
+		return err
+	}
+	return h.bftReactor.ProposeVote(vote)
 }
 
 func voteDigest(height, round uint64, blockHash common.Hash) (common.Hash, error) {
@@ -161,6 +175,73 @@ func voteDigest(height, round uint64, blockHash common.Hash) (common.Hash, error
 		return common.Hash{}, err
 	}
 	return crypto.Keccak256Hash(payload), nil
+}
+
+func verifyVoteSignature(v bft.Vote) error {
+	digest, err := voteDigest(v.Height, v.Round, v.BlockHash)
+	if err != nil {
+		return err
+	}
+	recovered, err := recoverSignerAddress(digest, v.Signature)
+	if err != nil {
+		return errInvalidBFTVoteSignature
+	}
+	if recovered != v.Validator {
+		return errInvalidBFTVoteSignature
+	}
+	return nil
+}
+
+func verifyQCAttestations(qc *bft.QC) error {
+	if qc == nil {
+		return bft.ErrInsufficientQuorum
+	}
+	var (
+		total uint64
+		seen  = make(map[common.Address]struct{}, len(qc.Attestations))
+	)
+	for _, att := range qc.Attestations {
+		if att.Validator == (common.Address{}) || att.Weight == 0 || len(att.Signature) == 0 {
+			return bft.ErrInvalidVote
+		}
+		if _, exists := seen[att.Validator]; exists {
+			return bft.ErrInvalidVote
+		}
+		seen[att.Validator] = struct{}{}
+
+		vote := bft.Vote{
+			Height:    qc.Height,
+			Round:     qc.Round,
+			BlockHash: qc.BlockHash,
+			Validator: att.Validator,
+			Weight:    att.Weight,
+			Signature: att.Signature,
+		}
+		if err := verifyVoteSignature(vote); err != nil {
+			return err
+		}
+		total += att.Weight
+	}
+	if total != qc.TotalWeight {
+		return bft.ErrInsufficientQuorum
+	}
+	return nil
+}
+
+func recoverSignerAddress(digest common.Hash, signature []byte) (common.Address, error) {
+	if len(signature) != crypto.SignatureLength {
+		return common.Address{}, errInvalidBFTVoteSignature
+	}
+	sig := append([]byte(nil), signature...)
+	pub, err := crypto.SigToPub(digest.Bytes(), sig)
+	if err != nil && sig[64] >= 27 {
+		sig[64] -= 27
+		pub, err = crypto.SigToPub(digest.Bytes(), sig)
+	}
+	if err != nil {
+		return common.Address{}, err
+	}
+	return crypto.PubkeyToAddress(*pub), nil
 }
 
 func shouldAdvanceFinality(currentFinalized, candidate *types.Block) bool {

@@ -34,6 +34,7 @@
 - [x] `tos` 协议层接入 `Vote/QC` 消息（`protocol/handler/peer`）并桥接到 `consensus/bft`（含广播与接收处理）
 - [x] QC 到达后推进本地 `chain safe/finalized`，并回调触发 `ForkchoiceUpdated` 通知执行层
 - [x] 链头事件触发本地验证者自动投票（DPoS 签名），并抑制重复 vote/QC 广播
+- [x] `Vote/QC` 接收侧增加签名校验与 QC 见证集合一致性校验
 
 ## 1. Phase 1 范围（只做“能跑通”）
 
