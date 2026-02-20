@@ -33,8 +33,7 @@ func TestDPoSChainInsert(t *testing.T) {
 	copy(genesisExtra[extraVanity:], signer.Bytes())
 
 	dposCfg := &params.DPoSConfig{Period: 1, Epoch: 200, MaxValidators: 21}
-	chainCfg := *params.AllCliqueProtocolChanges
-	chainCfg.Clique = nil
+	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
 	genspec := &core.Genesis{

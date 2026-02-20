@@ -29,7 +29,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
@@ -116,11 +116,7 @@ func (t *BlockTest) Run(snapshotter bool) error {
 		return fmt.Errorf("genesis block state root does not match test: computed=%x, test=%x", gblock.Root().Bytes()[:6], t.json.Genesis.StateRoot[:6])
 	}
 	var engine consensus.Engine
-	if t.json.SealEngine == "NoProof" {
-		engine = tosash.NewFaker()
-	} else {
-		engine = tosash.NewShared()
-	}
+	engine = dpos.NewFaker()
 	cache := &core.CacheConfig{TrieCleanLimit: 0}
 	if snapshotter {
 		cache.SnapshotLimit = 1

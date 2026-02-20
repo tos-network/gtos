@@ -23,7 +23,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -191,11 +191,11 @@ func benchInsertChain(b *testing.B, disk bool, gen func(int, *BlockGen)) {
 		Alloc:  GenesisAlloc{benchRootAddr: {Balance: benchRootFunds}},
 	}
 	genesis := gspec.MustCommit(db)
-	chain, _ := GenerateChain(gspec.Config, genesis, tosash.NewFaker(), db, b.N, gen)
+	chain, _ := GenerateChain(gspec.Config, genesis, dpos.NewFaker(), db, b.N, gen)
 
 	// Time the insertion of the new chain.
 	// State and blocks are stored in the same DB.
-	chainman, _ := NewBlockChain(db, nil, gspec.Config, tosash.NewFaker(), nil, nil)
+	chainman, _ := NewBlockChain(db, nil, gspec.Config, dpos.NewFaker(), nil, nil)
 	defer chainman.Stop()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -302,7 +302,7 @@ func benchReadChain(b *testing.B, full bool, count uint64) {
 		if err != nil {
 			b.Fatalf("error opening database at %v: %v", dir, err)
 		}
-		chain, err := NewBlockChain(db, &cacheConfig, params.TestChainConfig, tosash.NewFaker(), nil, nil)
+		chain, err := NewBlockChain(db, &cacheConfig, params.TestChainConfig, dpos.NewFaker(), nil, nil)
 		if err != nil {
 			b.Fatalf("error creating chain: %v", err)
 		}

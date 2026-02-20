@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/gasprice"
@@ -50,7 +49,6 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		Preimages                             bool
 		FilterLogCacheSize                    int
 		Miner                                 miner.Config
-		Tosash                                tosash.Config
 		TxPool                                core.TxPoolConfig
 		GPO                                   gasprice.Config
 		EnablePreimageRecording               bool
@@ -96,7 +94,6 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.Preimages = c.Preimages
 	enc.FilterLogCacheSize = c.FilterLogCacheSize
 	enc.Miner = c.Miner
-	enc.Tosash = c.Tosash
 	enc.TxPool = c.TxPool
 	enc.GPO = c.GPO
 	enc.EnablePreimageRecording = c.EnablePreimageRecording
@@ -146,7 +143,6 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		Preimages                             *bool
 		FilterLogCacheSize                    *int
 		Miner                                 *miner.Config
-		Tosash                                *tosash.Config
 		TxPool                                *core.TxPoolConfig
 		GPO                                   *gasprice.Config
 		EnablePreimageRecording               *bool
@@ -258,9 +254,6 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.Miner != nil {
 		c.Miner = *dec.Miner
-	}
-	if dec.Tosash != nil {
-		c.Tosash = *dec.Tosash
 	}
 	if dec.TxPool != nil {
 		c.TxPool = *dec.TxPool

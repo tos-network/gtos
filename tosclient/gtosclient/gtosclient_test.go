@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -55,7 +55,6 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	}
 	// Create Ethereum Service
 	config := &tosconfig.Config{Genesis: genesis}
-	config.Tosash.PowMode = tosash.ModeFake
 	ethservice, err := tos.New(n, config)
 	if err != nil {
 		t.Fatalf("can't create new tos service: %v", err)
@@ -78,7 +77,7 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 
 func generateTestChain() (*core.Genesis, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
-	config := params.AllTosashProtocolChanges
+	config := params.AllDPoSProtocolChanges
 	genesis := &core.Genesis{
 		Config:    config,
 		Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance, Storage: map[common.Hash]common.Hash{testSlot: testValue}}},
@@ -90,7 +89,7 @@ func generateTestChain() (*core.Genesis, []*types.Block) {
 		g.SetExtra([]byte("test"))
 	}
 	gblock := genesis.MustCommit(db)
-	engine := tosash.NewFaker()
+	engine := dpos.NewFaker()
 	blocks, _ := core.GenerateChain(config, gblock, engine, db, 1, generate)
 	blocks = append([]*types.Block{gblock}, blocks...)
 	return genesis, blocks

@@ -24,6 +24,7 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -85,7 +86,9 @@ type DPoS struct {
 	signFn    SignerFn
 	lock      sync.RWMutex
 
-	fakeDiff bool // skip difficulty check in unit tests
+	fakeDiff    bool   // skip difficulty check in unit tests
+	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
+	fakeFailSet bool   // true when fakeFailAt is active
 }
 
 // New creates a DPoS engine. Returns error if config values are invalid (R2-C4).
@@ -115,6 +118,15 @@ func NewFaker() *DPoS {
 	return d
 }
 
+// NewFakeFailer creates a test engine that returns an error for VerifyHeader on
+// the block with the given number (and all subsequent blocks).
+func NewFakeFailer(fail uint64) *DPoS {
+	d := NewFaker()
+	d.fakeFailAt = fail
+	d.fakeFailSet = true
+	return d
+}
+
 // Authorize injects the signing key for this validator. Called by the miner at startup.
 func (d *DPoS) Authorize(v common.Address, signFn SignerFn) {
 	d.lock.Lock()
@@ -125,6 +137,11 @@ func (d *DPoS) Authorize(v common.Address, signFn SignerFn) {
 
 // Author implements consensus.Engine.
 func (d *DPoS) Author(header *types.Header) (common.Address, error) {
+	// Faker: the seal is zero bytes, so ecrecover is meaningless.
+	// Return Coinbase directly so gas rewards are credited consistently.
+	if d.fakeDiff {
+		return header.Coinbase, nil
+	}
 	return ecrecover(header, d.signatures)
 }
 
@@ -201,9 +218,36 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 	number := header.Number.Uint64()
 
-	// Reject far-future blocks (R2-M1 constant).
+	// Inject failure for testing (NewFakeFailer).
+	if d.fakeFailSet && number >= d.fakeFailAt {
+		return errUnknownBlock
+	}
+
+	// Reject far-future blocks (R2-M1 constant). Checked even in faker mode.
 	if header.Time > uint64(time.Now().Unix())+allowedFutureBlockTime {
 		return consensus.ErrFutureBlock
+	}
+	// DAO hard-fork header validation. Applies in all modes (including faker) so
+	// that tests using a DAO-fork config reject blocks with wrong Extra data.
+	if err := misc.VerifyDAOHeaderExtraData(chain.Config(), header); err != nil {
+		return err
+	}
+	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
+	// so tests that deliberately pass broken chains (missing link) get an error
+	// rather than a nil panic later in GetTd / chainmu deadlock.
+	if d.fakeDiff {
+		if number > 0 {
+			var parent *types.Header
+			if len(parents) > 0 && parents[len(parents)-1].Number.Uint64() == number-1 {
+				parent = parents[len(parents)-1]
+			} else {
+				parent = chain.GetHeader(header.ParentHash, number-1)
+			}
+			if parent == nil {
+				return consensus.ErrUnknownAncestor
+			}
+		}
+		return nil
 	}
 	// DPoS produces no uncles.
 	if header.UncleHash != types.EmptyUncleHash {
@@ -410,14 +454,37 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 
 // Prepare implements consensus.Engine.
 func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
+	header.Nonce = types.BlockNonce{}
+	number := header.Number.Uint64()
+
+	// Set block timestamp from parent.
+	parent := chain.GetHeader(header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
+	header.Time = parent.Time + d.config.Period
+	if now := uint64(time.Now().Unix()); header.Time < now {
+		header.Time = now
+	}
+
+	if d.fakeDiff {
+		// Faker: set difficulty and pad Extra without consulting the snapshot.
+		header.Difficulty = diffNoTurn
+		if len(header.Extra) < extraVanity {
+			header.Extra = append(header.Extra,
+				bytes.Repeat([]byte{0x00}, extraVanity-len(header.Extra))...)
+		}
+		header.Extra = header.Extra[:extraVanity]
+		header.Extra = append(header.Extra, make([]byte, extraSeal)...)
+		return nil
+	}
+
 	d.lock.RLock()
 	v := d.validator
 	d.lock.RUnlock()
 
 	header.Coinbase = v
-	header.Nonce = types.BlockNonce{}
 
-	number := header.Number.Uint64()
 	snap, err := d.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
 		return err
@@ -432,16 +499,6 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	header.Extra = header.Extra[:extraVanity]
 	// Reserve space for the seal; FinalizeAndAssemble may insert validator list before it.
 	header.Extra = append(header.Extra, make([]byte, extraSeal)...)
-
-	// Set block timestamp.
-	parent := chain.GetHeader(header.ParentHash, number-1)
-	if parent == nil {
-		return consensus.ErrUnknownAncestor
-	}
-	header.Time = parent.Time + d.config.Period
-	if now := uint64(time.Now().Unix()); header.Time < now {
-		header.Time = now
-	}
 	return nil
 }
 
@@ -468,7 +525,8 @@ func (d *DPoS) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *ty
 	number := header.Number.Uint64()
 
 	// At epoch boundaries, embed the current active validator set into Extra.
-	if number%d.config.Epoch == 0 {
+	// In faker mode, skip this step (no on-chain validator state in unit tests).
+	if number%d.config.Epoch == 0 && !d.fakeDiff {
 		validators := validator.ReadActiveValidators(st, d.config.MaxValidators)
 		if len(validators) == 0 {
 			return nil, errors.New("dpos: no active validators at epoch boundary")
@@ -496,6 +554,18 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if number == 0 {
 		return errUnknownBlock
 	}
+
+	// Faker: immediately produce the block without signing or waiting.
+	if d.fakeDiff {
+		go func() {
+			select {
+			case <-stop:
+			case results <- block:
+			}
+		}()
+		return nil
+	}
+
 	if d.config.Period == 0 && len(block.Transactions()) == 0 {
 		return errors.New("dpos: sealing paused, no transactions")
 	}
@@ -553,6 +623,10 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 
 // CalcDifficulty implements consensus.Engine.
 func (d *DPoS) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
+	// Faker: skip snapshot; used by GenerateChain/OffsetTime in unit tests.
+	if d.fakeDiff {
+		return new(big.Int).Set(diffNoTurn)
+	}
 	snap, err := d.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
 	if err != nil {
 		return nil

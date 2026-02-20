@@ -29,7 +29,7 @@ import (
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -73,7 +73,7 @@ func newTesterWithNotification(t *testing.T, success func()) *downloadTester {
 	}
 	gspec.MustCommit(db)
 
-	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
+	chain, err := core.NewBlockChain(db, nil, params.TestChainConfig, dpos.NewFaker(), nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -584,7 +584,9 @@ func testHeavyForkedSync(t *testing.T, protocol uint, mode SyncMode) {
 	defer tester.terminate()
 
 	chainA := testChainForkLightA.shorten(len(testChainBase.blocks) + 80)
-	chainB := testChainForkHeavy.shorten(len(testChainBase.blocks) + 79)
+	// With DPoS constant difficulty, a "heavy" chain must be longer (not denser) to win.
+	// Use +81 so chainB has 1 more block than chainA, giving it higher total difficulty.
+	chainB := testChainForkHeavy.shorten(len(testChainBase.blocks) + 81)
 	tester.newPeer("light", protocol, chainA.blocks[1:])
 	tester.newPeer("heavy", protocol, chainB.blocks[1:])
 

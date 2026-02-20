@@ -24,7 +24,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -53,7 +53,7 @@ func TestStateProcessorErrors(t *testing.T) {
 			MuirGlacierBlock:    big.NewInt(0),
 			BerlinBlock:         big.NewInt(0),
 			LondonBlock:         big.NewInt(0),
-			Tosash: new(params.TosashConfig),
+			DPoS: &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 		}
 		signer  = types.LatestSigner(config)
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -91,7 +91,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 			}
 			genesis       = gspec.MustCommit(db)
-			blockchain, _ = NewBlockChain(db, nil, gspec.Config, tosash.NewFaker(), nil, nil)
+			blockchain, _ = NewBlockChain(db, nil, gspec.Config, dpos.NewFaker(), nil, nil)
 		)
 		defer blockchain.Stop()
 		bigNumber := new(big.Int).SetBytes(common.FromHex("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
@@ -196,7 +196,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				want: "could not apply tx 0 [0xa9507b2fa7db73e69590fd62b0b9658b98ae16e7a38ce20fb389fc72267cb1ca]: insufficient funds for gas * price + value: address 0x71562b71999873DB5b286dF957af199Ec94617F7 have 1000000000000000000 want 347376267711948586270712955026063723559809953996921692118372752023739388919805000",
 			},
 		} {
-			block := GenerateBadBlock(genesis, tosash.NewFaker(), tt.txs, gspec.Config)
+			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)
 			_, err := blockchain.InsertChain(types.Blocks{block})
 			if err == nil {
 				t.Fatal("block imported without errors")
@@ -232,7 +232,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 			}
 			genesis       = gspec.MustCommit(db)
-			blockchain, _ = NewBlockChain(db, nil, gspec.Config, tosash.NewFaker(), nil, nil)
+			blockchain, _ = NewBlockChain(db, nil, gspec.Config, dpos.NewFaker(), nil, nil)
 		)
 		defer blockchain.Stop()
 		for i, tt := range []struct {
@@ -246,7 +246,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				want: "could not apply tx 0 [0xa657e8b1c3bf4ad1a47acaf1f2bf0be0bb08bce49fa1ec538e702338b8bcfaad]: transaction type not supported",
 			},
 		} {
-			block := GenerateBadBlock(genesis, tosash.NewFaker(), tt.txs, gspec.Config)
+			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)
 			_, err := blockchain.InsertChain(types.Blocks{block})
 			if err == nil {
 				t.Fatal("block imported without errors")
@@ -272,7 +272,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 			}
 			genesis       = gspec.MustCommit(db)
-			blockchain, _ = NewBlockChain(db, nil, gspec.Config, tosash.NewFaker(), nil, nil)
+			blockchain, _ = NewBlockChain(db, nil, gspec.Config, dpos.NewFaker(), nil, nil)
 		)
 		defer blockchain.Stop()
 		for i, tt := range []struct {
@@ -286,7 +286,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				want: "could not apply tx 0 [0xa657e8b1c3bf4ad1a47acaf1f2bf0be0bb08bce49fa1ec538e702338b8bcfaad]: sender not an eoa: address 0x71562b71999873DB5b286dF957af199Ec94617F7, codehash: 0x9280914443471259d4570a8661015ae4a5b80186dbc619658fb494bebc3da3d1",
 			},
 		} {
-			block := GenerateBadBlock(genesis, tosash.NewFaker(), tt.txs, gspec.Config)
+			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)
 			_, err := blockchain.InsertChain(types.Blocks{block})
 			if err == nil {
 				t.Fatal("block imported without errors")

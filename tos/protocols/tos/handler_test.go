@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
@@ -67,9 +67,9 @@ func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)
 		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
 	}).MustCommit(db)
 
-	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, tosash.NewFaker(), nil, nil)
+	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, dpos.NewFaker(), nil, nil)
 
-	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), tosash.NewFaker(), db, blocks, generator)
+	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), dpos.NewFaker(), db, blocks, generator)
 	if _, err := chain.InsertChain(bs); err != nil {
 		panic(err)
 	}

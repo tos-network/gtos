@@ -121,7 +121,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*LightEthereum, error) {
 		reqDist:         newRequestDistributor(peers, &mclock.System{}),
 		accountManager:  stack.AccountManager(),
 		merger:          merger,
-		engine:          tosconfig.CreateConsensusEngine(stack, chainConfig, &config.Tosash, nil, false, chainDb),
+		engine:          tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb),
 		bloomRequests:   make(chan chan *bloombits.Retrieval),
 		bloomIndexer:    core.NewBloomIndexer(chainDb, params.BloomBitsBlocksClient, params.HelperTrieConfirmations),
 		p2pServer:       stack.Server(),

@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -61,7 +61,7 @@ func BenchmarkFilters(b *testing.B) {
 
 	gspec.MustCommit(db)
 
-	chain, receipts := core.GenerateChain(params.TestChainConfig, genesis, tosash.NewFaker(), db, 100010, func(i int, gen *core.BlockGen) {
+	chain, receipts := core.GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), db, 100010, func(i int, gen *core.BlockGen) {
 		switch i {
 		case 2403:
 			receipt := makeReceipt(addr1)
@@ -123,7 +123,7 @@ func TestFilters(t *testing.T) {
 
 	gspec.MustCommit(db)
 
-	chain, receipts := core.GenerateChain(params.TestChainConfig, genesis, tosash.NewFaker(), db, 1000, func(i int, gen *core.BlockGen) {
+	chain, receipts := core.GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), db, 1000, func(i int, gen *core.BlockGen) {
 		switch i {
 		case 1:
 			receipt := types.NewReceipt(nil, false, 0)

@@ -20,22 +20,15 @@ package tosconfig
 import (
 	"fmt"
 	"math/big"
-	"os"
-	"os/user"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/clique"
 	"github.com/tos-network/gtos/consensus/dpos"
-	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
-	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
@@ -63,16 +56,7 @@ var LightClientGPO = gasprice.Config{
 
 // Defaults contains default settings for use on the Ethereum main net.
 var Defaults = Config{
-	SyncMode: downloader.SnapSync,
-	Tosash: tosash.Config{
-		CacheDir:         "ethash",
-		CachesInMem:      2,
-		CachesOnDisk:     3,
-		CachesLockMmap:   false,
-		DatasetsInMem:    1,
-		DatasetsOnDisk:   2,
-		DatasetsLockMmap: false,
-	},
+	SyncMode:                1,
 	NetworkId:               1,
 	TxLookupLimit:           2350000,
 	LightPeers:              100,
@@ -95,27 +79,6 @@ var Defaults = Config{
 	RPCEVMTimeout: 5 * time.Second,
 	GPO:           FullNodeGPO,
 	RPCTxFeeCap:   1, // 1 ether
-}
-
-func init() {
-	home := os.Getenv("HOME")
-	if home == "" {
-		if user, err := user.Current(); err == nil {
-			home = user.HomeDir
-		}
-	}
-	if runtime.GOOS == "darwin" {
-		Defaults.Tosash.DatasetDir = filepath.Join(home, "Library", "Ethash")
-	} else if runtime.GOOS == "windows" {
-		localappdata := os.Getenv("LOCALAPPDATA")
-		if localappdata != "" {
-			Defaults.Tosash.DatasetDir = filepath.Join(localappdata, "Ethash")
-		} else {
-			Defaults.Tosash.DatasetDir = filepath.Join(home, "AppData", "Local", "Ethash")
-		}
-	} else {
-		Defaults.Tosash.DatasetDir = filepath.Join(home, ".ethash")
-	}
 }
 
 //go:generate go run github.com/fjl/gencodec -type Config -formats toml -out gen_config.go
@@ -179,9 +142,6 @@ type Config struct {
 	// Mining options
 	Miner miner.Config
 
-	// Ethash options
-	Tosash tosash.Config
-
 	// Transaction pool options
 	TxPool core.TxPoolConfig
 
@@ -218,40 +178,13 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *tosash.Config, notify []string, noverify bool, db tosdb.Database) consensus.Engine {
-	var engine consensus.Engine
-	if chainConfig.DPoS != nil {
-		// R2-C4: New() validates config and returns error.
-		e, err := dpos.New(chainConfig.DPoS, db)
-		if err != nil {
-			panic(fmt.Sprintf("invalid dpos config: %v", err))
-		}
-		return e
+func CreateConsensusEngine(_ *node.Node, chainConfig *params.ChainConfig, db tosdb.Database) consensus.Engine {
+	if chainConfig.DPoS == nil {
+		panic("chain config missing DPoS section")
 	}
-	if chainConfig.Clique != nil {
-		engine = clique.New(chainConfig.Clique, db)
-	} else {
-		switch config.PowMode {
-		case tosash.ModeFake:
-			log.Warn("Ethash used in fake mode")
-		case tosash.ModeTest:
-			log.Warn("Ethash used in test mode")
-		case tosash.ModeShared:
-			log.Warn("Ethash used in shared mode")
-		}
-		engine = tosash.New(tosash.Config{
-			PowMode:          config.PowMode,
-			CacheDir:         stack.ResolvePath(config.CacheDir),
-			CachesInMem:      config.CachesInMem,
-			CachesOnDisk:     config.CachesOnDisk,
-			CachesLockMmap:   config.CachesLockMmap,
-			DatasetDir:       config.DatasetDir,
-			DatasetsInMem:    config.DatasetsInMem,
-			DatasetsOnDisk:   config.DatasetsOnDisk,
-			DatasetsLockMmap: config.DatasetsLockMmap,
-			NotifyFull:       config.NotifyFull,
-		}, notify, noverify)
-		engine.(*tosash.Tosash).SetThreads(-1) // Disable CPU mining
+	e, err := dpos.New(chainConfig.DPoS, db)
+	if err != nil {
+		panic(fmt.Sprintf("invalid dpos config: %v", err))
 	}
-	return engine
+	return e
 }

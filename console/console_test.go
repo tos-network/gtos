@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/console/prompt"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/tos"
@@ -98,9 +97,6 @@ func newTester(t *testing.T, confOverride func(*tosconfig.Config)) *tester {
 		Genesis: core.DeveloperGenesisBlock(15, 11_500_000, common.Address{}),
 		Miner: miner.Config{
 			Etherbase: common.HexToAddress(testAddress),
-		},
-		Tosash: tosash.Config{
-			PowMode: tosash.ModeTest,
 		},
 	}
 	if confOverride != nil {

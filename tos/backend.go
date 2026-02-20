@@ -30,7 +30,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/clique"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/bloombits"
@@ -133,10 +132,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	}
 	log.Info("Allocated trie memory caches", "clean", common.StorageSize(config.TrieCleanCache)*1024*1024, "dirty", common.StorageSize(config.TrieDirtyCache)*1024*1024)
 
-	// Transfer mining-related config to the ethash config.
-	tosashConfig := config.Tosash
-	tosashConfig.NotifyFull = config.Miner.NotifyFull
-
 	// Assemble the Ethereum object
 	chainDb, err := stack.OpenDatabaseWithFreezer("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, "tos/db/chaindata/", false)
 	if err != nil {
@@ -164,7 +159,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		chainDb:           chainDb,
 		eventMux:          stack.EventMux(),
 		accountManager:    stack.AccountManager(),
-		engine:            tosconfig.CreateConsensusEngine(stack, chainConfig, &tosashConfig, config.Miner.Notify, config.Miner.Noverify, chainDb),
+		engine:            tosconfig.CreateConsensusEngine(stack, chainConfig, chainDb),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
 		gasPrice:          config.Miner.GasPrice,
@@ -402,7 +397,7 @@ func (s *TOS) shouldPreserve(header *types.Header) bool {
 	// The reason we need to disable the self-reorg preserving for clique
 	// is it can be probable to introduce a deadlock.
 	//
-	// e.g. If there are 7 available signers
+	// e.g. If there are 7 available signers (kept for historical context)
 	//
 	// r1   A
 	// r2     B
@@ -415,9 +410,6 @@ func (s *TOS) shouldPreserve(header *types.Header) bool {
 	// is A, F and G sign the block of round5 and reject the block of opponents
 	// and in the round6, the last available signer B is offline, the whole
 	// network is stuck.
-	if _, ok := s.engine.(*clique.Clique); ok {
-		return false
-	}
 	return s.isLocalBlock(header)
 }
 
@@ -458,18 +450,6 @@ func (s *TOS) StartMining(threads int) error {
 		if err != nil {
 			log.Error("Cannot start mining without etherbase", "err", err)
 			return fmt.Errorf("etherbase missing: %v", err)
-		}
-		var cli *clique.Clique
-		if c, ok := s.engine.(*clique.Clique); ok {
-			cli = c
-		}
-		if cli != nil {
-			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
-			if wallet == nil || err != nil {
-				log.Error("Etherbase account unavailable locally", "err", err)
-				return fmt.Errorf("signer missing: %v", err)
-			}
-			cli.Authorize(eb, wallet.SignData)
 		}
 		if d, ok := s.engine.(*dpos.DPoS); ok {
 			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})

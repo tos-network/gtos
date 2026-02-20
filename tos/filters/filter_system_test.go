@@ -28,7 +28,7 @@ import (
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -166,7 +166,7 @@ func TestBlockSubscription(t *testing.T) {
 		backend, sys = newTestFilterSystem(t, db, Config{})
 		api          = NewFilterAPI(sys, false)
 		genesis      = (&core.Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
-		chain, _     = core.GenerateChain(params.TestChainConfig, genesis, tosash.NewFaker(), db, 10, func(i int, gen *core.BlockGen) {})
+		chain, _     = core.GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), db, 10, func(i int, gen *core.BlockGen) {})
 		chainEvents  = []core.ChainEvent{}
 	)
 

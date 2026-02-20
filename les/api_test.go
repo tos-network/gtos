@@ -29,7 +29,6 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
-	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/tos"
 	ethdownloader "github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/tosconfig"
@@ -494,7 +493,6 @@ func testSim(t *testing.T, serverCount, clientCount int, serverDir, clientDir []
 func newLesClientService(ctx *adapters.ServiceContext, stack *node.Node) (node.Lifecycle, error) {
 	config := tosconfig.Defaults
 	config.SyncMode = (ethdownloader.SyncMode)(downloader.LightSync)
-	config.Tosash.PowMode = tosash.ModeFake
 	return New(stack, &config)
 }
 

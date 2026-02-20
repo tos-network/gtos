@@ -28,7 +28,7 @@ import (
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus/tosash"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -188,7 +188,7 @@ var (
 )
 
 var genesis = &core.Genesis{
-	Config:    params.AllTosashProtocolChanges,
+	Config:    params.AllDPoSProtocolChanges,
 	Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance}},
 	ExtraData: []byte("test genesis"),
 	Timestamp: 9000,
@@ -222,7 +222,6 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	}
 	// Create Ethereum Service
 	config := &tosconfig.Config{Genesis: genesis}
-	config.Tosash.PowMode = tosash.ModeFake
 	ethservice, err := tos.New(n, config)
 	if err != nil {
 		t.Fatalf("can't create new tos service: %v", err)
@@ -249,7 +248,7 @@ func generateTestChain() []*types.Block {
 		}
 	}
 	gblock := genesis.MustCommit(db)
-	engine := tosash.NewFaker()
+	engine := dpos.NewFaker()
 	blocks, _ := core.GenerateChain(genesis.Config, gblock, engine, db, 2, generate)
 	blocks = append([]*types.Block{gblock}, blocks...)
 	return blocks
@@ -414,7 +413,7 @@ func testChainID(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if id == nil || id.Cmp(params.AllTosashProtocolChanges.ChainID) != 0 {
+	if id == nil || id.Cmp(params.AllDPoSProtocolChanges.ChainID) != 0 {
 		t.Fatalf("ChainID returned wrong number: %+v", id)
 	}
 }

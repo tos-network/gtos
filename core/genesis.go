@@ -31,7 +31,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
@@ -250,7 +249,7 @@ func SetupGenesisBlock(db tosdb.Database, genesis *Genesis) (*params.ChainConfig
 
 func SetupGenesisBlockWithOverride(db tosdb.Database, genesis *Genesis, overrideTerminalTotalDifficulty *big.Int, overrideTerminalTotalDifficultyPassed *bool) (*params.ChainConfig, common.Hash, error) {
 	if genesis != nil && genesis.Config == nil {
-		return params.AllTosashProtocolChanges, common.Hash{}, errGenesisNoConfig
+		return params.AllDPoSProtocolChanges, common.Hash{}, errGenesisNoConfig
 	}
 
 	applyOverrides := func(config *params.ChainConfig) {
@@ -358,7 +357,7 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 	case ghash == params.KilnGenesisHash:
 		return DefaultKilnGenesisBlock().Config
 	default:
-		return params.AllTosashProtocolChanges
+		return params.AllDPoSProtocolChanges
 	}
 }
 
@@ -407,13 +406,10 @@ func (g *Genesis) Commit(db tosdb.Database) (*types.Block, error) {
 	}
 	config := g.Config
 	if config == nil {
-		config = params.AllTosashProtocolChanges
+		config = params.AllDPoSProtocolChanges
 	}
 	if err := config.CheckConfigForkOrder(); err != nil {
 		return nil, err
-	}
-	if config.Clique != nil && len(block.Extra()) < 32+crypto.SignatureLength {
-		return nil, errors.New("can't start clique chain without signers")
 	}
 	// All the checks has passed, flush the states derived from the genesis
 	// specification as well as the specification itself into the provided
@@ -516,16 +512,21 @@ func DefaultKilnGenesisBlock() *Genesis {
 // DeveloperGenesisBlock returns the 'gtos --dev' genesis block.
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
 	// Override the default period to the user requested one
-	config := *params.AllCliqueProtocolChanges
-	config.Clique = &params.CliqueConfig{
-		Period: period,
-		Epoch:  config.Clique.Epoch,
+	config := *params.AllDPoSProtocolChanges
+	config.DPoS = &params.DPoSConfig{
+		Period:        period,
+		Epoch:         config.DPoS.Epoch,
+		MaxValidators: config.DPoS.MaxValidators,
 	}
+
+	// DPoS genesis extra: 32-byte vanity + faucet address as initial validator
+	genesisExtra := make([]byte, 32+common.AddressLength)
+	copy(genesisExtra[32:], faucet[:])
 
 	// Assemble and return the genesis with the precompiles and faucet pre-funded
 	return &Genesis{
 		Config:     &config,
-		ExtraData:  append(append(make([]byte, 32), faucet[:]...), make([]byte, crypto.SignatureLength)...),
+		ExtraData:  genesisExtra,
 		GasLimit:   gasLimit,
 		BaseFee:    big.NewInt(params.InitialBaseFee),
 		Difficulty: big.NewInt(1),
