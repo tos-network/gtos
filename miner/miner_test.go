@@ -59,6 +59,10 @@ func (m *mockBackend) EngineAPIClient() engineclient.Client {
 	return nil
 }
 
+func (m *mockBackend) EngineAPIAllowTxPoolFallback() bool {
+	return false
+}
+
 func (m *mockBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
 	return nil, errors.New("not supported")
 }

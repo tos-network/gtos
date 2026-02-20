@@ -42,6 +42,7 @@ type Backend interface {
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
 	EngineAPIClient() engineclient.Client
+	EngineAPIAllowTxPoolFallback() bool
 }
 
 // Config is the configuration parameters of mining.

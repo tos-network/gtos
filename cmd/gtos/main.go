@@ -100,6 +100,7 @@ var (
 		utils.EngineAPIEndpointFlag,
 		utils.EngineAPIJWTSecretFlag,
 		utils.EngineAPIRequestTimeoutFlag,
+		utils.EngineAPIAllowTxPoolFallbackFlag,
 		utils.LegacyWhitelistFlag,
 		utils.BloomFilterSizeFlag,
 		utils.CacheFlag,

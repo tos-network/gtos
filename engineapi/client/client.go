@@ -19,17 +19,19 @@ var ErrNotImplemented = errors.New("engine api client method not implemented")
 
 // Config is the local engine API bridge configuration used by gtos.
 type Config struct {
-	Enabled        bool
-	Endpoint       string
-	JWTSecretFile  string
-	RequestTimeout time.Duration
+	Enabled             bool
+	Endpoint            string
+	JWTSecretFile       string
+	RequestTimeout      time.Duration
+	AllowTxPoolFallback bool
 }
 
 var DefaultConfig = Config{
-	Enabled:        false,
-	Endpoint:       "http://127.0.0.1:9595",
-	JWTSecretFile:  "",
-	RequestTimeout: 5 * time.Second,
+	Enabled:             false,
+	Endpoint:            "http://127.0.0.1:9595",
+	JWTSecretFile:       "",
+	RequestTimeout:      5 * time.Second,
+	AllowTxPoolFallback: false,
 }
 
 // GetPayloadRequest describes a proposer-side payload request.

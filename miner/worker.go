@@ -1081,6 +1081,7 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 	if client == nil {
 		return false, nil
 	}
+	allowTxPoolFallback := w.tos.EngineAPIAllowTxPoolFallback()
 	ctx, cancel := context.WithTimeout(context.Background(), engineAPIPayloadRequestTimeout)
 	defer cancel()
 
@@ -1090,10 +1091,13 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		Timestamp:  env.header.Time,
 	})
 	if err != nil {
-		if !errors.Is(err, engineclient.ErrNotImplemented) {
-			log.Warn("Engine payload request failed, falling back to local txpool", "err", err)
+		if allowTxPoolFallback {
+			if !errors.Is(err, engineclient.ErrNotImplemented) {
+				log.Warn("Engine payload request failed, falling back to local txpool", "err", err)
+			}
+			return false, nil
 		}
-		return false, nil
+		return true, fmt.Errorf("engine payload request failed with txpool fallback disabled: %w", err)
 	}
 	if len(resp.Payload) == 0 {
 		log.Debug("Engine payload is empty")
@@ -1106,8 +1110,11 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 
 	var txs types.Transactions
 	if err := rlp.DecodeBytes(resp.Payload, &txs); err != nil {
-		log.Warn("Engine payload decode failed, falling back to local txpool", "err", err)
-		return false, nil
+		if allowTxPoolFallback {
+			log.Warn("Engine payload decode failed, falling back to local txpool", "err", err)
+			return false, nil
+		}
+		return true, fmt.Errorf("engine payload decode failed with txpool fallback disabled: %w", err)
 	}
 	coalescedLogs := make([]*types.Log, 0)
 	for _, tx := range txs {

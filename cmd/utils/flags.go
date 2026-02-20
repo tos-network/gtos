@@ -270,6 +270,12 @@ var (
 		Value:    engineclient.DefaultConfig.RequestTimeout,
 		Category: flags.EthCategory,
 	}
+	EngineAPIAllowTxPoolFallbackFlag = &cli.BoolFlag{
+		Name:     "engine.allow-txpool-fallback",
+		Usage:    "Allow falling back to local txpool when Engine API payload retrieval fails",
+		Value:    engineclient.DefaultConfig.AllowTxPoolFallback,
+		Category: flags.EthCategory,
+	}
 	LegacyWhitelistFlag = &cli.StringFlag{
 		Name:     "whitelist",
 		Usage:    "Comma separated block number-to-hash mappings to enforce (<number>=<hash>) (deprecated in favor of --tos.requiredblocks)",
@@ -1639,6 +1645,9 @@ func SetEngineAPIConfig(ctx *cli.Context, cfg *engineclient.Config) {
 	}
 	if ctx.IsSet(EngineAPIRequestTimeoutFlag.Name) {
 		cfg.RequestTimeout = ctx.Duration(EngineAPIRequestTimeoutFlag.Name)
+	}
+	if ctx.IsSet(EngineAPIAllowTxPoolFallbackFlag.Name) {
+		cfg.AllowTxPoolFallback = ctx.Bool(EngineAPIAllowTxPoolFallbackFlag.Name)
 	}
 }
 

@@ -585,7 +585,7 @@ func (s *TOS) ConfigureEngineAPI(cfg engineclient.Config) {
 		return
 	}
 	s.engineAPIClient = engineclient.NewRPCClient(cfg)
-	log.Info("Engine API bridge configured", "endpoint", cfg.Endpoint, "timeout", cfg.RequestTimeout)
+	log.Info("Engine API bridge configured", "endpoint", cfg.Endpoint, "timeout", cfg.RequestTimeout, "allowTxPoolFallback", cfg.AllowTxPoolFallback)
 }
 
 // EngineAPIClient returns the configured engine API bridge client.
@@ -593,6 +593,14 @@ func (s *TOS) EngineAPIClient() engineclient.Client {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.engineAPIClient
+}
+
+// EngineAPIAllowTxPoolFallback reports whether local txpool fallback is allowed
+// when engine payload retrieval fails.
+func (s *TOS) EngineAPIAllowTxPoolFallback() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.engineAPIConfig.AllowTxPoolFallback
 }
 
 func (s *TOS) validateImportedBlockWithEngine(block *types.Block) error {
