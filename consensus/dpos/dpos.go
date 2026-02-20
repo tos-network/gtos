@@ -5,9 +5,10 @@
 // stored at params.ValidatorRegistryAddress (TOS3).
 //
 // The Extra field format mirrors Clique:
-//   Genesis (block 0):   [32B vanity][N×20B addrs]             (no seal)
-//   Normal block:        [32B vanity][65B seal]
-//   Epoch block (N>0):   [32B vanity][N×20B addrs][65B seal]
+//
+//	Genesis (block 0):   [32B vanity][N×20B addrs]             (no seal)
+//	Normal block:        [32B vanity][65B seal]
+//	Epoch block (N>0):   [32B vanity][N×20B addrs][65B seal]
 package dpos
 
 import (
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
@@ -35,7 +37,6 @@ import (
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 	"github.com/tos-network/gtos/validator"
-	lru "github.com/hashicorp/golang-lru"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -133,6 +134,31 @@ func (d *DPoS) Authorize(v common.Address, signFn SignerFn) {
 	defer d.lock.Unlock()
 	d.validator = v
 	d.signFn = signFn
+}
+
+// ValidatorAddress returns the locally configured validator address.
+func (d *DPoS) ValidatorAddress() common.Address {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+	return d.validator
+}
+
+// CanSignVotes reports whether the local validator vote signer is configured.
+func (d *DPoS) CanSignVotes() bool {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+	return d.validator != (common.Address{}) && d.signFn != nil
+}
+
+// SignVote signs a vote digest with the local validator key.
+func (d *DPoS) SignVote(digest common.Hash) ([]byte, error) {
+	d.lock.RLock()
+	v, signFn := d.validator, d.signFn
+	d.lock.RUnlock()
+	if v == (common.Address{}) || signFn == nil {
+		return nil, errors.New("dpos: vote signer not configured")
+	}
+	return signFn(accounts.Account{Address: v}, accounts.MimetypeDPoS, digest.Bytes())
 }
 
 // Author implements consensus.Engine.

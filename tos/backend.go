@@ -533,13 +533,11 @@ func (s *TOS) Start() error {
 	}
 	// Start the networking layer and the light server if requested
 	s.handler.Start(maxPeers)
-	if s.EngineAPIClient() != nil {
-		headCh := make(chan core.ChainHeadEvent, 16)
-		s.engineHeadSub = s.blockchain.SubscribeChainHeadEvent(headCh)
-		go s.engineHeadLoop(s.engineHeadSub, headCh)
-		if head := s.blockchain.CurrentBlock(); head != nil {
-			s.notifyForkchoiceUpdated(head)
-		}
+	headCh := make(chan core.ChainHeadEvent, 16)
+	s.engineHeadSub = s.blockchain.SubscribeChainHeadEvent(headCh)
+	go s.engineHeadLoop(s.engineHeadSub, headCh)
+	if head := s.blockchain.CurrentBlock(); head != nil {
+		s.onChainHead(head)
 	}
 	return nil
 }
@@ -656,12 +654,24 @@ func (s *TOS) engineHeadLoop(sub event.Subscription, headCh <-chan core.ChainHea
 		select {
 		case ev := <-headCh:
 			if ev.Block != nil {
-				s.notifyForkchoiceUpdated(ev.Block)
+				s.onChainHead(ev.Block)
 			}
 		case <-sub.Err():
 			return
 		}
 	}
+}
+
+func (s *TOS) onChainHead(head *types.Block) {
+	if head == nil {
+		return
+	}
+	if s.handler != nil {
+		if err := s.handler.proposeVoteForBlock(head); err != nil {
+			log.Warn("Failed to propose BFT vote for head", "hash", head.Hash(), "err", err)
+		}
+	}
+	s.notifyForkchoiceUpdated(head)
 }
 
 func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {

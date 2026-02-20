@@ -6,11 +6,19 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/bft"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/rlp"
 	tosp "github.com/tos-network/gtos/tos/protocols/tos"
 )
 
 type handlerBFTBroadcaster struct {
 	h *handler
+}
+
+type localVoteSigner interface {
+	ValidatorAddress() common.Address
+	CanSignVotes() bool
+	SignVote(digest common.Hash) ([]byte, error)
 }
 
 func (b *handlerBFTBroadcaster) BroadcastVote(v bft.Vote) error {
@@ -107,6 +115,52 @@ func (h *handler) applyQCFinality(qc *bft.QC) {
 	if h.onQCFinalized != nil {
 		go h.onQCFinalized(block)
 	}
+}
+
+func (h *handler) proposeVoteForBlock(block *types.Block) error {
+	if block == nil || h.bftReactor == nil || h.chain == nil {
+		return nil
+	}
+	engine := h.chain.Engine()
+	signer, ok := engine.(localVoteSigner)
+	if !ok || !signer.CanSignVotes() {
+		return nil
+	}
+	validator := signer.ValidatorAddress()
+	if validator == (common.Address{}) {
+		return nil
+	}
+	height := block.NumberU64()
+	round := uint64(0)
+	digest, err := voteDigest(height, round, block.Hash())
+	if err != nil {
+		return err
+	}
+	signature, err := signer.SignVote(digest)
+	if err != nil {
+		return err
+	}
+	return h.bftReactor.ProposeVote(bft.Vote{
+		Height:    height,
+		Round:     round,
+		BlockHash: block.Hash(),
+		Validator: validator,
+		Weight:    1,
+		Signature: signature,
+	})
+}
+
+func voteDigest(height, round uint64, blockHash common.Hash) (common.Hash, error) {
+	payload, err := rlp.EncodeToBytes([]interface{}{
+		"gtos-bft-vote-v1",
+		height,
+		round,
+		blockHash,
+	})
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return crypto.Keccak256Hash(payload), nil
 }
 
 func shouldAdvanceFinality(currentFinalized, candidate *types.Block) bool {

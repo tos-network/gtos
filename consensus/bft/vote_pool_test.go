@@ -109,3 +109,37 @@ func TestReactorEmitsQC(t *testing.T) {
 		t.Fatalf("unexpected qc callbacks/broadcasts: callbacks=%d broadcasts=%d", qcCount, bc.qcs)
 	}
 }
+
+func TestReactorSkipsDuplicateProposals(t *testing.T) {
+	pool := NewVotePool(20) // required = 14
+	bc := &mockBroadcaster{}
+	r := NewReactor(pool, bc, nil)
+	v := testVote(31, 1, "0x301", "0x3011", 7)
+
+	if err := r.ProposeVote(v); err != nil {
+		t.Fatalf("first propose vote failed: %v", err)
+	}
+	if err := r.ProposeVote(v); err != nil {
+		t.Fatalf("duplicate propose vote failed: %v", err)
+	}
+	if bc.votes != 1 {
+		t.Fatalf("duplicate proposal should not rebroadcast, have %d want %d", bc.votes, 1)
+	}
+}
+
+func TestReactorProposeVoteCanEmitQC(t *testing.T) {
+	pool := NewVotePool(10) // required = 7
+	bc := &mockBroadcaster{}
+	var qcCount int
+	r := NewReactor(pool, bc, func(*QC) { qcCount++ })
+
+	if err := r.ProposeVote(testVote(32, 1, "0x302", "0x3021", 7)); err != nil {
+		t.Fatalf("propose vote failed: %v", err)
+	}
+	if bc.votes != 1 {
+		t.Fatalf("unexpected vote broadcasts: have %d want %d", bc.votes, 1)
+	}
+	if bc.qcs != 1 || qcCount != 1 {
+		t.Fatalf("propose vote should emit qc immediately: callbacks=%d broadcasts=%d", qcCount, bc.qcs)
+	}
+}

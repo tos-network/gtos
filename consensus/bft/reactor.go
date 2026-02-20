@@ -23,9 +23,12 @@ func NewReactor(pool *VotePool, broadcaster VoteBroadcaster, onQC func(*QC)) *Re
 }
 
 func (r *Reactor) HandleIncomingVote(v Vote) (*QC, error) {
-	_, err := r.pool.AddVote(v)
+	added, err := r.pool.AddVote(v)
 	if err != nil {
 		return nil, err
+	}
+	if !added {
+		return nil, nil
 	}
 	qc, ok := r.pool.BuildQC(v.Height, v.Round, v.BlockHash)
 	if !ok {
@@ -41,12 +44,27 @@ func (r *Reactor) HandleIncomingVote(v Vote) (*QC, error) {
 }
 
 func (r *Reactor) ProposeVote(v Vote) error {
-	_, err := r.pool.AddVote(v)
+	added, err := r.pool.AddVote(v)
 	if err != nil {
 		return err
 	}
+	if added && r.broadcaster != nil {
+		if err := r.broadcaster.BroadcastVote(v); err != nil {
+			return err
+		}
+	}
+	if !added {
+		return nil
+	}
+	qc, ok := r.pool.BuildQC(v.Height, v.Round, v.BlockHash)
+	if !ok {
+		return nil
+	}
+	if r.onQC != nil {
+		r.onQC(qc)
+	}
 	if r.broadcaster != nil {
-		return r.broadcaster.BroadcastVote(v)
+		return r.broadcaster.BroadcastQC(qc)
 	}
 	return nil
 }
