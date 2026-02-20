@@ -36,7 +36,7 @@
 
 进行中 / 未完成（Phase 1 关键阻塞）：
 - [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 仍返回空 payload，`NewPayload` 尚未接入真实执行校验
-- [ ] `~/tos` 已支持 `ForkchoiceUpdated(finalized_hash)` 推进 stable 指针，但 `safe/head` 持久化与完整执行侧收敛路径仍未完成
+- [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化，并可按 `finalized_hash` 推进 stable 指针；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go`、`~/tos` 侧 Engine API Phase1 测试仍需补齐
 
