@@ -43,15 +43,17 @@ type Msg interface {
 
 // Execute processes a system action from msg and dispatches to a registered handler.
 // Returns (gasUsed, error) — called from core/state_transition.go.
-func Execute(msg Msg, db vm.StateDB) (uint64, error) {
+func Execute(msg Msg, db vm.StateDB, blockNumber *big.Int, chainConfig *params.ChainConfig) (uint64, error) {
 	sa, err := Decode(msg.Data())
 	if err != nil {
 		return params.SysActionGas, err
 	}
 	ctx := &Context{
-		From:    msg.From(),
-		Value:   msg.Value(),
-		StateDB: db,
+		From:        msg.From(),
+		Value:       msg.Value(),
+		StateDB:     db,
+		BlockNumber: blockNumber,
+		ChainConfig: chainConfig,
 	}
 	for _, h := range DefaultRegistry.handlers {
 		if h.CanHandle(sa.Action) {

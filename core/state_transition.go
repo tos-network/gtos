@@ -271,7 +271,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
-			gasUsed, execErr := sysaction.Execute(msg, st.state)
+			gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
 			// Deduct sysaction-specific gas on top of intrinsic gas.
 			if st.gas >= gasUsed {
 				st.gas -= gasUsed

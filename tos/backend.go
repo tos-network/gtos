@@ -31,6 +31,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/clique"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -469,6 +470,14 @@ func (s *TOS) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			cli.Authorize(eb, wallet.SignData)
+		}
+		if d, ok := s.engine.(*dpos.DPoS); ok {
+			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+			if wallet == nil || err != nil {
+				log.Error("Etherbase account unavailable locally", "err", err)
+				return fmt.Errorf("signer missing: %v", err)
+			}
+			d.Authorize(eb, wallet.SignData)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.
