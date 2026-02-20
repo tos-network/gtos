@@ -628,6 +628,15 @@ func (s *TOS) validateImportedBlockWithEngine(block *types.Block) error {
 	if resp != nil && !resp.Valid {
 		return fmt.Errorf("engine rejected block %s (state=%s)", block.Hash(), resp.StateHash)
 	}
+	if resp != nil && resp.StateHash != "" {
+		var engineStateHash common.Hash
+		if err := engineStateHash.UnmarshalText([]byte(resp.StateHash)); err != nil {
+			return fmt.Errorf("engine returned invalid state hash %q for block %s: %w", resp.StateHash, block.Hash(), err)
+		}
+		if engineStateHash != block.Root() {
+			return fmt.Errorf("engine state hash mismatch for block %s (engine=%s, block=%s)", block.Hash(), engineStateHash.Hex(), block.Root().Hex())
+		}
+	}
 	return nil
 }
 
