@@ -3,9 +3,9 @@
 ## 0. 当前完成状态（截至 2026-02-20）
 
 - 总体状态：`Phase 1 进行中（中段）：~/gtos 进度领先，~/tos 仍在早段`
-- Week 1：`部分完成（~/gtos 已完成规格与客户端骨架；~/tos 的 engine_api server 骨架未落地）`
-- Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 服务端未落地）`
-- Week 3：`部分完成（~/tos 已完成 execution_layer_mode、外部入块 RPC、Engine API 三方法骨架；执行语义未完成）`
+- Week 1：`已完成（双端规格与 Engine API 三方法已连通，~/tos 在 rpc 主模块内落地服务端骨架）`
+- Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 仍返回空 payload）`
+- Week 3：`部分完成（~/tos 已完成 execution_layer_mode、外部入块 RPC、Engine API 三方法骨架与关键入参校验；真实执行语义未完成）`
 - Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架+网络桥接+签名校验；3 节点闭环联调未完成）`
 - Week 5：`未开始`
 
@@ -37,7 +37,7 @@
 
 进行中 / 未完成（Phase 1 关键阻塞）：
 - [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 仍返回空 payload，`NewPayload` 尚未接入真实执行校验
-- [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；完整执行侧收敛路径仍未完成
+- [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；且已补充 `timestamp` 与 `zero-head` 非法 forkchoice 组合校验；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go` 已补 smoke 回归，但完整多节点 e2e 未完成；`~/tos` 侧 Engine API Phase1 集成测试仍需补齐
 
