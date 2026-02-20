@@ -6,7 +6,7 @@
 - Week 1：`部分完成（仅 ~/gtos）`
 - Week 2：`部分完成（~/gtos 进行中，~/tos 未开始）`
 - Week 3：`部分完成（仅 ~/tos）`
-- Week 4：`未开始`
+- Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架）`
 - Week 5：`未开始`
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
@@ -30,6 +30,7 @@
 - [x] `gtos` 启动时可注入 Engine bridge 客户端（stub，未切换出块主路径）
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`；新增 `engine.allow-txpool-fallback` 兼容开关（默认关闭）
 - [x] 导入区块前接入 `NewPayload` 校验钩子；校验 `state_hash` 与区块 `stateRoot` 一致；`ForkchoiceUpdated` 改为按 `head/safe/finalized` 变化触发（失败降级）
+- [x] 新增 `consensus/bft` 最小骨架：`types.go`、`vote_pool.go`、`qc.go`、`reactor.go`（含单测）
 
 ## 1. Phase 1 范围（只做“能跑通”）
 
