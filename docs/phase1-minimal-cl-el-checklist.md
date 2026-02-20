@@ -5,7 +5,7 @@
 - 总体状态：`Phase 1 进行中（中段）：~/gtos 进度领先，~/tos 仍在早段`
 - Week 1：`部分完成（~/gtos 已完成规格与客户端骨架；~/tos 的 engine_api server 骨架未落地）`
 - Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 服务端未落地）`
-- Week 3：`部分完成（~/tos 已完成 execution_layer_mode 与外部入块 RPC；NewPayload/ForkchoiceUpdated 未落地）`
+- Week 3：`部分完成（~/tos 已完成 execution_layer_mode、外部入块 RPC、Engine API 三方法骨架；执行语义未完成）`
 - Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架+网络桥接+签名校验；3 节点闭环联调未完成）`
 - Week 5：`未开始`
 
@@ -32,9 +32,10 @@
 - [x] 新增执行层模式开关：`execution_layer_mode`
 - [x] 执行层模式下自动禁用 `getwork` 与 mining RPC 注册
 - [x] 新增执行层入块 RPC：`submit_execution_block`
+- [x] 新增 Engine API 三方法：`engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`（含 snake/camel 方法名兼容）
 
 进行中 / 未完成（Phase 1 关键阻塞）：
-- [ ] `~/tos` 尚未提供 `engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`
+- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 仍返回空 payload，`NewPayload` 尚未接入真实执行校验
 - [ ] `~/tos` 尚未形成“按 Engine API 驱动 finalized/safe 持久化推进”的稳定路径
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go`、`~/tos` 侧 Engine API Phase1 测试仍需补齐
