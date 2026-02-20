@@ -61,12 +61,13 @@ func TestShouldAdvanceFinality(t *testing.T) {
 }
 
 func TestVerifyVoteSignature(t *testing.T) {
+	chainID := big.NewInt(1)
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
 	validator := crypto.PubkeyToAddress(key.PublicKey)
-	digest, err := voteDigest(9, 0, common.HexToHash("0x99"))
+	digest, err := voteDigestTOSv1(chainID, 9, 0, common.HexToHash("0x99"))
 	if err != nil {
 		t.Fatalf("vote digest: %v", err)
 	}
@@ -82,17 +83,18 @@ func TestVerifyVoteSignature(t *testing.T) {
 		Weight:    1,
 		Signature: sig,
 	}
-	if err := verifyVoteSignature(vote); err != nil {
+	if err := verifyVoteSignature(chainID, vote); err != nil {
 		t.Fatalf("verify vote signature failed: %v", err)
 	}
 }
 
 func TestVerifyVoteSignatureRejectsWrongValidator(t *testing.T) {
+	chainID := big.NewInt(1)
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	digest, err := voteDigest(10, 0, common.HexToHash("0x100"))
+	digest, err := voteDigestTOSv1(chainID, 10, 0, common.HexToHash("0x100"))
 	if err != nil {
 		t.Fatalf("vote digest: %v", err)
 	}
@@ -108,12 +110,13 @@ func TestVerifyVoteSignatureRejectsWrongValidator(t *testing.T) {
 		Weight:    1,
 		Signature: sig,
 	}
-	if err := verifyVoteSignature(vote); err == nil {
+	if err := verifyVoteSignature(chainID, vote); err == nil {
 		t.Fatal("expected signature verification failure")
 	}
 }
 
 func TestVerifyQCAttestations(t *testing.T) {
+	chainID := big.NewInt(1)
 	key1, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("generate key1: %v", err)
@@ -123,7 +126,7 @@ func TestVerifyQCAttestations(t *testing.T) {
 		t.Fatalf("generate key2: %v", err)
 	}
 	blockHash := common.HexToHash("0x777")
-	digest, err := voteDigest(11, 0, blockHash)
+	digest, err := voteDigestTOSv1(chainID, 11, 0, blockHash)
 	if err != nil {
 		t.Fatalf("vote digest: %v", err)
 	}
@@ -149,7 +152,7 @@ func TestVerifyQCAttestations(t *testing.T) {
 	if err := qc.Verify(); err != nil {
 		t.Fatalf("qc verify: %v", err)
 	}
-	if err := verifyQCAttestations(qc); err != nil {
+	if err := verifyQCAttestations(chainID, qc); err != nil {
 		t.Fatalf("verifyQCAttestations failed: %v", err)
 	}
 }

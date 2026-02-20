@@ -3,11 +3,14 @@ package tos
 import (
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/bft"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/crypto/blake3"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 	tosp "github.com/tos-network/gtos/tos/protocols/tos"
 )
@@ -44,7 +47,7 @@ func (h *handler) handleVotePacket(packet *tosp.VotePacket) error {
 		return nil
 	}
 	vote := packetToBFTVote(packet)
-	if err := verifyVoteSignature(vote); err != nil {
+	if err := verifyVoteSignature(chainIDFromBlockChain(h.chain), vote); err != nil {
 		return err
 	}
 	_, err := h.bftReactor.HandleIncomingVote(vote)
@@ -59,7 +62,7 @@ func (h *handler) handleQCPacket(packet *tosp.QCPacket) error {
 	if err := qc.Verify(); err != nil {
 		return err
 	}
-	if err := verifyQCAttestations(qc); err != nil {
+	if err := verifyQCAttestations(chainIDFromBlockChain(h.chain), qc); err != nil {
 		return err
 	}
 	h.markQCSeen(qc)
@@ -142,7 +145,8 @@ func (h *handler) proposeVoteForBlock(block *types.Block) error {
 	}
 	height := block.NumberU64()
 	round := uint64(0)
-	digest, err := voteDigest(height, round, block.Hash())
+	chainID := chainIDFromBlockChain(h.chain)
+	digest, err := voteDigestTOSv1(chainID, height, round, block.Hash())
 	if err != nil {
 		return err
 	}
@@ -158,13 +162,28 @@ func (h *handler) proposeVoteForBlock(block *types.Block) error {
 		Weight:    1,
 		Signature: signature,
 	}
-	if err := verifyVoteSignature(vote); err != nil {
+	if err := verifyVoteSignature(chainID, vote); err != nil {
 		return err
 	}
 	return h.bftReactor.ProposeVote(vote)
 }
 
-func voteDigest(height, round uint64, blockHash common.Hash) (common.Hash, error) {
+func voteDigestTOSv1(chainID *big.Int, height, round uint64, blockHash common.Hash) (common.Hash, error) {
+	payload, err := rlp.EncodeToBytes([]interface{}{
+		"tos-bft-vote-v1",
+		chainIDOrZero(chainID),
+		height,
+		round,
+		blockHash,
+	})
+	if err != nil {
+		return common.Hash{}, err
+	}
+	sum := blake3.Sum256(payload)
+	return common.BytesToHash(sum[:]), nil
+}
+
+func voteDigestLegacy(height, round uint64, blockHash common.Hash) (common.Hash, error) {
 	payload, err := rlp.EncodeToBytes([]interface{}{
 		"gtos-bft-vote-v1",
 		height,
@@ -177,22 +196,33 @@ func voteDigest(height, round uint64, blockHash common.Hash) (common.Hash, error
 	return crypto.Keccak256Hash(payload), nil
 }
 
-func verifyVoteSignature(v bft.Vote) error {
-	digest, err := voteDigest(v.Height, v.Round, v.BlockHash)
+func voteDigests(chainID *big.Int, height, round uint64, blockHash common.Hash) ([]common.Hash, error) {
+	tosV1, err := voteDigestTOSv1(chainID, height, round, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	legacy, err := voteDigestLegacy(height, round, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	return []common.Hash{tosV1, legacy}, nil
+}
+
+func verifyVoteSignature(chainID *big.Int, v bft.Vote) error {
+	digests, err := voteDigests(chainID, v.Height, v.Round, v.BlockHash)
 	if err != nil {
 		return err
 	}
-	recovered, err := recoverSignerAddress(digest, v.Signature)
-	if err != nil {
-		return errInvalidBFTVoteSignature
+	for _, digest := range digests {
+		recovered, recErr := recoverSignerAddress(digest, v.Signature)
+		if recErr == nil && recovered == v.Validator {
+			return nil
+		}
 	}
-	if recovered != v.Validator {
-		return errInvalidBFTVoteSignature
-	}
-	return nil
+	return errInvalidBFTVoteSignature
 }
 
-func verifyQCAttestations(qc *bft.QC) error {
+func verifyQCAttestations(chainID *big.Int, qc *bft.QC) error {
 	if qc == nil {
 		return bft.ErrInsufficientQuorum
 	}
@@ -217,7 +247,7 @@ func verifyQCAttestations(qc *bft.QC) error {
 			Weight:    att.Weight,
 			Signature: att.Signature,
 		}
-		if err := verifyVoteSignature(vote); err != nil {
+		if err := verifyVoteSignature(chainID, vote); err != nil {
 			return err
 		}
 		total += att.Weight
@@ -226,6 +256,25 @@ func verifyQCAttestations(qc *bft.QC) error {
 		return bft.ErrInsufficientQuorum
 	}
 	return nil
+}
+
+func chainIDFromBlockChain(blockchain interface {
+	Config() *params.ChainConfig
+}) *big.Int {
+	if blockchain == nil {
+		return big.NewInt(0)
+	}
+	if cfg := blockchain.Config(); cfg != nil && cfg.ChainID != nil {
+		return new(big.Int).Set(cfg.ChainID)
+	}
+	return big.NewInt(0)
+}
+
+func chainIDOrZero(chainID *big.Int) *big.Int {
+	if chainID == nil {
+		return big.NewInt(0)
+	}
+	return chainID
 }
 
 func recoverSignerAddress(digest common.Hash, signature []byte) (common.Address, error) {
