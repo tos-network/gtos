@@ -2,6 +2,7 @@ package bft
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
@@ -141,5 +142,74 @@ func TestReactorProposeVoteCanEmitQC(t *testing.T) {
 	}
 	if bc.qcs != 1 || qcCount != 1 {
 		t.Fatalf("propose vote should emit qc immediately: callbacks=%d broadcasts=%d", qcCount, bc.qcs)
+	}
+}
+
+func TestVotePoolSequentialQCsWithPruning(t *testing.T) {
+	pool := NewVotePool(30) // required = 21
+	validators := []string{"0x4001", "0x4002", "0x4003"}
+	const (
+		round       = uint64(1)
+		voteWeight  = uint64(7)
+		totalHeights = 128
+	)
+
+	for height := uint64(1); height <= totalHeights; height++ {
+		blockHex := fmt.Sprintf("0x%x", 0x5000+height)
+		blockHash := common.HexToHash(blockHex)
+
+		for _, validator := range validators {
+			v := testVote(height, round, blockHex, validator, voteWeight)
+			added, err := pool.AddVote(v)
+			if err != nil {
+				t.Fatalf("unexpected vote add error at height %d validator %s: %v", height, validator, err)
+			}
+			if !added {
+				t.Fatalf("vote should be newly added at height %d validator %s", height, validator)
+			}
+		}
+
+		qc, ok := pool.BuildQC(height, round, blockHash)
+		if !ok || qc == nil {
+			t.Fatalf("expected QC at height %d", height)
+		}
+		if err := qc.Verify(); err != nil {
+			t.Fatalf("qc verify failed at height %d: %v", height, err)
+		}
+		if qc.Height != height || qc.Round != round || qc.BlockHash != blockHash {
+			t.Fatalf(
+				"unexpected qc content at height %d: got (height=%d round=%d hash=%s)",
+				height,
+				qc.Height,
+				qc.Round,
+				qc.BlockHash,
+			)
+		}
+		if qc.TotalWeight != 21 {
+			t.Fatalf("unexpected qc weight at height %d: have %d want %d", height, qc.TotalWeight, 21)
+		}
+
+		pool.PruneBelow(height)
+		if height > 1 {
+			oldBlockHash := common.HexToHash(fmt.Sprintf("0x%x", 0x5000+height-1))
+			oldTotal, oldVotes := pool.Tally(height-1, round, oldBlockHash)
+			if oldTotal != 0 || oldVotes != 0 {
+				t.Fatalf(
+					"expected pruned height %d to be removed, got total=%d votes=%d",
+					height-1,
+					oldTotal,
+					oldVotes,
+				)
+			}
+		}
+		currentTotal, currentVotes := pool.Tally(height, round, blockHash)
+		if currentTotal != 21 || currentVotes != len(validators) {
+			t.Fatalf(
+				"expected current height tally after prune (total=21 votes=%d), got total=%d votes=%d",
+				len(validators),
+				currentTotal,
+				currentVotes,
+			)
+		}
 	}
 }

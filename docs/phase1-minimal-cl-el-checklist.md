@@ -21,6 +21,7 @@
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`；新增 `engine.allow-txpool-fallback` 兼容开关（默认关闭）
 - [x] 导入区块前接入 `NewPayload` 校验钩子；校验 `state_hash` 与区块 `stateRoot` 一致；`ForkchoiceUpdated` 改为按 `head/safe/finalized` 变化触发（失败降级）
 - [x] 新增 `consensus/bft` 最小骨架：`types.go`、`vote_pool.go`、`qc.go`、`reactor.go`（含单测）
+- [x] 扩展 `consensus/bft/vote_pool_test.go`，增加连续 128 高度 QC + prune 回归用例
 - [x] `tos` 协议层接入 `Vote/QC` 消息（`protocol/handler/peer`）并桥接到 `consensus/bft`（含广播与接收处理）
 - [x] QC 到达后推进本地 `chain safe/finalized`，并回调触发 `ForkchoiceUpdated` 通知执行层
 - [x] 链头事件触发本地验证者自动投票（DPoS 签名），并抑制重复 vote/QC 广播
