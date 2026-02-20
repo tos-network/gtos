@@ -4,7 +4,7 @@
 
 - 总体状态：`Phase 1 进行中（早期）`
 - Week 1：`部分完成（仅 ~/gtos）`
-- Week 2：`未开始`
+- Week 2：`部分完成（~/gtos 进行中，~/tos 未开始）`
 - Week 3：`部分完成（仅 ~/tos）`
 - Week 4：`未开始`
 - Week 5：`未开始`
@@ -16,7 +16,6 @@
 - [x] 编译检查通过：`cargo check`
 
 未开始（`~/gtos`）：
-- [ ] Engine API 客户端接入（`GetPayload/NewPayload/ForkchoiceUpdated`）
 - [ ] proposer/validator 路径切换到执行层校验
 - [ ] QC 最终性消息与投票池最小闭环
 
@@ -26,6 +25,7 @@
 - [x] 新增 `docs/spec/state_hash.md`
 - [x] 新增 `engineapi/proto/engine.proto`
 - [x] 新增 `engineapi/client/client.go`（week-1 scaffold）
+- [x] `engineapi/client` 接入真实 JSON-RPC 调用（`GetPayload/NewPayload/ForkchoiceUpdated`，含 method fallback + JWT header）
 - [x] `cmd/gtos` 增加 `engine.*` 配置与 CLI flags 接线
 - [x] `gtos` 启动时可注入 Engine bridge 客户端（stub，未切换出块主路径）
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`，失败回退本地 txpool（临时兼容）
