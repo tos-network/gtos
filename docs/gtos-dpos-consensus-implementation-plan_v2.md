@@ -1262,3 +1262,283 @@ go test -race ./consensus/dpos/... ./validator/...
 | `TestWithdrawBalanceGuard` | Handler rejects when TOS3 balance < selfStake |
 | `TestRegisterTwice` | Second VALIDATOR_REGISTER returns `ErrAlreadyRegistered` |
 | `TestValidatorSortOrder` | Selection by stake, snapshot by address ascending |
+
+---
+
+## Security & Correctness Review — Round 2 (2026-02-20)
+
+Two parallel audit passes against `~/ronin/consensus/consortium/v2/` and `~/gtos/` source.
+Findings below are **net-new** issues not addressed in v2; all v1-review items are confirmed fixed.
+
+---
+
+### CRITICAL
+
+#### R2-C1. `addressAscending` sort type is never declared — compile error
+
+`snapshot()` calls `sort.Sort(addressAscending(validators))` but the type `addressAscending`
+is referenced without ever being defined. The plan inherits the name from Clique's
+`signersAscending` but never declares it.
+
+**Fix**: Add to `consensus/dpos/snapshot.go`:
+```go
+type addressAscending []common.Address
+
+func (a addressAscending) Len() int      { return len(a) }
+func (a addressAscending) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a addressAscending) Less(i, j int) bool {
+    return bytes.Compare(a[i][:], a[j][:]) < 0
+}
+```
+
+---
+
+#### R2-C2. `appendValidatorToList` is never called — validator list always empty
+
+In `handleRegister` (§5), the plan writes:
+```go
+writeSelfStake(ctx.StateDB, ctx.From, ctx.Value)   // line A: writes non-zero stake
+WriteValidatorStatus(ctx.StateDB, ctx.From, Active)
+
+if ReadSelfStake(ctx.StateDB, ctx.From).Sign() == 0 { // line B: reads AFTER line A
+    appendValidatorToList(ctx.StateDB, ctx.From)        // NEVER reached
+}
+```
+
+After line A, `ReadSelfStake` returns `ctx.Value` (non-zero). The condition at line B is
+**always false**. `appendValidatorToList` is never called. The address list remains empty.
+`ReadActiveValidators` returns an empty slice. `FinalizeAndAssemble` at epoch boundary returns
+`errors.New("dpos: no active validators at epoch boundary")`. **Chain halts at every epoch.**
+
+**Fix**: Capture the old stake value before writing, use it for the conditional:
+```go
+// In validation phase (before any writes):
+isNewRegistration := ReadSelfStake(ctx.StateDB, ctx.From).Sign() == 0
+
+// In mutation phase:
+writeSelfStake(ctx.StateDB, ctx.From, ctx.Value)
+WriteValidatorStatus(ctx.StateDB, ctx.From, Active)
+if isNewRegistration {
+    appendValidatorToList(ctx.StateDB, ctx.From) // only on first-ever registration
+}
+// On re-registration after withdraw: address is already in list; status was inactive → now active.
+```
+
+---
+
+#### R2-C3. `NewFaker()` passes `nil` db — `snap.store(nil)` panics in tests
+
+`NewFaker()` calls `New(..., nil)`. Inside `snapshot()`, after building the genesis snapshot:
+```go
+if err := snap.store(d.db); err != nil {  // d.db == nil → db.Put(…) panics
+    return nil, err
+}
+```
+`store()` calls `db.Put(...)` on a nil interface, which is a **nil-pointer dereference**.
+All unit tests using `NewFaker()` that exercise `snapshot()` will crash.
+
+**Fix**: Guard the store call:
+```go
+if d.db != nil {
+    if err := snap.store(d.db); err != nil {
+        return nil, err
+    }
+}
+```
+Same guard must also apply to the epoch checkpoint store call further down in `snapshot()`.
+
+---
+
+#### R2-C4. `DPoSConfig.Epoch == 0` causes modulo-by-zero panic — no validation
+
+Multiple locations compute `number % d.config.Epoch`. If `Epoch == 0`:
+- `snapshot()`: `if number % d.config.Epoch == 0` → **runtime panic**
+- `FinalizeAndAssemble()`: same expression → **runtime panic**
+- `apply()`: same expression → **runtime panic**
+
+Similarly, `MaxValidators == 0` causes `ReadActiveValidators` to return empty slice → chain
+halts at epoch. `Period == 0` collapses block timestamps.
+
+**Fix**: Validate in `New()` (not in `DPoSConfig.String()`):
+```go
+func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
+    if config.Epoch == 0 {
+        return nil, errors.New("dpos: epoch must be > 0")
+    }
+    if config.MaxValidators == 0 {
+        return nil, errors.New("dpos: maxValidators must be > 0")
+    }
+    if config.Period == 0 {
+        return nil, errors.New("dpos: period must be > 0")
+    }
+    // ... rest of constructor ...
+}
+```
+`CreateConsensusEngine` must handle the returned error.
+
+---
+
+#### R2-C5. Legacy tx `buyGas()` does NOT include `tx.Value` — sender SubBalance can go negative
+
+In `core/state_transition.go:172–191`, `buyGas()` is:
+```go
+balanceCheck := mgval                    // legacy path: only gas*gasPrice
+if st.gasFeeCap != nil {                 // EIP-1559 path only:
+    balanceCheck = gas * gasFeeCap
+    balanceCheck.Add(balanceCheck, st.value)  // ← value included HERE only
+}
+if have < balanceCheck { return ErrInsufficientFunds }
+st.state.SubBalance(st.msg.From(), mgval)  // deducts gas only
+```
+
+For **legacy transactions** (no `gasFeeCap`, i.e., pre-London or explicit legacy tx type):
+`balanceCheck = gas * gasPrice` — the tx's `Value` is **not checked**.
+
+After `buyGas()`, the sender's balance is `original - gas*gasPrice`. The handler then calls
+`SubBalance(ctx.From, ctx.Value)`. If `original - gas*gasPrice < ctx.Value`, the balance goes
+**negative** (go-ethereum's `SubBalance` performs `big.Int.Sub` with no underflow check).
+
+The plan's comment "buyGas already ensures sender balance >= gas*gasPrice + tx.Value" is
+**only true for EIP-1559 transactions**. For legacy txs the invariant does not hold.
+
+**Fix**: Add an explicit balance check in the handler's validation phase:
+```go
+// VALIDATOR_REGISTER validation phase — add after stake minimum check:
+if ctx.StateDB.GetBalance(ctx.From).Cmp(ctx.Value) < 0 {
+    return ErrInsufficientBalance  // new sentinel
+}
+```
+This is safe to add even for EIP-1559 txs (redundant but harmless).
+
+---
+
+### HIGH
+
+#### R2-H1. Epoch Extra validator list is unverifiable in `Finalize()` — accepted MVP gap
+
+**Problem**: During block verification, `Finalize()` is called (not `FinalizeAndAssemble`).
+`Finalize()` adds the block reward but does **not** re-read TOS3 to verify that the validator
+list embedded in `header.Extra` is correct. A malicious (but validly-signed) epoch block could
+embed an arbitrary validator list, corrupting all subsequent snapshots.
+
+**Root cause**: `consensus.Engine.Finalize()` in gtos has **no error return**:
+```go
+Finalize(chain ChainHeaderReader, header *types.Header, state *state.StateDB,
+    txs []*types.Transaction, uncles []*types.Header)  // no error return
+```
+There is no mechanism to signal validation failure from `Finalize()`.
+
+**Mitigations available for MVP**:
+1. `FinalizeAndAssemble()` (the proposer path) always reads TOS3 and embeds the correct list.
+   This ensures **honest nodes** never produce bad epoch blocks.
+2. The attacker must be a currently-valid validator (checked by `verifySeal()`). A byzantine
+   validator controlling < 50% cannot sustain a fork with a manipulated validator list because
+   other validators will build on the honest chain.
+3. Clique has the identical limitation: checkpoint Extra is trusted, not re-verified from state.
+
+**Accepted for MVP**. Resolution path: extend `consensus.Engine.Finalize()` to return `error`
+in a future refactor (requires updating all engines + `core/state_processor.go`).
+
+---
+
+### MEDIUM
+
+#### R2-M1. `allowedFutureBlockTime` constant is referenced but never given a value
+
+`verifyHeader` in §7f uses `allowedFutureBlockTime` as an undefined symbol. Without it the
+code does not compile.
+
+**Fix**: Define as a named constant in `consensus/dpos/dpos.go`:
+```go
+const allowedFutureBlockTime = 5 // seconds; matches Tosash's 15s scaled for 3s block period
+```
+
+---
+
+#### R2-M2. `ReadActiveValidators` makes O(N log N) StateDB reads — pre-load stakes
+
+The description in §4c says the sort reads `selfStake` from StateDB **during each comparison**,
+producing O(N log N) trie reads for N registered validators. At N=500, this is ~4,500 reads
+at every epoch boundary (every 200 blocks).
+
+**Fix**: Pre-read all stakes into a local map before sorting:
+```go
+type validatorEntry struct {
+    addr  common.Address
+    stake *big.Int
+}
+
+func ReadActiveValidators(db vm.StateDB, maxValidators uint64) []common.Address {
+    count := readValidatorCount(db)
+    entries := make([]validatorEntry, 0, count)
+    for i := uint64(0); i < count; i++ {
+        addr := readValidatorAt(db, i)
+        if ReadValidatorStatus(db, addr) == Active {
+            stake := ReadSelfStake(db, addr)
+            entries = append(entries, validatorEntry{addr, stake})
+        }
+    }
+    // O(N log N) comparisons but O(1) per comparison (no StateDB reads in sort):
+    sort.SliceStable(entries, func(i, j int) bool {
+        cmp := entries[i].stake.Cmp(entries[j].stake)
+        if cmp != 0 { return cmp > 0 }
+        return bytes.Compare(entries[i].addr[:], entries[j].addr[:]) < 0
+    })
+    if uint64(len(entries)) > maxValidators {
+        entries = entries[:maxValidators]
+    }
+    result := make([]common.Address, len(entries))
+    for i, e := range entries {
+        result[i] = e.addr
+    }
+    sort.Sort(addressAscending(result))
+    return result
+}
+```
+
+---
+
+### LOW
+
+#### R2-L1. `accounts.MimetypeClique` reused for DPoS signing — cosmetic confusion
+
+`Seal()` calls `signFn(account, accounts.MimetypeClique, ...)`. Logs and wallet UI will label
+DPoS signatures as "clique". Functionally harmless but misleading.
+
+**Fix**: Define in `accounts/accounts.go`:
+```go
+MimetypeDPoS = "application/x-dpos-header"
+```
+Use `accounts.MimetypeDPoS` in `Seal()`.
+
+---
+
+### Confirmed Correct (audited, no issue)
+
+| Area | Verdict |
+|------|---------|
+| `encodeSigHeader` RLP field order | Matches Clique exactly; no chainId is a design choice (same as Clique) |
+| `buyGas()` value for EIP-1559 txs | Safe — `balanceCheck += st.value` guards SubBalance |
+| `Finalize()` state revert on failure | Guaranteed — each block gets a fresh `StateDB`; uncommitted on error |
+| Slot collision (validator/ vs agent/) | Impossible — different contract addresses (TOS3 vs TOS2) |
+| Thread safety of `Authorize()`/`Seal()` | Correct — RW mutex captures validator+signFn atomically |
+| `snapshot()` variable shadowing (`snap, err :=`) | **Not a bug** — Go `:=` reassigns existing outer-scope `snap` when `err` is the new variable |
+| `verifyCascadingFields` parent resolution | Correct — `parents[len(parents)-1]` is the immediate parent |
+| `FinalizeAndAssemble` state root integrity | Correct — `Finalize()` called after validators embedded; root includes reward |
+| `Seal()` goroutine and `stop` channel | Acceptable — miner closes `stop` on shutdown; standard go-ethereum pattern |
+
+---
+
+### Round 2 Summary Table
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| R2-C1 | CRITICAL | `addressAscending` type never declared | Add type + sort methods to snapshot.go |
+| R2-C2 | CRITICAL | `appendValidatorToList` never called (reads after write) | Save `isNewRegistration` before writes |
+| R2-C3 | CRITICAL | `NewFaker()` nil db → `store()` panic | Guard `if d.db != nil` around store calls |
+| R2-C4 | CRITICAL | `DPoSConfig.Epoch==0` → modulo panic (no validation) | Validate all fields in `New()`, return error |
+| R2-C5 | CRITICAL | Legacy tx: `buyGas()` omits value → SubBalance goes negative | Add `GetBalance(ctx.From) >= ctx.Value` check in handler |
+| R2-H1 | HIGH | Epoch Extra unverifiable in `Finalize()` (no error return) | Accepted MVP gap; honest-majority mitigates; plan interface extension |
+| R2-M1 | MEDIUM | `allowedFutureBlockTime` undefined constant | Define as `const allowedFutureBlockTime = 5` |
+| R2-M2 | MEDIUM | O(N log N) StateDB reads in `ReadActiveValidators` | Pre-load stakes into slice, sort in-memory |
+| R2-L1 | LOW | `accounts.MimetypeClique` reused for DPoS | Define and use `accounts.MimetypeDPoS` |
