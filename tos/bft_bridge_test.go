@@ -156,3 +156,66 @@ func TestVerifyQCAttestations(t *testing.T) {
 		t.Fatalf("verifyQCAttestations failed: %v", err)
 	}
 }
+
+func TestVerifyVoteSignatureAcceptsLegacyDigest(t *testing.T) {
+	chainID := big.NewInt(1)
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	validator := crypto.PubkeyToAddress(key.PublicKey)
+	blockHash := common.HexToHash("0xabc")
+
+	legacyDigest, err := voteDigestLegacy(12, 0, blockHash)
+	if err != nil {
+		t.Fatalf("legacy digest: %v", err)
+	}
+	sig, err := crypto.Sign(legacyDigest.Bytes(), key)
+	if err != nil {
+		t.Fatalf("sign legacy digest: %v", err)
+	}
+
+	vote := bft.Vote{
+		Height:    12,
+		Round:     0,
+		BlockHash: blockHash,
+		Validator: validator,
+		Weight:    1,
+		Signature: sig,
+	}
+	if err := verifyVoteSignature(chainID, vote); err != nil {
+		t.Fatalf("verify legacy vote signature failed: %v", err)
+	}
+}
+
+func TestVerifyVoteSignatureRejectsWrongChainID(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	validator := crypto.PubkeyToAddress(key.PublicKey)
+	blockHash := common.HexToHash("0xdef")
+
+	signChainID := big.NewInt(1)
+	verifyChainID := big.NewInt(2)
+	tosDigest, err := voteDigestTOSv1(signChainID, 13, 0, blockHash)
+	if err != nil {
+		t.Fatalf("tos digest: %v", err)
+	}
+	sig, err := crypto.Sign(tosDigest.Bytes(), key)
+	if err != nil {
+		t.Fatalf("sign tos digest: %v", err)
+	}
+
+	vote := bft.Vote{
+		Height:    13,
+		Round:     0,
+		BlockHash: blockHash,
+		Validator: validator,
+		Weight:    1,
+		Signature: sig,
+	}
+	if err := verifyVoteSignature(verifyChainID, vote); err == nil {
+		t.Fatal("expected vote verification to fail for mismatched chain ID")
+	}
+}
