@@ -17,6 +17,9 @@ const (
 	ActionAgentUpdate    ActionKind = "AGENT_UPDATE"
 	ActionAgentHeartbeat ActionKind = "AGENT_HEARTBEAT"
 
+	// Validator lifecycle (DPoS)
+	ActionValidatorRegister ActionKind = "VALIDATOR_REGISTER"
+	ActionValidatorWithdraw ActionKind = "VALIDATOR_WITHDRAW"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

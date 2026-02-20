@@ -270,16 +270,16 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllTosashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(TosashConfig), nil}
+	AllTosashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(TosashConfig), nil, nil}
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, false, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, nil, nil, false, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil}
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(TosashConfig), nil}
+	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, nil, nil, false, new(TosashConfig), nil, nil}
 	TestRules       = TestChainConfig.Rules(new(big.Int), false)
 )
 
@@ -385,6 +385,7 @@ type ChainConfig struct {
 	// Various consensus engines
 	Tosash *TosashConfig `json:"tosash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+	DPoS   *DPoSConfig   `json:"dpos,omitempty"`
 }
 
 // TosashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -404,6 +405,19 @@ type CliqueConfig struct {
 // String implements the stringer interface, returning the consensus engine details.
 func (c *CliqueConfig) String() string {
 	return "clique"
+}
+
+// DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
+type DPoSConfig struct {
+	Period        uint64 `json:"period"`        // target block interval (seconds)
+	Epoch         uint64 `json:"epoch"`         // blocks between validator-set snapshots
+	MaxValidators uint64 `json:"maxValidators"` // maximum active validators
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *DPoSConfig) String() string {
+	return fmt.Sprintf("{period: %d, epoch: %d, maxValidators: %d}",
+		c.Period, c.Epoch, c.MaxValidators)
 }
 
 // String implements the fmt.Stringer interface.
@@ -433,6 +447,8 @@ func (c *ChainConfig) String() string {
 		} else {
 			banner += "Consensus: Beacon (proof-of-stake), merged from Clique (proof-of-authority)\n"
 		}
+	case c.DPoS != nil:
+		banner += "Consensus: DPoS (delegated proof-of-stake)\n"
 	default:
 		banner += "Consensus: unknown\n"
 	}

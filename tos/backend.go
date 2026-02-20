@@ -45,6 +45,7 @@ import (
 	"github.com/tos-network/gtos/event"
 	agentpkg "github.com/tos-network/gtos/agent"
 	"github.com/tos-network/gtos/agentidx"
+	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
 	"github.com/tos-network/gtos/internal/agentapi"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/shutdowncheck"

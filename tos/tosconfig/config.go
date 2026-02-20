@@ -18,6 +18,7 @@
 package tosconfig
 
 import (
+	"fmt"
 	"math/big"
 	"os"
 	"os/user"
@@ -28,6 +29,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/clique"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/consensus/tosash"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/tos/downloader"
@@ -217,8 +219,15 @@ type Config struct {
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
 func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *tosash.Config, notify []string, noverify bool, db tosdb.Database) consensus.Engine {
-	// If proof-of-authority is requested, set it up
 	var engine consensus.Engine
+	if chainConfig.DPoS != nil {
+		// R2-C4: New() validates config and returns error.
+		e, err := dpos.New(chainConfig.DPoS, db)
+		if err != nil {
+			panic(fmt.Sprintf("invalid dpos config: %v", err))
+		}
+		return e
+	}
 	if chainConfig.Clique != nil {
 		engine = clique.New(chainConfig.Clique, db)
 	} else {
