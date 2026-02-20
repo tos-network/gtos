@@ -236,6 +236,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		TxPool:         tosNode.txPool,
 		Merger:         merger,
 		BlockValidator: tosNode.validateImportedBlockWithEngine,
+		OnQCFinalized:  tosNode.onQCFinalized,
 		Network:        config.NetworkId,
 		Sync:           config.SyncMode,
 		BloomCache:     uint64(cacheLimit),
@@ -690,6 +691,15 @@ func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {
 	s.lock.Lock()
 	s.lastForkchoiceState = cloneForkchoiceState(state)
 	s.lock.Unlock()
+}
+
+func (s *TOS) onQCFinalized(finalized *types.Block) {
+	if finalized == nil || s.blockchain == nil {
+		return
+	}
+	if head := s.blockchain.CurrentBlock(); head != nil {
+		s.notifyForkchoiceUpdated(head)
+	}
 }
 
 func resolveForkchoiceState(head, safe, finalized *types.Block) *engineclient.ForkchoiceState {

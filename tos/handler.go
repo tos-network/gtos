@@ -82,6 +82,7 @@ type handlerConfig struct {
 	TxPool         txPool                    // Transaction pool to propagate from
 	Merger         *consensus.Merger         // The manager for eth1/2 transition
 	BlockValidator func(*types.Block) error  // Optional external validation hook before block import
+	OnQCFinalized  func(*types.Block)        // Optional callback invoked when a QC finalized block is applied
 	Network        uint64                    // Network identifier to adfvertise
 	Sync           downloader.SyncMode       // Whether to snap or full sync
 	BloomCache     uint64                    // Megabytes to alloc for snap sync bloom
@@ -118,6 +119,7 @@ type handler struct {
 
 	requiredBlocks map[uint64]common.Hash
 	blockValidator func(*types.Block) error
+	onQCFinalized  func(*types.Block)
 
 	bftReactor  *bft.Reactor
 	bftMu       sync.RWMutex
@@ -148,6 +150,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		peers:          newPeerSet(),
 		merger:         config.Merger,
 		blockValidator: config.BlockValidator,
+		onQCFinalized:  config.OnQCFinalized,
 		requiredBlocks: config.RequiredBlocks,
 		bftSeenQCs:     make(map[string]struct{}),
 		quitSync:       make(chan struct{}),
