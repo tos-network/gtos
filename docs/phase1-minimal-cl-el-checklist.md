@@ -38,7 +38,7 @@
 - [x] 新增 Engine API 三方法：`engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`（含 snake/camel 方法名兼容）
 
 进行中 / 未完成（Phase 1 关键阻塞）：
-- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位的空交易列表 payload（RLP `0xc0`），`NewPayload` 尚未接入真实执行校验
+- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位的空交易列表 payload（RLP `0xc0`），`NewPayload` 已接入最小 RLP 列表帧校验（非法 payload 返回 `valid=false`）但尚未接入真实执行校验
 - [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；且已补充 `timestamp` 与 `zero-head` 非法 forkchoice 组合校验、`common` 层 snake/camel 参数兼容测试；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go` 已补 smoke 回归，但完整多节点 e2e 未完成；`~/tos` 侧已新增 `daemon/tests/engine_api_phase1_rpc_test.rs`（当前环境 SIGSEGV，暂为 ignored，待环境稳定后启用）
