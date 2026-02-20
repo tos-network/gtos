@@ -1,8 +1,8 @@
 package dpos
 
 import (
-	"bytes"
 	"math/big"
+	"sort"
 	"testing"
 	"time"
 
@@ -209,6 +209,12 @@ func TestCoinbaseMismatch(t *testing.T) {
 
 // TestRecentlySigned verifies that a block is rejected when the validator
 // signed within the recency window (len(Validators)/2+1 blocks).
+//
+// With 3 validators, limit = 3/2+1 = 2.
+// If signer last signed at block 2 and current block is 3:
+//   seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
+// If signer last signed at block 1 and current block is 3:
+//   seen=1, number=3, limit=2 → seen > number-limit ↔ 1 > 3-2 ↔ 1 > 1 → ALLOW
 func TestRecentlySigned(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)
@@ -218,11 +224,11 @@ func TestRecentlySigned(t *testing.T) {
 	d := NewFaker()
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
 
-	// Record signer at block 1 in Recents (simulate recent block).
-	snap.Recents[1] = signer
+	// Signer signed block 2; current block is 3. seen=2 > number-limit = 3-2 = 1 → REJECT.
+	snap.Recents[2] = signer
 
 	header := &types.Header{
-		Number:     big.NewInt(2),
+		Number:     big.NewInt(3),
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSeal),
@@ -318,15 +324,8 @@ func TestAddressAscendingSort(t *testing.T) {
 	in := []common.Address{{0x03}, {0x01}, {0x02}}
 	want := []common.Address{{0x01}, {0x02}, {0x03}}
 
-	import_sort := addressAscending(in)
-	_ = import_sort // prevent unused warning; actual test uses bytes.Compare
-	for i := 0; i < len(in)-1; i++ {
-		for j := i + 1; j < len(in); j++ {
-			if bytes.Compare(in[i][:], in[j][:]) > 0 {
-				in[i], in[j] = in[j], in[i]
-			}
-		}
-	}
+	sort.Sort(addressAscending(in))
+
 	for i, got := range in {
 		if got != want[i] {
 			t.Errorf("index %d: want %v got %v", i, want[i], got)

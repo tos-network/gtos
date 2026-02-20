@@ -279,7 +279,8 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 }
 
 func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
-	if header.Number.Uint64() == 0 {
+	number := header.Number.Uint64()
+	if number == 0 {
 		return errUnknownBlock
 	}
 	signer, err := ecrecover(header, d.signatures)
@@ -293,11 +294,18 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	if _, ok := snap.ValidatorsMap[signer]; !ok {
 		return errUnauthorizedValidator
 	}
-	if snap.recentlySigned(signer) {
-		return errRecentlySigned
+	// Check recency: if signer appears in Recents, only reject if this block
+	// does NOT shift that entry out of the window. Mirrors Clique's logic.
+	limit := uint64(len(snap.Validators)/2 + 1)
+	for seen, recent := range snap.Recents {
+		if recent == signer {
+			if number < limit || seen > number-limit {
+				return errRecentlySigned
+			}
+		}
 	}
 	if !d.fakeDiff {
-		inturn := snap.inturn(header.Number.Uint64(), signer)
+		inturn := snap.inturn(number, signer)
 		if inturn && header.Difficulty.Cmp(diffInTurn) != 0 {
 			return errWrongDifficulty
 		}
@@ -503,9 +511,9 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if _, ok := snap.ValidatorsMap[v]; !ok {
 		return errUnauthorizedValidator
 	}
+	limit := uint64(len(snap.Validators)/2 + 1)
 	for seen, recent := range snap.Recents {
 		if recent == v {
-			limit := uint64(len(snap.Validators)/2 + 1)
 			if number < limit || seen > number-limit {
 				return errors.New("dpos: signed recently, must wait")
 			}
