@@ -219,3 +219,55 @@ func TestVerifyVoteSignatureRejectsWrongChainID(t *testing.T) {
 		t.Fatal("expected vote verification to fail for mismatched chain ID")
 	}
 }
+
+func TestApplyQCFinalitySequentialHeights(t *testing.T) {
+	const finalizedHeights = uint64(128)
+	backend := newTestHandlerWithBlocks(int(finalizedHeights) + 1)
+	defer backend.close()
+
+	for height := uint64(1); height <= finalizedHeights; height++ {
+		block := backend.chain.GetBlockByNumber(height)
+		if block == nil {
+			t.Fatalf("missing canonical block at height %d", height)
+		}
+		backend.handler.applyQCFinality(&bft.QC{
+			Height:      height,
+			Round:       0,
+			BlockHash:   block.Hash(),
+			TotalWeight: 21,
+			Required:    21,
+		})
+
+		finalized := backend.chain.CurrentFinalizedBlock()
+		if finalized == nil || finalized.NumberU64() != height {
+			var got uint64
+			if finalized != nil {
+				got = finalized.NumberU64()
+			}
+			t.Fatalf("unexpected finalized height after QC %d: have %d want %d", height, got, height)
+		}
+		safe := backend.chain.CurrentSafeBlock()
+		if safe == nil || safe.Hash() != block.Hash() {
+			t.Fatalf("safe head mismatch at height %d", height)
+		}
+	}
+
+	latest := backend.chain.CurrentFinalizedBlock()
+	if latest == nil {
+		t.Fatalf("missing finalized head after sequence")
+	}
+	older := backend.chain.GetBlockByNumber(64)
+	if older == nil {
+		t.Fatalf("missing canonical block at rollback-check height")
+	}
+	backend.handler.applyQCFinality(&bft.QC{
+		Height:      64,
+		Round:       0,
+		BlockHash:   older.Hash(),
+		TotalWeight: 21,
+		Required:    21,
+	})
+	if got := backend.chain.CurrentFinalizedBlock().NumberU64(); got != latest.NumberU64() {
+		t.Fatalf("finalized head regressed on stale QC: have %d want %d", got, latest.NumberU64())
+	}
+}

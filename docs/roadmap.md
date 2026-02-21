@@ -5,7 +5,7 @@
 > 当前进度快照（截至 2026-02-20）：
 > - `~/gtos`（`main`）：已完成 Engine API 客户端接线、提议/导入路径调用、BFT vote/QC 骨架与网络桥接、QC 触发 safe/finalized 推进、`tosalign` 签名地址库引入。
 > - `~/tos`（`feature/execution-layer`）：已完成 `execution_layer_mode`、禁用 mining/getwork 主路径、`submit_execution_block` RPC，且已新增 `engine_getPayload / engine_newPayload / engine_forkchoiceUpdated` 最小服务端骨架。
-> - 关键未完成项：`~/tos` Engine API 目前仍是“最小语义”（占位 payload/基础校验，`GetPayload` 现返回空交易列表 RLP `0xc0`，`NewPayload` 已增加最小 RLP 列表结构校验，含 parent/height/timestamp/forkchoice 顺序校验与 zero-head 组合拦截）；`forkchoiceUpdated` 已支持 `head/safe/finalized` 哈希持久化并可按 `finalized_hash` 推进 stable 指针，且 `common` 层已补 snake/camel 参数兼容单测，但尚未接入真实 payload 构建与执行校验路径，双端闭环联调（3 节点 100+ finalized）尚未完成（`daemon/tests/engine_api_phase1_rpc_test.rs` 已补测试骨架，当前环境 SIGSEGV 暂以 ignored 保留）。
+> - 关键未完成项：`~/tos` Engine API 目前仍是“最小语义”（占位 payload/基础校验，`GetPayload` 现返回空交易列表 RLP `0xc0`，`NewPayload` 已增加最小 RLP 列表结构校验，含 parent/height/timestamp/forkchoice 顺序校验与 zero-head 组合拦截）；`forkchoiceUpdated` 已支持 `head/safe/finalized` 哈希持久化并可按 `finalized_hash` 推进 stable 指针，且 `common` 层已补 snake/camel 参数兼容单测，但尚未接入真实 payload 构建与执行校验路径，双端闭环联调（3 节点 100+ finalized）尚未完成（已补单测级 128 高度 finality 推进覆盖；`daemon/tests/engine_api_phase1_rpc_test.rs` 已补测试骨架，当前环境 SIGSEGV 暂以 ignored 保留）。
 
 > 你们已经做了一个非常关键的选择：**Base 验证者同时也是 TOS 执行者**。这让体系可以像“以太坊合并后”那样分层，同时还能把“执行结果（state_hash）”纳入共识签名闭环。
 
