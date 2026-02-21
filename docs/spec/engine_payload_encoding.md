@@ -16,18 +16,19 @@
 
 ## 3. 已启用编码
 
-### `eth_rlp_txs`
+### `tos_v1`
 
-- 含义：`payload` 为 Ethereum 风格 RLP 交易列表字节。
+- 含义：`payload` 为 TOS 执行层定义的 `tos_v1` 编码字节（当前阶段视为 opaque bytes）。
 - 当前 Phase 1 实现状态：
-  - `~/tos` 返回占位空列表：`payload = 0xc0`，并标注 `payload_encoding=eth_rlp_txs`。
+  - `~/tos` 返回占位空 payload：`payload = 0x`，并标注 `payload_encoding=tos_v1`。
   - `~/gtos` 在 proposer 路径校验：
-    - `payload_encoding` 必须为空或 `eth_rlp_txs`
+    - `payload_encoding` 必须为空或 `tos_v1`
     - `payload_commitment` 必须与 `payload` 字节一致（按 BLAKE3）
+    - 非空 `tos_v1` payload 在当前阶段尚未实现解码，按 fallback 开关处理
 
 ## 4. 兼容规则
 
-1. `payload_encoding` 为空：视为旧节点，按 `eth_rlp_txs` 兼容路径处理。
+1. `payload_encoding` 为空：视为旧节点，按 `tos_v1` 兼容路径处理。
 2. `payload_encoding` 非空且未知：
    - 若启用 fallback：回退到本地 txpool。
    - 若禁用 fallback：直接报错拒绝该 payload。

@@ -17,7 +17,7 @@
 - [x] 新增 `engineapi/proto/engine.proto`
 - [x] 新增 `engineapi/client/client.go`（week-1 scaffold）
 - [x] `engineapi/client` 接入真实 JSON-RPC 调用（`GetPayload/NewPayload/ForkchoiceUpdated`，含 method fallback + JWT header）
-- [x] `engineapi/client` 增加 `payload_encoding` 字段兼容解析；`miner` 增加编码门控（非 `eth_rlp_txs` 按 fallback 开关处理）
+- [x] `engineapi/client` 增加 `payload_encoding` 字段兼容解析；`miner` 增加编码门控（非 `tos_v1` 按 fallback 开关处理）
 - [x] `cmd/gtos` 增加 `engine.*` 配置与 CLI flags 接线
 - [x] `gtos` 启动时可注入 Engine bridge 客户端（stub，未切换出块主路径）
 - [x] `miner.fillTransactions` 先尝试 `GetPayload`；新增 `engine.allow-txpool-fallback` 兼容开关（默认关闭）
@@ -33,7 +33,7 @@
 - [x] 新增 `crypto/tosalign/*`，引入与 `~/tos` 对齐的地址与签名相关算法实现
 - [x] 新增 `tos/backend_engine_validation_test.go`，覆盖 Engine `NewPayload` 导入校验关键分支（拒绝/匹配/降级）
 - [x] 扩展 `miner/worker_test.go`，覆盖 Engine payload 解码失败时的 fallback on/off 分支
-- [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回 `0xc0`（RLP 空列表）时“不回退 txpool”的兼容行为
+- [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回空 `tos_v1` payload（`0x`）时“不回退 txpool”的兼容行为
 - [x] `miner.fillTransactionsFromEngine` 增加 `payload_commitment` 一致性校验（不一致时按 fallback 开关处理），并补回归测试
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
@@ -43,7 +43,7 @@
 - [x] 新增 Engine API 三方法：`engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`（含 snake/camel 方法名兼容）
 
 进行中 / 未完成（Phase 1 关键阻塞）：
-- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位的空交易列表 payload（RLP `0xc0`，携带 `payload_encoding=eth_rlp_txs`，`payload_commitment` 为 payload 派生哈希），`NewPayload` 已接入最小 RLP 列表结构校验（含内部 item 边界校验，非法 payload 返回 `valid=false`）但尚未接入真实执行校验
+- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位空 `tos_v1` payload（`0x`，携带 `payload_encoding=tos_v1`，`payload_commitment` 为 payload 派生哈希），`NewPayload` 仅接入最小占位校验（payload 作为 `tos_v1` opaque bytes）但尚未接入真实执行校验
 - [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；且已补充 `timestamp` 与 `zero-head` 非法 forkchoice 组合校验、`common` 层 snake/camel 参数兼容测试；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go` 已补 smoke 回归，但完整多节点 e2e 未完成；`~/tos` 侧已新增 `daemon/tests/engine_api_phase1_rpc_test.rs`（当前环境 SIGSEGV，暂为 ignored，待环境稳定后启用）

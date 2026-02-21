@@ -71,7 +71,7 @@ const (
 	// any newly arrived transactions.
 	maxRecommitInterval = 15 * time.Second
 
-	enginePayloadEncodingEthRlpTxs = "eth_rlp_txs"
+	enginePayloadEncodingTOSV1 = "tos_v1"
 
 	// intervalAdjustRatio is the impact a single interval adjustment has on sealing work
 	// resubmitting interval.
@@ -1104,14 +1104,22 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		}
 		return true, fmt.Errorf("engine payload request failed with txpool fallback disabled: %w", err)
 	}
-	if len(resp.Payload) == 0 {
-		log.Debug("Engine payload is empty")
-		return true, nil
-	}
 	if !verifyEnginePayloadEncoding(resp.PayloadEncoding) {
 		err := fmt.Errorf("unsupported engine payload encoding %q", resp.PayloadEncoding)
 		if allowTxPoolFallback {
 			log.Warn("Engine payload encoding unsupported, falling back to local txpool", "encoding", resp.PayloadEncoding)
+			return false, nil
+		}
+		return true, err
+	}
+	if len(resp.Payload) == 0 {
+		log.Debug("Engine payload is empty")
+		return true, nil
+	}
+	if strings.EqualFold(strings.TrimSpace(resp.PayloadEncoding), enginePayloadEncodingTOSV1) {
+		err := fmt.Errorf("non-empty tos_v1 payload decode path not implemented")
+		if allowTxPoolFallback {
+			log.Warn("Non-empty tos_v1 payload unsupported in proposer path, falling back to local txpool")
 			return false, nil
 		}
 		return true, err
@@ -1182,7 +1190,7 @@ func verifyEnginePayloadEncoding(encoding string) bool {
 	if trimmed == "" {
 		return true
 	}
-	return strings.EqualFold(trimmed, enginePayloadEncodingEthRlpTxs)
+	return strings.EqualFold(trimmed, enginePayloadEncodingTOSV1)
 }
 
 // generateWork generates a sealing block based on the given parameters.

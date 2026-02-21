@@ -39,7 +39,7 @@ func (CamelEngineService) GetPayload(req CamelGetPayloadRequest) (*CamelGetPaylo
 	}
 	return &CamelGetPayloadResponse{
 		Payload:           hexutil.Bytes{0x01, 0x02, 0x03},
-		PayloadEncoding:   "eth_rlp_txs",
+		PayloadEncoding:   "tos_v1",
 		PayloadCommitment: "pc-camel",
 		StateHash:         "state-camel",
 		ReceiptsHash:      "receipts-camel",
@@ -111,7 +111,7 @@ func TestGetPayloadFallbackToCamelMethod(t *testing.T) {
 	if !bytes.Equal(resp.Payload, []byte{0x01, 0x02, 0x03}) {
 		t.Fatalf("unexpected payload: %x", resp.Payload)
 	}
-	if resp.PayloadEncoding != "eth_rlp_txs" || resp.PayloadCommitment != "pc-camel" || resp.StateHash != "state-camel" || resp.ReceiptsHash != "receipts-camel" {
+	if resp.PayloadEncoding != "tos_v1" || resp.PayloadCommitment != "pc-camel" || resp.StateHash != "state-camel" || resp.ReceiptsHash != "receipts-camel" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
