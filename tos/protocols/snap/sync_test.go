@@ -31,10 +31,9 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tosdb"
-	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 	"golang.org/x/crypto/sha3"
 )
@@ -264,7 +263,7 @@ func createAccountRequestResponse(t *testPeer, root common.Hash, origin common.H
 	// Unless we send the entire trie, we need to supply proofs
 	// Actually, we need to supply proofs either way! This seems to be an implementation
 	// quirk in go-ethereum
-	proof := light.NewNodeSet()
+	proof := NewNodeSet()
 	if err := t.accountTrie.Prove(origin[:], 0, proof); err != nil {
 		t.logger.Error("Could not prove inexistence of origin", "origin", origin, "error", err)
 	}
@@ -344,7 +343,7 @@ func createStorageRequestResponse(t *testPeer, root common.Hash, accounts []comm
 		if originHash != (common.Hash{}) || (abort && len(keys) > 0) {
 			// If we're aborting, we need to prove the first and last item
 			// This terminates the response (and thus the loop)
-			proof := light.NewNodeSet()
+			proof := NewNodeSet()
 			stTrie := t.storageTries[account]
 
 			// Here's a potential gotcha: when constructing the proof, we cannot
@@ -368,7 +367,8 @@ func createStorageRequestResponse(t *testPeer, root common.Hash, accounts []comm
 	return hashes, slots, proofs
 }
 
-//  the createStorageRequestResponseAlwaysProve tests a cornercase, where it always
+//	the createStorageRequestResponseAlwaysProve tests a cornercase, where it always
+//
 // supplies the proof for the last account, even if it is 'complete'.h
 func createStorageRequestResponseAlwaysProve(t *testPeer, root common.Hash, accounts []common.Hash, bOrigin, bLimit []byte, max uint64) (hashes [][]common.Hash, slots [][][]byte, proofs [][]byte) {
 	var size uint64
@@ -402,7 +402,7 @@ func createStorageRequestResponseAlwaysProve(t *testPeer, root common.Hash, acco
 		if exit {
 			// If we're aborting, we need to prove the first and last item
 			// This terminates the response (and thus the loop)
-			proof := light.NewNodeSet()
+			proof := NewNodeSet()
 			stTrie := t.storageTries[account]
 
 			// Here's a potential gotcha: when constructing the proof, we cannot
@@ -585,7 +585,7 @@ func TestSyncBloatedProof(t *testing.T) {
 			vals = append(vals, entry.v)
 		}
 		// The proofs
-		proof := light.NewNodeSet()
+		proof := NewNodeSet()
 		if err := t.accountTrie.Prove(origin[:], 0, proof); err != nil {
 			t.logger.Error("Could not prove origin", "origin", origin, "error", err)
 		}

@@ -34,12 +34,11 @@ import (
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
-	"github.com/tos-network/gtos/light"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p/msgrate"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 	"golang.org/x/crypto/sha3"
 )
@@ -2295,7 +2294,7 @@ func (s *Syncer) OnAccounts(peer SyncPeer, id uint64, hashes []common.Hash, acco
 	for i, key := range hashes {
 		keys[i] = common.CopyBytes(key[:])
 	}
-	nodes := make(light.NodeList, len(proof))
+	nodes := make(NodeList, len(proof))
 	for i, node := range proof {
 		nodes[i] = node
 	}
@@ -2532,7 +2531,7 @@ func (s *Syncer) OnStorage(peer SyncPeer, id uint64, hashes [][]common.Hash, slo
 		for j, key := range hashes[i] {
 			keys[j] = common.CopyBytes(key[:])
 		}
-		nodes := make(light.NodeList, 0, len(proof))
+		nodes := make(NodeList, 0, len(proof))
 		if i == len(hashes)-1 {
 			for _, node := range proof {
 				nodes = append(nodes, node)
