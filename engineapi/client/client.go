@@ -44,6 +44,7 @@ type GetPayloadRequest struct {
 // GetPayloadResponse describes the payload bundle returned by execution.
 type GetPayloadResponse struct {
 	PayloadCommitment string
+	PayloadEncoding   string
 	StateHash         string
 	ReceiptsHash      string
 	Payload           []byte
@@ -113,6 +114,7 @@ func (c *RPCClient) GetPayload(ctx context.Context, req *GetPayloadRequest) (*Ge
 	}
 	return &GetPayloadResponse{
 		PayloadCommitment: firstNonEmpty(out.PayloadCommitment, out.PayloadCommitmentCompat),
+		PayloadEncoding:   firstNonEmpty(out.PayloadEncoding, out.PayloadEncodingCompat),
 		StateHash:         firstNonEmpty(out.StateHash, out.StateHashCompat),
 		ReceiptsHash:      firstNonEmpty(out.ReceiptsHash, out.ReceiptsHashCompat),
 		Payload:           []byte(out.Payload),
@@ -176,6 +178,8 @@ type getPayloadArgsCamel struct {
 
 type getPayloadResult struct {
 	Payload                 hexutil.Bytes `json:"payload"`
+	PayloadEncoding         string        `json:"payload_encoding"`
+	PayloadEncodingCompat   string        `json:"payloadEncoding"`
 	PayloadCommitment       string        `json:"payload_commitment"`
 	PayloadCommitmentCompat string        `json:"payloadCommitment"`
 	StateHash               string        `json:"state_hash"`

@@ -71,6 +71,8 @@ const (
 	// any newly arrived transactions.
 	maxRecommitInterval = 15 * time.Second
 
+	enginePayloadEncodingEthRlpTxs = "eth_rlp_txs"
+
 	// intervalAdjustRatio is the impact a single interval adjustment has on sealing work
 	// resubmitting interval.
 	intervalAdjustRatio = 0.1
@@ -1106,6 +1108,14 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		log.Debug("Engine payload is empty")
 		return true, nil
 	}
+	if !verifyEnginePayloadEncoding(resp.PayloadEncoding) {
+		err := fmt.Errorf("unsupported engine payload encoding %q", resp.PayloadEncoding)
+		if allowTxPoolFallback {
+			log.Warn("Engine payload encoding unsupported, falling back to local txpool", "encoding", resp.PayloadEncoding)
+			return false, nil
+		}
+		return true, err
+	}
 	if !verifyEnginePayloadCommitment(resp.Payload, resp.PayloadCommitment) {
 		err := fmt.Errorf("engine payload commitment mismatch")
 		if allowTxPoolFallback {
@@ -1165,6 +1175,14 @@ func verifyEnginePayloadCommitment(payload []byte, commitment string) bool {
 	}
 	expected := "0x" + hex.EncodeToString(tosalign.HashBytes(payload).Bytes())
 	return strings.EqualFold(trimmed, expected)
+}
+
+func verifyEnginePayloadEncoding(encoding string) bool {
+	trimmed := strings.TrimSpace(encoding)
+	if trimmed == "" {
+		return true
+	}
+	return strings.EqualFold(trimmed, enginePayloadEncodingEthRlpTxs)
 }
 
 // generateWork generates a sealing block based on the given parameters.
