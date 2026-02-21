@@ -31,6 +31,7 @@
 - [x] 新增 `crypto/tosalign/*`，引入与 `~/tos` 对齐的地址与签名相关算法实现
 - [x] 新增 `tos/backend_engine_validation_test.go`，覆盖 Engine `NewPayload` 导入校验关键分支（拒绝/匹配/降级）
 - [x] 扩展 `miner/worker_test.go`，覆盖 Engine payload 解码失败时的 fallback on/off 分支
+- [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回 `0xc0`（RLP 空列表）时“不回退 txpool”的兼容行为
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
 - [x] 新增执行层模式开关：`execution_layer_mode`

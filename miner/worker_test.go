@@ -641,6 +641,35 @@ func TestFillTransactionsFromEngineDecodeErrorWithFallback(t *testing.T) {
 	}
 }
 
+func TestFillTransactionsFromEngineEmptyRLPListNoFallback(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	// 0xc0 is a valid RLP-encoded empty list; this should be treated as
+	// a successful engine payload with zero transactions.
+	b.engine = &mockEngineClient{payload: []byte{0xc0}}
+	b.allowTxPoolFallback = true
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err != nil {
+		t.Fatalf("expected empty RLP list payload to be accepted, got error: %v", err)
+	}
+	if len(work.txs) != 0 {
+		t.Fatalf("expected no txs for empty RLP list payload, got %d", len(work.txs))
+	}
+}
+
 func TestGetSealingWork(t *testing.T) {
 	testGetSealingWork(t, ethashChainConfig, dpos.NewFaker(), false)
 }
