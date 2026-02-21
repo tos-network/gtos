@@ -38,6 +38,7 @@
 - [x] 新增 `engineapi/payload/tosv1/codec.go` 与 `codec_test.go`，冻结 `tos_v1` frame（version + tx_count + tx_blobs）并接入 proposer/导入路径
 - [x] 第 1/2/3 批仓库瘦身：删除非共识主路径工具与旧轻客户端模块（`cmd/{clef,devp2p,faucet,p2psim,rlpdump,abidump}`、`les`、`tosstats`、`mobile`、`light`）
 - [x] `tos/protocols/snap` 内聚 `NodeSet/NodeList` 实现（新增 `nodeset.go`），去除对 `light` 包的编译依赖
+- [x] 第 4 批 CLI 瘦身：`cmd/gtos` 移除 light/ethstats 参数接线并删除 `cmd/gtos/les_test.go`
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
 - [x] 新增执行层模式开关：`execution_layer_mode`
