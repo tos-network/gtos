@@ -2,9 +2,9 @@
 
 ## 0. 当前完成状态（截至 2026-02-21）
 
-- 总体状态：`Phase 1 进行中（中后段）：~/gtos 主链路与回归覆盖持续完善，~/tos Engine API 仍为最小语义`
+- 总体状态：`Phase 1 进行中（中后段）：~/gtos 已落地 tos_v1 payload frame 解码，~/tos Engine API 仍为最小执行语义`
 - Week 1：`已完成（双端规格与 Engine API 三方法已连通，~/tos 在 rpc 主模块内落地服务端骨架）`
-- Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 仍返回占位空交易列表 payload）`
+- Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端并接入 tos_v1 frame 解码；~/tos 的 GetPayload 仍返回占位空 payload）`
 - Week 3：`部分完成（~/tos 已完成 execution_layer_mode、外部入块 RPC、Engine API 三方法骨架与关键入参校验；真实执行语义未完成）`
 - Week 4：`部分完成（~/gtos 已有 BFT/QC 骨架+网络桥接+签名校验；3 节点闭环联调未完成）`
 - Week 5：`未开始`
@@ -33,8 +33,9 @@
 - [x] 新增 `crypto/tosalign/*`，引入与 `~/tos` 对齐的地址与签名相关算法实现
 - [x] 新增 `tos/backend_engine_validation_test.go`，覆盖 Engine `NewPayload` 导入校验关键分支（拒绝/匹配/降级）
 - [x] 扩展 `miner/worker_test.go`，覆盖 Engine payload 解码失败时的 fallback on/off 分支
-- [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回空 `tos_v1` payload（`0x`）时“不回退 txpool”的兼容行为
+- [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回空 `tos_v1` payload（`0x0100000000`）时“不回退 txpool”的兼容行为
 - [x] `miner.fillTransactionsFromEngine` 增加 `payload_commitment` 一致性校验（不一致时按 fallback 开关处理），并补回归测试
+- [x] 新增 `engineapi/payload/tosv1/codec.go` 与 `codec_test.go`，冻结 `tos_v1` frame（version + tx_count + tx_blobs）并接入 proposer/导入路径
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
 - [x] 新增执行层模式开关：`execution_layer_mode`
@@ -43,7 +44,7 @@
 - [x] 新增 Engine API 三方法：`engine_getPayload / engine_newPayload / engine_forkchoiceUpdated`（含 snake/camel 方法名兼容）
 
 进行中 / 未完成（Phase 1 关键阻塞）：
-- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位空 `tos_v1` payload（`0x`，携带 `payload_encoding=tos_v1`，`payload_commitment` 为 payload 派生哈希），`NewPayload` 仅接入最小占位校验（payload 作为 `tos_v1` opaque bytes）但尚未接入真实执行校验
+- [ ] `~/tos` Engine API 仍为最小骨架：`GetPayload` 目前返回占位空 `tos_v1` payload（`0x0100000000`，携带 `payload_encoding=tos_v1`，`payload_commitment` 为 payload 派生哈希），`NewPayload` 已接入 `tos_v1` 结构校验（版本/长度/trailing bytes）但尚未接入真实执行校验
 - [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；且已补充 `timestamp` 与 `zero-head` 非法 forkchoice 组合校验、`common` 层 snake/camel 参数兼容测试；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go` 已补 smoke 回归，但完整多节点 e2e 未完成；`~/tos` 侧已新增 `daemon/tests/engine_api_phase1_rpc_test.rs`（当前环境 SIGSEGV，暂为 ignored，待环境稳定后启用）

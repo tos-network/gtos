@@ -18,13 +18,20 @@
 
 ### `tos_v1`
 
-- 含义：`payload` 为 TOS 执行层定义的 `tos_v1` 编码字节（当前阶段视为 opaque bytes）。
+- 含义：`payload` 为 TOS 执行层定义的 `tos_v1` 编码字节。
+- 二进制格式（固定）：
+  - `version`：`u8`，当前固定为 `0x01`
+  - `tx_count`：`u32`（大端）
+  - 重复 `tx_count` 次：
+    - `tx_len`：`u32`（大端）
+    - `tx_bytes`：长度为 `tx_len` 的原始交易字节
 - 当前 Phase 1 实现状态：
-  - `~/tos` 返回占位空 payload：`payload = 0x`，并标注 `payload_encoding=tos_v1`。
+  - `~/tos` `GetPayload` 返回 canonical 空 frame：`payload = 0x0100000000`，并标注 `payload_encoding=tos_v1`。
+  - `~/tos` `NewPayload` 已接入 `tos_v1` 结构化校验（版本、长度、trailing bytes）。
   - `~/gtos` 在 proposer 路径校验：
     - `payload_encoding` 必须为空或 `tos_v1`
     - `payload_commitment` 必须与 `payload` 字节一致（按 BLAKE3）
-    - 非空 `tos_v1` payload 在当前阶段尚未实现解码，按 fallback 开关处理
+    - `tos_v1` payload 已接入 frame 解码；对格式错误按 fallback 开关处理
 
 ## 4. 兼容规则
 

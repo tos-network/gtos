@@ -25,9 +25,10 @@
 Phase 1 约定（当前 gtos 适配器）：
 
 - `payload_encoding` 基线为 `tos_v1`。
-- `payload` 当前可返回占位空字节（`0x`），`payload_commitment` 为 payload 原始字节哈希。
+- `payload` 当前默认返回 canonical 空 `tos_v1` frame（`0x0100000000`），`payload_commitment` 为 payload 原始字节哈希。
 - `gtos` proposer 侧会校验 `payload_encoding/payload_commitment`，不匹配时按 fallback 开关处理。
-- 非空 `tos_v1` payload 的解码执行路径仍在 Phase 1 后续任务中实现。
+- `gtos` proposer 侧已支持 `tos_v1` frame 解码（tx blob 列表）；`tos` 侧 `NewPayload` 已接入 `tos_v1` 结构校验。
+- `~/gtos` 与 `~/tos` 的交易对象语义仍未统一（仅完成 frame 级对齐），真实执行闭环仍待完成。
 
 ## 2. `NewPayload`
 
