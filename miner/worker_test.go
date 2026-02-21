@@ -162,15 +162,16 @@ func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base
 }
 
 type mockEngineClient struct {
-	payload []byte
-	err     error
+	payload           []byte
+	payloadCommitment string
+	err               error
 }
 
 func (m *mockEngineClient) GetPayload(context.Context, *engineclient.GetPayloadRequest) (*engineclient.GetPayloadResponse, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return &engineclient.GetPayloadResponse{Payload: m.payload}, nil
+	return &engineclient.GetPayloadResponse{Payload: m.payload, PayloadCommitment: m.payloadCommitment}, nil
 }
 
 func (m *mockEngineClient) NewPayload(context.Context, *engineclient.NewPayloadRequest) (*engineclient.NewPayloadResponse, error) {
@@ -667,6 +668,74 @@ func TestFillTransactionsFromEngineEmptyRLPListNoFallback(t *testing.T) {
 	}
 	if len(work.txs) != 0 {
 		t.Fatalf("expected no txs for empty RLP list payload, got %d", len(work.txs))
+	}
+}
+
+func TestFillTransactionsFromEngineCommitmentMismatchWithoutFallback(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
+	if err != nil {
+		t.Fatalf("failed to encode engine payload: %v", err)
+	}
+	b.engine = &mockEngineClient{
+		payload:           payload,
+		payloadCommitment: "0xdeadbeef",
+	}
+	b.allowTxPoolFallback = false
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err == nil {
+		t.Fatalf("expected fillTransactions to fail on payload commitment mismatch")
+	}
+	if len(work.txs) != 0 {
+		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
+	}
+}
+
+func TestFillTransactionsFromEngineCommitmentMismatchWithFallback(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
+	if err != nil {
+		t.Fatalf("failed to encode engine payload: %v", err)
+	}
+	b.engine = &mockEngineClient{
+		payload:           payload,
+		payloadCommitment: "0xdeadbeef",
+	}
+	b.allowTxPoolFallback = true
+
+	work, err := w.prepareWork(&generateParams{
+		timestamp: uint64(time.Now().Unix()),
+		coinbase:  testBankAddress,
+	})
+	if err != nil {
+		t.Fatalf("failed to prepare work: %v", err)
+	}
+	defer work.discard()
+
+	if err := w.fillTransactions(nil, work); err != nil {
+		t.Fatalf("expected local txpool fallback on commitment mismatch, got error: %v", err)
+	}
+	if len(work.txs) == 0 {
+		t.Fatalf("expected txpool fallback to include pending txs")
 	}
 }
 

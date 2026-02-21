@@ -18,9 +18,11 @@ package miner
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,6 +39,7 @@ import (
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/crypto/tosalign"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -1103,6 +1106,14 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		log.Debug("Engine payload is empty")
 		return true, nil
 	}
+	if !verifyEnginePayloadCommitment(resp.Payload, resp.PayloadCommitment) {
+		err := fmt.Errorf("engine payload commitment mismatch")
+		if allowTxPoolFallback {
+			log.Warn("Engine payload commitment mismatch, falling back to local txpool")
+			return false, nil
+		}
+		return true, err
+	}
 
 	if env.gasPool == nil {
 		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
@@ -1145,6 +1156,15 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 	}
 	log.Debug("Filled block transactions from engine payload", "count", len(txs), "statehash", resp.StateHash)
 	return true, nil
+}
+
+func verifyEnginePayloadCommitment(payload []byte, commitment string) bool {
+	trimmed := strings.TrimSpace(commitment)
+	if trimmed == "" {
+		return true
+	}
+	expected := "0x" + hex.EncodeToString(tosalign.HashBytes(payload).Bytes())
+	return strings.EqualFold(trimmed, expected)
 }
 
 // generateWork generates a sealing block based on the given parameters.
