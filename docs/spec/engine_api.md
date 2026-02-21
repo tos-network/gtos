@@ -1,6 +1,6 @@
 # Engine API Spec (Phase 1)
 
-状态：`Phase 1 规格已冻结，双端实现部分完成（截至 2026-02-20）`
+状态：`Phase 1 规格已冻结，双端实现部分完成（截至 2026-02-21）`
 
 共识层（`gtos`）与执行层（`tos`）使用本地 Engine API 交互。
 
@@ -17,14 +17,17 @@
 响应最小字段：
 
 - `payload`
+- `payload_encoding`
 - `payload_commitment`
 - `state_hash`
 - `receipts_hash`
 
 Phase 1 约定（当前 gtos 适配器）：
 
-- `payload` 编码先采用 `RLP(types.Transactions)`。
-- 若执行层未实现该接口或返回无法解码数据，gtos 允许回退到本地 txpool（临时兼容路径）。
+- `payload_encoding` 基线为 `tos_v1`。
+- `payload` 当前可返回占位空字节（`0x`），`payload_commitment` 为 payload 原始字节哈希。
+- `gtos` proposer 侧会校验 `payload_encoding/payload_commitment`，不匹配时按 fallback 开关处理。
+- 非空 `tos_v1` payload 的解码执行路径仍在 Phase 1 后续任务中实现。
 
 ## 2. `NewPayload`
 
