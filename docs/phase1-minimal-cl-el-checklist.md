@@ -1,8 +1,8 @@
 # GTOS->CL + TOS->EL Phase 1 最小落地改造清单（按周）
 
-## 0. 当前完成状态（截至 2026-02-20）
+## 0. 当前完成状态（截至 2026-02-21）
 
-- 总体状态：`Phase 1 进行中（中段）：~/gtos 进度领先，~/tos 仍在早段`
+- 总体状态：`Phase 1 进行中（中后段）：~/gtos 主链路与回归覆盖持续完善，~/tos Engine API 仍为最小语义`
 - Week 1：`已完成（双端规格与 Engine API 三方法已连通，~/tos 在 rpc 主模块内落地服务端骨架）`
 - Week 2：`部分完成（~/gtos 主路径已接 Engine API 客户端；~/tos 的 GetPayload 仍返回占位空交易列表 payload）`
 - Week 3：`部分完成（~/tos 已完成 execution_layer_mode、外部入块 RPC、Engine API 三方法骨架与关键入参校验；真实执行语义未完成）`
@@ -13,6 +13,7 @@
 - [x] 新增 `docs/spec/block.md`
 - [x] 新增 `docs/spec/engine_api.md`
 - [x] 新增 `docs/spec/state_hash.md`
+- [x] 新增 `docs/spec/engine_payload_encoding.md`
 - [x] 新增 `engineapi/proto/engine.proto`
 - [x] 新增 `engineapi/client/client.go`（week-1 scaffold）
 - [x] `engineapi/client` 接入真实 JSON-RPC 调用（`GetPayload/NewPayload/ForkchoiceUpdated`，含 method fallback + JWT header）
@@ -46,6 +47,7 @@
 - [ ] `~/tos` 已支持 `ForkchoiceUpdated` 的 `head/safe/finalized` 哈希持久化与顺序校验，并可按 `finalized_hash` 推进 stable 指针；且已补充 `timestamp` 与 `zero-head` 非法 forkchoice 组合校验、`common` 层 snake/camel 参数兼容测试；完整执行侧收敛路径仍未完成
 - [ ] `~/gtos` 与 `~/tos` 尚未完成 3 验证者 `2/3 QC` 连续 finalized 100+ 区块联调
 - [ ] 端到端用例缺口：`~/gtos/tests/cl_el_phase1_test.go` 已补 smoke 回归，但完整多节点 e2e 未完成；`~/tos` 侧已新增 `daemon/tests/engine_api_phase1_rpc_test.rs`（当前环境 SIGSEGV，暂为 ignored，待环境稳定后启用）
+- [ ] 交易模型阻塞：当前 `~/gtos` 与 `~/tos` 对 payload 内交易编码/执行对象仍未统一（已通过 `payload_encoding` 明确协商位），这直接阻塞 `GetPayload/NewPayload` 的真实执行闭环
 
 ## 1. Phase 1 范围（只做“能跑通”）
 
