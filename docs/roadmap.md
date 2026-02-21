@@ -4,7 +4,7 @@
 
 > 当前进度快照（截至 2026-02-21）：
 > - `~/gtos`（`main`）：已完成 Engine API 客户端接线、提议/导入路径调用、BFT vote/QC 骨架与网络桥接、QC 触发 safe/finalized 推进、`tosalign` 签名地址库引入；已引入 `tos_v1` payload frame codec（`engineapi/payload/tosv1`），并在 proposer 路径落地 `payload_encoding/payload_commitment` 一致性校验与 `tos_v1` frame 解码（含 fallback 分支回归）。
-> - `~/gtos`（`main`）：已完成第 1/2 批仓库瘦身，删除与共识主路径无关的独立工具与旧轻客户端模块（`cmd/{clef,devp2p,faucet,p2psim,rlpdump,abidump}`、`les`、`tosstats`、`mobile`）。
+> - `~/gtos`（`main`）：已完成第 1/2/3 批仓库瘦身，删除与共识主路径无关的独立工具与旧轻客户端模块（`cmd/{clef,devp2p,faucet,p2psim,rlpdump,abidump}`、`les`、`tosstats`、`mobile`、`light`）；`snap` 已内聚 `NodeSet/NodeList` 到本包，不再依赖 `light` 包。
 > - `~/tos`（`feature/execution-layer`）：已完成 `execution_layer_mode`、禁用 mining/getwork 主路径、`submit_execution_block` RPC，且已新增 `engine_getPayload / engine_newPayload / engine_forkchoiceUpdated` 最小服务端骨架。
 > - 关键未完成项：`~/tos` Engine API 目前仍是“最小语义”（`GetPayload` 返回 canonical 空 `tos_v1` frame `0x0100000000`，`NewPayload` 已做 `tos_v1` 结构校验与 parent/height/timestamp/forkchoice 顺序校验）；`forkchoiceUpdated` 已支持 `head/safe/finalized` 哈希持久化并可按 `finalized_hash` 推进 stable 指针，且 `common` 层已补 snake/camel 参数兼容单测，但尚未接入真实 payload 构建与执行校验路径。双端闭环联调（3 节点 100+ finalized）尚未完成（已补单测级 128 高度 finality 推进覆盖；`daemon/tests/engine_api_phase1_rpc_test.rs` 已补测试骨架，当前环境 SIGSEGV 暂以 ignored 保留）。
 > - 现阶段主阻塞：`~/gtos` 与 `~/tos` 的 payload 交易模型尚未统一（编码/语义未冻结），这是 Phase 1 达成 100% 的关键前置条件。
