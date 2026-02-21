@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos android ios evm all test clean tps
+.PHONY: gtos all test clean tps lint devtools
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -16,18 +16,6 @@ gtos:
 
 all:
 	$(GORUN) build/ci.go install
-
-android:
-	$(GORUN) build/ci.go aar --local
-	@echo "Done building."
-	@echo "Import \"$(GOBIN)/gtos.aar\" to use the library."
-	@echo "Import \"$(GOBIN)/gtos-sources.jar\" to add javadocs"
-	@echo "For more info see https://stackoverflow.com/questions/20994336/android-studio-how-to-attach-javadoc"
-
-ios:
-	$(GORUN) build/ci.go xcode --local
-	@echo "Done building."
-	@echo "Import \"$(GOBIN)/Geth.framework\" to use the library."
 
 test: all
 	$(GORUN) build/ci.go test
@@ -49,6 +37,5 @@ devtools:
 	env GOBIN= go install golang.org/x/tools/cmd/stringer@latest
 	env GOBIN= go install github.com/fjl/gencodec@latest
 	env GOBIN= go install github.com/golang/protobuf/protoc-gen-go@latest
-	env GOBIN= go install ./cmd/abigen
 	@type "solc" 2> /dev/null || echo 'Please install solc'
 	@type "protoc" 2> /dev/null || echo 'Please install protoc'

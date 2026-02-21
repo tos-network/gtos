@@ -41,7 +41,6 @@ import (
 	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/internal/tosapi"
-	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/metrics/exp"
@@ -61,7 +60,6 @@ import (
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/tosdb/remotedb"
-	"github.com/tos-network/gtos/tosstats"
 	"github.com/urfave/cli/v2"
 )
 
@@ -1956,30 +1954,21 @@ func SetDNSDiscoveryDefaults(cfg *tosconfig.Config, genesis common.Hash) {
 // node is running as a light client.
 func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend, *tos.TOS) {
 	if cfg.SyncMode == downloader.LightSync {
-		backend, err := les.New(stack, cfg)
-		if err != nil {
-			Fatalf("Failed to register the Ethereum service: %v", err)
-		}
-		return backend.ApiBackend, nil
+		Fatalf("light sync mode is not supported in gtos consensus-layer profile")
 	}
 	backend, err := tos.New(stack, cfg)
 	if err != nil {
 		Fatalf("Failed to register the Ethereum service: %v", err)
 	}
 	if cfg.LightServ > 0 {
-		_, err := les.NewLesServer(stack, backend, cfg)
-		if err != nil {
-			Fatalf("Failed to create the LES server: %v", err)
-		}
+		log.Warn("Ignoring light server setting in gtos consensus-layer profile", "light.serve", cfg.LightServ)
 	}
 	return backend.APIBackend, backend
 }
 
 // RegisterEthStatsService configures the Ethereum Stats daemon and adds it to the node.
 func RegisterEthStatsService(stack *node.Node, backend tosapi.Backend, url string) {
-	if err := tosstats.New(stack, backend, backend.Engine(), url); err != nil {
-		Fatalf("Failed to register the Ethereum Stats service: %v", err)
-	}
+	log.Warn("Ignoring ethstats setting in gtos consensus-layer profile", "url", url)
 }
 
 // RegisterGraphQLService is a no-op stub: GraphQL has been removed from GTOS.

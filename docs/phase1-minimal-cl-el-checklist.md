@@ -36,6 +36,7 @@
 - [x] 扩展 `miner/worker_test.go`，覆盖 Engine 返回空 `tos_v1` payload（`0x0100000000`）时“不回退 txpool”的兼容行为
 - [x] `miner.fillTransactionsFromEngine` 增加 `payload_commitment` 一致性校验（不一致时按 fallback 开关处理），并补回归测试
 - [x] 新增 `engineapi/payload/tosv1/codec.go` 与 `codec_test.go`，冻结 `tos_v1` frame（version + tx_count + tx_blobs）并接入 proposer/导入路径
+- [x] 第 1/2 批仓库瘦身：删除非共识主路径工具与旧轻客户端模块（`cmd/{clef,devp2p,faucet,p2psim,rlpdump,abidump}`、`les`、`tosstats`、`mobile`）
 
 已完成（`~/tos`，分支 `feature/execution-layer`）：
 - [x] 新增执行层模式开关：`execution_layer_mode`
