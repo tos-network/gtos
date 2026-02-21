@@ -34,12 +34,12 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto/tosalign"
 	engineclient "github.com/tos-network/gtos/engineapi/client"
+	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
-	"github.com/tos-network/gtos/rlp"
-	"github.com/tos-network/gtos/crypto/tosalign"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -1116,14 +1116,6 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		log.Debug("Engine payload is empty")
 		return true, nil
 	}
-	if strings.EqualFold(strings.TrimSpace(resp.PayloadEncoding), enginePayloadEncodingTOSV1) {
-		err := fmt.Errorf("non-empty tos_v1 payload decode path not implemented")
-		if allowTxPoolFallback {
-			log.Warn("Non-empty tos_v1 payload unsupported in proposer path, falling back to local txpool")
-			return false, nil
-		}
-		return true, err
-	}
 	if !verifyEnginePayloadCommitment(resp.Payload, resp.PayloadCommitment) {
 		err := fmt.Errorf("engine payload commitment mismatch")
 		if allowTxPoolFallback {
@@ -1133,19 +1125,37 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 		return true, err
 	}
 
-	if env.gasPool == nil {
-		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
-	}
-
-	var txs types.Transactions
-	if err := rlp.DecodeBytes(resp.Payload, &txs); err != nil {
+	txBlobs, err := enginepayloadtosv1.Decode(resp.Payload)
+	if err != nil {
 		if allowTxPoolFallback {
 			log.Warn("Engine payload decode failed, falling back to local txpool", "err", err)
 			return false, nil
 		}
 		return true, fmt.Errorf("engine payload decode failed with txpool fallback disabled: %w", err)
 	}
-	coalescedLogs := make([]*types.Log, 0)
+
+	if env.gasPool == nil {
+		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
+	}
+
+	txs := make(types.Transactions, 0, len(txBlobs))
+	for i, blob := range txBlobs {
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(blob); err != nil {
+			decodeErr := fmt.Errorf("engine tx[%d] decode failed: %w", i, err)
+			if allowTxPoolFallback {
+				log.Warn("Engine tx decode failed, falling back to local txpool", "index", i, "err", err)
+				return false, nil
+			}
+			return true, decodeErr
+		}
+		txs = append(txs, &tx)
+	}
+	if len(txs) == 0 {
+		log.Debug("Engine payload contains zero transactions")
+		return true, nil
+	}
+	coalescedLogs := make([]*types.Log, 0, len(txs))
 	for _, tx := range txs {
 		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
 			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
@@ -1155,6 +1165,12 @@ func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) 
 			return true, errBlockInterruptedByNewHead
 		}
 		logs, err := w.commitTransaction(env, tx)
+		if allowTxPoolFallback {
+			if err != nil {
+				log.Warn("Engine payload transaction rejected, falling back to local txpool", "err", err)
+				return false, nil
+			}
+		}
 		if err != nil {
 			return true, err
 		}

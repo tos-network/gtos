@@ -39,6 +39,7 @@ import (
 	"github.com/tos-network/gtos/core/state/pruner"
 	"github.com/tos-network/gtos/core/types"
 	engineclient "github.com/tos-network/gtos/engineapi/client"
+	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/internal/tosapi"
@@ -612,7 +613,15 @@ func (s *TOS) validateImportedBlockWithEngine(block *types.Block) error {
 	if client == nil {
 		return nil
 	}
-	payload, err := rlp.EncodeToBytes(block.Transactions())
+	txBlobs := make([][]byte, 0, len(block.Transactions()))
+	for i, tx := range block.Transactions() {
+		raw, err := tx.MarshalBinary()
+		if err != nil {
+			return fmt.Errorf("encode engine tx[%d] for block %s: %w", i, block.Hash(), err)
+		}
+		txBlobs = append(txBlobs, raw)
+	}
+	payload, err := enginepayloadtosv1.Encode(txBlobs)
 	if err != nil {
 		return fmt.Errorf("encode engine payload for block %s: %w", block.Hash(), err)
 	}

@@ -34,9 +34,9 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	engineclient "github.com/tos-network/gtos/engineapi/client"
+	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
-	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/tosdb"
 )
 
@@ -185,6 +185,23 @@ func (m *mockEngineClient) NewPayload(context.Context, *engineclient.NewPayloadR
 
 func (m *mockEngineClient) ForkchoiceUpdated(context.Context, *engineclient.ForkchoiceState) error {
 	return engineclient.ErrNotImplemented
+}
+
+func mustEncodeTOSV1Payload(t *testing.T, txs ...*types.Transaction) []byte {
+	t.Helper()
+	txBlobs := make([][]byte, 0, len(txs))
+	for i, tx := range txs {
+		raw, err := tx.MarshalBinary()
+		if err != nil {
+			t.Fatalf("failed to marshal tx[%d]: %v", i, err)
+		}
+		txBlobs = append(txBlobs, raw)
+	}
+	payload, err := enginepayloadtosv1.Encode(txBlobs)
+	if err != nil {
+		t.Fatalf("failed to encode tos_v1 payload: %v", err)
+	}
+	return payload
 }
 
 func (b *testWorkerBackend) newRandomUncle() *types.Block {
@@ -513,10 +530,7 @@ func TestFillTransactionsFromEnginePayload(t *testing.T) {
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
-	if err != nil {
-		t.Fatalf("failed to encode engine payload: %v", err)
-	}
+	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
 	b.engine = &mockEngineClient{payload: payload}
 
 	work, err := w.prepareWork(&generateParams{
@@ -647,16 +661,14 @@ func TestFillTransactionsFromEngineDecodeErrorWithFallback(t *testing.T) {
 	}
 }
 
-func TestFillTransactionsFromEngineEmptyRLPListNoFallback(t *testing.T) {
+func TestFillTransactionsFromEngineEmptyTOSV1PayloadNoFallback(t *testing.T) {
 	engine := dpos.NewFaker()
 	defer engine.Close()
 
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	// 0xc0 is a valid RLP-encoded empty list; this should be treated as
-	// a successful engine payload with zero transactions.
-	b.engine = &mockEngineClient{payload: []byte{0xc0}}
+	b.engine = &mockEngineClient{payload: enginepayloadtosv1.EmptyPayloadBytes()}
 	b.allowTxPoolFallback = true
 
 	work, err := w.prepareWork(&generateParams{
@@ -669,10 +681,10 @@ func TestFillTransactionsFromEngineEmptyRLPListNoFallback(t *testing.T) {
 	defer work.discard()
 
 	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected empty RLP list payload to be accepted, got error: %v", err)
+		t.Fatalf("expected empty tos_v1 payload to be accepted, got error: %v", err)
 	}
 	if len(work.txs) != 0 {
-		t.Fatalf("expected no txs for empty RLP list payload, got %d", len(work.txs))
+		t.Fatalf("expected no txs for empty tos_v1 payload, got %d", len(work.txs))
 	}
 }
 
@@ -683,10 +695,7 @@ func TestFillTransactionsFromEngineCommitmentMismatchWithoutFallback(t *testing.
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
-	if err != nil {
-		t.Fatalf("failed to encode engine payload: %v", err)
-	}
+	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
 	b.engine = &mockEngineClient{
 		payload:           payload,
 		payloadCommitment: "0xdeadbeef",
@@ -717,10 +726,7 @@ func TestFillTransactionsFromEngineCommitmentMismatchWithFallback(t *testing.T) 
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
-	if err != nil {
-		t.Fatalf("failed to encode engine payload: %v", err)
-	}
+	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
 	b.engine = &mockEngineClient{
 		payload:           payload,
 		payloadCommitment: "0xdeadbeef",
@@ -744,17 +750,14 @@ func TestFillTransactionsFromEngineCommitmentMismatchWithFallback(t *testing.T) 
 	}
 }
 
-func TestFillTransactionsFromEngineEncodingMismatchWithoutFallback(t *testing.T) {
+func TestFillTransactionsFromEngineSupportedEncodingWithoutFallback(t *testing.T) {
 	engine := dpos.NewFaker()
 	defer engine.Close()
 
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
-	if err != nil {
-		t.Fatalf("failed to encode engine payload: %v", err)
-	}
+	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
 	b.engine = &mockEngineClient{
 		payload:         payload,
 		payloadEncoding: "tos_v1",
@@ -770,27 +773,26 @@ func TestFillTransactionsFromEngineEncodingMismatchWithoutFallback(t *testing.T)
 	}
 	defer work.discard()
 
-	if err := w.fillTransactions(nil, work); err == nil {
-		t.Fatalf("expected fillTransactions to fail on payload encoding mismatch")
+	if err := w.fillTransactions(nil, work); err != nil {
+		t.Fatalf("expected fillTransactions to accept tos_v1 payload encoding, got error: %v", err)
 	}
-	if len(work.txs) != 0 {
-		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
+	if len(work.txs) != 1 {
+		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 1)
+	}
+	if work.txs[0].Hash() != pendingTxs[0].Hash() {
+		t.Fatalf("unexpected tx selected from engine payload: got %s want %s", work.txs[0].Hash(), pendingTxs[0].Hash())
 	}
 }
 
-func TestFillTransactionsFromEngineEncodingMismatchWithFallback(t *testing.T) {
+func TestFillTransactionsFromEngineMalformedTOSV1WithFallback(t *testing.T) {
 	engine := dpos.NewFaker()
 	defer engine.Close()
 
 	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
 	defer w.close()
 
-	payload, err := rlp.EncodeToBytes(types.Transactions{pendingTxs[0]})
-	if err != nil {
-		t.Fatalf("failed to encode engine payload: %v", err)
-	}
 	b.engine = &mockEngineClient{
-		payload:         payload,
+		payload:         []byte{0x01, 0x02},
 		payloadEncoding: "tos_v1",
 	}
 	b.allowTxPoolFallback = true
@@ -805,7 +807,7 @@ func TestFillTransactionsFromEngineEncodingMismatchWithFallback(t *testing.T) {
 	defer work.discard()
 
 	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected local txpool fallback on payload encoding mismatch, got error: %v", err)
+		t.Fatalf("expected local txpool fallback on malformed tos_v1 payload, got error: %v", err)
 	}
 	if len(work.txs) == 0 {
 		t.Fatalf("expected txpool fallback to include pending txs")
