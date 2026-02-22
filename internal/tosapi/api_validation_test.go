@@ -6,6 +6,8 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/params"
 )
 
 func TestSetSignerValidation(t *testing.T) {
@@ -170,6 +172,51 @@ func TestSetCodeValidation(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrInvalidTTL {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
+	}
+}
+
+func TestEstimateSetCodeGasValidation(t *testing.T) {
+	api := &TOSAPI{}
+
+	_, err := api.EstimateSetCodeGas(hexutil.Bytes{0x60, 0x00}, 0)
+	if err == nil {
+		t.Fatalf("expected invalid ttl error")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidTTL {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
+	}
+
+	oversized := make(hexutil.Bytes, int(params.MaxCodeSize)+1)
+	_, err = api.EstimateSetCodeGas(oversized, 1)
+	if err == nil {
+		t.Fatalf("expected oversized code error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrCodeTooLarge {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrCodeTooLarge)
+	}
+
+	gas, err := api.EstimateSetCodeGas(hexutil.Bytes{0x00, 0x01}, 1)
+	if err != nil {
+		t.Fatalf("unexpected estimate error: %v", err)
+	}
+	payload, err := core.EncodeSetCodePayload(1, hexutil.Bytes{0x00, 0x01})
+	if err != nil {
+		t.Fatalf("unexpected payload encode error: %v", err)
+	}
+	want, err := core.EstimateSetCodePayloadGas(payload, 1)
+	if err != nil {
+		t.Fatalf("unexpected intrinsic gas error: %v", err)
+	}
+	if uint64(gas) != want {
+		t.Fatalf("unexpected estimated gas %d, want %d", gas, want)
 	}
 }
 

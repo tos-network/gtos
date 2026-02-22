@@ -41,6 +41,7 @@ Read methods:
 - `tos_getPruneWatermark()`
 - `tos_getAccount(address, block?)`
 - `tos_getSigner(address, block?)`
+- `tos_estimateSetCodeGas(code, ttl)`
 - `tos_getCode(address, block?)`
 - `tos_getCodeMeta(address, block?)`
 - `tos_getKV(namespace, key, block?)`
@@ -271,6 +272,28 @@ Result schema:
 
 ## 4.4 Code Storage TTL
 
+### `tos_estimateSetCodeGas`
+
+Behavior:
+
+- Deterministically estimates gas for `tos_setCode` payload.
+- Estimation is computed over encoded payload bytes:
+  - base `53000`
+  - `+16` per non-zero byte
+  - `+4` per zero byte
+  - `+ ttl * 1` retention surcharge
+
+Params:
+
+- `params[0]` code schema: `{"$ref":"gtos.rpc.common#/definitions/hexData"}`
+- `params[1]` ttl schema: `{"$ref":"gtos.rpc.common#/definitions/hexQuantity"}`
+
+Result schema:
+
+```json
+{"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
+```
+
 ### `tos_setCode`
 
 Behavior:
@@ -279,6 +302,7 @@ Behavior:
 - The RPC builds and submits a dedicated `to = nil` transaction payload for `setCode`.
 - `to = nil` in GTOS is reserved for `setCode` payload; arbitrary contract deployment is not allowed.
 - `tos_sendTransaction` rejects user-provided `to = nil`; use `tos_setCode` to submit code with explicit `ttl`.
+- Gas for `tos_setCode` includes ttl retention surcharge (`ttl * 1`).
 - If the account code is still active, replacement is rejected.
 - Manual delete/update is not supported.
 - Code payload is limited to `65536` bytes (`64KiB`).

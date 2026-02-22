@@ -559,6 +559,12 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
+			name: 'estimateSetCodeGas',
+			call: 'tos_estimateSetCodeGas',
+			params: 2,
+			outputFormatter: web3._extend.utils.toDecimal
+		}),
+		new web3._extend.Method({
 			name: 'getCodeObject',
 			call: 'tos_getCodeObject',
 			params: 2,

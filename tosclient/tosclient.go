@@ -314,6 +314,15 @@ func (ec *Client) SetCode(ctx context.Context, args SetCodeArgs) (common.Hash, e
 	return txHash, err
 }
 
+// EstimateSetCodeGas returns deterministic gas for tos_setCode payload.
+func (ec *Client) EstimateSetCodeGas(ctx context.Context, code []byte, ttl uint64) (uint64, error) {
+	var gas hexutil.Uint64
+	if err := ec.c.CallContext(ctx, &gas, "tos_estimateSetCodeGas", hexutil.Bytes(code), hexutil.Uint64(ttl)); err != nil {
+		return 0, err
+	}
+	return uint64(gas), nil
+}
+
 // GetCodeObject returns a code object by hash.
 func (ec *Client) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNumber *big.Int) (*CodeObject, error) {
 	var raw struct {

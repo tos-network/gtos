@@ -2221,6 +2221,31 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 	return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
 }
 
+func (s *TOSAPI) EstimateSetCodeGas(code hexutil.Bytes, ttl hexutil.Uint64) (hexutil.Uint64, error) {
+	if _, _, err := validateAndComputeExpireBlock(ttl, s.currentHead()); err != nil {
+		return 0, err
+	}
+	if len(code) > int(params.MaxCodeSize) {
+		return 0, &rpcAPIError{
+			code:    rpcErrCodeTooLarge,
+			message: "code size exceeds limit",
+			data: map[string]interface{}{
+				"maxCodeSize": params.MaxCodeSize,
+				"got":         len(code),
+			},
+		}
+	}
+	payload, err := core.EncodeSetCodePayload(uint64(ttl), code)
+	if err != nil {
+		return 0, newRPCInvalidParamsError("ttl", "invalid setCode payload")
+	}
+	gas, err := core.EstimateSetCodePayloadGas(payload, uint64(ttl))
+	if err != nil {
+		return 0, err
+	}
+	return hexutil.Uint64(gas), nil
+}
+
 func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash, error) {
 	if args.From == (common.Address{}) {
 		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
@@ -2262,7 +2287,7 @@ func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash,
 		allowSetCodeCreation: true,
 	}
 	if txArgs.Gas == nil {
-		intrinsic, gasErr := core.IntrinsicGas(payload, nil, true, true, true)
+		intrinsic, gasErr := core.EstimateSetCodePayloadGas(payload, uint64(args.TTL))
 		if gasErr != nil {
 			return common.Hash{}, gasErr
 		}

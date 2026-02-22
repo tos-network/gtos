@@ -3,6 +3,8 @@ package core
 import (
 	"bytes"
 	"testing"
+
+	"github.com/tos-network/gtos/params"
 )
 
 func TestSetCodePayloadCodec(t *testing.T) {
@@ -29,5 +31,26 @@ func TestSetCodePayloadRejectsInvalid(t *testing.T) {
 	}
 	if _, err := DecodeSetCodePayload(nil); err == nil {
 		t.Fatalf("expected decode error for empty payload")
+	}
+}
+
+func TestEstimateSetCodePayloadGasIncludesTTLSurcharge(t *testing.T) {
+	code := []byte{0x00, 0x01}
+	ttl := uint64(9)
+	payload, err := EncodeSetCodePayload(ttl, code)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	base, err := IntrinsicGas(payload, nil, true, true, true)
+	if err != nil {
+		t.Fatalf("intrinsic gas failed: %v", err)
+	}
+	total, err := EstimateSetCodePayloadGas(payload, ttl)
+	if err != nil {
+		t.Fatalf("estimate failed: %v", err)
+	}
+	want := base + ttl*params.SetCodeTTLBlockGas
+	if total != want {
+		t.Fatalf("unexpected gas: have %d want %d", total, want)
 	}
 }

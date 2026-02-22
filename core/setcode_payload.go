@@ -2,9 +2,11 @@ package core
 
 import (
 	"errors"
+	"math"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 )
 
@@ -59,4 +61,40 @@ func DecodeSetCodePayload(data []byte) (*SetCodePayload, error) {
 		TTL:  env.TTL,
 		Code: common.CopyBytes(env.Code),
 	}, nil
+}
+
+// SetCodeTTLGas returns additional gas charged by ttl retention.
+func SetCodeTTLGas(ttl uint64) (uint64, error) {
+	if ttl == 0 {
+		return 0, nil
+	}
+	if ttl > math.MaxUint64/params.SetCodeTTLBlockGas {
+		return 0, ErrGasUintOverflow
+	}
+	return ttl * params.SetCodeTTLBlockGas, nil
+}
+
+// EstimateSetCodeGas returns deterministic gas for a setCode operation.
+func EstimateSetCodeGas(code []byte, ttl uint64) (uint64, error) {
+	payload, err := EncodeSetCodePayload(ttl, code)
+	if err != nil {
+		return 0, err
+	}
+	return EstimateSetCodePayloadGas(payload, ttl)
+}
+
+// EstimateSetCodePayloadGas returns deterministic gas for an encoded setCode payload and ttl.
+func EstimateSetCodePayloadGas(payload []byte, ttl uint64) (uint64, error) {
+	intrinsic, err := IntrinsicGas(payload, nil, true, true, true)
+	if err != nil {
+		return 0, err
+	}
+	ttlGas, err := SetCodeTTLGas(ttl)
+	if err != nil {
+		return 0, err
+	}
+	if intrinsic > math.MaxUint64-ttlGas {
+		return 0, ErrGasUintOverflow
+	}
+	return intrinsic + ttlGas, nil
 }

@@ -10,10 +10,12 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - Active code cannot be overwritten or deleted.
 - Code can be set again only after TTL expiry clears active state.
 - `ttl` is measured in blocks, not seconds.
+- `tos_setCode` gas includes ttl retention surcharge (`ttl * 1`).
 
 ## Main Methods
 
 - `tos_setSigner({...tx fields...})`
+- `tos_estimateSetCodeGas(code, ttl)`
 - `tos_setCode({...tx fields...})`
 - `tos_putKVTTL({...tx fields...})`
 - `tos_getCode(address, block?)`

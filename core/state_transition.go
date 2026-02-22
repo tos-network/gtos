@@ -314,6 +314,14 @@ func (st *StateTransition) applySetCode(msg Message) error {
 	if len(code) > 0 && (expireAt == 0 || currentBlock < expireAt) {
 		return ErrCodeAlreadyActive
 	}
+	ttlGas, err := SetCodeTTLGas(payload.TTL)
+	if err != nil {
+		return ErrContractNotSupported
+	}
+	if st.gas < ttlGas {
+		return ErrIntrinsicGas
+	}
+	st.gas -= ttlGas
 	st.state.SetCode(from, payload.Code)
 	st.state.SetState(from, SetCodeCreatedAtSlot, uint64ToStateWord(currentBlock))
 	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(currentBlock+payload.TTL))
