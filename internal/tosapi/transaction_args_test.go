@@ -36,12 +36,11 @@ func TestSetFeeDefaults(t *testing.T) {
 	var (
 		b        = newBackendMock()
 		fortytwo = (*hexutil.Big)(big.NewInt(42))
-		maxFee   = (*hexutil.Big)(new(big.Int).Add(new(big.Int).Mul(b.current.BaseFee, big.NewInt(2)), fortytwo.ToInt()))
+		maxFee   = (*hexutil.Big)(big.NewInt(62))
 		al       = &types.AccessList{types.AccessTuple{Address: common.Address{0xaa}, StorageKeys: []common.Hash{{0x01}}}}
 	)
 
 	tests := []test{
-		// Legacy txs
 		{
 			"legacy tx pre-London",
 			false,
@@ -56,8 +55,6 @@ func TestSetFeeDefaults(t *testing.T) {
 			&TransactionArgs{GasPrice: fortytwo},
 			nil,
 		},
-
-		// Access list txs
 		{
 			"access list tx pre-London",
 			false,
@@ -66,54 +63,10 @@ func TestSetFeeDefaults(t *testing.T) {
 			nil,
 		},
 		{
-			"access list tx post-London, explicit gas price",
-			false,
-			&TransactionArgs{AccessList: al, GasPrice: fortytwo},
-			&TransactionArgs{AccessList: al, GasPrice: fortytwo},
-			nil,
-		},
-		{
 			"access list tx post-London",
 			true,
 			&TransactionArgs{AccessList: al},
-			&TransactionArgs{AccessList: al, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
-			nil,
-		},
-		{
-			"access list tx post-London, only max fee",
-			true,
-			&TransactionArgs{AccessList: al, MaxFeePerGas: maxFee},
-			&TransactionArgs{AccessList: al, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
-			nil,
-		},
-		{
-			"access list tx post-London, only priority fee",
-			true,
-			&TransactionArgs{AccessList: al, MaxFeePerGas: maxFee},
-			&TransactionArgs{AccessList: al, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
-			nil,
-		},
-
-		// Dynamic fee txs
-		{
-			"dynamic tx post-London",
-			true,
-			&TransactionArgs{},
-			&TransactionArgs{MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
-			nil,
-		},
-		{
-			"dynamic tx post-London, only max fee",
-			true,
-			&TransactionArgs{MaxFeePerGas: maxFee},
-			&TransactionArgs{MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
-			nil,
-		},
-		{
-			"dynamic tx post-London, only priority fee",
-			true,
-			&TransactionArgs{MaxFeePerGas: maxFee},
-			&TransactionArgs{MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
+			&TransactionArgs{AccessList: al, GasPrice: fortytwo},
 			nil,
 		},
 		{
@@ -121,51 +74,21 @@ func TestSetFeeDefaults(t *testing.T) {
 			false,
 			&TransactionArgs{MaxFeePerGas: maxFee},
 			nil,
-			fmt.Errorf("maxFeePerGas and maxPriorityFeePerGas are not valid before London is active"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
 		},
 		{
-			"dynamic fee tx pre-London, priorityFee set",
-			false,
+			"dynamic fee tx post-London, priorityFee set",
+			true,
 			&TransactionArgs{MaxPriorityFeePerGas: fortytwo},
 			nil,
-			fmt.Errorf("maxFeePerGas and maxPriorityFeePerGas are not valid before London is active"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
 		},
-		{
-			"dynamic fee tx, maxFee < priorityFee",
-			true,
-			&TransactionArgs{MaxFeePerGas: maxFee, MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1000))},
-			nil,
-			fmt.Errorf("maxFeePerGas (0x3e) < maxPriorityFeePerGas (0x3e8)"),
-		},
-		{
-			"dynamic fee tx, maxFee < priorityFee while setting default",
-			true,
-			&TransactionArgs{MaxFeePerGas: (*hexutil.Big)(big.NewInt(7))},
-			nil,
-			fmt.Errorf("maxFeePerGas (0x7) < maxPriorityFeePerGas (0x2a)"),
-		},
-
-		// Misc
 		{
 			"set all fee parameters",
 			false,
 			&TransactionArgs{GasPrice: fortytwo, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
 			nil,
-			fmt.Errorf("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified"),
-		},
-		{
-			"set gas price and maxPriorityFee",
-			false,
-			&TransactionArgs{GasPrice: fortytwo, MaxPriorityFeePerGas: fortytwo},
-			nil,
-			fmt.Errorf("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified"),
-		},
-		{
-			"set gas price and maxFee",
-			true,
-			&TransactionArgs{GasPrice: fortytwo, MaxFeePerGas: maxFee},
-			nil,
-			fmt.Errorf("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
 		},
 	}
 

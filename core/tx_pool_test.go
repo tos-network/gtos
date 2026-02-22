@@ -372,8 +372,8 @@ func TestTransactionTipAboveFeeCap(t *testing.T) {
 
 	tx := dynamicFeeTx(0, 100, big.NewInt(1), big.NewInt(2), key)
 
-	if err := pool.AddRemote(tx); err != ErrTipAboveFeeCap {
-		t.Error("expected", ErrTipAboveFeeCap, "got", err)
+	if err := pool.AddRemote(tx); err != ErrTxTypeNotSupported {
+		t.Error("expected", ErrTxTypeNotSupported, "got", err)
 	}
 }
 
@@ -387,13 +387,13 @@ func TestTransactionVeryHighValues(t *testing.T) {
 	veryBigNumber.Lsh(veryBigNumber, 300)
 
 	tx := dynamicFeeTx(0, 100, big.NewInt(1), veryBigNumber, key)
-	if err := pool.AddRemote(tx); err != ErrTipVeryHigh {
-		t.Error("expected", ErrTipVeryHigh, "got", err)
+	if err := pool.AddRemote(tx); err != ErrTxTypeNotSupported {
+		t.Error("expected", ErrTxTypeNotSupported, "got", err)
 	}
 
 	tx2 := dynamicFeeTx(0, 100, veryBigNumber, big.NewInt(1), key)
-	if err := pool.AddRemote(tx2); err != ErrFeeCapVeryHigh {
-		t.Error("expected", ErrFeeCapVeryHigh, "got", err)
+	if err := pool.AddRemote(tx2); err != ErrTxTypeNotSupported {
+		t.Error("expected", ErrTxTypeNotSupported, "got", err)
 	}
 }
 
@@ -1429,6 +1429,7 @@ func TestTransactionPoolRepricing(t *testing.T) {
 // Note, local transactions are never allowed to be dropped.
 func TestTransactionPoolRepricingDynamicFee(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS accepts only legacy transactions")
 
 	// Create the pool to test the pricing enforcement with
 	pool, _ := setupTxPoolWithConfig(eip1559Config)
@@ -1553,6 +1554,7 @@ func TestTransactionPoolRepricingDynamicFee(t *testing.T) {
 // remove local transactions (legacy & dynamic fee).
 func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS accepts only legacy transactions")
 
 	// Create the pool to test the pricing enforcement with
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
@@ -1801,6 +1803,7 @@ func TestTransactionPoolStableUnderpricing(t *testing.T) {
 // Note, local transactions are never allowed to be dropped.
 func TestTransactionPoolUnderpricingDynamicFee(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS accepts only legacy transactions")
 
 	pool, _ := setupTxPoolWithConfig(eip1559Config)
 	defer pool.Stop()
@@ -1908,6 +1911,7 @@ func TestTransactionPoolUnderpricingDynamicFee(t *testing.T) {
 // tip transactions are added and vice versa
 func TestDualHeapEviction(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS accepts only legacy transactions")
 
 	pool, _ := setupTxPoolWithConfig(eip1559Config)
 	defer pool.Stop()
@@ -2110,6 +2114,7 @@ func TestTransactionReplacement(t *testing.T) {
 // meet the minimum price bump required.
 func TestTransactionReplacementDynamicFee(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS accepts only legacy transactions")
 
 	// Create the pool to test the pricing enforcement with
 	pool, key := setupTxPoolWithConfig(eip1559Config)

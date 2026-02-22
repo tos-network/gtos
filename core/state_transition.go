@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	cmath "github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/params"
@@ -193,25 +192,6 @@ func (st *StateTransition) preCheck() error {
 				st.msg.From().Hex(), codeHash)
 		}
 	}
-	// London: validate gas fee cap vs base fee
-	if st.chainConfig.IsLondon(st.blockCtx.BlockNumber) {
-		if l := st.gasFeeCap.BitLen(); l > 256 {
-			return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
-				st.msg.From().Hex(), l)
-		}
-		if l := st.gasTipCap.BitLen(); l > 256 {
-			return fmt.Errorf("%w: address %v, maxPriorityFeePerGas bit length: %d", ErrTipVeryHigh,
-				st.msg.From().Hex(), l)
-		}
-		if st.gasFeeCap.Cmp(st.gasTipCap) < 0 {
-			return fmt.Errorf("%w: address %v, maxPriorityFeePerGas: %s, maxFeePerGas: %s", ErrTipAboveFeeCap,
-				st.msg.From().Hex(), st.gasTipCap, st.gasFeeCap)
-		}
-		if st.blockCtx.BaseFee != nil && st.gasFeeCap.Cmp(st.blockCtx.BaseFee) < 0 {
-			return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
-				st.msg.From().Hex(), st.gasFeeCap, st.blockCtx.BaseFee)
-		}
-	}
 	return st.buyGas()
 }
 
@@ -287,17 +267,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 
 	// Refund gas
-	if !rules.IsLondon {
-		st.refundGas(params.RefundQuotient)
-	} else {
-		st.refundGas(params.RefundQuotientEIP3529)
-	}
+	st.refundGas(params.RefundQuotient)
 
-	// Pay miner tip
+	// Pay miner fee by fixed gasPrice
 	effectiveTip := st.gasPrice
-	if rules.IsLondon {
-		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.blockCtx.BaseFee))
-	}
 	fee := new(big.Int).SetUint64(st.gasUsed())
 	fee.Mul(fee, effectiveTip)
 	st.state.AddBalance(st.blockCtx.Coinbase, fee)
