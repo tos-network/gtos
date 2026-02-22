@@ -791,9 +791,13 @@ func (s *BlockChainAPI) GetUncleCountByBlockHash(ctx context.Context, blockHash 
 
 // GetCode returns the code stored at the given address in the state for the given block number.
 func (s *BlockChainAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	if state == nil || err != nil {
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || header == nil || err != nil {
 		return nil, err
+	}
+	expireAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeExpireAtSlot).Bytes()).Uint64()
+	if expireAt != 0 && header.Number != nil && header.Number.Uint64() >= expireAt {
+		return hexutil.Bytes{}, state.Error()
 	}
 	code := state.GetCode(address)
 	return code, state.Error()

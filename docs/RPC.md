@@ -339,6 +339,11 @@ Params:
 - `params[0]` address schema: `{"$ref":"gtos.rpc.common#/definitions/address"}`
 - `params[1]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
+Behavior:
+
+- Returns account code when active at the queried block context.
+- Returns `0x` when code is expired at the queried block.
+
 Result schema:
 
 ```json
