@@ -18,6 +18,7 @@ const (
 	TxAccessListStorageKeyGas uint64 = 1900  // Per storage key specified in a transaction access list
 
 	InitialBaseFee = 1000000000 // Initial base fee for dynamic-fee blocks.
+	MaxCodeSize    = 64 * 1024  // Maximum bytecode size permitted for code storage writes.
 
 	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before refund-limit rules,
 	// up to half the consumed gas could be refunded. Redefined as 1/5th in refund-limit rules

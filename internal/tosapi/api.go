@@ -1900,6 +1900,7 @@ const (
 	rpcErrPermissionDenied     = -38006
 	rpcErrInvalidSigner        = -38007
 	rpcErrRetentionUnavailable = -38008
+	rpcErrCodeTooLarge         = -38009
 )
 
 // rpcAPIError is a JSON-RPC error with stable application code and optional data payload.
@@ -2163,7 +2164,16 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 
 func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common.Hash, error) {
 	_ = ctx
-	_ = args
+	if len(args.Code) > int(params.MaxCodeSize) {
+		return common.Hash{}, &rpcAPIError{
+			code:    rpcErrCodeTooLarge,
+			message: "code size exceeds limit",
+			data: map[string]interface{}{
+				"maxCodeSize": params.MaxCodeSize,
+				"got":         len(args.Code),
+			},
+		}
+	}
 	return common.Hash{}, newRPCNotImplementedError("tos_putCodeTTL")
 }
 
