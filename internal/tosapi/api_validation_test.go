@@ -63,11 +63,11 @@ func TestBuildSetSignerTxValidation(t *testing.T) {
 	}
 }
 
-func TestPutKVTTLValidation(t *testing.T) {
+func TestPutKVValidation(t *testing.T) {
 	api := &TOSAPI{}
 	var err error
 
-	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
 		Namespace: "ns",
 		Key:       hexutil.Bytes("k"),
 		Value:     hexutil.Bytes("v"),
@@ -84,7 +84,7 @@ func TestPutKVTTLValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
 	}
 
-	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		Namespace:       "   ",
 		Key:             hexutil.Bytes("k"),
@@ -102,7 +102,7 @@ func TestPutKVTTLValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
 	}
 
-	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		Namespace:       "ns",
 		Key:             hexutil.Bytes("k"),
@@ -120,7 +120,7 @@ func TestPutKVTTLValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
 	}
 
-	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		Namespace:       "ns",
 		Key:             hexutil.Bytes("k"),

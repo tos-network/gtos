@@ -577,8 +577,8 @@ web3._extend({
 			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
-			name: 'putKVTTL',
-			call: 'tos_putKVTTL',
+			name: 'putKV',
+			call: 'tos_putKV',
 			params: 1
 		}),
 		new web3._extend.Method({

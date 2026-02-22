@@ -15,7 +15,7 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - Public RPC should prioritize deterministic state queries over VM-style simulation.
 - History outside retention window must return explicit pruning errors.
 - Code storage is immutable while active: no update and no delete RPC.
-- KV storage is non-deletable but updatable via `tos_putKVTTL` overwrite.
+- KV storage is non-deletable but updatable via `tos_putKV` overwrite.
 - `ttl` unit is block count (not seconds/milliseconds).
 - Expiry is computed by height: `expireBlock = currentBlock + ttl`.
 - State persistence stores computed expiry height (`expireBlock`), not raw `ttl`.
@@ -52,7 +52,7 @@ Write/tx-submission methods:
 - `tos_setSigner({...tx fields...})`
 - `tos_buildSetSignerTx({...tx fields...})`
 - `tos_setCode({...tx fields...})`
-- `tos_putKVTTL({...tx fields...})`
+- `tos_putKV({...tx fields...})`
 
 ## 3.2 `dpos_*`
 
@@ -69,7 +69,7 @@ Write/tx-submission methods:
   - Active account code is immutable: update and delete are not supported.
   - Only TTL expiry/system pruning clears account code.
 - KV storage:
-  - `tos_putKVTTL` is an upsert operation for `(namespace, key)`.
+  - `tos_putKV` is an upsert operation for `(namespace, key)`.
   - `tos_deleteKV` is not part of this API.
   - Reads only return active (non-expired) values.
 
@@ -372,7 +372,7 @@ Result schema:
 
 ## 4.5 KV Storage TTL
 
-### `tos_putKVTTL`
+### `tos_putKV`
 
 Behavior:
 
@@ -583,7 +583,7 @@ Error payload shape (`error.data`):
 | `tos_getCode` | `tos_getCode` (+ TTL semantics) | Keep legacy shape; add TTL-aware visibility semantics. |
 | n/a | `tos_getCodeMeta` | New metadata endpoint for code TTL (`createdAt/expireAt/expired`). |
 | `tos_getStorageAt` | `tos_getKV` | TTL KV read semantics. |
-| `tos_sendTransaction` | `tos_setSigner` / `tos_putKVTTL` | `to=nil` is blocked for public send; code setup must use `tos_setCode`. |
+| `tos_sendTransaction` | `tos_setSigner` / `tos_putKV` | `to=nil` is blocked for public send; code setup must use `tos_setCode`. |
 | legacy delete-style storage actions | removed | this API forbids manual delete for both code and KV. |
 | `tos_sendRawTransaction` | unchanged | Still valid for raw tx broadcast. |
 | `tos_getTransactionByHash` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |

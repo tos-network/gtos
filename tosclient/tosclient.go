@@ -110,8 +110,8 @@ type CodeObjectMeta struct {
 	Expired   bool
 }
 
-// PutKVTTLArgs is the argument object for tos_putKVTTL.
-type PutKVTTLArgs struct {
+// PutKVArgs is the argument object for tos_putKV.
+type PutKVArgs struct {
 	From      common.Address  `json:"from"`
 	Nonce     *hexutil.Uint64 `json:"nonce,omitempty"`
 	Gas       *hexutil.Uint64 `json:"gas,omitempty"`
@@ -363,10 +363,10 @@ func (ec *Client) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, b
 	}, nil
 }
 
-// PutKVTTL submits a KV upsert with ttl.
-func (ec *Client) PutKVTTL(ctx context.Context, args PutKVTTLArgs) (common.Hash, error) {
+// PutKV submits a KV upsert with ttl.
+func (ec *Client) PutKV(ctx context.Context, args PutKVArgs) (common.Hash, error) {
 	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_putKVTTL", args)
+	err := ec.c.CallContext(ctx, &txHash, "tos_putKV", args)
 	return txHash, err
 }
 

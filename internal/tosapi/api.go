@@ -2019,7 +2019,7 @@ type RPCCodeObjectMeta struct {
 	Expired   bool           `json:"expired"`
 }
 
-type RPCPutKVTTLArgs struct {
+type RPCPutKVArgs struct {
 	RPCTxCommonArgs
 	Namespace string         `json:"namespace"`
 	Key       hexutil.Bytes  `json:"key"`
@@ -2331,7 +2331,7 @@ func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, bl
 	return nil, newRPCNotImplementedError("tos_getCodeObjectMeta")
 }
 
-func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Hash, error) {
+func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, error) {
 	_ = ctx
 	if args.From == (common.Address{}) {
 		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
@@ -2342,7 +2342,7 @@ func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Has
 	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
 		return common.Hash{}, err
 	}
-	return common.Hash{}, newRPCNotImplementedError("tos_putKVTTL")
+	return common.Hash{}, newRPCNotImplementedError("tos_putKV")
 }
 
 func (s *TOSAPI) GetKV(ctx context.Context, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {

@@ -40,7 +40,7 @@ type rpcExtTestService struct {
 	lastSetSignerArgs    SetSignerArgs
 	lastBuildSignerArgs  SetSignerArgs
 	lastSetCodeArgs      SetCodeArgs
-	lastPutKVTTLArgs     PutKVTTLArgs
+	lastPutKVArgs        PutKVArgs
 	lastDPoSQueryAddress common.Address
 	lastDPoSQueryBlock   string
 }
@@ -175,8 +175,8 @@ func (s *rpcExtTestService) GetCodeObjectMeta(codeHash common.Hash, block string
 	}
 }
 
-func (s *rpcExtTestService) PutKVTTL(args PutKVTTLArgs) common.Hash {
-	s.lastPutKVTTLArgs = args
+func (s *rpcExtTestService) PutKV(args PutKVArgs) common.Hash {
+	s.lastPutKVArgs = args
 	return common.HexToHash("0x3")
 }
 
@@ -447,7 +447,7 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		t.Fatalf("estimateSetCodeGas args were not forwarded: code=%x ttl=%d", []byte(svc.lastEstimateSetCodeGasCode), svc.lastEstimateSetCodeGasTTL)
 	}
 
-	kvHash, err := client.PutKVTTL(ctx, PutKVTTLArgs{
+	kvHash, err := client.PutKV(ctx, PutKVArgs{
 		From:      from,
 		Namespace: "ns",
 		Key:       hexutil.Bytes("k"),
@@ -455,10 +455,10 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		TTL:       hexutil.Uint64(300),
 	})
 	if err != nil {
-		t.Fatalf("PutKVTTL error: %v", err)
+		t.Fatalf("PutKV error: %v", err)
 	}
 	if kvHash != common.HexToHash("0x3") {
-		t.Fatalf("unexpected putKVTTL hash: %s", kvHash.Hex())
+		t.Fatalf("unexpected putKV hash: %s", kvHash.Hex())
 	}
 
 	validators, err := client.DPoSGetValidators(ctx, nil)
