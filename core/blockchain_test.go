@@ -1072,7 +1072,7 @@ func TestChainTxReorgs(t *testing.T) {
 	}
 }
 
-// This EVM code generates a log when the contract is created.
+// This TVM code generates a log when the contract is created.
 
 // This test checks that log events and RemovedLogsEvent are sent
 // when the chain reorganizes.

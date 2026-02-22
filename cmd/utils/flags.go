@@ -492,7 +492,7 @@ var (
 		Category: flags.AccountCategory,
 	}
 
-	// EVM settings
+	// TVM settings
 	VMEnableDebugFlag = &cli.BoolFlag{
 		Name:     "vmdebug",
 		Usage:    "Record information useful for VM and contract debugging",
@@ -1795,7 +1795,7 @@ func RegisterTOSStatsService(stack *node.Node, backend tosapi.Backend, url strin
 
 // RegisterGraphQLService is a no-op stub: GraphQL has been removed from GTOS.
 func RegisterGraphQLService(stack *node.Node, backend tosapi.Backend, filterSystem *filters.FilterSystem, cfg *node.Config) {
-	// GraphQL service removed; graphql/ directory was deleted as part of EVM removal.
+	// GraphQL service removed; graphql/ directory was deleted as part of TVM removal.
 }
 
 // RegisterFilterAPI adds the tos log filtering RPC API to the node.

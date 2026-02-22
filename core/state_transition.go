@@ -254,7 +254,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				// Data with no contract code at destination: reject
 				vmerr = ErrContractNotSupported
 			} else if len(toCode) > 0 {
-				// Destination has contract code: reject (no EVM execution)
+				// Destination has contract code: reject (no TVM execution)
 				vmerr = ErrContractNotSupported
 			} else {
 				// Plain TOS transfer

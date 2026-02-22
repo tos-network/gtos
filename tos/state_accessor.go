@@ -163,7 +163,7 @@ func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec u
 	}
 	// Recompute transactions up to the target index.
 	signer := types.MakeSigner(tosNode.blockchain.Config(), block.Number())
-	blockCtx := core.NewEVMBlockContext(block.Header(), tosNode.blockchain, nil)
+	blockCtx := core.NewTVMBlockContext(block.Header(), tosNode.blockchain, nil)
 	for idx, tx := range block.Transactions() {
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
 		if idx == txIndex {

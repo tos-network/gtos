@@ -153,7 +153,7 @@ Make the chain safe to operate under sustained load.
 
 ## Out of Scope (Current Roadmap)
 
-- General-purpose EVM compatibility.
+- General-purpose contract VM compatibility.
 - Complex contract runtime execution semantics.
 - Cross-chain bridge features.
 - Off-chain indexing productization beyond basic query support.

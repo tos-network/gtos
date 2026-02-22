@@ -2,7 +2,7 @@ package vm
 
 import "fmt"
 
-// OpCode is an EVM opcode (constants kept for assembler and test compatibility).
+// OpCode is a TVM opcode (constants kept for assembler and test compatibility).
 type OpCode byte
 
 func (op OpCode) String() string {

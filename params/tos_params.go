@@ -10,7 +10,7 @@ import (
 var (
 	// SystemActionAddress is the sentinel To-address for system action transactions.
 	// Transactions sent to this address carry a JSON-encoded SysAction in tx.Data
-	// and are executed outside the EVM by the state processor.
+	// and are executed outside the TVM by the state processor.
 	SystemActionAddress = common.HexToAddress("0x53595354454D5F414354494F4E5F43454E544552") // "SYSTEM_ACTION_CENTER"
 
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.

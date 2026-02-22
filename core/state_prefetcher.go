@@ -34,7 +34,7 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, i
 	var (
 		header   = block.Header()
 		gaspool  = new(GasPool).AddGas(block.GasLimit())
-		blockCtx = NewEVMBlockContext(header, p.bc, nil)
+		blockCtx = NewTVMBlockContext(header, p.bc, nil)
 		signer   = types.MakeSigner(p.config, header.Number)
 	)
 	// Iterate over and process the individual transactions

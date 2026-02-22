@@ -581,7 +581,7 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 // CreateAccount explicitly creates a state object. If a state object with the address
 // already exists the balance is carried over to the new account.
 //
-// CreateAccount is called during the EVM CREATE operation. The situation might arise that
+// CreateAccount is called during the TVM CREATE operation. The situation might arise that
 // a contract does the following:
 //
 //  1. sends funds to sha(account ++ (nonce + 1))
@@ -864,7 +864,7 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 }
 
 // Prepare sets the current transaction hash and index which are
-// used when the EVM emits new state logs.
+// used when the TVM emits new state logs.
 func (s *StateDB) Prepare(thash common.Hash, ti int) {
 	s.thash = thash
 	s.txIndex = ti
@@ -993,7 +993,7 @@ func (s *StateDB) PrepareAccessList(sender common.Address, dst *common.Address, 
 	s.AddAddressToAccessList(sender)
 	if dst != nil {
 		s.AddAddressToAccessList(*dst)
-		// If it's a create-tx, the destination will be added inside evm.create
+		// If it's a create-tx, the destination will be added inside tvm.create
 	}
 	for _, addr := range precompiles {
 		s.AddAddressToAccessList(addr)

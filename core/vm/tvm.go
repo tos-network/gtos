@@ -1,5 +1,5 @@
 // Package vm provides the GTOS execution environment.
-// The EVM interpreter has been removed; only precompiled contracts remain.
+// The TVM interpreter has been removed.
 // Execution is now handled via system actions or plain TOS transfers.
 package vm
 
@@ -11,16 +11,16 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
-// EVMLogger is the interface for EVM execution loggers (stub, no-op after EVM removal).
-type EVMLogger interface {
+// TVMLogger is the interface for TVM execution loggers (stub, no-op after TVM removal).
+type TVMLogger interface {
 	CaptureTxStart(gasLimit uint64)
 	CaptureTxEnd(restGas uint64)
 }
 
-// Config holds configuration options. Kept as a stub after EVM removal.
+// Config holds configuration options. Kept as a stub after TVM removal.
 type Config struct {
 	Debug                   bool
-	Tracer                  EVMLogger
+	Tracer                  TVMLogger
 	NoBaseFee               bool
 	EnablePreimageRecording bool
 	ExtraEips               []int
@@ -67,9 +67,9 @@ type AccountRef common.Address
 // Address casts AccountRef to common.Address.
 func (ar AccountRef) Address() common.Address { return (common.Address)(ar) }
 
-// EVM is a stub after removal of the EVM interpreter.
+// TVM is a stub after removal of the TVM interpreter.
 // All execution now goes through system actions or direct TOS transfers.
-type EVM struct {
+type TVM struct {
 	Context     BlockContext
 	TxContext   TxContext
 	StateDB     StateDB
@@ -80,9 +80,9 @@ type EVM struct {
 	depth       int
 }
 
-// NewEVM returns a new EVM stub.
-func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
-	return &EVM{
+// NewTVM returns a new TVM stub.
+func NewTVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *TVM {
+	return &TVM{
 		Context:     blockCtx,
 		TxContext:   txCtx,
 		StateDB:     statedb,
@@ -93,50 +93,50 @@ func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig
 }
 
 // ChainConfig returns the chain configuration.
-func (evm *EVM) ChainConfig() *params.ChainConfig { return evm.chainConfig }
+func (tvm *TVM) ChainConfig() *params.ChainConfig { return tvm.chainConfig }
 
-// Reset resets the EVM with a new transaction context.
-func (evm *EVM) Reset(txCtx TxContext, statedb StateDB) {
-	evm.TxContext = txCtx
-	evm.StateDB = statedb
+// Reset resets the TVM with a new transaction context.
+func (tvm *TVM) Reset(txCtx TxContext, statedb StateDB) {
+	tvm.TxContext = txCtx
+	tvm.StateDB = statedb
 }
 
 // Cancel sets the cancellation flag atomically.
-func (evm *EVM) Cancel() {
-	atomic.StoreInt32(&evm.abort, 1)
+func (tvm *TVM) Cancel() {
+	atomic.StoreInt32(&tvm.abort, 1)
 }
 
 // Cancelled reports whether Cancel has been called.
-func (evm *EVM) Cancelled() bool {
-	return atomic.LoadInt32(&evm.abort) == 1
+func (tvm *TVM) Cancelled() bool {
+	return atomic.LoadInt32(&tvm.abort) == 1
 }
 
 // Depth returns the current call depth (always 0 in stub).
-func (evm *EVM) Depth() int { return evm.depth }
+func (tvm *TVM) Depth() int { return tvm.depth }
 
 // Call executes a plain value transfer (no bytecode execution).
 // Contract calls are not supported in GTOS.
-func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+func (tvm *TVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
 	if value != nil && value.Sign() > 0 {
-		if !evm.Context.CanTransfer(evm.StateDB, caller.Address(), value) {
+		if !tvm.Context.CanTransfer(tvm.StateDB, caller.Address(), value) {
 			return nil, gas, ErrInsufficientBalance
 		}
-		evm.Context.Transfer(evm.StateDB, caller.Address(), addr, value)
+		tvm.Context.Transfer(tvm.StateDB, caller.Address(), addr, value)
 	}
 	return nil, gas, nil
 }
 
 // Create is not supported in GTOS (no smart contract deployment).
-func (evm *EVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
+func (tvm *TVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
 	return nil, common.Address{}, gas, ErrExecutionReverted
 }
 
 // Create2 is not supported in GTOS.
-func (evm *EVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *big.Int, salt *common.Hash) ([]byte, common.Address, uint64, error) {
+func (tvm *TVM) Create2(caller ContractRef, code []byte, gas uint64, endowment *big.Int, salt *common.Hash) ([]byte, common.Address, uint64, error) {
 	return nil, common.Address{}, gas, ErrExecutionReverted
 }
 
 // StaticCall is not supported in GTOS.
-func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
+func (tvm *TVM) StaticCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
 	return nil, gas, ErrExecutionReverted
 }

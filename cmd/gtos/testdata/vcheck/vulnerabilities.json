@@ -1,7 +1,7 @@
 [
   {
     "name": "CorruptedDAG",
-    "uid": "GETH-2020-01",
+    "uid": "GTOS-2020-01",
     "summary": "Mining nodes will generate erroneous PoW on epochs > `385`.",
     "description": "A mining flaw could cause miners to erroneously calculate PoW, due to an index overflow, if DAG size is exceeding the maximum 32 bit unsigned value.\n\nThis occurred on the ETC chain on 2020-11-06. This is likely to trigger for ETH mainnet around block `11550000`/epoch `385`, slated to occur early January 2021.\n\nThis issue is relevant only for miners, non-mining nodes are unaffected, since non-mining nodes use a smaller verification cache instead of a full DAG.",
     "links": [
@@ -19,7 +19,7 @@
   },
   {
     "name": "Denial of service due to Go CVE-2020-28362",
-    "uid": "GETH-2020-02",
+    "uid": "GTOS-2020-02",
     "summary": "A denial-of-service issue can be used to crash GTOS nodes during block processing, due to an underlying bug in Go (CVE-2020-28362) versions < `1.15.5`, or `<1.14.12`",
     "description": "The DoS issue can be used to crash all GTOS nodes during block processing, the effects of which would be that a major part of the TOS network went offline.\n\nOutside of go-gtos, the issue is most likely relevant for all forks of GTOS (such as TurboGTOS or ETC’s core-gtos) which is built with versions of Go which contains the vulnerability.",
     "links": [
@@ -37,7 +37,7 @@
   },
   {
     "name": "ShallowCopy",
-    "uid": "GETH-2020-03",
+    "uid": "GTOS-2020-03",
     "summary": "A consensus flaw in GTOS, related to `datacopy` precompile",
     "description": "GTOS erroneously performed a 'shallow' copy when the precompiled `datacopy` (at `0x00...04`) was invoked. An attacker could deploy a contract that uses the shallow copy to corrupt the contents of the `RETURNDATA`, thus causing a consensus failure.",
     "links": [
@@ -53,7 +53,7 @@
   },
   {
     "name": "GTOS DoS via MULMOD",
-    "uid": "GETH-2020-04",
+    "uid": "GTOS-2020-04",
     "summary": "A denial-of-service issue can be used to crash GTOS nodes during block processing",
     "description": "Affected versions suffer from a vulnerability which can be exploited through the `MULMOD` operation, by specifying a modulo of `0`: `mulmod(a,b,0)`, causing a `panic` in the underlying library. \nThe crash was in the `uint256` library, where a buffer [underflowed](https://github.com/holiman/uint256/blob/4ce82e695c10ddad57215bdbeafb68b8c5df2c30/uint256.go#L442).\n\n\tif `d == 0`, `dLen` remains `0`\n\nand https://github.com/holiman/uint256/blob/4ce82e695c10ddad57215bdbeafb68b8c5df2c30/uint256.go#L451 will try to access index `[-1]`.\n\nThe `uint256` library was first merged in this [commit](https://github.com/tos-network/gtos/commit/cf6674539c589f80031f3371a71c6a80addbe454), on 2020-06-08. \nExploiting this vulnerabilty would cause all vulnerable nodes to drop off the network. \n\nThe issue was brought to our attention through a [bug report](https://github.com/tos-network/gtos/issues/21367), showing a `panic` occurring on sync from genesis on the Ropsten network.\n \nIt was estimated that the least obvious way to fix this would be to merge the fix into `uint256`, make a new release of that library and then update the gtos-dependency.\n",
     "links": [
@@ -72,7 +72,7 @@
   },
   {
     "name": "LES Server DoS via GetProofsV2",
-    "uid": "GETH-2020-05",
+    "uid": "GTOS-2020-05",
     "summary": "A DoS vulnerability can make a LES server crash.",
     "description": "A DoS vulnerability can make a LES server crash via malicious GetProofsV2 request from a connected LES client.\n\nThe vulnerability was patched in #21896.\n\nThis vulnerability only concern users explicitly running gtos as a light server",
     "links": [
@@ -88,7 +88,7 @@
   },
   {
     "name": "SELFDESTRUCT-recreate consensus flaw",
-    "uid": "GETH-2020-06",
+    "uid": "GTOS-2020-06",
     "introduced": "v1.9.4",
     "fixed": "v1.9.20",
     "summary": "A consensus-vulnerability in GTOS could cause a chain split, where vulnerable versions refuse to accept the canonical chain.",
@@ -103,7 +103,7 @@
   },
   {
     "name": "Not ready for London upgrade",
-    "uid": "GETH-2021-01",
+    "uid": "GTOS-2021-01",
     "summary": "The client is not ready for the 'London' technical upgrade, and will deviate from the canonical chain when the London upgrade occurs (at block '12965000' around August 4, 2021.",
     "description": "At (or around) August 4, TOS will undergo a technical upgrade called 'London'. Clients not upgraded will fail to progress on the canonical chain.",
     "links": [
@@ -118,9 +118,9 @@
   },
   {
     "name": "RETURNDATA corruption via datacopy",
-    "uid": "GETH-2021-02",
-    "summary": "A consensus-flaw in the GTOS EVM could cause a node to deviate from the canonical chain.",
-    "description": "A memory-corruption bug within the EVM can cause a consensus error, where vulnerable nodes obtain a different `stateRoot` when processing a maliciously crafted transaction. This, in turn, would lead to the chain being split: mainnet splitting in two forks.\n\nAll GTOS versions supporting the London hard fork are vulnerable (the bug is older than London), so all users should update.\n\nThis bug was exploited on Mainnet at block 13107518.\n\nCredits for the discovery go to @guidovranken (working for Sentnl during an audit of the Telos EVM) and reported via security@tos.network.",
+    "uid": "GTOS-2021-02",
+    "summary": "A consensus flaw in the GTOS transaction VM could cause a node to deviate from the canonical chain.",
+    "description": "A memory-corruption bug within the transaction VM can cause a consensus error, where vulnerable nodes obtain a different `stateRoot` when processing a maliciously crafted transaction. This, in turn, would lead to the chain being split: mainnet splitting in two forks.\n\nAll GTOS versions supporting the London hard fork are vulnerable (the bug is older than London), so all users should update.\n\nThis bug was exploited on Mainnet at block 13107518.\n\nCredits for the discovery go to @guidovranken (working for Sentnl during an audit of the Telos VM) and reported via security@tos.network.",
     "links": [
       "https://github.com/tos-network/gtos/blob/master/docs/postmortems/2021-08-22-split-postmortem.md",
       "https://github.com/tos-network/gtos/security/advisories/GHSA-9856-9gg9-qcmq",
@@ -135,7 +135,7 @@
   },
   {
     "name": "DoS via malicious `snap/1` request",
-    "uid": "GETH-2021-03",
+    "uid": "GTOS-2021-03",
     "summary": "A vulnerable node is susceptible to crash when processing a maliciously crafted message from a peer, via the snap/1 protocol. The crash can be triggered by sending a malicious snap/1 GetTrieNodes package.",
     "description": "The `snap/1` protocol handler contains two vulnerabilities related to the `GetTrieNodes` packet, which can be exploited to crash the node. Full details are available at the Github security [advisory](https://github.com/tos-network/gtos/security/advisories/GHSA-59hh-656j-3p7v)",
     "links": [
@@ -152,7 +152,7 @@
   },
   {
     "name": "DoS via malicious p2p message",
-    "uid": "GETH-2022-01",
+    "uid": "GTOS-2022-01",
     "summary": "A vulnerable node can crash via p2p messages sent from an attacker node, if running with non-default log options.",
     "description": "A vulnerable node, if configured to use high verbosity logging, can be made to crash when handling specially crafted p2p messages sent from an attacker node. Full details are available at the Github security [advisory](https://github.com/tos-network/gtos/security/advisories/GHSA-wjxw-gh3m-7pm5)",
     "links": [

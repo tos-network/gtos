@@ -1,4 +1,4 @@
-// Package asm provides support for dealing with EVM assembly instructions (e.g., disassembling them).
+// Package asm provides support for dealing with TVM assembly instructions (e.g., disassembling them).
 package asm
 
 import (
@@ -8,7 +8,7 @@ import (
 	"github.com/tos-network/gtos/core/vm"
 )
 
-// Iterator for disassembled EVM instructions
+// Iterator for disassembled TVM instructions
 type instructionIterator struct {
 	code    []byte
 	pc      uint64
@@ -83,7 +83,7 @@ func (it *instructionIterator) Arg() []byte {
 	return it.arg
 }
 
-// PrintDisassembled pretty-print all disassembled EVM instructions to stdout.
+// PrintDisassembled pretty-print all disassembled TVM instructions to stdout.
 func PrintDisassembled(code string) error {
 	script, err := hex.DecodeString(code)
 	if err != nil {
@@ -101,7 +101,7 @@ func PrintDisassembled(code string) error {
 	return it.Error()
 }
 
-// Disassemble returns all disassembled EVM instructions in human-readable format.
+// Disassemble returns all disassembled TVM instructions in human-readable format.
 func Disassemble(script []byte) ([]string, error) {
 	instrs := make([]string, 0)
 

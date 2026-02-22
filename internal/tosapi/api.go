@@ -914,7 +914,7 @@ func newRevertError(result *core.ExecutionResult) *revertError {
 	}
 }
 
-// revertError is an API error that encompasses an EVM revertal with JSON error
+// revertError is an API error that encompasses a TVM revertal with JSON error
 // code and a binary data blob.
 type revertError struct {
 	error
@@ -1311,9 +1311,9 @@ func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionAr
 	return result, nil
 }
 
-// AccessList is not supported in GTOS (EVM and tracer removed).
+// AccessList is not supported in GTOS (TVM and tracer removed).
 func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
-	return nil, 0, nil, errors.New("tos_createAccessList not supported (legacy eth_createAccessList): EVM removed in GTOS")
+	return nil, 0, nil, errors.New("tos_createAccessList not supported (legacy eth_createAccessList): TVM removed in GTOS")
 }
 
 // TransactionAPI exposes methods for reading and creating transaction data.

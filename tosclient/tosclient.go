@@ -458,7 +458,7 @@ func (ec *Client) CallContractAtHash(ctx context.Context, msg gtos.CallMsg, bloc
 	return hex, nil
 }
 
-// PendingCallContract executes a message call transaction using the EVM.
+// PendingCallContract executes a message call transaction using the TVM.
 // The state seen by the contract call is the pending state.
 func (ec *Client) PendingCallContract(ctx context.Context, msg gtos.CallMsg) ([]byte, error) {
 	var hex hexutil.Bytes
