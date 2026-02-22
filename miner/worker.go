@@ -858,7 +858,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		// Error may be ignored here. The error has already been checked
 		// during transaction acceptance in the transaction pool.
 		//
-		// Protocol-155 replay protection is always active in GTOS.
+		// Chain-id replay protection is always active in GTOS.
 		from, _ := types.Sender(env.signer, tx)
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)

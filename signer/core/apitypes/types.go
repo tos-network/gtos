@@ -181,7 +181,7 @@ type ValidatorData struct {
 	Message hexutil.Bytes
 }
 
-// TypedData is a type to encapsulate Protocol-712 typed messages
+// TypedData encapsulates typed-signing messages.
 type TypedData struct {
 	Types       Types            `json:"types"`
 	PrimaryType string           `json:"primaryType"`
@@ -189,7 +189,7 @@ type TypedData struct {
 	Message     TypedDataMessage `json:"message"`
 }
 
-// Type is the inner type of an Protocol-712 message
+// Type is an inner type used by typed-signing messages.
 type Type struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
@@ -227,9 +227,9 @@ type TypePriority struct {
 type TypedDataMessage = map[string]interface{}
 
 // TypedDataDomainTypeName is the canonical domain type used by typed-data signing.
-const TypedDataDomainTypeName = "E" + "IP712Domain"
+const TypedDataDomainTypeName = "TypedDataDomain"
 
-// TypedDataDomain represents the domain part of an Protocol-712 message.
+// TypedDataDomain represents the domain part of a typed-signing message.
 type TypedDataDomain struct {
 	Name              string                `json:"name"`
 	Version           string                `json:"version"`
@@ -238,10 +238,10 @@ type TypedDataDomain struct {
 	Salt              string                `json:"salt"`
 }
 
-// TypedDataAndHash is a helper function that calculates a hash for typed data conforming to Protocol-712.
+// TypedDataAndHash calculates the hash for typed-signing data.
 // This hash can then be safely used to calculate a signature.
 //
-// See the Protocol-712 specification for full details.
+// See the typed-signing specification for full details.
 //
 // This gives context to the signed typed data and prevents signing of transactions.
 func TypedDataAndHash(typedData TypedData) ([]byte, string, error) {

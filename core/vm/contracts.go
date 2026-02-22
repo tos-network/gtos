@@ -71,7 +71,7 @@ var PrecompiledContractsBaseline = map[common.Address]PrecompiledContract{
 }
 
 // PrecompiledContractsBLS contains the set of pre-compiled TOS
-// contracts specified in Protocol-2537. These are exported for testing purposes.
+// contracts specified in the BLS12-381 precompile spec. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{10}): &bls12381G1Add{},
 	common.BytesToAddress([]byte{11}): &bls12381G1Mul{},
@@ -232,7 +232,7 @@ var (
 	big199680 = big.NewInt(199680)
 )
 
-// modexpMultComplexity implements bigModexp multComplexity formula, as defined in Protocol-198
+// modexpMultComplexity implements bigModexp multComplexity formula, as defined in modexp complexity spec
 //
 // def mult_complexity(x):
 //
@@ -298,9 +298,9 @@ func (c *bigModExp) RequiredGas(input []byte) uint64 {
 	// Calculate the gas cost of the operation
 	gas := new(big.Int).Set(math.BigMax(modLen, baseLen))
 	if c.protocol2565 {
-		// Protocol-2565 has three changes
+		// updated modexp pricing has three changes
 		// 1. Different multComplexity (inlined here)
-		// in Protocol-2565:
+		// in updated modexp pricing:
 		//
 		// def mult_complexity(x):
 		//    ceiling(x/8)^2
@@ -596,7 +596,7 @@ var (
 	errBLS12381G2PointSubgroup             = errors.New("g2 point is not on correct subgroup")
 )
 
-// bls12381G1Add implements Protocol-2537 G1Add precompile.
+// bls12381G1Add implements BLS12-381 G1Add precompile.
 type bls12381G1Add struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -605,7 +605,7 @@ func (c *bls12381G1Add) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1Add) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G1Add precompile.
+	// Implements BLS12-381 G1Add precompile.
 	// > G1 addition call expects `256` bytes as an input that is interpreted as byte concatenation of two G1 points (`128` bytes each).
 	// > Output is an encoding of addition operation result - single G1 point (`128` bytes).
 	if len(input) != 256 {
@@ -634,7 +634,7 @@ func (c *bls12381G1Add) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G1Mul implements Protocol-2537 G1Mul precompile.
+// bls12381G1Mul implements BLS12-381 G1Mul precompile.
 type bls12381G1Mul struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -643,7 +643,7 @@ func (c *bls12381G1Mul) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1Mul) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G1Mul precompile.
+	// Implements BLS12-381 G1Mul precompile.
 	// > G1 multiplication call expects `160` bytes as an input that is interpreted as byte concatenation of encoding of G1 point (`128` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiplication operation result - single G1 point (`128` bytes).
 	if len(input) != 160 {
@@ -670,7 +670,7 @@ func (c *bls12381G1Mul) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G1MultiExp implements Protocol-2537 G1MultiExp precompile.
+// bls12381G1MultiExp implements BLS12-381 G1MultiExp precompile.
 type bls12381G1MultiExp struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -693,7 +693,7 @@ func (c *bls12381G1MultiExp) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1MultiExp) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G1MultiExp precompile.
+	// Implements BLS12-381 G1MultiExp precompile.
 	// G1 multiplication call expects `160*k` bytes as an input that is interpreted as byte concatenation of `k` slices each of them being a byte concatenation of encoding of G1 point (`128` bytes) and encoding of a scalar value (`32` bytes).
 	// Output is an encoding of multiexponentiation operation result - single G1 point (`128` bytes).
 	k := len(input) / 160
@@ -727,7 +727,7 @@ func (c *bls12381G1MultiExp) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2Add implements Protocol-2537 G2Add precompile.
+// bls12381G2Add implements BLS12-381 G2Add precompile.
 type bls12381G2Add struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -736,7 +736,7 @@ func (c *bls12381G2Add) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2Add) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G2Add precompile.
+	// Implements BLS12-381 G2Add precompile.
 	// > G2 addition call expects `512` bytes as an input that is interpreted as byte concatenation of two G2 points (`256` bytes each).
 	// > Output is an encoding of addition operation result - single G2 point (`256` bytes).
 	if len(input) != 512 {
@@ -765,7 +765,7 @@ func (c *bls12381G2Add) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2Mul implements Protocol-2537 G2Mul precompile.
+// bls12381G2Mul implements BLS12-381 G2Mul precompile.
 type bls12381G2Mul struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -774,7 +774,7 @@ func (c *bls12381G2Mul) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2Mul) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G2MUL precompile logic.
+	// Implements BLS12-381 G2MUL precompile logic.
 	// > G2 multiplication call expects `288` bytes as an input that is interpreted as byte concatenation of encoding of G2 point (`256` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiplication operation result - single G2 point (`256` bytes).
 	if len(input) != 288 {
@@ -801,7 +801,7 @@ func (c *bls12381G2Mul) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2MultiExp implements Protocol-2537 G2MultiExp precompile.
+// bls12381G2MultiExp implements BLS12-381 G2MultiExp precompile.
 type bls12381G2MultiExp struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -824,7 +824,7 @@ func (c *bls12381G2MultiExp) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2MultiExp) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 G2MultiExp precompile logic
+	// Implements BLS12-381 G2MultiExp precompile logic
 	// > G2 multiplication call expects `288*k` bytes as an input that is interpreted as byte concatenation of `k` slices each of them being a byte concatenation of encoding of G2 point (`256` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiexponentiation operation result - single G2 point (`256` bytes).
 	k := len(input) / 288
@@ -858,7 +858,7 @@ func (c *bls12381G2MultiExp) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381Pairing implements Protocol-2537 Pairing precompile.
+// bls12381Pairing implements BLS12-381 Pairing precompile.
 type bls12381Pairing struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -867,7 +867,7 @@ func (c *bls12381Pairing) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381Pairing) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 Pairing precompile logic.
+	// Implements BLS12-381 Pairing precompile logic.
 	// > Pairing call expects `384*k` bytes as an inputs that is interpreted as byte concatenation of `k` slices. Each slice has the following structure:
 	// > - `128` bytes of G1 point encoding
 	// > - `256` bytes of G2 point encoding
@@ -937,7 +937,7 @@ func decodeBLS12381FieldElement(in []byte) ([]byte, error) {
 	return out, nil
 }
 
-// bls12381MapG1 implements Protocol-2537 MapG1 precompile.
+// bls12381MapG1 implements BLS12-381 MapG1 precompile.
 type bls12381MapG1 struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -946,7 +946,7 @@ func (c *bls12381MapG1) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381MapG1) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 Map_To_G1 precompile.
+	// Implements BLS12-381 Map_To_G1 precompile.
 	// > Field-to-curve call expects `64` bytes an an input that is interpreted as a an element of the base field.
 	// > Output of this call is `128` bytes and is G1 point following respective encoding rules.
 	if len(input) != 64 {
@@ -972,7 +972,7 @@ func (c *bls12381MapG1) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381MapG2 implements Protocol-2537 MapG2 precompile.
+// bls12381MapG2 implements BLS12-381 MapG2 precompile.
 type bls12381MapG2 struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -981,7 +981,7 @@ func (c *bls12381MapG2) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
-	// Implements Protocol-2537 Map_FP2_TO_G2 precompile logic.
+	// Implements BLS12-381 Map_FP2_TO_G2 precompile logic.
 	// > Field-to-curve call expects `128` bytes an an input that is interpreted as a an element of the quadratic extension field.
 	// > Output of this call is `256` bytes and is G2 point following respective encoding rules.
 	if len(input) != 128 {

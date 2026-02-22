@@ -590,9 +590,9 @@ func NewBlockChainAPI(b Backend) *BlockChainAPI {
 	return &BlockChainAPI{b}
 }
 
-// ChainId is the replay-protected replay-protection chain id for the current TOS chain config.
+// ChainId is the replay-protected chain id for the current TOS chain config.
 //
-// Note, this method does not conform to Protocol-695 because the configured chain ID is always
+// Note, this method does not conform to legacy signing RPC behavior because the configured chain ID is always
 // returned, regardless of the current head block. We used to return an error when the chain
 // wasn't synced up to a block where replay-protected is enabled, but this behavior caused issues
 // in CL clients.

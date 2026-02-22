@@ -568,7 +568,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	case types.LegacyTxType, types.AccessListTxType:
 		// typed envelopes are always enabled.
 	case types.DynamicFeeTxType:
-		// dynamic-fee dynamic fee transactions are not supported in GTOS.
+		// Dynamic-fee transactions are not supported in GTOS.
 		return ErrTxTypeNotSupported
 	default:
 		return ErrTxTypeNotSupported

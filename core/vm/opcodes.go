@@ -105,7 +105,7 @@ const (
 	JUMPDEST OpCode = 0x5b
 )
 
-// Push opcodes (Protocol-3855)
+// Push opcodes (PUSH0 rules)
 const (
 	PUSH0 OpCode = 0x5f
 )

@@ -132,7 +132,7 @@ func (s *UIServerAPI) OpenWallet(url string, passphrase *string) error {
 	return wallet.Open(pass)
 }
 
-// ChainId returns the chainid in use for Protocol-155 replay protection
+// ChainId returns the chain id used for replay protection.
 // Example call
 // {"jsonrpc":"2.0","method":"clef_chainId","params":[], "id":8}
 func (s *UIServerAPI) ChainId() math.HexOrDecimal64 {

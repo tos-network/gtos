@@ -137,8 +137,8 @@ type Signer interface {
 type londonSigner struct{ accessListSigner }
 
 // NewLondonSigner returns a signer that accepts
-// - dynamic-fee dynamic fee transactions
-// - access-list access list transactions,
+// - dynamic-fee transactions
+// - access-list transactions,
 // - replay-protected transactions, and
 // - legacy transactions with replay protection.
 func NewLondonSigner(chainId *big.Int) Signer {
@@ -202,7 +202,7 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 
 type accessListSigner struct{ ReplayProtectedSigner }
 
-// New access-list signer constructor accepts access-list access list transactions,
+// New access-list signer constructor accepts access-list transactions,
 // replay-protected transactions, and replay-protected legacy transactions.
 func NewAccessListSigner(chainId *big.Int) Signer {
 	return accessListSigner{NewReplayProtectedSigner(chainId)}

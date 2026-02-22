@@ -238,7 +238,7 @@ func (s *StateDB) Exist(addr common.Address) bool {
 }
 
 // Empty returns whether the state object is either non-existent
-// or empty according to the Protocol161 specification (balance = nonce = code = 0)
+// or empty according to the empty-account rule (balance = nonce = code = 0)
 func (s *StateDB) Empty(addr common.Address) bool {
 	so := s.getStateObject(addr)
 	return so == nil || so.empty()
@@ -978,7 +978,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 }
 
 // PrepareAccessList handles the preparatory steps for executing a state transition with
-// regards to both Protocol-2929 and Protocol-2930:
+// regards to both access-list warm/cold access rules and access-list transaction rules:
 //
 // - Add sender to access list (2929)
 // - Add destination to access list (2929)

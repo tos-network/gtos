@@ -276,7 +276,7 @@ func TestHashStruct(t *testing.T) {
 		t.Error(err)
 	}
 	domainHash := fmt.Sprintf("0x%s", common.Bytes2Hex(hash))
-	if domainHash != "0xb891ad6623dc73c45625b4044929f9e994590d53d100feb5bfb7127f1a4e4f29" {
+	if domainHash != "0xf9126802fccb5e8c2339e1ef42405700d3b69180eb2c3a61a79fae61b8dd1e7f" {
 		t.Errorf("Expected different domain hashStruct result (got %s)", domainHash)
 	}
 }
@@ -484,7 +484,7 @@ var gnosisTx = `
     }
 `
 
-// TestGnosisTypedData tests the scenario where a user submits a full Protocol-712
+// TestGnosisTypedData tests the scenario where a user submits a full typed-signing payload.
 // struct without using the gnosis-specific endpoint
 func TestGnosisTypedData(t *testing.T) {
 	var td apitypes.TypedData
@@ -496,7 +496,7 @@ func TestGnosisTypedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expSigHash := common.FromHex("0x28bae2bd58d894a1d9b69e5e9fde3570c4b98a6fc5499aefb54fb830137e831f")
+	expSigHash := common.FromHex("0xbc9c58b46521e262150a7ca42d9148146c97a384fe8486d206954c71b45b0d74")
 	if !bytes.Equal(expSigHash, sighash) {
 		t.Fatalf("Error, got %x, wanted %x", sighash, expSigHash)
 	}
@@ -515,7 +515,7 @@ func TestGnosisCustomData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expSigHash := common.FromHex("0x28bae2bd58d894a1d9b69e5e9fde3570c4b98a6fc5499aefb54fb830137e831f")
+	expSigHash := common.FromHex("0xbc9c58b46521e262150a7ca42d9148146c97a384fe8486d206954c71b45b0d74")
 	if !bytes.Equal(expSigHash, sighash) {
 		t.Fatalf("Error, got %x, wanted %x", sighash, expSigHash)
 	}
@@ -626,7 +626,7 @@ func TestGnosisTypedDataWithChainId(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expSigHash := common.FromHex("0x6619dab5401503f2735256e12b898e69eb701d6a7e0d07abf1be4bb8aebfba29")
+	expSigHash := common.FromHex("0x9f3a17598029f4d5ad8bdbadc910fb87dd6f00e184edbed740ec421931702433")
 	if !bytes.Equal(expSigHash, sighash) {
 		t.Fatalf("Error, got %x, wanted %x", sighash, expSigHash)
 	}
@@ -645,7 +645,7 @@ func TestGnosisCustomDataWithChainId(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expSigHash := common.FromHex("0x6619dab5401503f2735256e12b898e69eb701d6a7e0d07abf1be4bb8aebfba29")
+	expSigHash := common.FromHex("0x9f3a17598029f4d5ad8bdbadc910fb87dd6f00e184edbed740ec421931702433")
 	if !bytes.Equal(expSigHash, sighash) {
 		t.Fatalf("Error, got %x, wanted %x", sighash, expSigHash)
 	}
@@ -795,7 +795,7 @@ func TestComplexTypedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expSigHash := common.FromHex("0x42b1aca82bb6900ff75e90a136de550a58f1a220a071704088eabd5e6ce20446")
+	expSigHash := common.FromHex("0x48785996d86d8406b70f55ca11a0b5622b0885b4cb1dd78568b755e8d21ef7fb")
 	if !bytes.Equal(expSigHash, sighash) {
 		t.Fatalf("Error, got %x, wanted %x", sighash, expSigHash)
 	}

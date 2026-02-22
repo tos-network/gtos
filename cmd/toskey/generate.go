@@ -14,8 +14,7 @@ import (
 )
 
 type outputGenerate struct {
-	Address           string
-	AddressProtocol55 string
+	Address string
 }
 
 var (

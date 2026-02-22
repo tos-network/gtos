@@ -441,8 +441,8 @@ func TestUDPv4_successfulPing(t *testing.T) {
 	}
 }
 
-// This test checks that Protocol-868 requests work.
-func TestUDPv4_Protocol868(t *testing.T) {
+// This test checks that ENR sequence requests work.
+func TestUDPv4_ENRSequenceRequest(t *testing.T) {
 	test := newUDPTest(t)
 	defer test.close()
 

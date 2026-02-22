@@ -93,7 +93,7 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		sighash, msg := SignTextValidator(validatorData)
 		messages := []*apitypes.NameValueType{
 			{
-				Name:  "This is a request to sign data intended for a particular validator (see Protocol 191 version 0)",
+				Name:  "This is a request to sign data intended for a particular validator (version 0 format)",
 				Typ:   "description",
 				Value: "",
 			},
@@ -149,7 +149,7 @@ func SignTextValidator(validatorData apitypes.ValidatorData) (hexutil.Bytes, str
 	return crypto.Keccak256([]byte(msg)), msg
 }
 
-// SignTypedData signs Protocol-712 conformant typed data
+// SignTypedData signs typed-signing data.
 // hash = keccak256("\x19${byteVersion}${domainSeparator}${hashStruct(message)}")
 // It returns
 // - the signature,

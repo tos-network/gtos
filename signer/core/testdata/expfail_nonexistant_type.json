@@ -1,6 +1,6 @@
 {
   "types": {
-    "EIP712Domain": [
+    "TypedDataDomain": [
       {
         "name": "name",
         "type": "string"

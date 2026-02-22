@@ -113,7 +113,7 @@ func (b *BlockGen) Number() *big.Int {
 	return new(big.Int).Set(b.header.Number)
 }
 
-// BaseFee returns the Protocol-1559 base fee of the block being generated.
+// BaseFee returns the dynamic-fee base fee of the block being generated.
 func (b *BlockGen) BaseFee() *big.Int {
 	return new(big.Int).Set(b.header.BaseFee)
 }

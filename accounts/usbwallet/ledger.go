@@ -36,7 +36,7 @@ const (
 	ledgerOpRetrieveAddress  ledgerOpcode = 0x02 // Returns the public key and TOS address for a given BIP 32 path
 	ledgerOpSignTransaction  ledgerOpcode = 0x04 // Signs an TOS transaction after having the user validate the parameters
 	ledgerOpGetConfiguration ledgerOpcode = 0x06 // Returns specific wallet application configuration
-	ledgerOpSignTypedMessage ledgerOpcode = 0x0c // Signs an TOS message following the Protocol 712 specification
+	ledgerOpSignTypedMessage ledgerOpcode = 0x0c // Signs a TOS message using typed-signing format
 
 	ledgerP1DirectlyFetchAddress    ledgerParam1 = 0x00 // Return address directly from the wallet
 	ledgerP1InitTypedMessageData    ledgerParam1 = 0x00 // First chunk of Typed Message data
@@ -170,7 +170,7 @@ func (w *ledgerDriver) SignTypedMessage(path accounts.DerivationPath, domainHash
 	// Ensure the wallet is capable of signing the given transaction
 	if w.version[0] < 1 && w.version[1] < 5 {
 		//lint:ignore ST1005 brand name displayed on the console
-		return nil, fmt.Errorf("Ledger version >= 1.5.0 required for Protocol-712 signing (found version v%d.%d.%d)", w.version[0], w.version[1], w.version[2])
+		return nil, fmt.Errorf("Ledger version >= 1.5.0 required for typed-data signing (found version v%d.%d.%d)", w.version[0], w.version[1], w.version[2])
 	}
 	// All infos gathered and metadata checks out, request signing
 	return w.ledgerSignTypedMessage(path, domainHash, messageHash)
