@@ -20,6 +20,161 @@ type Client struct {
 	c *rpc.Client
 }
 
+// ChainProfile describes chain identity and retention profile.
+type ChainProfile struct {
+	ChainID               *big.Int
+	NetworkID             *big.Int
+	TargetBlockIntervalMs uint64
+	RetainBlocks          uint64
+	SnapshotInterval      uint64
+}
+
+// RetentionPolicy describes current retention window and watermark.
+type RetentionPolicy struct {
+	RetainBlocks         uint64
+	SnapshotInterval     uint64
+	HeadBlock            uint64
+	OldestAvailableBlock uint64
+}
+
+// PruneWatermark reports queryable history watermark.
+type PruneWatermark struct {
+	HeadBlock            uint64
+	OldestAvailableBlock uint64
+	RetainBlocks         uint64
+}
+
+// SignerDescriptor describes the effective signer identity for an account.
+type SignerDescriptor struct {
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Defaulted bool   `json:"defaulted"`
+}
+
+// AccountProfile contains account state and signer at a specific block.
+type AccountProfile struct {
+	Address     common.Address
+	Nonce       uint64
+	Balance     *big.Int
+	Signer      SignerDescriptor
+	BlockNumber uint64
+}
+
+// SignerProfile contains signer view at a specific block.
+type SignerProfile struct {
+	Address     common.Address
+	Signer      SignerDescriptor
+	BlockNumber uint64
+}
+
+// SetSignerArgs is the argument object for tos_setSigner.
+type SetSignerArgs struct {
+	From        common.Address  `json:"from"`
+	SignerType  string          `json:"signerType"`
+	SignerValue string          `json:"signerValue"`
+	Nonce       *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas         *hexutil.Uint64 `json:"gas,omitempty"`
+	GasPrice    *hexutil.Big    `json:"gasPrice,omitempty"`
+}
+
+// BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
+type BuildSetSignerTxResult struct {
+	Tx  map[string]interface{} `json:"tx"`
+	Raw hexutil.Bytes          `json:"raw"`
+}
+
+// PutCodeTTLArgs is the argument object for tos_putCodeTTL.
+type PutCodeTTLArgs struct {
+	From     common.Address  `json:"from"`
+	Nonce    *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas      *hexutil.Uint64 `json:"gas,omitempty"`
+	GasPrice *hexutil.Big    `json:"gasPrice,omitempty"`
+	Code     hexutil.Bytes   `json:"code"`
+	TTL      hexutil.Uint64  `json:"ttl"`
+}
+
+// CodeObject describes a code record and ttl metadata.
+type CodeObject struct {
+	CodeHash  common.Hash
+	Code      []byte
+	CreatedAt uint64
+	ExpireAt  uint64
+	Expired   bool
+}
+
+// CodeObjectMeta describes code metadata without payload.
+type CodeObjectMeta struct {
+	CodeHash  common.Hash
+	CreatedAt uint64
+	ExpireAt  uint64
+	Expired   bool
+}
+
+// PutKVTTLArgs is the argument object for tos_putKVTTL.
+type PutKVTTLArgs struct {
+	From      common.Address  `json:"from"`
+	Nonce     *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas       *hexutil.Uint64 `json:"gas,omitempty"`
+	GasPrice  *hexutil.Big    `json:"gasPrice,omitempty"`
+	Namespace string          `json:"namespace"`
+	Key       hexutil.Bytes   `json:"key"`
+	Value     hexutil.Bytes   `json:"value"`
+	TTL       hexutil.Uint64  `json:"ttl"`
+}
+
+// KVResult is an active KV read result.
+type KVResult struct {
+	Namespace string
+	Key       []byte
+	Value     []byte
+}
+
+// KVMetaResult is KV metadata result.
+type KVMetaResult struct {
+	Namespace string
+	Key       []byte
+	CreatedAt uint64
+	ExpireAt  uint64
+	Expired   bool
+}
+
+// ListKVItem is one KV list item.
+type ListKVItem struct {
+	Namespace string
+	Key       []byte
+	Value     []byte
+}
+
+// ListKVResult is the listKV page result.
+type ListKVResult struct {
+	Items      []ListKVItem
+	NextCursor *string
+}
+
+// DPoSValidatorInfo is validator status at a specific block.
+type DPoSValidatorInfo struct {
+	Address            common.Address
+	Active             bool
+	Index              *uint
+	SnapshotBlock      uint64
+	SnapshotHash       common.Hash
+	RecentSignedBlocks []uint64
+}
+
+// DPoSEpochInfo is epoch context at a specific block.
+type DPoSEpochInfo struct {
+	BlockNumber        uint64
+	EpochLength        uint64
+	EpochIndex         uint64
+	EpochStart         uint64
+	NextEpochStart     uint64
+	BlocksUntilEpoch   uint64
+	TargetBlockPeriodS uint64
+	MaxValidators      uint64
+	ValidatorCount     uint64
+	SnapshotHash       common.Hash
+}
+
 // Dial connects a client to the given URL.
 func Dial(rawurl string) (*Client, error) {
 	return DialContext(context.Background(), rawurl)
@@ -52,6 +207,310 @@ func (ec *Client) ChainID(ctx context.Context) (*big.Int, error) {
 		return nil, err
 	}
 	return (*big.Int)(&result), err
+}
+
+// GetChainProfile returns chain identity and retention profile.
+func (ec *Client) GetChainProfile(ctx context.Context) (*ChainProfile, error) {
+	var raw struct {
+		ChainID               *hexutil.Big   `json:"chainId"`
+		NetworkID             *hexutil.Big   `json:"networkId"`
+		TargetBlockIntervalMs hexutil.Uint64 `json:"targetBlockIntervalMs"`
+		RetainBlocks          hexutil.Uint64 `json:"retainBlocks"`
+		SnapshotInterval      hexutil.Uint64 `json:"snapshotInterval"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getChainProfile"); err != nil {
+		return nil, err
+	}
+	return &ChainProfile{
+		ChainID:               bigFromHex(raw.ChainID),
+		NetworkID:             bigFromHex(raw.NetworkID),
+		TargetBlockIntervalMs: uint64(raw.TargetBlockIntervalMs),
+		RetainBlocks:          uint64(raw.RetainBlocks),
+		SnapshotInterval:      uint64(raw.SnapshotInterval),
+	}, nil
+}
+
+// GetRetentionPolicy returns retention settings and current history watermark.
+func (ec *Client) GetRetentionPolicy(ctx context.Context) (*RetentionPolicy, error) {
+	var raw struct {
+		RetainBlocks         hexutil.Uint64 `json:"retainBlocks"`
+		SnapshotInterval     hexutil.Uint64 `json:"snapshotInterval"`
+		HeadBlock            hexutil.Uint64 `json:"headBlock"`
+		OldestAvailableBlock hexutil.Uint64 `json:"oldestAvailableBlock"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getRetentionPolicy"); err != nil {
+		return nil, err
+	}
+	return &RetentionPolicy{
+		RetainBlocks:         uint64(raw.RetainBlocks),
+		SnapshotInterval:     uint64(raw.SnapshotInterval),
+		HeadBlock:            uint64(raw.HeadBlock),
+		OldestAvailableBlock: uint64(raw.OldestAvailableBlock),
+	}, nil
+}
+
+// GetPruneWatermark returns the current pruning watermark.
+func (ec *Client) GetPruneWatermark(ctx context.Context) (*PruneWatermark, error) {
+	var raw struct {
+		HeadBlock            hexutil.Uint64 `json:"headBlock"`
+		OldestAvailableBlock hexutil.Uint64 `json:"oldestAvailableBlock"`
+		RetainBlocks         hexutil.Uint64 `json:"retainBlocks"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getPruneWatermark"); err != nil {
+		return nil, err
+	}
+	return &PruneWatermark{
+		HeadBlock:            uint64(raw.HeadBlock),
+		OldestAvailableBlock: uint64(raw.OldestAvailableBlock),
+		RetainBlocks:         uint64(raw.RetainBlocks),
+	}, nil
+}
+
+// GetAccount returns account profile for a block (latest when blockNumber is nil).
+func (ec *Client) GetAccount(ctx context.Context, address common.Address, blockNumber *big.Int) (*AccountProfile, error) {
+	var raw struct {
+		Address     common.Address   `json:"address"`
+		Nonce       hexutil.Uint64   `json:"nonce"`
+		Balance     *hexutil.Big     `json:"balance"`
+		Signer      SignerDescriptor `json:"signer"`
+		BlockNumber hexutil.Uint64   `json:"blockNumber"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getAccount", address, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &AccountProfile{
+		Address:     raw.Address,
+		Nonce:       uint64(raw.Nonce),
+		Balance:     bigFromHex(raw.Balance),
+		Signer:      raw.Signer,
+		BlockNumber: uint64(raw.BlockNumber),
+	}, nil
+}
+
+// GetSigner returns signer profile for a block (latest when blockNumber is nil).
+func (ec *Client) GetSigner(ctx context.Context, address common.Address, blockNumber *big.Int) (*SignerProfile, error) {
+	var raw struct {
+		Address     common.Address   `json:"address"`
+		Signer      SignerDescriptor `json:"signer"`
+		BlockNumber hexutil.Uint64   `json:"blockNumber"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getSigner", address, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &SignerProfile{
+		Address:     raw.Address,
+		Signer:      raw.Signer,
+		BlockNumber: uint64(raw.BlockNumber),
+	}, nil
+}
+
+// SetSigner submits a signer-change operation transaction.
+func (ec *Client) SetSigner(ctx context.Context, args SetSignerArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_setSigner", args)
+	return txHash, err
+}
+
+// BuildSetSignerTx builds an unsigned signer-change transaction payload.
+func (ec *Client) BuildSetSignerTx(ctx context.Context, args SetSignerArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildSetSignerTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PutCodeTTL submits a code-storage write with ttl.
+func (ec *Client) PutCodeTTL(ctx context.Context, args PutCodeTTLArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_putCodeTTL", args)
+	return txHash, err
+}
+
+// GetCodeObject returns a code object by hash.
+func (ec *Client) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNumber *big.Int) (*CodeObject, error) {
+	var raw struct {
+		CodeHash  common.Hash    `json:"codeHash"`
+		Code      hexutil.Bytes  `json:"code"`
+		CreatedAt hexutil.Uint64 `json:"createdAt"`
+		ExpireAt  hexutil.Uint64 `json:"expireAt"`
+		Expired   bool           `json:"expired"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getCodeObject", codeHash, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &CodeObject{
+		CodeHash:  raw.CodeHash,
+		Code:      []byte(raw.Code),
+		CreatedAt: uint64(raw.CreatedAt),
+		ExpireAt:  uint64(raw.ExpireAt),
+		Expired:   raw.Expired,
+	}, nil
+}
+
+// GetCodeObjectMeta returns metadata for a code object.
+func (ec *Client) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, blockNumber *big.Int) (*CodeObjectMeta, error) {
+	var raw struct {
+		CodeHash  common.Hash    `json:"codeHash"`
+		CreatedAt hexutil.Uint64 `json:"createdAt"`
+		ExpireAt  hexutil.Uint64 `json:"expireAt"`
+		Expired   bool           `json:"expired"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getCodeObjectMeta", codeHash, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &CodeObjectMeta{
+		CodeHash:  raw.CodeHash,
+		CreatedAt: uint64(raw.CreatedAt),
+		ExpireAt:  uint64(raw.ExpireAt),
+		Expired:   raw.Expired,
+	}, nil
+}
+
+// PutKVTTL submits a KV upsert with ttl.
+func (ec *Client) PutKVTTL(ctx context.Context, args PutKVTTLArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_putKVTTL", args)
+	return txHash, err
+}
+
+// GetKV reads an active KV value.
+func (ec *Client) GetKV(ctx context.Context, namespace string, key []byte, blockNumber *big.Int) (*KVResult, error) {
+	var raw struct {
+		Namespace string        `json:"namespace"`
+		Key       hexutil.Bytes `json:"key"`
+		Value     hexutil.Bytes `json:"value"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getKV", namespace, hexutil.Bytes(key), toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &KVResult{
+		Namespace: raw.Namespace,
+		Key:       []byte(raw.Key),
+		Value:     []byte(raw.Value),
+	}, nil
+}
+
+// GetKVMeta reads KV metadata.
+func (ec *Client) GetKVMeta(ctx context.Context, namespace string, key []byte, blockNumber *big.Int) (*KVMetaResult, error) {
+	var raw struct {
+		Namespace string         `json:"namespace"`
+		Key       hexutil.Bytes  `json:"key"`
+		CreatedAt hexutil.Uint64 `json:"createdAt"`
+		ExpireAt  hexutil.Uint64 `json:"expireAt"`
+		Expired   bool           `json:"expired"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getKVMeta", namespace, hexutil.Bytes(key), toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &KVMetaResult{
+		Namespace: raw.Namespace,
+		Key:       []byte(raw.Key),
+		CreatedAt: uint64(raw.CreatedAt),
+		ExpireAt:  uint64(raw.ExpireAt),
+		Expired:   raw.Expired,
+	}, nil
+}
+
+// ListKV lists KV entries under a namespace.
+func (ec *Client) ListKV(ctx context.Context, namespace string, cursor *string, limit *uint64, blockNumber *big.Int) (*ListKVResult, error) {
+	var raw struct {
+		Items []struct {
+			Namespace string        `json:"namespace"`
+			Key       hexutil.Bytes `json:"key"`
+			Value     hexutil.Bytes `json:"value"`
+		} `json:"items"`
+		NextCursor *string `json:"nextCursor"`
+	}
+	var limitArg *hexutil.Uint64
+	if limit != nil {
+		v := hexutil.Uint64(*limit)
+		limitArg = &v
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_listKV", namespace, cursor, limitArg, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	items := make([]ListKVItem, len(raw.Items))
+	for i := range raw.Items {
+		items[i] = ListKVItem{
+			Namespace: raw.Items[i].Namespace,
+			Key:       []byte(raw.Items[i].Key),
+			Value:     []byte(raw.Items[i].Value),
+		}
+	}
+	return &ListKVResult{Items: items, NextCursor: raw.NextCursor}, nil
+}
+
+// DPoSGetValidators returns active validators at the requested block.
+func (ec *Client) DPoSGetValidators(ctx context.Context, blockNumber *big.Int) ([]common.Address, error) {
+	var out []common.Address
+	if err := ec.c.CallContext(ctx, &out, "dpos_getValidators", toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DPoSGetValidator returns validator status at the requested block.
+func (ec *Client) DPoSGetValidator(ctx context.Context, address common.Address, blockNumber *big.Int) (*DPoSValidatorInfo, error) {
+	var raw struct {
+		Address            common.Address   `json:"address"`
+		Active             bool             `json:"active"`
+		Index              *hexutil.Uint    `json:"index"`
+		SnapshotBlock      hexutil.Uint64   `json:"snapshotBlock"`
+		SnapshotHash       common.Hash      `json:"snapshotHash"`
+		RecentSignedBlocks []hexutil.Uint64 `json:"recentSignedBlocks"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "dpos_getValidator", address, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	var idx *uint
+	if raw.Index != nil {
+		v := uint(*raw.Index)
+		idx = &v
+	}
+	recent := make([]uint64, len(raw.RecentSignedBlocks))
+	for i := range raw.RecentSignedBlocks {
+		recent[i] = uint64(raw.RecentSignedBlocks[i])
+	}
+	return &DPoSValidatorInfo{
+		Address:            raw.Address,
+		Active:             raw.Active,
+		Index:              idx,
+		SnapshotBlock:      uint64(raw.SnapshotBlock),
+		SnapshotHash:       raw.SnapshotHash,
+		RecentSignedBlocks: recent,
+	}, nil
+}
+
+// DPoSGetEpochInfo returns epoch context at the requested block.
+func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*DPoSEpochInfo, error) {
+	var raw struct {
+		BlockNumber        hexutil.Uint64 `json:"blockNumber"`
+		EpochLength        hexutil.Uint64 `json:"epochLength"`
+		EpochIndex         hexutil.Uint64 `json:"epochIndex"`
+		EpochStart         hexutil.Uint64 `json:"epochStart"`
+		NextEpochStart     hexutil.Uint64 `json:"nextEpochStart"`
+		BlocksUntilEpoch   hexutil.Uint64 `json:"blocksUntilEpoch"`
+		TargetBlockPeriodS hexutil.Uint64 `json:"targetBlockPeriodS"`
+		MaxValidators      hexutil.Uint64 `json:"maxValidators"`
+		ValidatorCount     hexutil.Uint64 `json:"validatorCount"`
+		SnapshotHash       common.Hash    `json:"snapshotHash"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "dpos_getEpochInfo", toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &DPoSEpochInfo{
+		BlockNumber:        uint64(raw.BlockNumber),
+		EpochLength:        uint64(raw.EpochLength),
+		EpochIndex:         uint64(raw.EpochIndex),
+		EpochStart:         uint64(raw.EpochStart),
+		NextEpochStart:     uint64(raw.NextEpochStart),
+		BlocksUntilEpoch:   uint64(raw.BlocksUntilEpoch),
+		TargetBlockPeriodS: uint64(raw.TargetBlockPeriodS),
+		MaxValidators:      uint64(raw.MaxValidators),
+		ValidatorCount:     uint64(raw.ValidatorCount),
+		SnapshotHash:       raw.SnapshotHash,
+	}, nil
 }
 
 // BlockByHash returns the given full block.
@@ -555,6 +1014,13 @@ func toBlockNumArg(number *big.Int) string {
 		return "pending"
 	}
 	return hexutil.EncodeBig(number)
+}
+
+func bigFromHex(value *hexutil.Big) *big.Int {
+	if value == nil {
+		return nil
+	}
+	return new(big.Int).Set((*big.Int)(value))
 }
 
 func toCallArg(msg gtos.CallMsg) interface{} {
