@@ -36,7 +36,7 @@ type rpcExtTestService struct {
 
 	lastSetSignerArgs    SetSignerArgs
 	lastBuildSignerArgs  SetSignerArgs
-	lastPutCodeTTLArgs   PutCodeTTLArgs
+	lastSetCodeArgs      SetCodeArgs
 	lastPutKVTTLArgs     PutKVTTLArgs
 	lastDPoSQueryAddress common.Address
 	lastDPoSQueryBlock   string
@@ -129,8 +129,8 @@ func (s *rpcExtTestService) BuildSetSignerTx(args SetSignerArgs) interface{} {
 	}
 }
 
-func (s *rpcExtTestService) PutCodeTTL(args PutCodeTTLArgs) common.Hash {
-	s.lastPutCodeTTLArgs = args
+func (s *rpcExtTestService) SetCode(args SetCodeArgs) common.Hash {
+	s.lastSetCodeArgs = args
 	return common.HexToHash("0x2")
 }
 
@@ -413,16 +413,19 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		t.Fatalf("unexpected buildSetSignerTx result: %+v", tx)
 	}
 
-	codeHash, err := client.PutCodeTTL(ctx, PutCodeTTLArgs{
+	codeHash, err := client.SetCode(ctx, SetCodeArgs{
 		From: from,
 		Code: hexutil.Bytes{0x60, 0x00},
 		TTL:  hexutil.Uint64(600),
 	})
 	if err != nil {
-		t.Fatalf("PutCodeTTL error: %v", err)
+		t.Fatalf("SetCode error: %v", err)
 	}
 	if codeHash != common.HexToHash("0x2") {
-		t.Fatalf("unexpected putCodeTTL hash: %s", codeHash.Hex())
+		t.Fatalf("unexpected setCode hash: %s", codeHash.Hex())
+	}
+	if svc.lastSetCodeArgs.From != from || svc.lastSetCodeArgs.TTL != hexutil.Uint64(600) {
+		t.Fatalf("setCode args were not forwarded: %+v", svc.lastSetCodeArgs)
 	}
 
 	kvHash, err := client.PutKVTTL(ctx, PutKVTTLArgs{

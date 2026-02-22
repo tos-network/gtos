@@ -137,11 +137,11 @@ func TestPutKVTTLValidation(t *testing.T) {
 	}
 }
 
-func TestPutCodeTTLValidation(t *testing.T) {
+func TestSetCodeValidation(t *testing.T) {
 	api := &TOSAPI{}
 	var err error
 
-	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
 		Code: hexutil.Bytes{0x60, 0x00},
 		TTL:  1,
 	})
@@ -156,7 +156,7 @@ func TestPutCodeTTLValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
 	}
 
-	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		Code:            hexutil.Bytes{0x60, 0x00},
 		TTL:             0,

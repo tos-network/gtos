@@ -1538,8 +1538,7 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 	}
 
 	if tx.To() == nil {
-		addr := crypto.CreateAddress(from, tx.Nonce())
-		log.Info("Submitted contract creation", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "contract", addr.Hex(), "value", tx.Value())
+		log.Info("Submitted setCode transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "value", tx.Value())
 	} else {
 		log.Info("Submitted transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "recipient", tx.To(), "value", tx.Value())
 	}
@@ -1995,7 +1994,7 @@ type RPCBuildTxResult struct {
 	Raw hexutil.Bytes          `json:"raw"`
 }
 
-type RPCPutCodeTTLArgs struct {
+type RPCSetCodeArgs struct {
 	RPCTxCommonArgs
 	Code hexutil.Bytes  `json:"code"`
 	TTL  hexutil.Uint64 `json:"ttl"`
@@ -2222,8 +2221,7 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 	return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
 }
 
-func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common.Hash, error) {
-	_ = ctx
+func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash, error) {
 	if args.From == (common.Address{}) {
 		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
 	}
@@ -2240,7 +2238,50 @@ func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common
 			},
 		}
 	}
-	return common.Hash{}, newRPCNotImplementedError("tos_putCodeTTL")
+	// Keep validation-only behavior for tests or dry skeleton instances.
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_setCode")
+	}
+	payload, err := core.EncodeSetCodePayload(uint64(args.TTL), args.Code)
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("ttl", "invalid setCode payload")
+	}
+	// Build a creation-style transaction (to=nil), reserved by GTOS for setCode payload.
+	input := hexutil.Bytes(payload)
+	from := args.From
+	zero := hexutil.Big{}
+	txArgs := TransactionArgs{
+		From:     &from,
+		To:       nil,
+		Gas:      args.Gas,
+		GasPrice: args.GasPrice,
+		Value:    &zero,
+		Nonce:    args.Nonce,
+		Input:    &input,
+		// Internal-only bypass: tos_setCode is the only RPC that may build to=nil tx.
+		allowSetCodeCreation: true,
+	}
+	if txArgs.Gas == nil {
+		intrinsic, gasErr := core.IntrinsicGas(payload, nil, true, true, true)
+		if gasErr != nil {
+			return common.Hash{}, gasErr
+		}
+		gas := hexutil.Uint64(intrinsic)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
 }
 
 func (s *TOSAPI) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCCodeObject, error) {

@@ -554,8 +554,8 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
-			name: 'putCodeTTL',
-			call: 'tos_putCodeTTL',
+			name: 'setCode',
+			call: 'tos_setCode',
 			params: 1
 		}),
 		new web3._extend.Method({

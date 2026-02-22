@@ -85,6 +85,8 @@ func (result *ExecutionResult) Revert() []byte {
 // call a smart contract, which is not supported in GTOS.
 var ErrContractNotSupported = errors.New("smart contract execution not supported in GTOS")
 
+var ErrCodeAlreadyActive = errors.New("active code already exists")
+
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
 func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isReducedDataGas bool) (uint64, error) {
 	var gas uint64
@@ -186,10 +188,13 @@ func (st *StateTransition) preCheck() error {
 			return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
 				st.msg.From().Hex(), stNonce)
 		}
-		// Sender must be an EOA (no contract code)
-		if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
-			return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
-				st.msg.From().Hex(), codeHash)
+		// Sender must be an EOA for non-creation transactions.
+		// The to==nil path is reserved for setCode payload transactions.
+		if st.msg.To() != nil {
+			if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
+				return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
+					st.msg.From().Hex(), codeHash)
+			}
 		}
 	}
 	return st.buyGas()
@@ -198,7 +203,7 @@ func (st *StateTransition) preCheck() error {
 // TransitionDb transitions the state by applying the current message.
 //
 // GTOS transaction rules:
-//  1. Contract creation (To == nil): rejected
+//  1. Contract creation branch (To == nil): reserved for setCode payload transaction.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
 //  4. Transactions with non-empty data to non-system addresses: rejected
@@ -211,6 +216,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		msg              = st.msg
 		contractCreation = msg.To() == nil
 	)
+
+	// Increment nonce for all real transactions.
+	st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
 
 	// Subtract intrinsic gas
 	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, true, true)
@@ -225,12 +233,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		// Contract creation is not supported in GTOS
-		vmerr = ErrContractNotSupported
+		vmerr = st.applySetCode(msg)
 	} else {
-		// Increment nonce
-		st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
-
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
@@ -279,6 +283,41 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		Err:        vmerr,
 		ReturnData: nil,
 	}, nil
+}
+
+func uint64ToStateWord(v uint64) common.Hash {
+	return common.BigToHash(new(big.Int).SetUint64(v))
+}
+
+func stateWordToUint64(h common.Hash) uint64 {
+	return new(big.Int).SetBytes(h.Bytes()).Uint64()
+}
+
+func (st *StateTransition) applySetCode(msg Message) error {
+	if msg.Value() != nil && msg.Value().Sign() != 0 {
+		return ErrContractNotSupported
+	}
+	payload, err := DecodeSetCodePayload(st.data)
+	if err != nil {
+		return ErrContractNotSupported
+	}
+	if len(payload.Code) > int(params.MaxCodeSize) {
+		return ErrContractNotSupported
+	}
+	currentBlock := st.blockCtx.BlockNumber.Uint64()
+	if payload.TTL > math.MaxUint64-currentBlock {
+		return ErrContractNotSupported
+	}
+	from := msg.From()
+	expireAt := stateWordToUint64(st.state.GetState(from, SetCodeExpireAtSlot))
+	code := st.state.GetCode(from)
+	if len(code) > 0 && (expireAt == 0 || currentBlock < expireAt) {
+		return ErrCodeAlreadyActive
+	}
+	st.state.SetCode(from, payload.Code)
+	st.state.SetState(from, SetCodeCreatedAtSlot, uint64ToStateWord(currentBlock))
+	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(currentBlock+payload.TTL))
+	return nil
 }
 
 func (st *StateTransition) refundGas(refundQuotient uint64) {

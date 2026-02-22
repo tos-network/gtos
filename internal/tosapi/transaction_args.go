@@ -36,6 +36,10 @@ type TransactionArgs struct {
 	// Legacy compatibility fields from typed transactions.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
+
+	// Internal control flag (not exposed via JSON-RPC):
+	// allow to=nil only for tos_setCode-owned construction path.
+	allowSetCodeCreation bool
 }
 
 // from retrieves the transaction sender address.
@@ -75,8 +79,13 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if args.Data != nil && args.Input != nil && !bytes.Equal(*args.Data, *args.Input) {
 		return errors.New(`both "data" and "input" are set and not equal. Please use "input" to pass transaction call data`)
 	}
-	if args.To == nil && len(args.data()) == 0 {
-		return errors.New(`contract creation without any data provided`)
+	if args.To == nil {
+		if !args.allowSetCodeCreation {
+			return errors.New(`to=nil is reserved for tos_setCode; use tos_setCode instead`)
+		}
+		if len(args.data()) == 0 {
+			return errors.New(`setCode requires non-empty input data`)
+		}
 	}
 	// Estimate the gas usage if necessary.
 	if args.Gas == nil {

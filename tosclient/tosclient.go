@@ -83,8 +83,8 @@ type BuildSetSignerTxResult struct {
 	Raw hexutil.Bytes          `json:"raw"`
 }
 
-// PutCodeTTLArgs is the argument object for tos_putCodeTTL.
-type PutCodeTTLArgs struct {
+// SetCodeArgs is the argument object for tos_setCode.
+type SetCodeArgs struct {
 	From     common.Address  `json:"from"`
 	Nonce    *hexutil.Uint64 `json:"nonce,omitempty"`
 	Gas      *hexutil.Uint64 `json:"gas,omitempty"`
@@ -307,10 +307,10 @@ func (ec *Client) BuildSetSignerTx(ctx context.Context, args SetSignerArgs) (*Bu
 	return &out, nil
 }
 
-// PutCodeTTL submits a code-storage write with ttl.
-func (ec *Client) PutCodeTTL(ctx context.Context, args PutCodeTTLArgs) (common.Hash, error) {
+// SetCode submits a code-storage write with ttl.
+func (ec *Client) SetCode(ctx context.Context, args SetCodeArgs) (common.Hash, error) {
 	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_putCodeTTL", args)
+	err := ec.c.CallContext(ctx, &txHash, "tos_setCode", args)
 	return txHash, err
 }
 

@@ -50,7 +50,7 @@ Write/tx-submission methods:
 
 - `tos_setSigner({...tx fields...})`
 - `tos_buildSetSignerTx({...tx fields...})`
-- `tos_putCodeTTL({...tx fields...})`
+- `tos_setCode({...tx fields...})`
 - `tos_putKVTTL({...tx fields...})`
 
 ## 3.2 `dpos_*`
@@ -63,7 +63,7 @@ Write/tx-submission methods:
 ## 3.3 Storage Mutability Rules
 
 - Code storage:
-  - `tos_putCodeTTL` writes account code with TTL metadata.
+  - `tos_setCode` writes account code with TTL metadata.
   - One account keeps one active code/codeHash entry.
   - Active account code is immutable: update and delete are not supported.
   - Only TTL expiry/system pruning clears account code.
@@ -271,11 +271,14 @@ Result schema:
 
 ## 4.4 Code Storage TTL
 
-### `tos_putCodeTTL`
+### `tos_setCode`
 
 Behavior:
 
 - Writes code to the `from` account with TTL metadata.
+- The RPC builds and submits a dedicated `to = nil` transaction payload for `setCode`.
+- `to = nil` in GTOS is reserved for `setCode` payload; arbitrary contract deployment is not allowed.
+- `tos_sendTransaction` rejects user-provided `to = nil`; use `tos_setCode` to submit code with explicit `ttl`.
 - If the account code is still active, replacement is rejected.
 - Manual delete/update is not supported.
 - Code payload is limited to `65536` bytes (`64KiB`).
@@ -551,7 +554,7 @@ Error payload shape (`error.data`):
 | `tos_getCode` | `tos_getCode` (+ TTL semantics) | Keep legacy shape; add TTL-aware visibility semantics. |
 | n/a | `tos_getCodeMeta` | New metadata endpoint for code TTL (`createdAt/expireAt/expired`). |
 | `tos_getStorageAt` | `tos_getKV` | TTL KV read semantics. |
-| `tos_sendTransaction` (data to system address) | `tos_setSigner` / `tos_putCodeTTL` / `tos_putKVTTL` | Explicit operation RPCs. |
+| `tos_sendTransaction` | `tos_setSigner` / `tos_putKVTTL` | `to=nil` is blocked for public send; code setup must use `tos_setCode`. |
 | legacy delete-style storage actions | removed | this API forbids manual delete for both code and KV. |
 | `tos_sendRawTransaction` | unchanged | Still valid for raw tx broadcast. |
 | `tos_getTransactionByHash` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
