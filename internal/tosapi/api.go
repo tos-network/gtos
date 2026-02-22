@@ -2263,14 +2263,18 @@ func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common
 
 func (s *TOSAPI) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCCodeObject, error) {
 	_ = ctx
-	_ = codeHash
+	if codeHash == (common.Hash{}) {
+		return nil, newRPCInvalidParamsError("codeHash", "must not be zero hash")
+	}
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_getCodeObject")
 }
 
 func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCCodeObjectMeta, error) {
 	_ = ctx
-	_ = codeHash
+	if codeHash == (common.Hash{}) {
+		return nil, newRPCInvalidParamsError("codeHash", "must not be zero hash")
+	}
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_getCodeObjectMeta")
 }
@@ -2291,7 +2295,9 @@ func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Has
 
 func (s *TOSAPI) GetKV(ctx context.Context, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {
 	_ = ctx
-	_ = namespace
+	if strings.TrimSpace(namespace) == "" {
+		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
+	}
 	_ = key
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_getKV")
@@ -2299,7 +2305,9 @@ func (s *TOSAPI) GetKV(ctx context.Context, namespace string, key hexutil.Bytes,
 
 func (s *TOSAPI) GetKVMeta(ctx context.Context, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVMetaResult, error) {
 	_ = ctx
-	_ = namespace
+	if strings.TrimSpace(namespace) == "" {
+		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
+	}
 	_ = key
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_getKVMeta")
@@ -2307,9 +2315,15 @@ func (s *TOSAPI) GetKVMeta(ctx context.Context, namespace string, key hexutil.By
 
 func (s *TOSAPI) ListKV(ctx context.Context, namespace string, cursor *string, limit *hexutil.Uint64, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCListKVResult, error) {
 	_ = ctx
-	_ = namespace
-	_ = cursor
-	_ = limit
+	if strings.TrimSpace(namespace) == "" {
+		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
+	}
+	if cursor != nil && strings.TrimSpace(*cursor) == "" {
+		return nil, newRPCInvalidParamsError("cursor", "must not be empty when provided")
+	}
+	if limit != nil && *limit == 0 {
+		return nil, newRPCInvalidParamsError("limit", "must be greater than zero when provided")
+	}
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_listKV")
 }
