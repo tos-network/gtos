@@ -26,7 +26,6 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -252,11 +251,6 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	// Reject far-future blocks (R2-M1 constant). Checked even in faker mode.
 	if header.Time > uint64(time.Now().Unix())+allowedFutureBlockTime {
 		return consensus.ErrFutureBlock
-	}
-	// DAO hard-fork header validation. Applies in all modes (including faker) so
-	// that tests using a DAO-fork config reject blocks with wrong Extra data.
-	if err := misc.VerifyDAOHeaderExtraData(chain.Config(), header); err != nil {
-		return err
 	}
 	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
 	// so tests that deliberately pass broken chains (missing link) get an error
