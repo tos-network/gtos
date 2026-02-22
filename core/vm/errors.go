@@ -47,10 +47,3 @@ type ErrStackOverflow struct {
 func (e *ErrStackOverflow) Error() string {
 	return fmt.Sprintf("stack limit reached %d (%d)", e.stackLen, e.limit)
 }
-
-// ErrInvalidOpCode wraps an tvm error when an invalid opcode is encountered.
-type ErrInvalidOpCode struct {
-	opcode OpCode
-}
-
-func (e *ErrInvalidOpCode) Error() string { return fmt.Sprintf("invalid opcode: %s", e.opcode) }
