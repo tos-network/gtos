@@ -6,7 +6,6 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
-	"github.com/tos-network/gtos/rpc"
 )
 
 func TestSetSignerValidation(t *testing.T) {
@@ -258,63 +257,5 @@ func TestCodeAndKVReadValidation(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrInvalidParams {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-}
-
-func TestListKVValidation(t *testing.T) {
-	api := &TOSAPI{}
-	ctx := context.Background()
-	latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
-
-	_, err := api.ListKV(ctx, "", nil, nil, &latest)
-	if err == nil {
-		t.Fatalf("expected invalid params error for namespace")
-	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	emptyCursor := "   "
-	_, err = api.ListKV(ctx, "ns", &emptyCursor, nil, nil)
-	if err == nil {
-		t.Fatalf("expected invalid params error for cursor")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	limitZero := hexutil.Uint64(0)
-	_, err = api.ListKV(ctx, "ns", nil, &limitZero, nil)
-	if err == nil {
-		t.Fatalf("expected invalid params error for limit")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	limitOne := hexutil.Uint64(1)
-	cursor := "cursor-1"
-	_, err = api.ListKV(ctx, "ns", &cursor, &limitOne, nil)
-	if err == nil {
-		t.Fatalf("expected not-implemented error")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrNotImplemented {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotImplemented)
 	}
 }

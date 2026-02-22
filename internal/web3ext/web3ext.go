@@ -588,12 +588,6 @@ web3._extend({
 			inputFormatter: [null, null, web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
-			name: 'listKV',
-			call: 'tos_listKV',
-			params: 4,
-			inputFormatter: [null, null, web3._extend.utils.toHex, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
 			name: 'sign',
 			call: 'tos_sign',
 			params: 2,

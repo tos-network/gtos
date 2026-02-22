@@ -2038,24 +2038,6 @@ type RPCKVMetaResult struct {
 	Expired   bool           `json:"expired"`
 }
 
-type RPCListKVArgs struct {
-	Namespace string                 `json:"namespace"`
-	Cursor    *string                `json:"cursor,omitempty"`
-	Limit     *hexutil.Uint64        `json:"limit,omitempty"`
-	Block     *rpc.BlockNumberOrHash `json:"block,omitempty"`
-}
-
-type RPCListKVItem struct {
-	Namespace string        `json:"namespace"`
-	Key       hexutil.Bytes `json:"key"`
-	Value     hexutil.Bytes `json:"value"`
-}
-
-type RPCListKVResult struct {
-	Items      []RPCListKVItem `json:"items"`
-	NextCursor *string         `json:"nextCursor"`
-}
-
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -2311,19 +2293,4 @@ func (s *TOSAPI) GetKVMeta(ctx context.Context, namespace string, key hexutil.By
 	_ = key
 	_ = blockNrOrHash
 	return nil, newRPCNotImplementedError("tos_getKVMeta")
-}
-
-func (s *TOSAPI) ListKV(ctx context.Context, namespace string, cursor *string, limit *hexutil.Uint64, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCListKVResult, error) {
-	_ = ctx
-	if strings.TrimSpace(namespace) == "" {
-		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
-	}
-	if cursor != nil && strings.TrimSpace(*cursor) == "" {
-		return nil, newRPCInvalidParamsError("cursor", "must not be empty when provided")
-	}
-	if limit != nil && *limit == 0 {
-		return nil, newRPCInvalidParamsError("limit", "must be greater than zero when provided")
-	}
-	_ = blockNrOrHash
-	return nil, newRPCNotImplementedError("tos_listKV")
 }

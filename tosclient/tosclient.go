@@ -138,19 +138,6 @@ type KVMetaResult struct {
 	Expired   bool
 }
 
-// ListKVItem is one KV list item.
-type ListKVItem struct {
-	Namespace string
-	Key       []byte
-	Value     []byte
-}
-
-// ListKVResult is the listKV page result.
-type ListKVResult struct {
-	Items      []ListKVItem
-	NextCursor *string
-}
-
 // DPoSValidatorInfo is validator status at a specific block.
 type DPoSValidatorInfo struct {
 	Address            common.Address
@@ -410,35 +397,6 @@ func (ec *Client) GetKVMeta(ctx context.Context, namespace string, key []byte, b
 		ExpireAt:  uint64(raw.ExpireAt),
 		Expired:   raw.Expired,
 	}, nil
-}
-
-// ListKV lists KV entries under a namespace.
-func (ec *Client) ListKV(ctx context.Context, namespace string, cursor *string, limit *uint64, blockNumber *big.Int) (*ListKVResult, error) {
-	var raw struct {
-		Items []struct {
-			Namespace string        `json:"namespace"`
-			Key       hexutil.Bytes `json:"key"`
-			Value     hexutil.Bytes `json:"value"`
-		} `json:"items"`
-		NextCursor *string `json:"nextCursor"`
-	}
-	var limitArg *hexutil.Uint64
-	if limit != nil {
-		v := hexutil.Uint64(*limit)
-		limitArg = &v
-	}
-	if err := ec.c.CallContext(ctx, &raw, "tos_listKV", namespace, cursor, limitArg, toBlockNumArg(blockNumber)); err != nil {
-		return nil, err
-	}
-	items := make([]ListKVItem, len(raw.Items))
-	for i := range raw.Items {
-		items[i] = ListKVItem{
-			Namespace: raw.Items[i].Namespace,
-			Key:       []byte(raw.Items[i].Key),
-			Value:     []byte(raw.Items[i].Value),
-		}
-	}
-	return &ListKVResult{Items: items, NextCursor: raw.NextCursor}, nil
 }
 
 // DPoSGetValidators returns active validators at the requested block.

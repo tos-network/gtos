@@ -45,7 +45,6 @@ Read methods:
 - `tos_getCodeMeta(address, block?)`
 - `tos_getKV(namespace, key, block?)`
 - `tos_getKVMeta(namespace, key, block?)`
-- `tos_listKV(namespace, cursor?, limit?, block?)`
 
 Write/tx-submission methods:
 
@@ -417,48 +416,6 @@ Result schema:
     "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expired": {"type": "boolean"}
-  }
-}
-```
-
-### `tos_listKV`
-
-Params:
-
-- `params[0]` namespace schema:
-```json
-{"type":"string","minLength":1}
-```
-- `params[1]` optional cursor schema:
-```json
-{"type":"string"}
-```
-- `params[2]` optional limit schema:
-```json
-{"type":"integer","minimum":1,"maximum":1000}
-```
-- `params[3]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
-
-Result schema:
-
-```json
-{
-  "type": "object",
-  "required": ["items", "nextCursor"],
-  "properties": {
-    "items": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["namespace", "key", "value"],
-        "properties": {
-          "namespace": {"type": "string"},
-          "key": {"$ref": "gtos.rpc.common#/definitions/hexData"},
-          "value": {"$ref": "gtos.rpc.common#/definitions/hexData"}
-        }
-      }
-    },
-    "nextCursor": {"type": ["string", "null"]}
   }
 }
 ```

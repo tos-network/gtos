@@ -34,11 +34,6 @@ type rpcExtTestService struct {
 	lastGetKVKey       hexutil.Bytes
 	lastGetKVBlock     string
 
-	lastListKVNamespace string
-	lastListKVCursor    *string
-	lastListKVLimit     *hexutil.Uint64
-	lastListKVBlock     string
-
 	lastSetSignerArgs    SetSignerArgs
 	lastBuildSignerArgs  SetSignerArgs
 	lastPutCodeTTLArgs   PutCodeTTLArgs
@@ -204,31 +199,6 @@ func (s *rpcExtTestService) GetKVMeta(namespace string, key hexutil.Bytes, block
 		CreatedAt: hexutil.Uint64(11),
 		ExpireAt:  hexutil.Uint64(111),
 		Expired:   false,
-	}
-}
-
-func (s *rpcExtTestService) ListKV(namespace string, cursor *string, limit *hexutil.Uint64, block string) interface{} {
-	s.lastListKVNamespace = namespace
-	s.lastListKVCursor = cursor
-	s.lastListKVLimit = limit
-	s.lastListKVBlock = block
-	return struct {
-		Items []struct {
-			Namespace string        `json:"namespace"`
-			Key       hexutil.Bytes `json:"key"`
-			Value     hexutil.Bytes `json:"value"`
-		} `json:"items"`
-		NextCursor *string `json:"nextCursor"`
-	}{
-		Items: []struct {
-			Namespace string        `json:"namespace"`
-			Key       hexutil.Bytes `json:"key"`
-			Value     hexutil.Bytes `json:"value"`
-		}{
-			{Namespace: namespace, Key: hexutil.Bytes("k1"), Value: hexutil.Bytes("v1")},
-			{Namespace: namespace, Key: hexutil.Bytes("k2"), Value: hexutil.Bytes("v2")},
-		},
-		NextCursor: cursor,
 	}
 }
 
@@ -409,22 +379,6 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	}
 	if kvMeta.CreatedAt != 11 || kvMeta.ExpireAt != 111 || kvMeta.Expired {
 		t.Fatalf("unexpected kv meta: %+v", kvMeta)
-	}
-
-	cursor := "cursor-1"
-	limit := uint64(25)
-	list, err := client.ListKV(ctx, "ns", &cursor, &limit, nil)
-	if err != nil {
-		t.Fatalf("ListKV error: %v", err)
-	}
-	if svc.lastListKVBlock != "latest" {
-		t.Fatalf("ListKV block arg = %q, want latest", svc.lastListKVBlock)
-	}
-	if svc.lastListKVLimit == nil || uint64(*svc.lastListKVLimit) != 25 {
-		t.Fatalf("ListKV limit arg mismatch: %v", svc.lastListKVLimit)
-	}
-	if len(list.Items) != 2 || string(list.Items[0].Key) != "k1" {
-		t.Fatalf("unexpected list kv result: %+v", list)
 	}
 }
 
