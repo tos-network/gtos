@@ -19,9 +19,14 @@ import (
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/signer/core"
 	"github.com/tos-network/gtos/signer/core/apitypes"
-	"github.com/tos-network/gtos/signer/fourbyte"
 	"github.com/tos-network/gtos/signer/storage"
 )
+
+type noopValidator struct{}
+
+func (noopValidator) ValidateTransaction(_ *string, _ *apitypes.SendTxArgs) (*apitypes.ValidationMessages, error) {
+	return &apitypes.ValidationMessages{}, nil
+}
 
 // Used for testing
 type headlessUi struct {
@@ -100,13 +105,9 @@ func tmpDirName(t *testing.T) string {
 }
 
 func setup(t *testing.T) (*core.SignerAPI, *headlessUi) {
-	db, err := fourbyte.New()
-	if err != nil {
-		t.Fatal(err.Error())
-	}
 	ui := &headlessUi{make(chan string, 20), make(chan string, 20)}
 	am := core.StartClefAccountManager(tmpDirName(t), true, true, "")
-	api := core.NewSignerAPI(am, 1337, true, ui, db, true, &storage.NoStorage{})
+	api := core.NewSignerAPI(am, 1337, true, ui, noopValidator{}, true, &storage.NoStorage{})
 	return api, ui
 }
 func createAccount(ui *headlessUi, api *core.SignerAPI, t *testing.T) {

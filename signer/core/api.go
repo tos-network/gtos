@@ -80,12 +80,8 @@ type UIClientAPI interface {
 	RegisterUIServer(api *UIServerAPI)
 }
 
-// Validator defines the methods required to validate a transaction against some
-// sanity defaults as well as any underlying 4byte method database.
-//
-// Use fourbyte.Database as an implementation. It is separated out of this package
-// to allow pieces of the signer package to be used without having to load the
-// 7MB embedded 4byte dump.
+// Validator defines the methods required to validate a transaction against
+// protocol-specific safety rules.
 type Validator interface {
 	// ValidateTransaction does a number of checks on the supplied transaction, and
 	// returns either a list of warnings, or an error (indicating that the transaction
