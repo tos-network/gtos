@@ -37,9 +37,10 @@ func getBlock(transactions int, uncles int, dataSize int) *types.Block {
 		func(n int, b *BlockGen) {
 			if n == uncles {
 				// Add transactions and stuff on the last block
+				signer := types.LatestSigner(params.TestChainConfig)
 				for i := 0; i < transactions; i++ {
 					tx, _ := types.SignTx(types.NewTransaction(uint64(i), aa,
-						big.NewInt(0), 50000, b.header.BaseFee, make([]byte, dataSize)), types.HomesteadSigner{}, key)
+						big.NewInt(0), 50000, b.header.BaseFee, make([]byte, dataSize)), signer, key)
 					b.AddTx(tx)
 				}
 				for i := 0; i < uncles; i++ {

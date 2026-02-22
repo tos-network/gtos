@@ -140,15 +140,17 @@ func (w *ledgerDriver) Derive(path accounts.DerivationPath) (common.Address, err
 // waiting for the user to confirm or deny the transaction.
 //
 // Note, if the version of the TOS application running on the Ledger wallet is
-// too old to sign TIP-155 transactions, but such is requested nonetheless, an error
-// will be returned opposed to silently signing in Homestead mode.
+// too old to sign replay-protected legacy transactions, an error is returned.
 func (w *ledgerDriver) SignTx(path accounts.DerivationPath, tx *types.Transaction, chainID *big.Int) (common.Address, *types.Transaction, error) {
 	// If the TOS app doesn't run, abort
 	if w.offline() {
 		return common.Address{}, nil, accounts.ErrWalletClosed
 	}
+	if chainID == nil {
+		return common.Address{}, nil, types.ErrInvalidChainId
+	}
 	// Ensure the wallet is capable of signing the given transaction
-	if chainID != nil && w.version[0] <= 1 && w.version[1] <= 0 && w.version[2] <= 2 {
+	if w.version[0] <= 1 && w.version[1] <= 0 && w.version[2] <= 2 {
 		//lint:ignore ST1005 brand name displayed on the console
 		return common.Address{}, nil, fmt.Errorf("Ledger v%d.%d.%d doesn't support signing this transaction, please update to v1.0.3 at least", w.version[0], w.version[1], w.version[2])
 	}
@@ -310,19 +312,13 @@ func (w *ledgerDriver) ledgerSign(derivationPath []uint32, tx *types.Transaction
 	for i, component := range derivationPath {
 		binary.BigEndian.PutUint32(path[1+4*i:], component)
 	}
-	// Create the transaction RLP based on whether legacy or TIP155 signing was requested
+	// Create the transaction RLP for replay-protected signing.
 	var (
 		txrlp []byte
 		err   error
 	)
-	if chainID == nil {
-		if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data()}); err != nil {
-			return common.Address{}, nil, err
-		}
-	} else {
-		if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data(), chainID, big.NewInt(0), big.NewInt(0)}); err != nil {
-			return common.Address{}, nil, err
-		}
+	if txrlp, err = rlp.EncodeToBytes([]interface{}{tx.Nonce(), tx.GasPrice(), tx.Gas(), tx.To(), tx.Value(), tx.Data(), chainID, big.NewInt(0), big.NewInt(0)}); err != nil {
+		return common.Address{}, nil, err
 	}
 	payload := append(path, txrlp...)
 
@@ -352,14 +348,9 @@ func (w *ledgerDriver) ledgerSign(derivationPath []uint32, tx *types.Transaction
 	}
 	signature := append(reply[1:], reply[0])
 
-	// Create the correct signer and signature transform based on the chain ID
-	var signer types.Signer
-	if chainID == nil {
-		signer = new(types.HomesteadSigner)
-	} else {
-		signer = types.NewEIP155Signer(chainID)
-		signature[64] -= byte(chainID.Uint64()*2 + 35)
-	}
+	// Create the correct signer and signature transform based on the chain ID.
+	signer := types.NewReplayProtectedSigner(chainID)
+	signature[64] -= byte(chainID.Uint64()*2 + 35)
 	signed, err := tx.WithSignature(signer, signature)
 	if err != nil {
 		return common.Address{}, nil, err

@@ -166,6 +166,9 @@ func (w *trezorDriver) SignTx(path accounts.DerivationPath, tx *types.Transactio
 	if w.device == nil {
 		return common.Address{}, nil, accounts.ErrWalletClosed
 	}
+	if chainID == nil {
+		return common.Address{}, nil, types.ErrInvalidChainId
+	}
 	return w.trezorSign(path, tx, chainID)
 }
 
@@ -215,10 +218,9 @@ func (w *trezorDriver) trezorSign(derivationPath []uint32, tx *types.Transaction
 	} else {
 		request.DataInitialChunk, data = data, nil
 	}
-	if chainID != nil { // TIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
-		id := uint32(chainID.Int64())
-		request.ChainId = &id
-	}
+	// Set chain ID explicitly (only 32 bit is supported!?)
+	id := uint32(chainID.Int64())
+	request.ChainId = &id
 	// Send the initiation message and stream content until a signature is returned
 	response := new(trezor.EthereumTxRequest)
 	if _, err := w.trezorExchange(request, response); err != nil {
@@ -238,15 +240,10 @@ func (w *trezorDriver) trezorSign(derivationPath []uint32, tx *types.Transaction
 	}
 	signature := append(append(response.GetSignatureR(), response.GetSignatureS()...), byte(response.GetSignatureV()))
 
-	// Create the correct signer and signature transform based on the chain ID
-	var signer types.Signer
-	if chainID == nil {
-		signer = new(types.HomesteadSigner)
-	} else {
-		// Trezor backend does not support typed transactions yet.
-		signer = types.NewEIP155Signer(chainID)
-		signature[64] -= byte(chainID.Uint64()*2 + 35)
-	}
+	// Create the correct signer and signature transform based on the chain ID.
+	// Trezor backend does not support typed transactions yet.
+	signer := types.NewReplayProtectedSigner(chainID)
+	signature[64] -= byte(chainID.Uint64()*2 + 35)
 
 	// Inject the final signature into the transaction and sanity check the sender
 	signed, err := tx.WithSignature(signer, signature)

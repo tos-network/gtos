@@ -1239,7 +1239,7 @@ func TestCanonicalBlockRetrieval(t *testing.T) {
 	pend.Wait()
 }
 
-func TestEIP155Transition(t *testing.T) {
+func TestReplayProtectionTransition(t *testing.T) {
 	// Configure and generate a sample block chain
 	var (
 		db         = rawdb.NewMemoryDatabase()
@@ -1258,64 +1258,38 @@ func TestEIP155Transition(t *testing.T) {
 	defer blockchain.Stop()
 
 	blocks, _ := GenerateChain(gspec.Config, genesis, dpos.NewFaker(), db, 4, func(i int, block *BlockGen) {
-		var (
-			tx      *types.Transaction
-			err     error
-			basicTx = func(signer types.Signer) (*types.Transaction, error) {
-				return types.SignTx(types.NewTransaction(block.TxNonce(address), common.Address{}, new(big.Int), 21000, new(big.Int), nil), signer, key)
-			}
-		)
-		switch i {
-		case 0:
-			tx, err = basicTx(types.HomesteadSigner{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			block.AddTx(tx)
-		case 2:
-			tx, err = basicTx(types.HomesteadSigner{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			block.AddTx(tx)
-
-			tx, err = basicTx(types.LatestSigner(gspec.Config))
-			if err != nil {
-				t.Fatal(err)
-			}
-			block.AddTx(tx)
-		case 3:
-			tx, err = basicTx(types.HomesteadSigner{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			block.AddTx(tx)
-
-			tx, err = basicTx(types.LatestSigner(gspec.Config))
-			if err != nil {
-				t.Fatal(err)
-			}
-			block.AddTx(tx)
+		signer := types.LatestSigner(gspec.Config)
+		tx, err := types.SignTx(types.NewTransaction(block.TxNonce(address), common.Address{}, new(big.Int), 21000, new(big.Int), nil), signer, key)
+		if err != nil {
+			t.Fatal(err)
 		}
+		block.AddTx(tx)
 	})
 
 	if _, err := blockchain.InsertChain(blocks); err != nil {
 		t.Fatal(err)
 	}
 	block := blockchain.GetBlockByNumber(1)
-	if block.Transactions()[0].Protected() {
-		t.Error("Expected block[0].txs[0] to not be replay protected")
+	if !block.Transactions()[0].Protected() {
+		t.Error("Expected block[1].txs[0] to be replay protected")
 	}
 
 	block = blockchain.GetBlockByNumber(3)
-	if block.Transactions()[0].Protected() {
-		t.Error("Expected block[3].txs[0] to not be replay protected")
-	}
-	if !block.Transactions()[1].Protected() {
-		t.Error("Expected block[3].txs[1] to be replay protected")
+	if !block.Transactions()[0].Protected() {
+		t.Error("Expected block[3].txs[0] to be replay protected")
 	}
 	if _, err := blockchain.InsertChain(blocks[4:]); err != nil {
 		t.Fatal(err)
+	}
+
+	// Unprotected legacy signatures are rejected by the active signer.
+	var unprotected types.Transaction
+	if err := unprotected.UnmarshalBinary(common.FromHex("f8498080808080011ca09b16de9d5bdee2cf56c28d16275a4da68cd30273e2525f3959f5d62557489921a0372ebd8fb3345f7db7b5a86d42e24d36e983e259b0664ceb8c227ec9af572f3d")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := types.Sender(types.MakeSigner(gspec.Config, big.NewInt(1)), &unprotected)
+	if have, want := err, types.ErrUnprotectedTx; !errors.Is(have, want) {
+		t.Fatalf("have %v, want %v", have, want)
 	}
 
 	// generate an invalid chain id transaction
@@ -1336,7 +1310,7 @@ func TestEIP155Transition(t *testing.T) {
 			block.AddTx(tx)
 		}
 	})
-	_, err := blockchain.InsertChain(blocks)
+	_, err = blockchain.InsertChain(blocks)
 	if have, want := err, types.ErrInvalidChainId; !errors.Is(have, want) {
 		t.Errorf("have %v, want %v", have, want)
 	}
@@ -2465,7 +2439,7 @@ func TestSkipStaleTxIndicesInSnapSync(t *testing.T) {
 // Benchmarks large blocks with value transfers to non-existing accounts
 func benchmarkLargeNumberOfValueToNonexisting(b *testing.B, numTxs, numBlocks int, recipientFn func(uint64) common.Address, dataFn func(uint64) []byte) {
 	var (
-		signer          = types.HomesteadSigner{}
+		signer          = types.LatestSigner(params.TestChainConfig)
 		testBankKey, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		testBankAddress = crypto.PubkeyToAddress(testBankKey.PublicKey)
 		bankFunds       = big.NewInt(100000000000000000)

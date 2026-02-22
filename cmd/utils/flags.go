@@ -682,7 +682,7 @@ var (
 	}
 	AllowUnprotectedTxs = &cli.BoolFlag{
 		Name:     "rpc.allow-unprotected-txs",
-		Usage:    "Allow for unprotected (non EIP155 signed) transactions to be submitted via RPC",
+		Usage:    "Allow unprotected (non replay-protected) transactions to be submitted via RPC",
 		Category: flags.APICategory,
 	}
 

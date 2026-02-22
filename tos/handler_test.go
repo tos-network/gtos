@@ -79,9 +79,10 @@ func (p *testTxPool) Pending(enforceTips bool) map[common.Address]types.Transact
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 
+	signer := types.LatestSigner(params.TestChainConfig)
 	batches := make(map[common.Address]types.Transactions)
 	for _, tx := range p.pool {
-		from, _ := types.Sender(types.HomesteadSigner{}, tx)
+		from, _ := types.Sender(signer, tx)
 		batches[from] = append(batches[from], tx)
 	}
 	for _, batch := range batches {

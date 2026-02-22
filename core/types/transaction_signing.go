@@ -12,6 +12,7 @@ import (
 )
 
 var ErrInvalidChainId = errors.New("invalid chain id for signer")
+var ErrUnprotectedTx = errors.New("unprotected transactions are not allowed")
 
 // sigCache is used to cache the derived sender and contains
 // the signer used to derive it.
@@ -22,10 +23,7 @@ type sigCache struct {
 
 // MakeSigner returns a Signer based on the given chain config.
 func MakeSigner(config *params.ChainConfig, _ *big.Int) Signer {
-	if config.ChainID != nil {
-		return NewLondonSigner(config.ChainID)
-	}
-	return HomesteadSigner{}
+	return NewLondonSigner(normalizeChainID(config.ChainID))
 }
 
 // LatestSigner returns the most permissive signer available for the given chain
@@ -35,10 +33,7 @@ func MakeSigner(config *params.ChainConfig, _ *big.Int) Signer {
 // Use this in transaction-handling code where the current block number is unknown. If you
 // have the current block number available, use MakeSigner instead.
 func LatestSigner(config *params.ChainConfig) Signer {
-	if config.ChainID != nil {
-		return NewLondonSigner(config.ChainID)
-	}
-	return HomesteadSigner{}
+	return NewLondonSigner(normalizeChainID(config.ChainID))
 }
 
 // LatestSignerForChainID returns the 'most permissive' Signer available. Specifically,
@@ -49,10 +44,14 @@ func LatestSigner(config *params.ChainConfig) Signer {
 // configuration are unknown. If you have a ChainConfig, use LatestSigner instead.
 // If you have a ChainConfig and know the current block number, use MakeSigner instead.
 func LatestSignerForChainID(chainID *big.Int) Signer {
+	return NewLondonSigner(normalizeChainID(chainID))
+}
+
+func normalizeChainID(chainID *big.Int) *big.Int {
 	if chainID == nil {
-		return HomesteadSigner{}
+		return new(big.Int)
 	}
-	return NewLondonSigner(chainID)
+	return chainID
 }
 
 // SignTx signs the transaction using the given signer and private key.
@@ -141,9 +140,9 @@ type londonSigner struct{ eip2930Signer }
 // - TIP-1559 dynamic fee transactions
 // - TIP-2930 access list transactions,
 // - TIP-155 replay protected transactions, and
-// - legacy Homestead transactions.
+// - legacy transactions with replay protection.
 func NewLondonSigner(chainId *big.Int) Signer {
-	return londonSigner{eip2930Signer{NewEIP155Signer(chainId)}}
+	return londonSigner{eip2930Signer{NewReplayProtectedSigner(chainId)}}
 }
 
 func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
@@ -152,7 +151,7 @@ func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
 	}
 	V, R, S := tx.RawSignatureValues()
 	// DynamicFee txs are defined to use 0 and 1 as their recovery
-	// id, add 27 to become equivalent to unprotected Homestead signatures.
+	// id, add 27 to become equivalent to legacy unprotected signatures.
 	V = new(big.Int).Add(V, big.NewInt(27))
 	if tx.ChainId().Cmp(s.chainId) != 0 {
 		return common.Address{}, ErrInvalidChainId
@@ -201,12 +200,12 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 		})
 }
 
-type eip2930Signer struct{ EIP155Signer }
+type eip2930Signer struct{ ReplayProtectedSigner }
 
 // New access-list signer constructor accepts TIP-2930 access list transactions,
-// TIP-155 replay protected transactions, and legacy Homestead transactions.
+// TIP-155 replay protected transactions, and replay-protected legacy transactions.
 func NewEIP2930Signer(chainId *big.Int) Signer {
-	return eip2930Signer{NewEIP155Signer(chainId)}
+	return eip2930Signer{NewReplayProtectedSigner(chainId)}
 }
 
 func (s eip2930Signer) ChainID() *big.Int {
@@ -223,13 +222,13 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 	switch tx.Type() {
 	case LegacyTxType:
 		if !tx.Protected() {
-			return HomesteadSigner{}.Sender(tx)
+			return common.Address{}, ErrUnprotectedTx
 		}
 		V = new(big.Int).Sub(V, s.chainIdMul)
 		V.Sub(V, big8)
 	case AccessListTxType:
 		// AL txs are defined to use 0 and 1 as their recovery
-		// id, add 27 to become equivalent to unprotected Homestead signatures.
+		// id, add 27 to become equivalent to legacy unprotected signatures.
 		V = new(big.Int).Add(V, big.NewInt(27))
 	default:
 		return common.Address{}, ErrTxTypeNotSupported
@@ -243,7 +242,7 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 func (s eip2930Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
 	switch txdata := tx.inner.(type) {
 	case *LegacyTx:
-		return s.EIP155Signer.SignatureValues(tx, sig)
+		return s.ReplayProtectedSigner.SignatureValues(tx, sig)
 	case *AccessListTx:
 		// Check that chain ID of tx matches the signer. We also accept ID zero here,
 		// because it indicates that the chain ID was not specified in the tx.
@@ -295,38 +294,38 @@ func (s eip2930Signer) Hash(tx *Transaction) common.Hash {
 }
 
 // TIP155Signer implements Signer using the TIP-155 rules. This accepts transactions which
-// are replay-protected as well as unprotected homestead transactions.
-type EIP155Signer struct {
+// are replay-protected.
+type ReplayProtectedSigner struct {
 	chainId, chainIdMul *big.Int
 }
 
-func NewEIP155Signer(chainId *big.Int) EIP155Signer {
+func NewReplayProtectedSigner(chainId *big.Int) ReplayProtectedSigner {
 	if chainId == nil {
 		chainId = new(big.Int)
 	}
-	return EIP155Signer{
+	return ReplayProtectedSigner{
 		chainId:    chainId,
 		chainIdMul: new(big.Int).Mul(chainId, big.NewInt(2)),
 	}
 }
 
-func (s EIP155Signer) ChainID() *big.Int {
+func (s ReplayProtectedSigner) ChainID() *big.Int {
 	return s.chainId
 }
 
-func (s EIP155Signer) Equal(s2 Signer) bool {
-	eip155, ok := s2.(EIP155Signer)
-	return ok && eip155.chainId.Cmp(s.chainId) == 0
+func (s ReplayProtectedSigner) Equal(s2 Signer) bool {
+	replayProtection, ok := s2.(ReplayProtectedSigner)
+	return ok && replayProtection.chainId.Cmp(s.chainId) == 0
 }
 
 var big8 = big.NewInt(8)
 
-func (s EIP155Signer) Sender(tx *Transaction) (common.Address, error) {
+func (s ReplayProtectedSigner) Sender(tx *Transaction) (common.Address, error) {
 	if tx.Type() != LegacyTxType {
 		return common.Address{}, ErrTxTypeNotSupported
 	}
 	if !tx.Protected() {
-		return HomesteadSigner{}.Sender(tx)
+		return common.Address{}, ErrUnprotectedTx
 	}
 	if tx.ChainId().Cmp(s.chainId) != 0 {
 		return common.Address{}, ErrInvalidChainId
@@ -339,21 +338,19 @@ func (s EIP155Signer) Sender(tx *Transaction) (common.Address, error) {
 
 // SignatureValues returns signature values. This signature
 // needs to be in the [R || S || V] format where V is 0 or 1.
-func (s EIP155Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
+func (s ReplayProtectedSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
 	if tx.Type() != LegacyTxType {
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
 	R, S, V = decodeSignature(sig)
-	if s.chainId.Sign() != 0 {
-		V = big.NewInt(int64(sig[64] + 35))
-		V.Add(V, s.chainIdMul)
-	}
+	V = big.NewInt(int64(sig[64] + 35))
+	V.Add(V, s.chainIdMul)
 	return R, S, V, nil
 }
 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
-func (s EIP155Signer) Hash(tx *Transaction) common.Hash {
+func (s ReplayProtectedSigner) Hash(tx *Transaction) common.Hash {
 	return rlpHash([]interface{}{
 		tx.Nonce(),
 		tx.GasPrice(),
@@ -362,75 +359,6 @@ func (s EIP155Signer) Hash(tx *Transaction) common.Hash {
 		tx.Value(),
 		tx.Data(),
 		s.chainId, uint(0), uint(0),
-	})
-}
-
-// HomesteadTransaction implements TransactionInterface using the
-// homestead rules.
-type HomesteadSigner struct{ FrontierSigner }
-
-func (s HomesteadSigner) ChainID() *big.Int {
-	return nil
-}
-
-func (s HomesteadSigner) Equal(s2 Signer) bool {
-	_, ok := s2.(HomesteadSigner)
-	return ok
-}
-
-// SignatureValues returns signature values. This signature
-// needs to be in the [R || S || V] format where V is 0 or 1.
-func (hs HomesteadSigner) SignatureValues(tx *Transaction, sig []byte) (r, s, v *big.Int, err error) {
-	return hs.FrontierSigner.SignatureValues(tx, sig)
-}
-
-func (hs HomesteadSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != LegacyTxType {
-		return common.Address{}, ErrTxTypeNotSupported
-	}
-	v, r, s := tx.RawSignatureValues()
-	return recoverPlain(hs.Hash(tx), r, s, v, true)
-}
-
-type FrontierSigner struct{}
-
-func (s FrontierSigner) ChainID() *big.Int {
-	return nil
-}
-
-func (s FrontierSigner) Equal(s2 Signer) bool {
-	_, ok := s2.(FrontierSigner)
-	return ok
-}
-
-func (fs FrontierSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != LegacyTxType {
-		return common.Address{}, ErrTxTypeNotSupported
-	}
-	v, r, s := tx.RawSignatureValues()
-	return recoverPlain(fs.Hash(tx), r, s, v, false)
-}
-
-// SignatureValues returns signature values. This signature
-// needs to be in the [R || S || V] format where V is 0 or 1.
-func (fs FrontierSigner) SignatureValues(tx *Transaction, sig []byte) (r, s, v *big.Int, err error) {
-	if tx.Type() != LegacyTxType {
-		return nil, nil, nil, ErrTxTypeNotSupported
-	}
-	r, s, v = decodeSignature(sig)
-	return r, s, v, nil
-}
-
-// Hash returns the hash to be signed by the sender.
-// It does not uniquely identify the transaction.
-func (fs FrontierSigner) Hash(tx *Transaction) common.Hash {
-	return rlpHash([]interface{}{
-		tx.Nonce(),
-		tx.GasPrice(),
-		tx.Gas(),
-		tx.To(),
-		tx.Value(),
-		tx.Data(),
 	})
 }
 

@@ -249,7 +249,7 @@ func testRecvTransactions(t *testing.T, protocol uint) {
 	}
 	// Send the transaction to the sink and verify that it's added to the tx pool
 	tx := types.NewTransaction(0, common.Address{}, big.NewInt(0), 100000, big.NewInt(0), nil)
-	tx, _ = types.SignTx(tx, types.HomesteadSigner{}, testKey)
+	tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
 
 	if err := src.SendTransactions([]*types.Transaction{tx}); err != nil {
 		t.Fatalf("failed to send transaction: %v", err)
@@ -279,7 +279,7 @@ func testSendTransactions(t *testing.T, protocol uint) {
 	insert := make([]*types.Transaction, 100)
 	for nonce := range insert {
 		tx := types.NewTransaction(uint64(nonce), common.Address{}, big.NewInt(0), 100000, big.NewInt(0), make([]byte, 10240))
-		tx, _ = types.SignTx(tx, types.HomesteadSigner{}, testKey)
+		tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
 
 		insert[nonce] = tx
 	}
@@ -403,7 +403,7 @@ func testTransactionPropagation(t *testing.T, protocol uint) {
 	txs := make([]*types.Transaction, 1024)
 	for nonce := range txs {
 		tx := types.NewTransaction(uint64(nonce), common.Address{}, big.NewInt(0), 100000, big.NewInt(0), nil)
-		tx, _ = types.SignTx(tx, types.HomesteadSigner{}, testKey)
+		tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
 
 		txs[nonce] = tx
 	}

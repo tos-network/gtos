@@ -27,7 +27,7 @@ var (
 	testTxPoolConfig TxPoolConfig
 
 	// TIP1559Config is a chain config with TIP-1559 enabled at block 0.
-	eip1559Config *params.ChainConfig
+	dynamicFeeConfig *params.ChainConfig
 )
 
 func init() {
@@ -35,7 +35,7 @@ func init() {
 	testTxPoolConfig.Journal = ""
 
 	cpy := *params.TestChainConfig
-	eip1559Config = &cpy
+	dynamicFeeConfig = &cpy
 }
 
 type testBlockChain struct {
@@ -67,7 +67,8 @@ func transaction(nonce uint64, gaslimit uint64, key *ecdsa.PrivateKey) *types.Tr
 }
 
 func pricedTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
-	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(100), gaslimit, gasprice, nil), types.HomesteadSigner{}, key)
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(100), gaslimit, gasprice, nil), signer, key)
 	return tx
 }
 
@@ -75,7 +76,8 @@ func pricedDataTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key
 	data := make([]byte, bytes)
 	rand.Read(data)
 
-	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(0), gaslimit, gasprice, data), types.HomesteadSigner{}, key)
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	tx, _ := types.SignTx(types.NewTransaction(nonce, common.Address{}, big.NewInt(0), gaslimit, gasprice, data), signer, key)
 	return tx
 }
 
@@ -170,7 +172,7 @@ func validateEvents(events chan NewTxsEvent, count int) error {
 }
 
 func deriveSender(tx *types.Transaction) (common.Address, error) {
-	return types.Sender(types.HomesteadSigner{}, tx)
+	return types.Sender(types.LatestSigner(params.TestChainConfig), tx)
 }
 
 type testChain struct {
@@ -354,7 +356,8 @@ func TestTransactionNegativeValue(t *testing.T) {
 	pool, key := setupTxPool()
 	defer pool.Stop()
 
-	tx, _ := types.SignTx(types.NewTransaction(0, common.Address{}, big.NewInt(-1), 100, big.NewInt(1), nil), types.HomesteadSigner{}, key)
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	tx, _ := types.SignTx(types.NewTransaction(0, common.Address{}, big.NewInt(-1), 100, big.NewInt(1), nil), signer, key)
 	from, _ := deriveSender(tx)
 	testAddBalance(pool, from, big.NewInt(1))
 	if err := pool.AddRemote(tx); err != ErrNegativeValue {
@@ -365,7 +368,7 @@ func TestTransactionNegativeValue(t *testing.T) {
 func TestTransactionTipAboveFeeCap(t *testing.T) {
 	t.Parallel()
 
-	pool, key := setupTxPoolWithConfig(eip1559Config)
+	pool, key := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 
 	tx := dynamicFeeTx(0, 100, big.NewInt(1), big.NewInt(2), key)
@@ -378,7 +381,7 @@ func TestTransactionTipAboveFeeCap(t *testing.T) {
 func TestTransactionVeryHighValues(t *testing.T) {
 	t.Parallel()
 
-	pool, key := setupTxPoolWithConfig(eip1559Config)
+	pool, key := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 
 	veryBigNumber := big.NewInt(1)
@@ -440,7 +443,7 @@ func TestTransactionDoubleNonce(t *testing.T) {
 	}
 	resetState()
 
-	signer := types.HomesteadSigner{}
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	tx1, _ := types.SignTx(types.NewTransaction(0, common.Address{}, big.NewInt(100), 100000, big.NewInt(1), nil), signer, key)
 	tx2, _ := types.SignTx(types.NewTransaction(0, common.Address{}, big.NewInt(100), 1000000, big.NewInt(2), nil), signer, key)
 	tx3, _ := types.SignTx(types.NewTransaction(0, common.Address{}, big.NewInt(100), 1000000, big.NewInt(1), nil), signer, key)
@@ -1430,7 +1433,7 @@ func TestTransactionPoolRepricingDynamicFee(t *testing.T) {
 	t.Skip("GTOS accepts only legacy transactions")
 
 	// Create the pool to test the pricing enforcement with
-	pool, _ := setupTxPoolWithConfig(eip1559Config)
+	pool, _ := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 
 	// Keep track of transaction events to ensure all executables get announced
@@ -1558,7 +1561,7 @@ func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := &testBlockChain{1000000, statedb, new(event.Feed)}
 
-	pool := NewTxPool(testTxPoolConfig, eip1559Config, blockchain)
+	pool := NewTxPool(testTxPoolConfig, dynamicFeeConfig, blockchain)
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them
@@ -1803,7 +1806,7 @@ func TestTransactionPoolUnderpricingDynamicFee(t *testing.T) {
 	t.Parallel()
 	t.Skip("GTOS accepts only legacy transactions")
 
-	pool, _ := setupTxPoolWithConfig(eip1559Config)
+	pool, _ := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 
 	pool.config.GlobalSlots = 2
@@ -1911,7 +1914,7 @@ func TestDualHeapEviction(t *testing.T) {
 	t.Parallel()
 	t.Skip("GTOS accepts only legacy transactions")
 
-	pool, _ := setupTxPoolWithConfig(eip1559Config)
+	pool, _ := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 
 	pool.config.GlobalSlots = 10
@@ -2115,7 +2118,7 @@ func TestTransactionReplacementDynamicFee(t *testing.T) {
 	t.Skip("GTOS accepts only legacy transactions")
 
 	// Create the pool to test the pricing enforcement with
-	pool, key := setupTxPoolWithConfig(eip1559Config)
+	pool, key := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
 	testAddBalance(pool, crypto.PubkeyToAddress(key.PublicKey), big.NewInt(1000000000))
 

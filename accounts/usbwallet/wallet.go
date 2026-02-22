@@ -567,8 +567,7 @@ func (w *wallet) SignText(account accounts.Account, text []byte) ([]byte, error)
 // transaction or a failure if the user denied the transaction.
 //
 // Note, if the version of the TOS application running on the Ledger wallet is
-// too old to sign TIP-155 transactions, but such is requested nonetheless, an error
-// will be returned opposed to silently signing in Homestead mode.
+// too old to sign replay-protected legacy transactions, an error is returned.
 func (w *wallet) SignTx(account accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
 	w.stateLock.RLock() // Comms have own mutex, this is for the state fields
 	defer w.stateLock.RUnlock()
