@@ -23,6 +23,16 @@ func TestPutCodeTTLCodeSizeLimit(t *testing.T) {
 	if rpcErr.code != rpcErrCodeTooLarge {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrCodeTooLarge)
 	}
+	data, ok := rpcErr.data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected error data type %T", rpcErr.data)
+	}
+	if data["maxCodeSize"] != params.MaxCodeSize {
+		t.Fatalf("unexpected maxCodeSize in error data: %v", data["maxCodeSize"])
+	}
+	if data["got"] != len(oversized) {
+		t.Fatalf("unexpected got in error data: %v", data["got"])
+	}
 
 	atLimit := make(hexutil.Bytes, int(params.MaxCodeSize))
 	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{Code: atLimit})

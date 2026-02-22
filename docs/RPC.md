@@ -268,6 +268,7 @@ Behavior:
 - Creates a code object with TTL.
 - If the target code object is still active, replacement is rejected.
 - Manual delete/update is not supported.
+- Code payload is limited to `65536` bytes (`64KiB`).
 
 Params schema (`params[0]`):
 
@@ -561,6 +562,7 @@ GTOS application errors:
 - `-38006` `permission_denied` - caller is not allowed to perform the action.
 - `-38007` `invalid_signer` - signer type/value invalid or verification setup mismatch.
 - `-38008` `retention_unavailable` - method requires data not retained by non-archive policy.
+- `-38009` `code_too_large` - code payload exceeds `MaxCodeSize` (`65536` bytes).
 
 Error payload shape (`error.data`):
 
