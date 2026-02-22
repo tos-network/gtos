@@ -41,8 +41,8 @@ Read methods:
 - `tos_getPruneWatermark()`
 - `tos_getAccount(address, block?)`
 - `tos_getSigner(address, block?)`
-- `tos_getCodeObject(codeHash, block?)`
-- `tos_getCodeObjectMeta(codeHash, block?)`
+- `tos_getCode(address, block?)`
+- `tos_getCodeMeta(address, block?)`
 - `tos_getKV(namespace, key, block?)`
 - `tos_getKVMeta(namespace, key, block?)`
 - `tos_listKV(namespace, cursor?, limit?, block?)`
@@ -64,9 +64,10 @@ Write/tx-submission methods:
 ## 3.3 Storage Mutability Rules
 
 - Code storage:
-  - `tos_putCodeTTL` creates code object records with TTL.
-  - Active code objects are immutable: update and delete are not supported.
-  - Only TTL expiry/system pruning clears code objects.
+  - `tos_putCodeTTL` writes account code with TTL metadata.
+  - One account keeps one active code/codeHash entry.
+  - Active account code is immutable: update and delete are not supported.
+  - Only TTL expiry/system pruning clears account code.
 - KV storage:
   - `tos_putKVTTL` is an upsert operation for `(namespace, key)`.
   - `tos_deleteKV` is not part of this API.
@@ -275,8 +276,8 @@ Result schema:
 
 Behavior:
 
-- Creates a code object with TTL.
-- If the target code object is still active, replacement is rejected.
+- Writes code to the `from` account with TTL metadata.
+- If the account code is still active, replacement is rejected.
 - Manual delete/update is not supported.
 - Code payload is limited to `65536` bytes (`64KiB`).
 - `ttl` is block count; expiry is computed as `expireBlock = currentBlock + ttl`.
@@ -305,40 +306,31 @@ Result schema:
 {"$ref": "gtos.rpc.common#/definitions/hash32"}
 ```
 
-### `tos_getCodeObject`
+### `tos_getCode`
 
 Params:
 
-- `params[0]` code hash schema: `{"$ref":"gtos.rpc.common#/definitions/hash32"}`
+- `params[0]` address schema: `{"$ref":"gtos.rpc.common#/definitions/address"}`
 - `params[1]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
 ```json
-{
-  "type": "object",
-  "required": ["codeHash", "code", "createdAt", "expireAt", "expired"],
-  "properties": {
-    "codeHash": {"$ref": "gtos.rpc.common#/definitions/hash32"},
-    "code": {"$ref": "gtos.rpc.common#/definitions/hexData"},
-    "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "expired": {"type": "boolean"}
-  }
-}
+{"$ref": "gtos.rpc.common#/definitions/hexData"}
 ```
 
-### `tos_getCodeObjectMeta`
+### `tos_getCodeMeta`
 
-Params: same as `tos_getCodeObject`.
+Params: same as `tos_getCode`.
 
 Result schema:
 
 ```json
 {
   "type": "object",
-  "required": ["codeHash", "createdAt", "expireAt", "expired"],
+  "required": ["address", "codeHash", "createdAt", "expireAt", "expired"],
   "properties": {
+    "address": {"$ref": "gtos.rpc.common#/definitions/address"},
     "codeHash": {"$ref": "gtos.rpc.common#/definitions/hash32"},
     "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
@@ -599,7 +591,8 @@ Error payload shape (`error.data`):
 | `tos_chainId` | `tos_getChainProfile` | `chainId` also available in profile output. |
 | `tos_blockNumber` | `tos_getPruneWatermark` | `headBlock` included. |
 | `tos_getBalance` + `tos_getTransactionCount` | `tos_getAccount` | Unified account read with signer view. |
-| `tos_getCode` | `tos_getCodeObject` | Switch from contract-code semantics to code-object storage semantics. |
+| `tos_getCode` | `tos_getCode` (+ TTL semantics) | Keep legacy shape; add TTL-aware visibility semantics. |
+| n/a | `tos_getCodeMeta` | New metadata endpoint for code TTL (`createdAt/expireAt/expired`). |
 | `tos_getStorageAt` | `tos_getKV` | TTL KV read semantics. |
 | `tos_sendTransaction` (data to system address) | `tos_setSigner` / `tos_putCodeTTL` / `tos_putKVTTL` | Explicit operation RPCs. |
 | legacy delete-style storage actions | removed | this API forbids manual delete for both code and KV. |
@@ -623,7 +616,7 @@ Stage A (skeleton in code):
 Stage B (execution wiring):
 
 - Bind `tos_setSigner` to account signer state transition.
-- Bind code/KV TTL writes and reads to finalized state model.
+- Bind code/KV TTL writes and reads to finalized state model (`tos_getCode` and `tos_getCodeMeta` for code).
 - Enforce code immutability and KV upsert/no-delete behavior in validation.
 - Add deterministic prune/expire behavior and errors.
 
