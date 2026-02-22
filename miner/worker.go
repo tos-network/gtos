@@ -975,9 +975,9 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 		header.MixDigest = genParams.random
 	}
 	// Set baseFee and GasLimit if we are on an TIP-1559 chain
-	if w.chainConfig.IsGrayGlacier(header.Number) {
+	if w.chainConfig.IsAIGenesis(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(w.chainConfig, parent.Header())
-		if !w.chainConfig.IsGrayGlacier(parent.Number()) {
+		if !w.chainConfig.IsAIGenesis(parent.Number()) {
 			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
 			header.GasLimit = core.CalcGasLimit(parentGasLimit, w.config.GasCeil)
 		}

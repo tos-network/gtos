@@ -153,9 +153,9 @@ func (b *BlockGen) AddUncle(h *types.Header) {
 
 	// The gas limit and price should be derived from the parent
 	h.GasLimit = parent.GasLimit
-	if b.config.IsGrayGlacier(h.Number) {
+	if b.config.IsAIGenesis(h.Number) {
 		h.BaseFee = misc.CalcBaseFee(b.config, parent)
-		if !b.config.IsGrayGlacier(parent.Number) {
+		if !b.config.IsAIGenesis(parent.Number) {
 			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
 			h.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
 		}
@@ -276,9 +276,9 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 		Number:   new(big.Int).Add(parent.Number(), common.Big1),
 		Time:     time,
 	}
-	if chain.Config().IsGrayGlacier(header.Number) {
+	if chain.Config().IsAIGenesis(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(chain.Config(), parent.Header())
-		if !chain.Config().IsGrayGlacier(parent.Number()) {
+		if !chain.Config().IsAIGenesis(parent.Number()) {
 			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
 			header.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
 		}

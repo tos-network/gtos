@@ -120,8 +120,8 @@ type backendMock struct {
 
 func newBackendMock() *backendMock {
 	config := &params.ChainConfig{
-		ChainID:          big.NewInt(42),
-		GrayGlacierBlock: big.NewInt(1000),
+		ChainID:        big.NewInt(42),
+		AIGenesisBlock: big.NewInt(1000),
 	}
 	return &backendMock{
 		current: &types.Header{

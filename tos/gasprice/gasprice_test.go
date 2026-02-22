@@ -107,7 +107,7 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBacke
 		}
 		signer = types.LatestSigner(gspec.Config)
 	)
-	config.GrayGlacierBlock = londonBlock
+	config.AIGenesisBlock = londonBlock
 	config.TerminalTotalDifficulty = common.Big0
 	engine := dpos.NewFaker()
 	db := rawdb.NewMemoryDatabase()

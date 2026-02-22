@@ -32,7 +32,7 @@ var (
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
 	MainnetChainConfig = &ChainConfig{
 		ChainID:                       big.NewInt(1),
-		GrayGlacierBlock:              big.NewInt(0),
+		AIGenesisBlock:                big.NewInt(0),
 		TerminalTotalDifficulty:       MainnetTerminalTotalDifficulty, // 58_750_000_000_000_000_000_000
 		TerminalTotalDifficultyPassed: true,
 	}
@@ -61,15 +61,15 @@ var (
 	// AllDPoSProtocolChanges contains every protocol change proposal introduced
 	// and accepted by the TOS core developers into the DPoS consensus.
 	AllDPoSProtocolChanges = &ChainConfig{
-		ChainID:          big.NewInt(1337),
-		GrayGlacierBlock: big.NewInt(0),
-		DPoS:             &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		ChainID:        big.NewInt(1337),
+		AIGenesisBlock: big.NewInt(0),
+		DPoS:           &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 	}
 
 	TestChainConfig = &ChainConfig{
-		ChainID:          big.NewInt(1),
-		GrayGlacierBlock: big.NewInt(0),
-		DPoS:             &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		ChainID:        big.NewInt(1),
+		AIGenesisBlock: big.NewInt(0),
+		DPoS:           &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false)
 )
@@ -135,7 +135,7 @@ type CheckpointOracleConfig struct {
 type ChainConfig struct {
 	ChainID *big.Int `json:"chainId"` // chainId identifies the current chain and is used for replay protection
 
-	GrayGlacierBlock   *big.Int `json:"grayGlacierBlock,omitempty"`   // TIP-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
+	AIGenesisBlock     *big.Int `json:"aiGenesisBlock,omitempty"`     // TIP-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	MergeNetsplitBlock *big.Int `json:"mergeNetsplitBlock,omitempty"` // Virtual fork after The Merge to use as a network splitter
 	ShanghaiBlock      *big.Int `json:"shanghaiBlock,omitempty"`      // Shanghai switch block (nil = no fork, 0 = already on shanghai)
 	CancunBlock        *big.Int `json:"cancunBlock,omitempty"`        // Cancun switch block (nil = no fork, 0 = already on cancun)
@@ -184,8 +184,8 @@ func (c *ChainConfig) String() string {
 	banner += "\n"
 
 	banner += "Pre-Merge rules:\n"
-	if c.GrayGlacierBlock != nil {
-		banner += fmt.Sprintf(" - Gray Glacier baseline:       %-8v (all prior rules included)\n", c.GrayGlacierBlock)
+	if c.AIGenesisBlock != nil {
+		banner += fmt.Sprintf(" - AI Genesis baseline:       %-8v (all prior rules included)\n", c.AIGenesisBlock)
 	}
 	if c.ShanghaiBlock != nil {
 		banner += fmt.Sprintf(" - Shanghai:                     %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/shanghai.md)\n", c.ShanghaiBlock)
@@ -209,9 +209,9 @@ func (c *ChainConfig) String() string {
 	return banner
 }
 
-// IsGrayGlacier returns whether num is either equal to the Gray Glacier (TIP-5133) fork block or greater.
-func (c *ChainConfig) IsGrayGlacier(num *big.Int) bool {
-	return isForked(c.GrayGlacierBlock, num)
+// IsAIGenesis returns whether num is either equal to the AI Genesis (TIP-5133) fork block or greater.
+func (c *ChainConfig) IsAIGenesis(num *big.Int) bool {
+	return isForked(c.AIGenesisBlock, num)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
@@ -260,7 +260,7 @@ func (c *ChainConfig) CheckConfigForkOrder() error {
 	}
 	var lastFork fork
 	for _, cur := range []fork{
-		{name: "grayGlacierBlock", block: c.GrayGlacierBlock, optional: true},
+		{name: "aiGenesisBlock", block: c.AIGenesisBlock, optional: true},
 		{name: "mergeNetsplitBlock", block: c.MergeNetsplitBlock, optional: true},
 		{name: "shanghaiBlock", block: c.ShanghaiBlock, optional: true},
 		{name: "cancunBlock", block: c.CancunBlock, optional: true},
@@ -295,8 +295,8 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 			RewindTo:     0,
 		}
 	}
-	if isForkIncompatible(c.GrayGlacierBlock, newcfg.GrayGlacierBlock, head) {
-		return newCompatError("Gray Glacier fork block", c.GrayGlacierBlock, newcfg.GrayGlacierBlock)
+	if isForkIncompatible(c.AIGenesisBlock, newcfg.AIGenesisBlock, head) {
+		return newCompatError("AI Genesis fork block", c.AIGenesisBlock, newcfg.AIGenesisBlock)
 	}
 	if isForkIncompatible(c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock, head) {
 		return newCompatError("Merge netsplit fork block", c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock)
@@ -372,7 +372,7 @@ func (err *ConfigCompatError) Error() string {
 // phases.
 type Rules struct {
 	ChainID                       *big.Int
-	IsGrayBaseline                bool
+	IsAiBaseline                  bool
 	IsMerge, IsShanghai, IsCancun bool
 }
 
@@ -383,10 +383,10 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
 		chainID = new(big.Int)
 	}
 	return Rules{
-		ChainID:        new(big.Int).Set(chainID),
-		IsGrayBaseline: c.IsGrayGlacier(num),
-		IsMerge:        isMerge,
-		IsShanghai:     c.IsShanghai(num),
-		IsCancun:       c.IsCancun(num),
+		ChainID:      new(big.Int).Set(chainID),
+		IsAiBaseline: c.IsAIGenesis(num),
+		IsMerge:      isMerge,
+		IsShanghai:   c.IsShanghai(num),
+		IsCancun:     c.IsCancun(num),
 	}
 }

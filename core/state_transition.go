@@ -214,7 +214,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Subtract intrinsic gas
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, rules.IsGrayBaseline, rules.IsGrayBaseline)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, rules.IsAiBaseline, rules.IsAiBaseline)
 	if err != nil {
 		return nil, err
 	}

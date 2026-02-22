@@ -36,7 +36,7 @@ func init() {
 
 	cpy := *params.TestChainConfig
 	eip1559Config = &cpy
-	eip1559Config.GrayGlacierBlock = common.Big0
+	eip1559Config.AIGenesisBlock = common.Big0
 }
 
 type testBlockChain struct {

@@ -23,12 +23,12 @@ type sigCache struct {
 // MakeSigner returns a Signer based on the given chain config and block number.
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
 	switch {
-	case config.ChainID != nil && config.IsGrayGlacier(blockNumber):
+	case config.ChainID != nil && config.IsAIGenesis(blockNumber):
 		return NewLondonSigner(config.ChainID)
 	case config.ChainID != nil:
 		// TIP-155 replay protection and TIP-2718 typed envelopes are always active.
 		return NewEIP2930Signer(config.ChainID)
-	case config.IsGrayGlacier(blockNumber):
+	case config.IsAIGenesis(blockNumber):
 		return HomesteadSigner{}
 	default:
 		return FrontierSigner{}

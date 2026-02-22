@@ -78,7 +78,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, blockCtx vm
 
 	// Update the state with pending changes.
 	var root []byte
-	if config.IsGrayGlacier(blockNumber) {
+	if config.IsAIGenesis(blockNumber) {
 		statedb.Finalise(true)
 	} else {
 		root = statedb.IntermediateRoot(true).Bytes()

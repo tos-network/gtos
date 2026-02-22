@@ -195,9 +195,9 @@ func checksumToBytes(hash uint32) [4]byte {
 
 // gatherForks gathers all the known forks and creates a sorted list out of them.
 func gatherForks(config *params.ChainConfig) []uint64 {
-	// Keep forkid based on Gray Glacier and later staged upgrades only.
+	// Keep forkid based on AI Genesis and later staged upgrades only.
 	rules := []*big.Int{
-		config.GrayGlacierBlock,
+		config.AIGenesisBlock,
 		config.MergeNetsplitBlock,
 		config.ShanghaiBlock,
 		config.CancunBlock,

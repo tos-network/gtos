@@ -16,17 +16,17 @@ func TestCheckCompatible(t *testing.T) {
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 0, wantErr: nil},
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 100, wantErr: nil},
 		{
-			stored:  &ChainConfig{GrayGlacierBlock: big.NewInt(10)},
-			new:     &ChainConfig{GrayGlacierBlock: big.NewInt(20)},
+			stored:  &ChainConfig{AIGenesisBlock: big.NewInt(10)},
+			new:     &ChainConfig{AIGenesisBlock: big.NewInt(20)},
 			head:    9,
 			wantErr: nil,
 		},
 		{
-			stored: &ChainConfig{GrayGlacierBlock: big.NewInt(10)},
-			new:    &ChainConfig{GrayGlacierBlock: big.NewInt(20)},
+			stored: &ChainConfig{AIGenesisBlock: big.NewInt(10)},
+			new:    &ChainConfig{AIGenesisBlock: big.NewInt(20)},
 			head:   25,
 			wantErr: &ConfigCompatError{
-				What:         "Gray Glacier fork block",
+				What:         "AI Genesis fork block",
 				StoredConfig: big.NewInt(10),
 				NewConfig:    big.NewInt(20),
 				RewindTo:     9,
@@ -34,11 +34,11 @@ func TestCheckCompatible(t *testing.T) {
 		},
 		{
 			stored: &ChainConfig{
-				GrayGlacierBlock:   big.NewInt(0),
+				AIGenesisBlock:     big.NewInt(0),
 				MergeNetsplitBlock: big.NewInt(100),
 			},
 			new: &ChainConfig{
-				GrayGlacierBlock:   big.NewInt(0),
+				AIGenesisBlock:     big.NewInt(0),
 				MergeNetsplitBlock: big.NewInt(120),
 			},
 			head:    80,
@@ -46,11 +46,11 @@ func TestCheckCompatible(t *testing.T) {
 		},
 		{
 			stored: &ChainConfig{
-				GrayGlacierBlock:   big.NewInt(0),
+				AIGenesisBlock:     big.NewInt(0),
 				MergeNetsplitBlock: big.NewInt(100),
 			},
 			new: &ChainConfig{
-				GrayGlacierBlock:   big.NewInt(0),
+				AIGenesisBlock:     big.NewInt(0),
 				MergeNetsplitBlock: big.NewInt(120),
 			},
 			head: 150,
@@ -62,8 +62,8 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), GrayGlacierBlock: big.NewInt(0)},
-			new:    &ChainConfig{ChainID: big.NewInt(2), GrayGlacierBlock: big.NewInt(0)},
+			stored: &ChainConfig{ChainID: big.NewInt(1), AIGenesisBlock: big.NewInt(0)},
+			new:    &ChainConfig{ChainID: big.NewInt(2), AIGenesisBlock: big.NewInt(0)},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "chain ID",
