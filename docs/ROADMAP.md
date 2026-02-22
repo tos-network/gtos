@@ -1,5 +1,12 @@
 # GTOS Roadmap (DPoS + TTL-Native Decentralized Storage)
 
+## Status Legend
+
+- `DONE`: completed and merged.
+- `IN_PROGRESS`: partially implemented or implemented as skeleton/validation only.
+- `PLANNED`: not implemented yet.
+- Status snapshot date: `2026-02-22`.
+
 ## Product Alignment
 
 This roadmap is aligned with `README.md` and defines GTOS as a storage-first chain:
@@ -19,28 +26,32 @@ This roadmap is aligned with `README.md` and defines GTOS as a storage-first cha
 
 ## Phase 0: Protocol Freeze
 
+Status: `IN_PROGRESS`
+
 ### Goal
 
 Freeze the minimum protocol and state rules before feature expansion.
 
 ### Deliverables
 
-- Consensus spec: validator set, weighted voting, quorum/finality, epoch transition.
-- Consensus timing spec: target block interval `1s` (`target_block_interval=1s`).
-- State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
-- TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
-- Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
-- Signer spec: multi-algorithm verification and fallback rule (`signer` unset -> `account address`).
-- Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
-- Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`.
+- `DONE` Consensus spec: validator set, weighted voting, quorum/finality, epoch transition.
+- `DONE` Consensus timing spec: target block interval `1s` (`target_block_interval=1s`).
+- `DONE` State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
+- `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
+- `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
+- `DONE` Signer spec: multi-algorithm verification and fallback rule (`signer` unset -> `account address`).
+- `IN_PROGRESS` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
+- `DONE` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`.
 
 ### Definition of Done
 
-- Specs reviewed and versioned.
-- Golden vectors for each transaction type.
-- Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
+- `IN_PROGRESS` Specs reviewed and versioned.
+- `PLANNED` Golden vectors for each transaction type.
+- `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
 
 ## Phase 1: DPoS + Account/Signer Foundation
+
+Status: `IN_PROGRESS`
 
 ### Goal
 
@@ -48,18 +59,20 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 ### Deliverables
 
-- Validator lifecycle: register, activate, epoch rotation.
-- Proposal/vote/finality flow and safety checks.
-- Signature verification pipeline with signer resolution and fallback.
-- Deterministic nonce/state transition checks.
+- `IN_PROGRESS` Validator lifecycle: register, activate, epoch rotation.
+- `IN_PROGRESS` Proposal/vote/finality flow and safety checks.
+- `IN_PROGRESS` Signature verification pipeline with signer resolution and fallback.
+- `IN_PROGRESS` Deterministic nonce/state transition checks.
 
 ### Definition of Done
 
-- 3-validator network runs continuously.
-- 1000+ sequential finalized blocks without divergence.
-- Replay rejection and signer compatibility tests pass.
+- `PLANNED` 3-validator network runs continuously.
+- `PLANNED` 1000+ sequential finalized blocks without divergence.
+- `PLANNED` Replay rejection and signer compatibility tests pass.
 
 ## Phase 2: Code Storage with TTL
+
+Status: `IN_PROGRESS`
 
 ### Goal
 
@@ -67,19 +80,21 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 
 ### Deliverables
 
-- `code_put_ttl(code, ttl)` execution support.
-- TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
-- Code immutability rules: active code objects cannot be updated or deleted.
-- TTL validation rules and overflow protection.
-- Code read/index APIs (payload/hash/metadata).
-- Expiry and pruning behavior integrated with state maintenance.
+- `PLANNED` `code_put_ttl(code, ttl)` execution support.
+- `IN_PROGRESS` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
+- `PLANNED` Code immutability rules: active code objects cannot be updated or deleted.
+- `IN_PROGRESS` TTL validation rules and overflow protection.
+- `IN_PROGRESS` Code read/index APIs (payload/hash/metadata).
+- `PLANNED` Expiry and pruning behavior integrated with state maintenance.
 
 ### Definition of Done
 
-- Code records expire deterministically across nodes.
-- State root remains identical across nodes before/after prune cycles.
+- `PLANNED` Code records expire deterministically across nodes.
+- `PLANNED` State root remains identical across nodes before/after prune cycles.
 
 ## Phase 3: KV Storage with TTL
+
+Status: `IN_PROGRESS`
 
 ### Goal
 
@@ -87,19 +102,21 @@ Provide native TTL-based key-value storage with deterministic lifecycle.
 
 ### Deliverables
 
-- `kv_put_ttl(key, value, ttl)` execution support.
-- TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
-- Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
-- Explicitly no `kv_delete` transaction path.
-- Read semantics: active returns value, expired returns not-found.
-- Maintenance pipeline for pruning expired KV entries.
+- `PLANNED` `kv_put_ttl(key, value, ttl)` execution support.
+- `IN_PROGRESS` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
+- `PLANNED` Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
+- `DONE` Explicitly no `kv_delete` transaction path.
+- `IN_PROGRESS` Read semantics: active returns value, expired returns not-found.
+- `PLANNED` Maintenance pipeline for pruning expired KV entries.
 
 ### Definition of Done
 
-- TTL behavior is deterministic across nodes.
-- Long-run pruning keeps storage bounded while preserving consensus correctness.
+- `PLANNED` TTL behavior is deterministic across nodes.
+- `PLANNED` Long-run pruning keeps storage bounded while preserving consensus correctness.
 
 ## Phase 4: Hardening and Production Readiness
+
+Status: `PLANNED`
 
 ### Goal
 
@@ -107,17 +124,17 @@ Harden the chain for sustained production load.
 
 ### Deliverables
 
-- Performance profiling and bottleneck fixes.
-- Snapshot/state-sync bootstrap and recovery drills.
-- Automated retention-window pruning enforcement.
-- Observability: metrics, structured logs, consensus/storage health dashboards.
-- Security hardening: validation limits, DoS protections, fuzz/property tests.
+- `PLANNED` Performance profiling and bottleneck fixes.
+- `PLANNED` Snapshot/state-sync bootstrap and recovery drills.
+- `PLANNED` Automated retention-window pruning enforcement.
+- `PLANNED` Observability: metrics, structured logs, consensus/storage health dashboards.
+- `PLANNED` Security hardening: validation limits, DoS protections, fuzz/property tests.
 
 ### Definition of Done
 
-- 24h stability run without consensus halt.
-- Restart/recovery drills succeed at latest finalized height.
-- Retention window remains deterministic and bounded across nodes.
+- `PLANNED` 24h stability run without consensus halt.
+- `PLANNED` Restart/recovery drills succeed at latest finalized height.
+- `PLANNED` Retention window remains deterministic and bounded across nodes.
 
 ## Milestone Priorities
 
