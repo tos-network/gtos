@@ -517,6 +517,83 @@ web3._extend({
 			params: 0
 		}),
 		new web3._extend.Method({
+			name: 'getChainProfile',
+			call: 'tos_getChainProfile',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'getRetentionPolicy',
+			call: 'tos_getRetentionPolicy',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'getPruneWatermark',
+			call: 'tos_getPruneWatermark',
+			params: 0
+		}),
+		new web3._extend.Method({
+			name: 'getAccount',
+			call: 'tos_getAccount',
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getSigner',
+			call: 'tos_getSigner',
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'setSigner',
+			call: 'tos_setSigner',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'buildSetSignerTx',
+			call: 'tos_buildSetSignerTx',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'putCodeTTL',
+			call: 'tos_putCodeTTL',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getCodeObject',
+			call: 'tos_getCodeObject',
+			params: 2,
+			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getCodeObjectMeta',
+			call: 'tos_getCodeObjectMeta',
+			params: 2,
+			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'putKVTTL',
+			call: 'tos_putKVTTL',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'getKV',
+			call: 'tos_getKV',
+			params: 3,
+			inputFormatter: [null, null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getKVMeta',
+			call: 'tos_getKVMeta',
+			params: 3,
+			inputFormatter: [null, null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'listKV',
+			call: 'tos_listKV',
+			params: 4,
+			inputFormatter: [null, null, web3._extend.utils.toHex, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
 			name: 'sign',
 			call: 'tos_sign',
 			params: 2,
