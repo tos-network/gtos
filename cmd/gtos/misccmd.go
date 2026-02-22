@@ -1,19 +1,3 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -30,12 +14,12 @@ var (
 	VersionCheckUrlFlag = &cli.StringFlag{
 		Name:  "check.url",
 		Usage: "URL to use when checking vulnerabilities",
-		Value: "https://gtos.ethereum.org/docs/vulnerabilities/vulnerabilities.json",
+		Value: "https://gtos.tos.org/docs/vulnerabilities/vulnerabilities.json",
 	}
 	VersionCheckVersionFlag = &cli.StringFlag{
 		Name:  "check.version",
 		Usage: "Version to check",
-		Value: fmt.Sprintf("Geth/v%v/%v-%v/%v",
+		Value: fmt.Sprintf("GTOS/v%v/%v-%v/%v",
 			params.VersionWithCommit(gitCommit, gitDate),
 			runtime.GOOS, runtime.GOARCH, runtime.Version()),
 	}
@@ -55,10 +39,10 @@ The output of this command is supposed to be machine-readable.
 			VersionCheckVersionFlag,
 		},
 		Name:      "version-check",
-		Usage:     "Checks (online) for known Geth security vulnerabilities",
+		Usage:     "Checks (online) for known GTOS security vulnerabilities",
 		ArgsUsage: "<versionstring (optional)>",
 		Description: `
-The version-check command fetches vulnerability-information from https://gtos.ethereum.org/docs/vulnerabilities/vulnerabilities.json,
+The version-check command fetches vulnerability-information from https://gtos.tos.org/docs/vulnerabilities/vulnerabilities.json,
 and displays information about any security vulnerabilities that affect the currently executing version.
 `,
 	}
@@ -88,12 +72,12 @@ func version(ctx *cli.Context) error {
 }
 
 func license(_ *cli.Context) error {
-	fmt.Println(`Geth is free software: you can redistribute it and/or modify
+	fmt.Println(`GTOS is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-Geth is distributed in the hope that it will be useful,
+GTOS is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU General Public License for more details.

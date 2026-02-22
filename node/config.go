@@ -1,19 +1,3 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package node
 
 import (
@@ -196,7 +180,7 @@ type Config struct {
 
 	staticNodesWarning     bool
 	trustedNodesWarning    bool
-	oldGethResourceWarning bool
+	oldGTOSResourceWarning bool
 
 	// AllowUnprotectedTxs allows non EIP-155 protected transactions to be send over RPC.
 	AllowUnprotectedTxs bool `toml:",omitempty"`
@@ -289,9 +273,9 @@ func (c *Config) ExtRPCEnabled() bool {
 // NodeName returns the devp2p node identifier.
 func (c *Config) NodeName() string {
 	name := c.name()
-	// Backwards compatibility: previous versions used title-cased "Geth", keep that.
+	// Backwards compatibility: previous versions used title-cased "GTOS", keep that.
 	if name == "gtos" || name == "gtos-testnet" {
-		name = "Geth"
+		name = "GTOS"
 	}
 	if c.UserIdent != "" {
 		name += "/" + c.UserIdent
@@ -316,7 +300,7 @@ func (c *Config) name() string {
 }
 
 // These resources are resolved differently for "gtos" instances.
-var isOldGethResource = map[string]bool{
+var isOldGTOSResource = map[string]bool{
 	"chaindata":          true,
 	"nodes":              true,
 	"nodekey":            true,
@@ -334,14 +318,14 @@ func (c *Config) ResolvePath(path string) string {
 	}
 	// Backwards-compatibility: ensure that data directory files created
 	// by gtos 1.4 are used if they exist.
-	if warn, isOld := isOldGethResource[path]; isOld {
+	if warn, isOld := isOldGTOSResource[path]; isOld {
 		oldpath := ""
 		if c.name() == "gtos" {
 			oldpath = filepath.Join(c.DataDir, path)
 		}
 		if oldpath != "" && common.FileExist(oldpath) {
 			if warn {
-				c.warnOnce(&c.oldGethResourceWarning, "Using deprecated resource file %s, please move this file to the 'gtos' subdirectory of datadir.", oldpath)
+				c.warnOnce(&c.oldGTOSResourceWarning, "Using deprecated resource file %s, please move this file to the 'gtos' subdirectory of datadir.", oldpath)
 			}
 			return oldpath
 		}
@@ -469,7 +453,7 @@ func getKeyStoreDir(conf *Config) (string, bool, error) {
 	isEphemeral := false
 	if keydir == "" {
 		// There is no datadir.
-		keydir, err = os.MkdirTemp("", "go-ethereum-keystore")
+		keydir, err = os.MkdirTemp("", "go-tos-keystore")
 		isEphemeral = true
 	}
 

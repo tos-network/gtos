@@ -1,20 +1,4 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
-// Package utils contains internal helper functions for go-ethereum commands.
+// Package utils contains internal helper functions for go-tos commands.
 package utils
 
 import (
@@ -35,12 +19,12 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tos/tosconfig"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/internal/debug"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tos/tosconfig"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/urfave/cli/v2"
 )
 
@@ -125,11 +109,11 @@ func monitorFreeDiskSpace(sigc chan os.Signal, path string, freeDiskSpaceCritica
 			break
 		}
 		if freeSpace < freeDiskSpaceCritical {
-			log.Error("Low disk space. Gracefully shutting down Geth to prevent database corruption.", "available", common.StorageSize(freeSpace))
+			log.Error("Low disk space. Gracefully shutting down GTOS to prevent database corruption.", "available", common.StorageSize(freeSpace))
 			sigc <- syscall.SIGTERM
 			break
 		} else if freeSpace < 2*freeDiskSpaceCritical {
-			log.Warn("Disk space is running low. Geth will shutdown if disk space runs below critical level.", "available", common.StorageSize(freeSpace), "critical_level", common.StorageSize(freeDiskSpaceCritical))
+			log.Warn("Disk space is running low. GTOS will shutdown if disk space runs below critical level.", "available", common.StorageSize(freeSpace), "critical_level", common.StorageSize(freeDiskSpaceCritical))
 		}
 		time.Sleep(30 * time.Second)
 	}
@@ -371,13 +355,13 @@ func ExportPreimages(db tosdb.Database, fn string) error {
 // should be bumped.
 // If the importer sees a higher version, it should reject the import.
 type exportHeader struct {
-	Magic    string // Always set to 'gethdbdump' for disambiguation
+	Magic    string // Always set to 'gtosdbdump' for disambiguation
 	Version  uint64
 	Kind     string
 	UnixTime uint64
 }
 
-const exportMagic = "gethdbdump"
+const exportMagic = "gtosdbdump"
 const (
 	OpBatchAdd = 0
 	OpBatchDel = 1

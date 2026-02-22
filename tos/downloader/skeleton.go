@@ -1,19 +1,3 @@
-// Copyright 2022 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package downloader
 
 import (
@@ -27,9 +11,9 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tosdb"
-	"github.com/tos-network/gtos/log"
 )
 
 // scratchHeaders is the number of headers to store in a scratch space to allow
@@ -65,7 +49,7 @@ var errSyncMerged = errors.New("sync merged")
 var errSyncReorged = errors.New("sync reorged")
 
 // errTerminated is returned if the sync mechanism was terminated for this run of
-// the process. This is usually the case when Geth is shutting down and some events
+// the process. This is usually the case when GTOS is shutting down and some events
 // might still be propagating.
 var errTerminated = errors.New("terminated")
 
@@ -89,7 +73,7 @@ func init() {
 // The subchains use the exact same database namespace and are not disjoint from
 // each other. As such, extending one to overlap the other entails reducing the
 // second one first. This combined buffer model is used to avoid having to move
-// data on disk when two subchains are joined together.
+// data on disk when two subchains are joined togtoser.
 type subchain struct {
 	Head uint64      // Block number of the newest header in the subchain
 	Tail uint64      // Block number of the oldest header in the subchain
@@ -164,14 +148,14 @@ type backfiller interface {
 // skeleton represents a header chain synchronized after the merge where blocks
 // aren't validated any more via PoW in a forward fashion, rather are dictated
 // and extended at the head via the beacon chain and backfilled on the original
-// Ethereum block sync protocol.
+// TOS block sync protocol.
 //
 // Since the skeleton is grown backwards from head to genesis, it is handled as
 // a separate entity, not mixed in with the logical sequential transition of the
 // blocks. Once the skeleton is connected to an existing, validated chain, the
 // headers will be moved into the main downloader for filling and execution.
 //
-// Opposed to the original Ethereum block synchronization which is trustless (and
+// Opposed to the original TOS block synchronization which is trustless (and
 // uses a master peer to minimize the attack surface), post-merge block sync starts
 // from a trusted head. As such, there is no need for a master peer any more and
 // headers can be requested fully concurrently (though some batches might be
@@ -180,7 +164,7 @@ type backfiller interface {
 // Although a skeleton is part of a sync cycle, it is not recreated, rather stays
 // alive throughout the lifetime of the downloader. This allows it to be extended
 // concurrently with the sync cycle, since extensions arrive from an API surface,
-// not from within (vs. legacy Ethereum sync).
+// not from within (vs. legacy TOS sync).
 //
 // Since the skeleton tracks the entire header chain until it is consumed by the
 // forward block filling, it needs 0.5KB/block storage. At current mainnet sizes
@@ -247,7 +231,7 @@ func (s *skeleton) startup() {
 	for {
 		select {
 		case errc := <-s.terminate:
-			// No head was announced but Geth is shutting down
+			// No head was announced but GTOS is shutting down
 			errc <- nil
 			return
 
@@ -293,7 +277,7 @@ func (s *skeleton) startup() {
 
 				default:
 					// Sync either successfully terminated or failed with an unhandled
-					// error. Abort and wait until Geth requests a termination.
+					// error. Abort and wait until GTOS requests a termination.
 					errc := <-s.terminate
 					errc <- err
 					return
@@ -466,7 +450,7 @@ func (s *skeleton) sync(head *types.Header) (*types.Header, error) {
 			// sync and restart with the merged subchains.
 			//
 			// If we managed to link to the existing local chain or genesis block,
-			// abort sync altogether.
+			// abort sync altogtoser.
 			linked, merged := s.processResponse(res)
 			if linked {
 				log.Debug("Beacon sync linked to local chain")
@@ -506,7 +490,7 @@ func (s *skeleton) initSync(head *types.Header) {
 				Next: head.ParentHash,
 			}
 			for len(s.progress.Subchains) > 0 {
-				// If the last chain is above the new head, delete altogether
+				// If the last chain is above the new head, delete altogtoser
 				lastchain := s.progress.Subchains[0]
 				if lastchain.Tail >= headchain.Tail {
 					log.Debug("Dropping skeleton subchain", "head", lastchain.Head, "tail", lastchain.Tail)

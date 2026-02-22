@@ -1,19 +1,3 @@
-// Copyright 2019 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package rawdb
 
 import (
@@ -26,11 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/tsdb/fileutil"
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
-	"github.com/prometheus/tsdb/fileutil"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 var (
@@ -57,10 +41,10 @@ const freezerTableSize = 2 * 1000 * 1000 * 1000
 // Freezer is a memory mapped append-only database to store immutable ordered
 // data into flat files:
 //
-// - The append-only nature ensures that disk writes are minimized.
-// - The memory mapping ensures we can max out system memory for caching without
-//   reserving it for go-ethereum. This would also reduce the memory requirements
-//   of Geth, and thus also GC overhead.
+//   - The append-only nature ensures that disk writes are minimized.
+//   - The memory mapping ensures we can max out system memory for caching without
+//     reserving it for go-tos. This would also reduce the memory requirements
+//     of GTOS, and thus also GC overhead.
 type Freezer struct {
 	// WARNING: The `frozen` and `tail` fields are accessed atomically. On 32 bit platforms, only
 	// 64-bit aligned fields can be atomic. The struct is guaranteed to be so aligned,
@@ -188,9 +172,9 @@ func (f *Freezer) Ancient(kind string, number uint64) ([]byte, error) {
 
 // AncientRange retrieves multiple items in sequence, starting from the index 'start'.
 // It will return
-//  - at most 'max' items,
-//  - at least 1 item (even if exceeding the maxByteSize), but will otherwise
-//   return as many items as fit into maxByteSize.
+//   - at most 'max' items,
+//   - at least 1 item (even if exceeding the maxByteSize), but will otherwise
+//     return as many items as fit into maxByteSize.
 func (f *Freezer) AncientRange(kind string, start, count, maxBytes uint64) ([][]byte, error) {
 	if table := f.tables[kind]; table != nil {
 		return table.RetrieveItems(start, count, maxBytes)

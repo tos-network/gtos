@@ -149,8 +149,8 @@ func TestVotePoolSequentialQCsWithPruning(t *testing.T) {
 	pool := NewVotePool(30) // required = 21
 	validators := []string{"0x4001", "0x4002", "0x4003"}
 	const (
-		round       = uint64(1)
-		voteWeight  = uint64(7)
+		round        = uint64(1)
+		voteWeight   = uint64(7)
 		totalHeights = 128
 	)
 

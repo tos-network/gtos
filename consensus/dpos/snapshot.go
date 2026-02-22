@@ -6,11 +6,11 @@ import (
 	"errors"
 	"sort"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tosdb"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 // addressAscending sorts common.Address slices in ascending byte order.
@@ -28,9 +28,9 @@ type Snapshot struct {
 	config   *params.DPoSConfig
 	sigcache *lru.ARCCache // hash → common.Address, shared with engine
 
-	Number        uint64                     `json:"number"`
-	Hash          common.Hash                `json:"hash"`
-	Validators    []common.Address           `json:"validators"`    // sorted ascending by address
+	Number        uint64                      `json:"number"`
+	Hash          common.Hash                 `json:"hash"`
+	Validators    []common.Address            `json:"validators"`    // sorted ascending by address
 	ValidatorsMap map[common.Address]struct{} `json:"validatorsMap"` // O(1) lookup
 	Recents       map[uint64]common.Address   `json:"recents"`       // blockNum → signer
 }

@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package miner
 
 import (
@@ -48,8 +32,8 @@ const (
 
 var (
 	// Test chain configurations
-	testTxPoolConfig  core.TxPoolConfig
-	ethashChainConfig *params.ChainConfig
+	testTxPoolConfig core.TxPoolConfig
+	dposChainConfig  *params.ChainConfig
 
 	// Test accounts
 	testBankKey, _  = crypto.GenerateKey()
@@ -72,8 +56,8 @@ var (
 func init() {
 	testTxPoolConfig = core.DefaultTxPoolConfig
 	testTxPoolConfig.Journal = ""
-	ethashChainConfig = new(params.ChainConfig)
-	*ethashChainConfig = *params.TestChainConfig
+	dposChainConfig = new(params.ChainConfig)
+	*dposChainConfig = *params.TestChainConfig
 
 	signer := types.LatestSigner(params.TestChainConfig)
 	tx1 := types.MustSignNewTx(testBankKey, signer, &types.AccessListTx{
@@ -189,7 +173,7 @@ func TestGenerateBlockAndImport(t *testing.T) {
 		engine = dpos.NewFaker()
 		db     = rawdb.NewMemoryDatabase()
 	)
-	w, b := newTestWorker(t, ethashChainConfig, engine, db, 0)
+	w, b := newTestWorker(t, dposChainConfig, engine, db, 0)
 	defer w.close()
 
 	// This test chain imports the mined blocks.
@@ -229,7 +213,7 @@ func TestGenerateBlockAndImport(t *testing.T) {
 }
 
 func TestEmptyWork(t *testing.T) {
-	testEmptyWork(t, ethashChainConfig, dpos.NewFaker())
+	testEmptyWork(t, dposChainConfig, dpos.NewFaker())
 }
 
 func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
@@ -278,10 +262,10 @@ func testEmptyWork(t *testing.T, chainConfig *params.ChainConfig, engine consens
 }
 
 func TestStreamUncleBlock(t *testing.T) {
-	ethash := dpos.NewFaker()
-	defer ethash.Close()
+	dposEngine := dpos.NewFaker()
+	defer dposEngine.Close()
 
-	w, b := newTestWorker(t, ethashChainConfig, ethash, rawdb.NewMemoryDatabase(), 1)
+	w, b := newTestWorker(t, dposChainConfig, dposEngine, rawdb.NewMemoryDatabase(), 1)
 	defer w.close()
 
 	var taskCh = make(chan struct{})
@@ -323,7 +307,7 @@ func TestStreamUncleBlock(t *testing.T) {
 }
 
 func TestRegenerateMiningBlock(t *testing.T) {
-	testRegenerateMiningBlock(t, ethashChainConfig, dpos.NewFaker())
+	testRegenerateMiningBlock(t, dposChainConfig, dpos.NewFaker())
 }
 
 func testRegenerateMiningBlock(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
@@ -379,7 +363,7 @@ func testRegenerateMiningBlock(t *testing.T, chainConfig *params.ChainConfig, en
 }
 
 func TestAdjustInterval(t *testing.T) {
-	testAdjustInterval(t, ethashChainConfig, dpos.NewFaker())
+	testAdjustInterval(t, dposChainConfig, dpos.NewFaker())
 }
 
 func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine) {
@@ -469,12 +453,12 @@ func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine co
 }
 
 func TestGetSealingWork(t *testing.T) {
-	testGetSealingWork(t, ethashChainConfig, dpos.NewFaker(), false)
+	testGetSealingWork(t, dposChainConfig, dpos.NewFaker(), false)
 }
 
 func TestGetSealingWorkPostMerge(t *testing.T) {
 	local := new(params.ChainConfig)
-	*local = *ethashChainConfig
+	*local = *dposChainConfig
 	local.TerminalTotalDifficulty = big.NewInt(0)
 	testGetSealingWork(t, local, dpos.NewFaker(), true)
 }

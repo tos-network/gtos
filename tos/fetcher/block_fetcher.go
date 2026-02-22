@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Package fetcher contains the announcement based header, blocks or transaction synchronisation.
 package fetcher
 
@@ -26,9 +10,9 @@ import (
 	"github.com/tos-network/gtos/common/prque"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -192,9 +176,9 @@ type BlockFetcher struct {
 	// Testing hooks
 	announceChangeHook func(common.Hash, bool)           // Method to call upon adding or deleting a hash from the blockAnnounce list
 	queueChangeHook    func(common.Hash, bool)           // Method to call upon adding or deleting a block from the import queue
-	fetchingHook       func([]common.Hash)               // Method to call upon starting a block (eth/61) or header (eth/62) fetch
-	completingHook     func([]common.Hash)               // Method to call upon starting a block body fetch (eth/62)
-	importedHook       func(*types.Header, *types.Block) // Method to call upon successful header or block import (both eth/61 and eth/62)
+	fetchingHook       func([]common.Hash)               // Method to call upon starting a block (tos/61) or header (tos/62) fetch
+	completingHook     func([]common.Hash)               // Method to call upon starting a block body fetch (tos/62)
+	importedHook       func(*types.Header, *types.Block) // Method to call upon successful header or block import (both tos/61 and tos/62)
 }
 
 // NewBlockFetcher creates a block fetcher to retrieve blocks based on hash announcements.

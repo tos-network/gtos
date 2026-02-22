@@ -35,10 +35,10 @@ func (r *Registry) Register(h Handler) { r.handlers = append(r.handlers, h) }
 
 // Msg is the minimal message interface for Execute, satisfied by core.Message.
 type Msg interface {
-	From()  common.Address
-	To()    *common.Address
+	From() common.Address
+	To() *common.Address
 	Value() *big.Int
-	Data()  []byte
+	Data() []byte
 }
 
 // Execute processes a system action from msg and dispatches to a registered handler.

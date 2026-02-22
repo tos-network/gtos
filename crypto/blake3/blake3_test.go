@@ -4,9 +4,9 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/zeebo/assert"
 	"github.com/tos-network/gtos/crypto/blake3/internal/consts"
 	"github.com/tos-network/gtos/crypto/blake3/internal/utils"
+	"github.com/zeebo/assert"
 )
 
 func TestHasher_Vectors(t *testing.T) {

@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package trie
 
 import (
@@ -26,8 +10,8 @@ import (
 	"sync"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 var ErrCommitDisabled = errors.New("no database for committing")
@@ -376,11 +360,12 @@ func (st *StackTrie) insert(key, value []byte) {
 // hash converts st into a 'hashedNode', if possible. Possible outcomes:
 //
 // 1. The rlp-encoded value was >= 32 bytes:
-//  - Then the 32-byte `hash` will be accessible in `st.val`.
-//  - And the 'st.type' will be 'hashedNode'
+//   - Then the 32-byte `hash` will be accessible in `st.val`.
+//   - And the 'st.type' will be 'hashedNode'
+//
 // 2. The rlp-encoded value was < 32 bytes
-//  - Then the <32 byte rlp-encoded value will be accessible in 'st.val'.
-//  - And the 'st.type' will be 'hashedNode' AGAIN
+//   - Then the <32 byte rlp-encoded value will be accessible in 'st.val'.
+//   - And the 'st.type' will be 'hashedNode' AGAIN
 //
 // This method also sets 'st.type' to hashedNode, and clears 'st.key'.
 func (st *StackTrie) hash() {

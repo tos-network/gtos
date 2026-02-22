@@ -112,9 +112,10 @@ func ReadValidatorStatus(db vm.StateDB, addr common.Address) ValidatorStatus {
 // by address ascending (deterministic round-robin order).
 //
 // Two-phase sort (R2-M2):
-//   Phase 1 — collect all registered entries into memory (O(N) StateDB reads total).
-//   Phase 2 — filter active, sort by stake desc (address asc as tiebreak), truncate.
-//   Phase 3 — re-sort the truncated result by address ascending.
+//
+//	Phase 1 — collect all registered entries into memory (O(N) StateDB reads total).
+//	Phase 2 — filter active, sort by stake desc (address asc as tiebreak), truncate.
+//	Phase 3 — re-sort the truncated result by address ascending.
 func ReadActiveValidators(db vm.StateDB, maxValidators uint64) []common.Address {
 	count := readValidatorCount(db)
 

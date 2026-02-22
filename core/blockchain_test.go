@@ -1,19 +1,3 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package core
 
 import (
@@ -33,8 +17,8 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -1088,7 +1072,6 @@ func TestChainTxReorgs(t *testing.T) {
 	}
 }
 
-
 // This EVM code generates a log when the contract is created.
 
 // This test checks that log events and RemovedLogsEvent are sent
@@ -1358,7 +1341,6 @@ func TestEIP155Transition(t *testing.T) {
 		t.Errorf("have %v, want %v", have, want)
 	}
 }
-
 
 // This is a regression test (i.e. as weird as it is, don't delete it ever), which
 // tests that under weird reorg conditions the blockchain and its internal header-
@@ -1640,8 +1622,8 @@ func TestInsertReceiptChainRollback(t *testing.T) {
 // overtake the 'canon' chain until after it's passed canon by about 200 blocks.
 //
 // Details at:
-//  - https://github.com/tos-network/gtos/issues/18977
-//  - https://github.com/tos-network/gtos/pull/18988
+//   - https://github.com/tos-network/gtos/issues/18977
+//   - https://github.com/tos-network/gtos/pull/18988
 func TestLowDiffLongChain(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := dpos.NewFaker()
@@ -1804,7 +1786,8 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 // That is: the sidechain for import contains some blocks already present in canon chain.
 // So the blocks are
 // [ Cn, Cn+1, Cc, Sn+3 ... Sm]
-//   ^    ^    ^  pruned
+//
+//	^    ^    ^  pruned
 func TestPrunedImportSide(t *testing.T) {
 	//glogger := log.NewGlogHandler(log.StreamHandler(os.Stdout, log.TerminalFormat(false)))
 	//glogger.Verbosity(3)
@@ -2592,9 +2575,9 @@ func BenchmarkBlockChain_1x1000Executions(b *testing.B) {
 // This internally leads to a sidechain import, since the blocks trigger an
 // ErrPrunedAncestor error.
 // This may e.g. happen if
-//   1. Downloader rollbacks a batch of inserted blocks and exits
-//   2. Downloader starts to sync again
-//   3. The blocks fetched are all known and canonical blocks
+//  1. Downloader rollbacks a batch of inserted blocks and exits
+//  2. Downloader starts to sync again
+//  3. The blocks fetched are all known and canonical blocks
 func TestSideImportPrunedBlocks(t *testing.T) {
 	// Generate a canonical chain to act as the main dataset
 	engine := dpos.NewFaker()
@@ -2667,7 +2650,7 @@ func TestSideImportPrunedBlocks(t *testing.T) {
 // TestInitThenFailCreateContract tests a pretty notorious case that happened
 // on mainnet over blocks 7338108, 7338110 and 7338115.
 // - Block 7338108: address e771789f5cccac282f23bb7add5690e1f6ca467c is initiated
-//   with 0.001 ether (thus created but no code)
+//   with 0.001 tos (thus created but no code)
 // - Block 7338110: a CREATE2 is attempted. The CREATE2 would deploy code on
 //   the same address e771789f5cccac282f23bb7add5690e1f6ca467c. However, the
 //   deployment fails due to OOG during initcode execution

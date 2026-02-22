@@ -10,7 +10,7 @@
 *un~
 .DS_Store
 */**/.DS_Store
-.ethtest
+.tostest
 */**/*tx_database*
 */**/*dapps*
 build/_vendor/pkg

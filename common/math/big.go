@@ -1,19 +1,3 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Package math provides integer math utilities.
 package math
 
@@ -227,10 +211,10 @@ func U256Bytes(n *big.Int) []byte {
 // S256 interprets x as a two's complement number.
 // x must not exceed 256 bits (the result is undefined if it does) and is not modified.
 //
-//   S256(0)        = 0
-//   S256(1)        = 1
-//   S256(2**255)   = -2**255
-//   S256(2**256-1) = -1
+//	S256(0)        = 0
+//	S256(1)        = 1
+//	S256(2**255)   = -2**255
+//	S256(2**256-1) = -1
 func S256(x *big.Int) *big.Int {
 	if x.Cmp(tt255) < 0 {
 		return x

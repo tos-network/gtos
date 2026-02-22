@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package scwallet
 
 import (
@@ -33,14 +17,14 @@ import (
 	"sync"
 	"time"
 
+	pcsc "github.com/gballet/go-libpcsclite"
+	"github.com/status-im/keycard-go/derivationpath"
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
-	pcsc "github.com/gballet/go-libpcsclite"
-	"github.com/status-im/keycard-go/derivationpath"
 )
 
 // ErrPairingPasswordNeeded is returned if opening the smart card requires pairing with a pairing
@@ -121,7 +105,7 @@ type Wallet struct {
 
 	deriveNextPaths []accounts.DerivationPath // Next derivation paths for account auto-discovery (multiple bases supported)
 	deriveNextAddrs []common.Address          // Next derived account addresses for auto-discovery (multiple bases supported)
-	deriveChain     gtos.ChainStateReader // Blockchain state reader to discover used account with
+	deriveChain     gtos.ChainStateReader     // Blockchain state reader to discover used account with
 	deriveReq       chan chan struct{}        // Channel to request a self-derivation on
 	deriveQuit      chan chan error           // Channel to terminate the self-deriver with
 }
@@ -477,7 +461,7 @@ func (w *Wallet) selfDerive() {
 		)
 		for i := 0; i < len(nextAddrs); i++ {
 			for empty := false; !empty; {
-				// Retrieve the next derived Ethereum account
+				// Retrieve the next derived TOS account
 				if nextAddrs[i] == (common.Address{}) {
 					if nextAcc, err = w.session.derive(nextPaths[i]); err != nil {
 						w.log.Warn("Smartcard wallet account derivation failed", "err", err)
@@ -728,7 +712,7 @@ func (w *Wallet) signHashWithPassphrase(account accounts.Account, passphrase str
 }
 
 // SignText requests the wallet to sign the hash of a given piece of data, prefixed
-// by the Ethereum prefix scheme
+// by the TOS prefix scheme
 // It looks up the account specified either solely via its address contained within,
 // or optionally with the aid of any location metadata from the embedded URL field.
 //
@@ -879,6 +863,7 @@ func (s *Session) walletStatus() (*walletStatus, error) {
 }
 
 // derivationPath fetches the wallet's current derivation path from the card.
+//
 //lint:ignore U1000 needs to be added to the console interface
 func (s *Session) derivationPath() (accounts.DerivationPath, error) {
 	response, err := s.Channel.transmitEncrypted(claSCWallet, insStatus, statusP1Path, 0, nil)
@@ -994,6 +979,7 @@ func (s *Session) derive(path accounts.DerivationPath) (accounts.Account, error)
 }
 
 // keyExport contains information on an exported keypair.
+//
 //lint:ignore U1000 needs to be added to the console interface
 type keyExport struct {
 	PublicKey  []byte `asn1:"tag:0"`
@@ -1001,6 +987,7 @@ type keyExport struct {
 }
 
 // publicKey returns the public key for the current derivation path.
+//
 //lint:ignore U1000 needs to be added to the console interface
 func (s *Session) publicKey() ([]byte, error) {
 	response, err := s.Channel.transmitEncrypted(claSCWallet, insExportKey, exportP1Any, exportP2Pubkey, nil)

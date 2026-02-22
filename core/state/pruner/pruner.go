@@ -1,19 +1,3 @@
-// Copyright 2021 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package pruner
 
 import (
@@ -32,9 +16,9 @@ import (
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -66,9 +50,9 @@ var (
 // Pruner is an offline tool to prune the stale state with the
 // help of the snapshot. The workflow of pruner is very simple:
 //
-// - iterate the snapshot, reconstruct the relevant state
-// - iterate the database, delete all other state entries which
-//   don't belong to the target state and the genesis state
+//   - iterate the snapshot, reconstruct the relevant state
+//   - iterate the database, delete all other state entries which
+//     don't belong to the target state and the genesis state
 //
 // It can take several hours(around 2 hours for mainnet) to finish
 // the whole pruning work. It's recommended to run this offline tool
@@ -490,7 +474,7 @@ const warningLog = `
 WARNING!
 
 The clean trie cache is not found. Please delete it by yourself after the 
-pruning. Remember don't start the Geth without deleting the clean trie cache
+pruning. Remember don't start the GTOS without deleting the clean trie cache
 otherwise the entire database may be damaged!
 
 Check the command description "gtos snapshot prune-state --help" for more details.

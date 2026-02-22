@@ -1,19 +1,3 @@
-// Copyright 2019 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package core_test
 
 import (
@@ -132,7 +116,7 @@ var jsonTypedData = `
       },
       "primaryType": "Mail",
       "domain": {
-        "name": "Ether Mail",
+        "name": "TOS Mail",
         "version": "1",
         "chainId": "1",
         "verifyingContract": "0xCCCcccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC"
@@ -155,7 +139,7 @@ var jsonTypedData = `
 const primaryType = "Mail"
 
 var domainStandard = apitypes.TypedDataDomain{
-	Name:              "Ether Mail",
+	Name:              "TOS Mail",
 	Version:           "1",
 	ChainId:           math.NewHexOrDecimal256(1),
 	VerifyingContract: "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC",
@@ -288,7 +272,7 @@ func TestHashStruct(t *testing.T) {
 		t.Error(err)
 	}
 	domainHash := fmt.Sprintf("0x%s", common.Bytes2Hex(hash))
-	if domainHash != "0xf2cee375fa42b42143804025fc449deafd50cc031ca257e0b194a650a912090f" {
+	if domainHash != "0xb891ad6623dc73c45625b4044929f9e994590d53d100feb5bfb7127f1a4e4f29" {
 		t.Errorf("Expected different domain hashStruct result (got %s)", domainHash)
 	}
 }
@@ -476,7 +460,7 @@ var gnosisTx = `
       "executor": null,
       "isExecuted": false,
       "isSuccessful": null,
-      "ethGasPrice": null,
+      "tosGasPrice": null,
       "gasUsed": null,
       "fee": null,
       "origin": null,
@@ -594,7 +578,7 @@ var gnosisTxWithChainId = `
 	"executor": "0xbc2BB26a6d821e69A38016f3858561a1D80d4182",
 	"isExecuted": true,
 	"isSuccessful": true,
-	"ethGasPrice": "2500000009",
+	"tosGasPrice": "2500000009",
 	"gasUsed": 82902,
 	"fee": "207255000746118",
 	"chainId": "4",

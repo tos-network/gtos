@@ -1,20 +1,4 @@
-// Copyright 2021 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package ethconfig contains the configuration of the ETH and LES protocols.
+// Package tosconfig contains the configuration of the TOS protocol.
 package tosconfig
 
 import (
@@ -26,12 +10,12 @@ import (
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/gasprice"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/gasprice"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // FullNodeGPO contains default gasprice oracle settings for full node.
@@ -54,7 +38,7 @@ var LightClientGPO = gasprice.Config{
 	IgnorePrice:      gasprice.DefaultIgnorePrice,
 }
 
-// Defaults contains default settings for use on the Ethereum main net.
+// Defaults contains default settings for use on the TOS main net.
 var Defaults = Config{
 	SyncMode:                1,
 	NetworkId:               1,
@@ -78,7 +62,7 @@ var Defaults = Config{
 	RPCGasCap:     50000000,
 	RPCEVMTimeout: 5 * time.Second,
 	GPO:           FullNodeGPO,
-	RPCTxFeeCap:   1, // 1 ether
+	RPCTxFeeCap:   1, // 1 tos
 }
 
 //go:generate go run github.com/fjl/gencodec -type Config -formats toml -out gen_config.go
@@ -86,7 +70,7 @@ var Defaults = Config{
 // Config contains configuration options for of the ETH and LES protocols.
 type Config struct {
 	// The genesis block, which is inserted if the database is empty.
-	// If nil, the Ethereum main net block is used.
+	// If nil, the TOS main net block is used.
 	Genesis *core.Genesis `toml:",omitempty"`
 
 	// Protocol options
@@ -154,14 +138,14 @@ type Config struct {
 	// Miscellaneous options
 	DocRoot string `toml:"-"`
 
-	// RPCGasCap is the global gas cap for eth-call variants.
+	// RPCGasCap is the global gas cap for tos-call variants.
 	RPCGasCap uint64
 
-	// RPCEVMTimeout is the global timeout for eth-call.
+	// RPCEVMTimeout is the global timeout for tos-call.
 	RPCEVMTimeout time.Duration
 
 	// RPCTxFeeCap is the global transaction fee(price * gaslimit) cap for
-	// send-transaction variants. The unit is ether.
+	// send-transaction variants. The unit is tos.
 	RPCTxFeeCap float64
 
 	// Checkpoint is a hardcoded checkpoint which can be nil.

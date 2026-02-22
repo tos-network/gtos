@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Package rawdb contains a collection of low level database accessors.
 package rawdb
 
@@ -81,8 +65,8 @@ var (
 	// uncleanShutdownKey tracks the list of local crashes
 	uncleanShutdownKey = []byte("unclean-shutdown") // config prefix for the db
 
-	// transitionStatusKey tracks the eth2 transition status.
-	transitionStatusKey = []byte("eth2-transition")
+	// transitionStatusKey tracks the tos2 transition status.
+	transitionStatusKey = []byte("tos2-transition")
 
 	// Data item prefixes (use single byte to avoid mixing data types, avoid `i`, used for indexes).
 	headerPrefix       = []byte("h") // headerPrefix + num (uint64 big endian) + hash -> header
@@ -100,7 +84,7 @@ var (
 	CodePrefix            = []byte("c") // CodePrefix + code hash -> account code
 	skeletonHeaderPrefix  = []byte("S") // skeletonHeaderPrefix + num (uint64 big endian) -> header
 
-	PreimagePrefix = []byte("secure-key-")       // PreimagePrefix + hash -> preimage
+	PreimagePrefix = []byte("secure-key-")  // PreimagePrefix + hash -> preimage
 	configPrefix   = []byte("tos-config-")  // config prefix for the db
 	genesisPrefix  = []byte("tos-genesis-") // genesis state prefix for the db
 

@@ -2,20 +2,6 @@
 // https://github.com/ConsenSys/goff
 // Many function signature of field operations are renamed.
 
-// Copyright 2020 ConsenSys AG
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 // field modulus q =
 //
 // 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787

@@ -8,10 +8,10 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/gasprice"
 )
 
 // MarshalTOML marshals as TOML.

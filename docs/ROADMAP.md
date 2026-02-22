@@ -29,7 +29,7 @@ Freeze the minimum protocol and state rules before implementation expansion.
 - State spec:
   - account state
   - signer binding on account (`signer` as real signing key reference)
-  - signer fallback rule (`signer` unset -> use account address, geth-compatible)
+  - signer fallback rule (`signer` unset -> use account address, gtos-compatible)
   - immutable contract-code state
   - TTL KV state
 - Signature verification spec:

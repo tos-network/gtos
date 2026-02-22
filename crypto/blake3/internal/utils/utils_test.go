@@ -4,8 +4,8 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/zeebo/assert"
 	"github.com/tos-network/gtos/crypto/blake3/internal/consts"
+	"github.com/zeebo/assert"
 )
 
 func TestBytesToWords(t *testing.T) {

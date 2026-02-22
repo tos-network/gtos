@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -41,24 +25,24 @@ import (
 	"github.com/tos-network/gtos/trie"
 )
 
-// TOSAPI provides an API to access Ethereum full node-related information.
+// TOSAPI provides an API to access TOS full node-related information.
 type TOSAPI struct {
 	e *TOS
 }
 
-// NewTOSAPI creates a new Ethereum protocol API for full nodes.
+// NewTOSAPI creates a new TOS protocol API for full nodes.
 func NewTOSAPI(e *TOS) *TOSAPI {
 	return &TOSAPI{e}
 }
 
-// Etherbase is the address that mining rewards will be send to.
-func (api *TOSAPI) Etherbase() (common.Address, error) {
-	return api.e.Etherbase()
+// Coinbase is the address that mining rewards will be sent to.
+func (api *TOSAPI) Coinbase() (common.Address, error) {
+	return api.e.Coinbase()
 }
 
-// Coinbase is the address that mining rewards will be send to (alias for Etherbase).
-func (api *TOSAPI) Coinbase() (common.Address, error) {
-	return api.Etherbase()
+// Etherbase is a deprecated alias for Coinbase.
+func (api *TOSAPI) Etherbase() (common.Address, error) {
+	return api.Coinbase()
 }
 
 // Hashrate returns the POW hashrate.
@@ -123,9 +107,15 @@ func (api *MinerAPI) SetGasLimit(gasLimit hexutil.Uint64) bool {
 	return true
 }
 
-// SetEtherbase sets the etherbase of the miner.
-func (api *MinerAPI) SetEtherbase(etherbase common.Address) bool {
-	api.e.SetEtherbase(etherbase)
+// SetCoinbase sets the coinbase of the miner.
+func (api *MinerAPI) SetCoinbase(coinbase common.Address) bool {
+	api.e.SetCoinbase(coinbase)
+	return true
+}
+
+// SetEtherbase is a deprecated alias for SetCoinbase.
+func (api *MinerAPI) SetEtherbase(coinbase common.Address) bool {
+	api.e.SetCoinbase(coinbase)
 	return true
 }
 
@@ -134,7 +124,7 @@ func (api *MinerAPI) SetRecommitInterval(interval int) {
 	api.e.Miner().SetRecommitInterval(time.Duration(interval) * time.Millisecond)
 }
 
-// AdminAPI is the collection of Ethereum full node related APIs for node
+// AdminAPI is the collection of TOS full node related APIs for node
 // administration.
 type AdminAPI struct {
 	tosNode *TOS
@@ -243,7 +233,7 @@ func (api *AdminAPI) ImportChain(file string) (bool, error) {
 	return true, nil
 }
 
-// DebugAPI is the collection of Ethereum full node APIs for debugging the
+// DebugAPI is the collection of TOS full node APIs for debugging the
 // protocol.
 type DebugAPI struct {
 	tosNode *TOS

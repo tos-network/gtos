@@ -1,20 +1,4 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package ethclient provides a client for the Ethereum RPC API.
+// Package tosclient provides a client for the TOS RPC API.
 package tosclient
 
 import (
@@ -31,7 +15,7 @@ import (
 	"github.com/tos-network/gtos/rpc"
 )
 
-// Client defines typed wrappers for the Ethereum RPC API.
+// Client defines typed wrappers for the TOS RPC API.
 type Client struct {
 	c *rpc.Client
 }
@@ -315,7 +299,7 @@ func (ec *Client) SyncProgress(ctx context.Context) (*gtos.SyncProgress, error) 
 // SubscribeNewHead subscribes to notifications about the current blockchain head
 // on the given channel.
 func (ec *Client) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (gtos.Subscription, error) {
-	return ec.c.EthSubscribe(ctx, ch, "newHeads")
+	return ec.c.TOSSubscribe(ctx, ch, "newHeads")
 }
 
 // State Access
@@ -384,7 +368,7 @@ func (ec *Client) SubscribeFilterLogs(ctx context.Context, q gtos.FilterQuery, c
 	if err != nil {
 		return nil, err
 	}
-	return ec.c.EthSubscribe(ctx, ch, "logs", arg)
+	return ec.c.TOSSubscribe(ctx, ch, "logs", arg)
 }
 
 func toFilterArg(q gtos.FilterQuery) (interface{}, error) {

@@ -1,20 +1,4 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package core implements the Ethereum consensus protocol.
+// Package core implements the TOS consensus protocol.
 package core
 
 import (
@@ -27,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/mclock"
 	"github.com/tos-network/gtos/common/prque"
@@ -35,14 +20,13 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/state/snapshot"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/syncx"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/trie"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 var (
@@ -126,7 +110,7 @@ type CacheConfig struct {
 	TrieCleanRejournal  time.Duration // Time interval to dump clean cache to disk periodically
 	TrieCleanNoPrefetch bool          // Whether to disable heuristic state prefetching for followup blocks
 	TrieDirtyLimit      int           // Memory limit (MB) at which to start flushing dirty trie nodes to disk
-	TrieDirtyDisabled   bool          // Whether to disable trie write caching and GC altogether (archive node)
+	TrieDirtyDisabled   bool          // Whether to disable trie write caching and GC altogtoser (archive node)
 	TrieTimeLimit       time.Duration // Time limit after which to flush the current in-memory trie to disk
 	SnapshotLimit       int           // Memory allowance (MB) to use for caching snapshot entries in memory
 	Preimages           bool          // Whether to store preimage of trie key to the disk
@@ -214,7 +198,7 @@ type BlockChain struct {
 }
 
 // NewBlockChain returns a fully initialised block chain using information
-// available in the database. It initialises the default Ethereum Validator
+// available in the database. It initialises the default TOS Validator
 // and Processor.
 func NewBlockChain(db tosdb.Database, cacheConfig *CacheConfig, chainConfig *params.ChainConfig, engine consensus.Engine, shouldPreserve func(header *types.Header) bool, txLookupLimit *uint64) (*BlockChain, error) {
 	if cacheConfig == nil {
@@ -245,7 +229,7 @@ func NewBlockChain(db tosdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		blockCache:    blockCache,
 		txLookupCache: txLookupCache,
 		futureBlocks:  futureBlocks,
-		engine: engine,
+		engine:        engine,
 	}
 	bc.forker = NewForkChoice(bc, shouldPreserve)
 	bc.validator = NewBlockValidator(chainConfig, bc, engine)
@@ -345,7 +329,7 @@ func NewBlockChain(db tosdb.Database, cacheConfig *CacheConfig, chainConfig *par
 		}
 	}
 	// The first thing the node will do is reconstruct the verification data for
-	// the head block (ethash cache or clique voting snapshot). Might as well do
+	// the head block (PoW cache or clique voting snapshot). Might as well do
 	// it in advance.
 	bc.engine.VerifyHeader(bc, bc.CurrentHeader(), true)
 
@@ -663,7 +647,7 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 		// Todo(rjl493456442) txlookup, bloombits, etc
 	}
 	// If SetHead was only called as a chain reparation method, try to skip
-	// touching the header chain altogether, unless the freezer is broken
+	// touching the header chain altogtoser, unless the freezer is broken
 	if repair {
 		if target, force := updateFn(bc.db, bc.CurrentBlock().Header()); force {
 			bc.hc.SetHead(target, updateFn, delFn)
@@ -1046,7 +1030,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 		// * If block number is large enough to be regarded as a recent block
 		// It means blocks below the ancientLimit-txlookupLimit won't be indexed.
 		//
-		// But if the `TxIndexTail` is not nil, e.g. Geth is initialized with
+		// But if the `TxIndexTail` is not nil, e.g. GTOS is initialized with
 		// an external ancient database, during the setup, blockchain will start
 		// a background routine to re-indexed all indices in [ancients - txlookupLimit, ancients)
 		// range. In this case, all tx indices of newly imported blocks should be
@@ -1389,7 +1373,7 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 // ahead and was not added.
 //
 // TODO after the transition, the future block shouldn't be kept. Because
-// it's not checked in the Geth side anymore.
+// it's not checked in the GTOS side anymore.
 func (bc *BlockChain) addFutureBlock(block *types.Block) error {
 	max := uint64(time.Now().Unix() + maxTimeFutureBlocks)
 	if block.Time() > max {
@@ -1499,7 +1483,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			if reorg {
 				// Switch to import mode if the forker says the reorg is necessary
 				// and also the block is not on the canonical chain.
-				// In eth2 the forker always returns true for reorg decision (blindly trusting
+				// In tos2 the forker always returns true for reorg decision (blindly trusting
 				// the external consensus engine), but in order to prevent the unnecessary
 				// reorgs when importing known blocks, the special case is handled here.
 				if block.NumberU64() > current.NumberU64() || bc.GetCanonicalHash(block.NumberU64()) != block.Hash() {
@@ -2273,13 +2257,13 @@ func (bc *BlockChain) skipBlock(err error, it *insertIterator) bool {
 // all tx indices will be reserved.
 //
 // The user can adjust the txlookuplimit value for each launch after fast
-// sync, Geth will automatically construct the missing indices and delete
+// sync, GTOS will automatically construct the missing indices and delete
 // the extra indices.
 func (bc *BlockChain) maintainTxIndex(ancients uint64) {
 	defer bc.wg.Done()
 
 	// Before starting the actual maintenance, we need to handle a special case,
-	// where user might init Geth with an external ancient database. If so, we
+	// where user might init GTOS with an external ancient database. If so, we
 	// need to reindex all necessary transactions before starting to process any
 	// pruning requests.
 	if ancients > 0 {
@@ -2294,7 +2278,7 @@ func (bc *BlockChain) maintainTxIndex(ancients uint64) {
 	indexBlocks := func(tail *uint64, head uint64, done chan struct{}) {
 		defer func() { done <- struct{}{} }()
 
-		// If the user just upgraded Geth to a new version which supports transaction
+		// If the user just upgraded GTOS to a new version which supports transaction
 		// index pruning, write the new tail and remove anything older.
 		if tail == nil {
 			if bc.txLookupLimit == 0 || head < bc.txLookupLimit {

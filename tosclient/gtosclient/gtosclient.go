@@ -1,19 +1,3 @@
-// Copyright 2021 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Package gethclient provides an RPC client for gtos-specific APIs.
 package gtosclient
 
@@ -33,7 +17,7 @@ import (
 
 // Client is a wrapper around rpc.Client that implements gtos-specific functionality.
 //
-// If you want to use the standardized Ethereum RPC functionality, use tosclient.Client instead.
+// If you want to use the standardized TOS RPC functionality, use tosclient.Client instead.
 type Client struct {
 	c *rpc.Client
 }
@@ -176,7 +160,7 @@ func (ec *Client) GetNodeInfo(ctx context.Context) (*p2p.NodeInfo, error) {
 
 // SubscribePendingTransactions subscribes to new pending transactions.
 func (ec *Client) SubscribePendingTransactions(ctx context.Context, ch chan<- common.Hash) (*rpc.ClientSubscription, error) {
-	return ec.c.EthSubscribe(ctx, ch, "newPendingTransactions")
+	return ec.c.TOSSubscribe(ctx, ch, "newPendingTransactions")
 }
 
 func toBlockNumArg(number *big.Int) string {

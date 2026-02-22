@@ -1,19 +1,3 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package console
 
 import (
@@ -30,13 +14,13 @@ import (
 	"syscall"
 
 	"github.com/dop251/goja"
+	"github.com/mattn/go-colorable"
+	"github.com/peterh/liner"
 	"github.com/tos-network/gtos/console/prompt"
 	"github.com/tos-network/gtos/internal/jsre"
 	"github.com/tos-network/gtos/internal/jsre/deps"
 	"github.com/tos-network/gtos/internal/web3ext"
 	"github.com/tos-network/gtos/rpc"
-	"github.com/mattn/go-colorable"
-	"github.com/peterh/liner"
 )
 
 var (
@@ -57,7 +41,7 @@ const DefaultPrompt = "> "
 type Config struct {
 	DataDir  string              // Data directory to store the console history at
 	DocRoot  string              // Filesystem path from where to load JavaScript files from
-	Client   *rpc.Client         // RPC client to execute Ethereum requests through
+	Client   *rpc.Client         // RPC client to execute TOS requests through
 	Prompt   string              // Input prompt prefix string (defaults to DefaultPrompt)
 	Prompter prompt.UserPrompter // Input prompter to allow interactive user feedback (defaults to TerminalPrompter)
 	Printer  io.Writer           // Output writer to serialize any display strings to (defaults to os.Stdout)
@@ -68,7 +52,7 @@ type Config struct {
 // JavaScript console attached to a running node via an external or in-process RPC
 // client.
 type Console struct {
-	client   *rpc.Client         // RPC client to execute Ethereum requests through
+	client   *rpc.Client         // RPC client to execute TOS requests through
 	jsre     *jsre.JSRE          // JavaScript runtime environment running the interpreter
 	prompt   string              // Input prompt prefix string
 	prompter prompt.UserPrompter // Input prompter to allow interactive user feedback
@@ -226,10 +210,10 @@ func (c *Console) initExtensions() error {
 				vm.Set(name, v)
 			}
 		}
-		// Also set eth as an alias to web3.eth for backward compatibility.
-		// This allows JS code that uses "eth.getBlock()" to work.
-		if eth := web3.Get("eth"); eth != nil {
-			vm.Set("eth", eth)
+		// Also set tos as an alias to web3.tos for backward compatibility.
+		// This allows JS code that uses "tos.getBlock()" to work.
+		if tos := web3.Get("tos"); tos != nil {
+			vm.Set("tos", tos)
 		}
 	})
 	return nil
@@ -296,7 +280,7 @@ func (c *Console) AutoCompleteInput(line string, pos int) (string, []string, str
 		return "", nil, ""
 	}
 	// Chunk data to relevant part for autocompletion
-	// E.g. in case of nested lines eth.getBalance(eth.coinb<tab><tab>
+	// E.g. in case of nested lines tos.getBalance(tos.coinb<tab><tab>
 	start := pos - 1
 	for ; start > 0; start-- {
 		// Skip all methods and namespaces (i.e. including the dot)
@@ -315,12 +299,12 @@ func (c *Console) AutoCompleteInput(line string, pos int) (string, []string, str
 	return line[:start], c.jsre.CompleteKeywords(line[start:pos]), line[pos:]
 }
 
-// Welcome show summary of current Geth instance and some metadata about the
+// Welcome show summary of current GTOS instance and some metadata about the
 // console's available modules.
 func (c *Console) Welcome() {
-	message := "Welcome to the Geth JavaScript console!\n\n"
+	message := "Welcome to the GTOS JavaScript console!\n\n"
 
-	// Print some generic Geth metadata via direct RPC calls.
+	// Print some generic GTOS metadata via direct RPC calls.
 	// Use web3_clientVersion for instance name.
 	if res, err := c.jsre.Run(`web3.version.node`); err == nil {
 		if s := res.String(); s != "" && s != "undefined" {

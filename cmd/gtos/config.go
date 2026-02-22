@@ -1,19 +1,3 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -55,7 +39,7 @@ var (
 	configFileFlag = &cli.StringFlag{
 		Name:     "config",
 		Usage:    "TOML configuration file",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 )
 
@@ -81,18 +65,18 @@ var tomlSettings = toml.Config{
 	},
 }
 
-type ethstatsConfig struct {
+type tosstatsConfig struct {
 	URL string `toml:",omitempty"`
 }
 
-type gethConfig struct {
+type gtosConfig struct {
 	TOS      tosconfig.Config
 	Node     node.Config
-	TOSStats ethstatsConfig
+	TOSStats tosstatsConfig
 	Metrics  metrics.Config
 }
 
-func loadConfig(file string, cfg *gethConfig) error {
+func loadConfig(file string, cfg *gtosConfig) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return err
@@ -118,9 +102,9 @@ func defaultNodeConfig() node.Config {
 }
 
 // makeConfigNode loads gtos configuration and creates a blank node instance.
-func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
+func makeConfigNode(ctx *cli.Context) (*node.Node, gtosConfig) {
 	// Load defaults.
-	cfg := gethConfig{
+	cfg := gtosConfig{
 		TOS:     tosconfig.Defaults,
 		Node:    defaultNodeConfig(),
 		Metrics: metrics.DefaultConfig,
@@ -145,15 +129,15 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 
 	utils.SetTOSConfig(ctx, stack, &cfg.TOS)
-	if ctx.IsSet(utils.EthStatsURLFlag.Name) {
-		cfg.TOSStats.URL = ctx.String(utils.EthStatsURLFlag.Name)
+	if ctx.IsSet(utils.TOSStatsURLFlag.Name) {
+		cfg.TOSStats.URL = ctx.String(utils.TOSStatsURLFlag.Name)
 	}
 	applyMetricConfig(ctx, &cfg)
 
 	return stack, cfg
 }
 
-// makeFullNode loads gtos configuration and creates the Ethereum backend.
+// makeFullNode loads gtos configuration and creates the TOS backend.
 func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	stack, cfg := makeConfigNode(ctx)
 	if ctx.IsSet(utils.OverrideTerminalTotalDifficulty.Name) {
@@ -192,9 +176,9 @@ func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 		utils.RegisterGraphQLService(stack, backend, filterSystem, &cfg.Node)
 	}
 
-	// Add the Ethereum Stats daemon if requested.
+	// Add the TOS Stats daemon if requested.
 	if cfg.TOSStats.URL != "" {
-		utils.RegisterEthStatsService(stack, backend, cfg.TOSStats.URL)
+		utils.RegisterTOSStatsService(stack, backend, cfg.TOSStats.URL)
 	}
 	return stack, backend
 }
@@ -228,7 +212,7 @@ func dumpConfig(ctx *cli.Context) error {
 	return nil
 }
 
-func applyMetricConfig(ctx *cli.Context, cfg *gethConfig) {
+func applyMetricConfig(ctx *cli.Context, cfg *gtosConfig) {
 	if ctx.IsSet(utils.MetricsEnabledFlag.Name) {
 		cfg.Metrics.Enabled = ctx.Bool(utils.MetricsEnabledFlag.Name)
 	}

@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -25,9 +9,9 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/protocols/tos"
-	"github.com/tos-network/gtos/log"
 )
 
 const (
@@ -51,7 +35,7 @@ func (h *handler) syncTransactions(p *tos.Peer) {
 	if len(txs) == 0 {
 		return
 	}
-	// The eth/65 protocol introduces proper transaction announcements, so instead
+	// The tos/65 protocol introduces proper transaction announcements, so instead
 	// of dripping transactions across multiple peers, just send the entire list as
 	// an announcement and let the remote side decide what they need (likely nothing).
 	hashes := make([]common.Hash, len(txs))
@@ -236,12 +220,12 @@ func (h *handler) doSync(op *chainSyncOp) error {
 	if op.mode == downloader.SnapSync {
 		// Before launch the snap sync, we have to ensure user uses the same
 		// txlookup limit.
-		// The main concern here is: during the snap sync Geth won't index the
+		// The main concern here is: during the snap sync GTOS won't index the
 		// block(generate tx indices) before the HEAD-limit. But if user changes
-		// the limit in the next snap sync(e.g. user kill Geth manually and
-		// restart) then it will be hard for Geth to figure out the oldest block
+		// the limit in the next snap sync(e.g. user kill GTOS manually and
+		// restart) then it will be hard for GTOS to figure out the oldest block
 		// has been indexed. So here for the user-experience wise, it's non-optimal
-		// that user can't change limit during the snap sync. If changed, Geth
+		// that user can't change limit during the snap sync. If changed, GTOS
 		// will just blindly use the original one.
 		limit := h.chain.TxLookupLimit()
 		if stored := rawdb.ReadFastTxLookupLimit(h.database); stored == nil {

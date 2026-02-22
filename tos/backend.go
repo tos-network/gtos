@@ -1,20 +1,4 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package eth implements the Ethereum protocol.
+// Package tos implements the TOS protocol.
 package tos
 
 import (
@@ -61,7 +45,7 @@ import (
 // Deprecated: use tosconfig.Config instead.
 type Config = tosconfig.Config
 
-// Ethereum implements the Ethereum full node service.
+// TOS implements the TOS full node service.
 type TOS struct {
 	config *tosconfig.Config
 
@@ -87,26 +71,26 @@ type TOS struct {
 
 	APIBackend *TOSAPIBackend
 
-	miner     *miner.Miner
-	gasPrice  *big.Int
-	etherbase common.Address
+	miner    *miner.Miner
+	gasPrice *big.Int
+	coinbase common.Address
 
 	networkID     uint64
 	netRPCService *tosapi.NetAPI
 
 	p2pServer *p2p.Server
 
-	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
+	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and coinbase)
 
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
 }
 
-// New creates a new Ethereum object (including the
-// initialisation of the common Ethereum object)
+// New creates a new TOS object (including the
+// initialisation of the common TOS object)
 func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	// Ensure configuration values are compatible and sane
 	if config.SyncMode == downloader.LightSync {
-		return nil, errors.New("can't run tos.TOS in light sync mode, use les.LightEthereum")
+		return nil, errors.New("can't run tos.TOS in light sync mode")
 	}
 	if !config.SyncMode.IsValid() {
 		return nil, fmt.Errorf("invalid sync mode %d", config.SyncMode)
@@ -114,6 +98,9 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	if config.Miner.GasPrice == nil || config.Miner.GasPrice.Cmp(common.Big0) <= 0 {
 		log.Warn("Sanitizing invalid miner gas price", "provided", config.Miner.GasPrice, "updated", tosconfig.Defaults.Miner.GasPrice)
 		config.Miner.GasPrice = new(big.Int).Set(tosconfig.Defaults.Miner.GasPrice)
+	}
+	if config.Miner.Coinbase == (common.Address{}) && config.Miner.Etherbase != (common.Address{}) {
+		config.Miner.Coinbase = config.Miner.Etherbase
 	}
 	if config.NoPruning && config.TrieDirtyCache > 0 {
 		if config.SnapshotCache > 0 {
@@ -126,7 +113,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	}
 	log.Info("Allocated trie memory caches", "clean", common.StorageSize(config.TrieCleanCache)*1024*1024, "dirty", common.StorageSize(config.TrieDirtyCache)*1024*1024)
 
-	// Assemble the Ethereum object
+	// Assemble the TOS object
 	chainDb, err := stack.OpenDatabaseWithFreezer("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, "tos/db/chaindata/", false)
 	if err != nil {
 		return nil, err
@@ -162,7 +149,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
 		gasPrice:          config.Miner.GasPrice,
-		etherbase:         config.Miner.Etherbase,
+		coinbase:          config.Miner.Coinbase,
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      core.NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
 		p2pServer:         stack.Server(),
@@ -174,11 +161,11 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	if bcVersion != nil {
 		dbVer = fmt.Sprintf("%d", *bcVersion)
 	}
-	log.Info("Initialising Ethereum protocol", "network", config.NetworkId, "dbversion", dbVer)
+	log.Info("Initialising TOS protocol", "network", config.NetworkId, "dbversion", dbVer)
 
 	if !config.SkipBcVersionCheck {
 		if bcVersion != nil && *bcVersion > core.BlockChainVersion {
-			return nil, fmt.Errorf("database version is v%d, Geth %s only supports v%d", *bcVersion, params.VersionWithMeta, core.BlockChainVersion)
+			return nil, fmt.Errorf("database version is v%d, GTOS %s only supports v%d", *bcVersion, params.VersionWithMeta, core.BlockChainVersion)
 		} else if bcVersion == nil || *bcVersion < core.BlockChainVersion {
 			if bcVersion != nil { // only print warning on upgrade, not on init
 				log.Warn("Upgrade blockchain database version", "from", dbVer, "to", core.BlockChainVersion)
@@ -292,7 +279,7 @@ func makeExtraData(extra []byte) []byte {
 	return extra
 }
 
-// APIs return the collection of RPC services the ethereum package offers.
+// APIs return the collection of RPC services the tos package offers.
 // NOTE, some of these services probably need to be moved to somewhere else.
 func (s *TOS) APIs() []rpc.API {
 	apis := tosapi.GetAPIs(s.APIBackend)
@@ -328,33 +315,33 @@ func (s *TOS) ResetWithGenesisBlock(gb *types.Block) {
 	s.blockchain.ResetWithGenesisBlock(gb)
 }
 
-func (s *TOS) Etherbase() (eb common.Address, err error) {
+func (s *TOS) Coinbase() (eb common.Address, err error) {
 	s.lock.RLock()
-	etherbase := s.etherbase
+	coinbase := s.coinbase
 	s.lock.RUnlock()
 
-	if etherbase != (common.Address{}) {
-		return etherbase, nil
+	if coinbase != (common.Address{}) {
+		return coinbase, nil
 	}
 	if wallets := s.AccountManager().Wallets(); len(wallets) > 0 {
 		if accounts := wallets[0].Accounts(); len(accounts) > 0 {
-			etherbase := accounts[0].Address
+			coinbase := accounts[0].Address
 
 			s.lock.Lock()
-			s.etherbase = etherbase
+			s.coinbase = coinbase
 			s.lock.Unlock()
 
-			log.Info("Etherbase automatically configured", "address", etherbase)
-			return etherbase, nil
+			log.Info("Coinbase automatically configured", "address", coinbase)
+			return coinbase, nil
 		}
 	}
-	return common.Address{}, fmt.Errorf("etherbase must be explicitly specified")
+	return common.Address{}, fmt.Errorf("coinbase must be explicitly specified")
 }
 
 // isLocalBlock checks whether the specified block is mined
 // by local miner accounts.
 //
-// We regard two types of accounts as local miner account: etherbase
+// We regard two types of accounts as local miner account: coinbase
 // and accounts specified via `txpool.locals` flag.
 func (s *TOS) isLocalBlock(header *types.Header) bool {
 	author, err := s.engine.Author(header)
@@ -362,11 +349,11 @@ func (s *TOS) isLocalBlock(header *types.Header) bool {
 		log.Warn("Failed to retrieve block author", "number", header.Number.Uint64(), "hash", header.Hash(), "err", err)
 		return false
 	}
-	// Check whether the given address is etherbase.
+	// Check whether the given address is coinbase.
 	s.lock.RLock()
-	etherbase := s.etherbase
+	coinbase := s.coinbase
 	s.lock.RUnlock()
-	if author == etherbase {
+	if author == coinbase {
 		return true
 	}
 	// Check whether the given address is specified by `txpool.local`
@@ -402,13 +389,23 @@ func (s *TOS) shouldPreserve(header *types.Header) bool {
 	return s.isLocalBlock(header)
 }
 
-// SetEtherbase sets the mining reward address.
-func (s *TOS) SetEtherbase(etherbase common.Address) {
+// SetCoinbase sets the mining reward address.
+func (s *TOS) SetCoinbase(coinbase common.Address) {
 	s.lock.Lock()
-	s.etherbase = etherbase
+	s.coinbase = coinbase
 	s.lock.Unlock()
 
-	s.miner.SetEtherbase(etherbase)
+	s.miner.SetCoinbase(coinbase)
+}
+
+// SetEtherbase is a deprecated alias for SetCoinbase.
+func (s *TOS) SetEtherbase(coinbase common.Address) {
+	s.SetCoinbase(coinbase)
+}
+
+// Etherbase is a deprecated alias for Coinbase.
+func (s *TOS) Etherbase() (common.Address, error) {
+	return s.Coinbase()
 }
 
 // StartMining starts the miner with the given number of CPU threads. If mining
@@ -435,15 +432,15 @@ func (s *TOS) StartMining(threads int) error {
 		s.txPool.SetGasPrice(price)
 
 		// Configure the local mining address
-		eb, err := s.Etherbase()
+		eb, err := s.Coinbase()
 		if err != nil {
-			log.Error("Cannot start mining without etherbase", "err", err)
-			return fmt.Errorf("etherbase missing: %v", err)
+			log.Error("Cannot start mining without coinbase", "err", err)
+			return fmt.Errorf("coinbase missing: %v", err)
 		}
 		if d, ok := s.engine.(*dpos.DPoS); ok {
 			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
 			if wallet == nil || err != nil {
-				log.Error("Etherbase account unavailable locally", "err", err)
+				log.Error("Coinbase account unavailable locally", "err", err)
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			d.Authorize(eb, wallet.SignData)
@@ -503,7 +500,7 @@ func (s *TOS) Protocols() []p2p.Protocol {
 }
 
 // Start implements node.Lifecycle, starting all internal goroutines needed by the
-// Ethereum protocol implementation.
+// TOS protocol implementation.
 func (s *TOS) Start() error {
 	tos.StartENRUpdater(s.blockchain, s.p2pServer.LocalNode())
 
@@ -533,7 +530,7 @@ func (s *TOS) Start() error {
 }
 
 // Stop implements node.Lifecycle, terminating all internal goroutines used by the
-// Ethereum protocol.
+// TOS protocol.
 func (s *TOS) Stop() error {
 	// Stop all the peer-related stuff first.
 	s.tosDialCandidates.Close()

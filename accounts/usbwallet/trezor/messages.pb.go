@@ -22,7 +22,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
-//*
+// *
 // Mapping between TREZOR wire identifier (uint) and a protobuf message
 type MessageType int32
 
@@ -96,7 +96,7 @@ const (
 	MessageType_MessageType_DebugLinkMemory      MessageType = 111
 	MessageType_MessageType_DebugLinkMemoryWrite MessageType = 112
 	MessageType_MessageType_DebugLinkFlashErase  MessageType = 113
-	// Ethereum
+	// TOS
 	MessageType_MessageType_EthereumGetPublicKey     MessageType = 450
 	MessageType_MessageType_EthereumPublicKey        MessageType = 451
 	MessageType_MessageType_EthereumGetAddress       MessageType = 56

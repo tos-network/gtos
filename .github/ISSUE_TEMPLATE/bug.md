@@ -1,6 +1,6 @@
 ---
 name: Report a bug
-about: Something with go-ethereum is not working as expected
+about: Something with GTOS is not working as expected
 title: ''
 labels: 'type:bug'
 assignees: ''
@@ -8,7 +8,7 @@ assignees: ''
 
 #### System information
 
-Geth version: `gtos version`
+GTOS version: `gtos version`
 OS & Version: Windows/Linux/OSX
 Commit hash : (if `develop`)
 

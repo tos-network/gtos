@@ -1,8 +1,3 @@
-// Copyright 2019 The Go Authors. All rights reserved.
-// Copyright 2019 George Tankersley. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 // Package ristretto255 implements the group of prime order
 //
 //	2**252 + 27742317777372353535851937790883648493

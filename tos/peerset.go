@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -41,18 +25,18 @@ var (
 	errPeerNotRegistered = errors.New("peer not registered")
 
 	// errSnapWithoutTos is returned if a peer attempts to connect only on the
-	// snap protocol without advertising the eth main protocol.
+	// snap protocol without advertising the tos main protocol.
 	errSnapWithoutTos = errors.New("peer connected on snap without compatible tos support")
 )
 
 // peerSet represents the collection of active peers currently participating in
-// the `eth` protocol, with or without the `snap` extension.
+// the `tos` protocol, with or without the `snap` extension.
 type peerSet struct {
-	peers     map[string]*tosPeer // Peers connected on the `eth` protocol
+	peers     map[string]*tosPeer // Peers connected on the `tos` protocol
 	snapPeers int                 // Number of `snap` compatible peers for connection prioritization
 
-	snapWait map[string]chan *snap.Peer // Peers connected on `eth` waiting for their snap extension
-	snapPend map[string]*snap.Peer      // Peers connected on the `snap` protocol, but not yet on `eth`
+	snapWait map[string]chan *snap.Peer // Peers connected on `tos` waiting for their snap extension
+	snapPend map[string]*snap.Peer      // Peers connected on the `snap` protocol, but not yet on `tos`
 
 	lock   sync.RWMutex
 	closed bool
@@ -67,12 +51,12 @@ func newPeerSet() *peerSet {
 	}
 }
 
-// registerSnapExtension unblocks an already connected `eth` peer waiting for its
+// registerSnapExtension unblocks an already connected `tos` peer waiting for its
 // `snap` extension, or if no such peer exists, tracks the extension for the time
-// being until the `eth` main protocol starts looking for it.
+// being until the `tos` main protocol starts looking for it.
 func (ps *peerSet) registerSnapExtension(peer *snap.Peer) error {
-	// Reject the peer if it advertises `snap` without `eth` as `snap` is only a
-	// satellite protocol meaningful with the chain selection of `eth`
+	// Reject the peer if it advertises `snap` without `tos` as `snap` is only a
+	// satellite protocol meaningful with the chain selection of `tos`
 	if !peer.RunningCap(tos.ProtocolName, tos.ProtocolVersions) {
 		return errSnapWithoutTos
 	}
@@ -87,7 +71,7 @@ func (ps *peerSet) registerSnapExtension(peer *snap.Peer) error {
 	if _, ok := ps.snapPend[id]; ok {
 		return errPeerAlreadyRegistered // avoid connections with the same id as pending ones
 	}
-	// Inject the peer into an `eth` counterpart is available, otherwise save for later
+	// Inject the peer into an `tos` counterpart is available, otherwise save for later
 	if wait, ok := ps.snapWait[id]; ok {
 		delete(ps.snapWait, id)
 		wait <- peer
@@ -131,7 +115,7 @@ func (ps *peerSet) waitSnapExtension(peer *tos.Peer) (*snap.Peer, error) {
 	return <-wait, nil
 }
 
-// registerPeer injects a new `eth` peer into the working set, or returns an error
+// registerPeer injects a new `tos` peer into the working set, or returns an error
 // if the peer is already known.
 func (ps *peerSet) registerPeer(peer *tos.Peer, ext *snap.Peer) error {
 	// Start tracking the new peer
@@ -223,9 +207,9 @@ func (ps *peerSet) allPeers() []*tosPeer {
 	return list
 }
 
-// len returns if the current number of `eth` peers in the set. Since the `snap`
-// peers are tied to the existence of an `eth` connection, that will always be a
-// subset of `eth`.
+// len returns if the current number of `tos` peers in the set. Since the `snap`
+// peers are tied to the existence of an `tos` connection, that will always be a
+// subset of `tos`.
 func (ps *peerSet) len() int {
 	ps.lock.RLock()
 	defer ps.lock.RUnlock()

@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -23,7 +7,7 @@ import (
 	"github.com/tos-network/gtos/rlp"
 )
 
-// enrEntry is the ENR entry which advertises `eth` protocol on the discovery.
+// enrEntry is the ENR entry which advertises `tos` protocol on the discovery.
 type enrEntry struct {
 	ForkID forkid.ID // Fork identifier per EIP-2124
 
@@ -36,7 +20,7 @@ func (e enrEntry) ENRKey() string {
 	return "tos"
 }
 
-// StartENRUpdater starts the `eth` ENR updater loop, which listens for chain
+// StartENRUpdater starts the `tos` ENR updater loop, which listens for chain
 // head events and updates the requested node record whenever a fork is passed.
 func StartENRUpdater(chain *core.BlockChain, ln *enode.LocalNode) {
 	var newHead = make(chan core.ChainHeadEvent, 10)
@@ -57,7 +41,7 @@ func StartENRUpdater(chain *core.BlockChain, ln *enode.LocalNode) {
 	}()
 }
 
-// currentENREntry constructs an `eth` ENR entry based on the current state of the chain.
+// currentENREntry constructs an `tos` ENR entry based on the current state of the chain.
 func currentENREntry(chain *core.BlockChain) *enrEntry {
 	return &enrEntry{
 		ForkID: forkid.NewID(chain.Config(), chain.Genesis().Hash(), chain.CurrentHeader().Number.Uint64()),

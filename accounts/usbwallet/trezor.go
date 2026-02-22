@@ -1,19 +1,3 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // This file contains the implementation for interacting with the Trezor hardware
 // wallets. The wire protocol spec can be found on the SatoshiLabs website:
 // https://doc.satoshilabs.com/trezor-tech/api-protobuf.html
@@ -27,13 +11,13 @@ import (
 	"io"
 	"math/big"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/usbwallet/trezor"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/log"
-	"github.com/golang/protobuf/proto"
 )
 
 // ErrTrezorPINNeeded is returned if opening the trezor requires a PIN code. In
@@ -68,7 +52,7 @@ func newTrezorDriver(logger log.Logger) driver {
 }
 
 // Status implements accounts.Wallet, always whether the Trezor is opened, closed
-// or whether the Ethereum app was not started on it.
+// or whether the TOS app was not started on it.
 func (w *trezorDriver) Status() (string, error) {
 	if w.failure != nil {
 		return fmt.Sprintf("Failed: %v", w.failure), w.failure
@@ -84,15 +68,15 @@ func (w *trezorDriver) Status() (string, error) {
 
 // Open implements usbwallet.driver, attempting to initialize the connection to
 // the Trezor hardware wallet. Initializing the Trezor is a two or three phase operation:
-//  * The first phase is to initialize the connection and read the wallet's
-//    features. This phase is invoked if the provided passphrase is empty. The
-//    device will display the pinpad as a result and will return an appropriate
-//    error to notify the user that a second open phase is needed.
-//  * The second phase is to unlock access to the Trezor, which is done by the
-//    user actually providing a passphrase mapping a keyboard keypad to the pin
-//    number of the user (shuffled according to the pinpad displayed).
-//  * If needed the device will ask for passphrase which will require calling
-//    open again with the actual passphrase (3rd phase)
+//   - The first phase is to initialize the connection and read the wallet's
+//     features. This phase is invoked if the provided passphrase is empty. The
+//     device will display the pinpad as a result and will return an appropriate
+//     error to notify the user that a second open phase is needed.
+//   - The second phase is to unlock access to the Trezor, which is done by the
+//     user actually providing a passphrase mapping a keyboard keypad to the pin
+//     number of the user (shuffled according to the pinpad displayed).
+//   - If needed the device will ask for passphrase which will require calling
+//     open again with the actual passphrase (3rd phase)
 func (w *trezorDriver) Open(device io.ReadWriter, passphrase string) error {
 	w.device, w.failure = device, nil
 
@@ -171,7 +155,7 @@ func (w *trezorDriver) Heartbeat() error {
 }
 
 // Derive implements usbwallet.driver, sending a derivation request to the Trezor
-// and returning the Ethereum address located on that derivation path.
+// and returning the TOS address located on that derivation path.
 func (w *trezorDriver) Derive(path accounts.DerivationPath) (common.Address, error) {
 	return w.trezorDerive(path)
 }
@@ -190,7 +174,7 @@ func (w *trezorDriver) SignTypedMessage(path accounts.DerivationPath, domainHash
 }
 
 // trezorDerive sends a derivation request to the Trezor device and returns the
-// Ethereum address located on that path.
+// TOS address located on that path.
 func (w *trezorDriver) trezorDerive(derivationPath []uint32) (common.Address, error) {
 	address := new(trezor.EthereumAddress)
 	if _, err := w.trezorExchange(&trezor.EthereumGetAddress{AddressN: derivationPath}, address); err != nil {
@@ -248,7 +232,7 @@ func (w *trezorDriver) trezorSign(derivationPath []uint32, tx *types.Transaction
 			return common.Address{}, nil, err
 		}
 	}
-	// Extract the Ethereum signature and do a sanity validation
+	// Extract the TOS signature and do a sanity validation
 	if len(response.GetSignatureR()) == 0 || len(response.GetSignatureS()) == 0 || response.GetSignatureV() == 0 {
 		return common.Address{}, nil, errors.New("reply lacks signature")
 	}

@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package apitypes
 
 import (
@@ -64,7 +48,7 @@ func (vs *ValidationMessages) Info(msg string) {
 	vs.Messages = append(vs.Messages, ValidationInfo{INFO, msg})
 }
 
-/// getWarnings returns an error with all messages of type WARN of above, or nil if no warnings were present
+// / getWarnings returns an error with all messages of type WARN of above, or nil if no warnings were present
 func (v *ValidationMessages) GetWarnings() error {
 	var messages []string
 	for _, msg := range v.Messages {
@@ -254,7 +238,7 @@ type TypedDataDomain struct {
 // TypedDataAndHash is a helper function that calculates a hash for typed data conforming to EIP-712.
 // This hash can then be safely used to calculate a signature.
 //
-// See https://eips.ethereum.org/EIPS/eip-712 for the full specification.
+// See https://eips.tos.org/EIPS/eip-712 for the full specification.
 //
 // This gives context to the signed typed data and prevents signing of transactions.
 func TypedDataAndHash(typedData TypedData) ([]byte, string, error) {

@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package rawdb
 
 import (
@@ -21,10 +5,10 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // ReadDatabaseVersion retrieves the version number of the database.
@@ -175,15 +159,15 @@ func UpdateUncleanShutdownMarker(db tosdb.KeyValueStore) {
 	}
 }
 
-// ReadTransitionStatus retrieves the eth2 transition status from the database
+// ReadTransitionStatus retrieves the tos2 transition status from the database
 func ReadTransitionStatus(db tosdb.KeyValueReader) []byte {
 	data, _ := db.Get(transitionStatusKey)
 	return data
 }
 
-// WriteTransitionStatus stores the eth2 transition status to the database
+// WriteTransitionStatus stores the tos2 transition status to the database
 func WriteTransitionStatus(db tosdb.KeyValueWriter, data []byte) {
 	if err := db.Put(transitionStatusKey, data); err != nil {
-		log.Crit("Failed to store the eth2 transition status", "err", err)
+		log.Crit("Failed to store the tos2 transition status", "err", err)
 	}
 }

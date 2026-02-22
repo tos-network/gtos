@@ -3,10 +3,10 @@ package compress_sse41_test
 import (
 	"testing"
 
-	"github.com/zeebo/assert"
 	"github.com/tos-network/gtos/crypto/blake3/internal/alg/compress/compress_pure"
 	"github.com/tos-network/gtos/crypto/blake3/internal/alg/compress/compress_sse41"
 	"github.com/tos-network/gtos/crypto/blake3/internal/consts"
+	"github.com/zeebo/assert"
 	"github.com/zeebo/pcg"
 )
 

@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package core
 
 import (
@@ -25,8 +9,8 @@ import (
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // BlockGen creates blocks for testing.
@@ -71,8 +55,8 @@ func (b *BlockGen) SetNonce(nonce types.BlockNonce) {
 }
 
 // SetDifficulty sets the difficulty field of the generated block. This method is
-// useful for Clique tests where the difficulty does not depend on time. For the
-// ethash tests, please use OffsetTime, which implicitly recalculates the diff.
+// useful for Clique tests where the difficulty does not depend on time. For PoW
+// style tests, please use OffsetTime, which implicitly recalculates the diff.
 func (b *BlockGen) SetDifficulty(diff *big.Int) {
 	b.header.Difficulty = diff
 }

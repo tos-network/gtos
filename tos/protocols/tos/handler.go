@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -72,13 +56,13 @@ type Backend interface {
 	// or if inbound transactions should simply be dropped.
 	AcceptTxs() bool
 
-	// RunPeer is invoked when a peer joins on the `eth` protocol. The handler
+	// RunPeer is invoked when a peer joins on the `tos` protocol. The handler
 	// should do any peer maintenance work, handshakes and validations. If all
 	// is passed, control should be given back to the `handler` to process the
 	// inbound messages going forward.
 	RunPeer(peer *Peer, handler Handler) error
 
-	// PeerInfo retrieves all known `eth` information about a peer.
+	// PeerInfo retrieves all known `tos` information about a peer.
 	PeerInfo(id enode.ID) interface{}
 
 	// Handle is a callback to be invoked when a data packet is received from
@@ -93,7 +77,7 @@ type TxPool interface {
 	Get(hash common.Hash) *types.Transaction
 }
 
-// MakeProtocols constructs the P2P protocol definitions for `eth`.
+// MakeProtocols constructs the P2P protocol definitions for `tos`.
 func MakeProtocols(backend Backend, network uint64, dnsdisc enode.Iterator) []p2p.Protocol {
 	protocols := make([]p2p.Protocol, len(ProtocolVersions))
 	for i, version := range ProtocolVersions {
@@ -124,17 +108,17 @@ func MakeProtocols(backend Backend, network uint64, dnsdisc enode.Iterator) []p2
 	return protocols
 }
 
-// NodeInfo represents a short summary of the `eth` sub-protocol metadata
+// NodeInfo represents a short summary of the `tos` sub-protocol metadata
 // known about the host peer.
 type NodeInfo struct {
-	Network    uint64              `json:"network"`    // Ethereum network ID (1=Frontier, 2=Morden, Ropsten=3, Rinkeby=4)
+	Network    uint64              `json:"network"`    // TOS network ID (1=Frontier, 2=Morden, Ropsten=3, Rinkeby=4)
 	Difficulty *big.Int            `json:"difficulty"` // Total difficulty of the host's blockchain
 	Genesis    common.Hash         `json:"genesis"`    // SHA3 hash of the host's genesis block
 	Config     *params.ChainConfig `json:"config"`     // Chain configuration for the fork rules
 	Head       common.Hash         `json:"head"`       // Hex hash of the host's best owned block
 }
 
-// nodeInfo retrieves some `eth` protocol metadata about the running host node.
+// nodeInfo retrieves some `tos` protocol metadata about the running host node.
 func nodeInfo(chain *core.BlockChain, network uint64) *NodeInfo {
 	head := chain.CurrentBlock()
 	return &NodeInfo{
@@ -146,7 +130,7 @@ func nodeInfo(chain *core.BlockChain, network uint64) *NodeInfo {
 	}
 }
 
-// Handle is invoked whenever an `eth` connection is made that successfully passes
+// Handle is invoked whenever an `tos` connection is made that successfully passes
 // the protocol handshake. This method will keep processing messages until the
 // connection is torn down.
 func Handle(backend Backend, peer *Peer) error {
@@ -164,7 +148,7 @@ type Decoder interface {
 	Time() time.Time
 }
 
-var eth66 = map[uint64]msgHandler{
+var tos66 = map[uint64]msgHandler{
 	NewBlockHashesMsg:             handleNewBlockhashes,
 	NewBlockMsg:                   handleNewBlock,
 	TransactionsMsg:               handleTransactions,
@@ -183,7 +167,7 @@ var eth66 = map[uint64]msgHandler{
 	QCMsg:                         handleQC,
 }
 
-var eth67 = map[uint64]msgHandler{
+var tos67 = map[uint64]msgHandler{
 	NewBlockHashesMsg:             handleNewBlockhashes,
 	NewBlockMsg:                   handleNewBlock,
 	TransactionsMsg:               handleTransactions,
@@ -213,9 +197,9 @@ func handleMessage(backend Backend, peer *Peer) error {
 	}
 	defer msg.Discard()
 
-	var handlers = eth66
+	var handlers = tos66
 	if peer.Version() >= TOS67 {
-		handlers = eth67
+		handlers = tos67
 	}
 
 	// Track the amount of time it takes to serve the request and run the handler

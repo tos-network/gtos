@@ -1,19 +1,3 @@
-// Copyright 2018 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -25,21 +9,21 @@ import (
 	"github.com/tos-network/gtos/internal/cmdtest"
 )
 
-type testEthkey struct {
+type testTOSkey struct {
 	*cmdtest.TestCmd
 }
 
-// spawns ethkey with the given command line args.
-func runEthkey(t *testing.T, args ...string) *testEthkey {
-	tt := new(testEthkey)
+// spawns toskey with the given command line args.
+func runTOSkey(t *testing.T, args ...string) *testTOSkey {
+	tt := new(testTOSkey)
 	tt.TestCmd = cmdtest.NewTestCmd(t, tt)
-	tt.Run("ethkey-test", args...)
+	tt.Run("toskey-test", args...)
 	return tt
 }
 
 func TestMain(m *testing.M) {
-	// Run the app if we've been exec'd as "ethkey-test" in runEthkey.
-	reexec.Register("ethkey-test", func() {
+	// Run the app if we've been exec'd as "toskey-test" in runTOSkey.
+	reexec.Register("toskey-test", func() {
 		if err := app.Run(os.Args); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

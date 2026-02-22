@@ -1,20 +1,4 @@
-// Copyright 2014 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
-// gtos is the official command-line client for Ethereum.
+// gtos is the official command-line client for TOS.
 package main
 
 import (
@@ -54,7 +38,7 @@ var (
 	gitCommit = ""
 	gitDate   = ""
 	// The app that holds all commands and flags.
-	app = flags.NewApp(gitCommit, gitDate, "the go-ethereum command line interface")
+	app = flags.NewApp(gitCommit, gitDate, "the go-tos command line interface")
 	// flags that configure the node
 	nodeFlags = flags.Merge([]cli.Flag{
 		utils.IdentityFlag,
@@ -86,7 +70,7 @@ var (
 		utils.SnapshotFlag,
 		utils.TxLookupLimitFlag,
 		utils.LightKDFFlag,
-		utils.EthRequiredBlocksFlag,
+		utils.TOSRequiredBlocksFlag,
 		utils.LegacyWhitelistFlag,
 		utils.BloomFilterSizeFlag,
 		utils.CacheFlag,
@@ -185,10 +169,10 @@ var (
 )
 
 func init() {
-	// Initialize the CLI app and start Geth
+	// Initialize the CLI app and start GTOS
 	app.Action = gtos
 	app.HideVersion = true // we have a command to print the version
-	app.Copyright = "Copyright 2013-2022 The go-ethereum Authors"
+	app.Copyright = "Copyright 2013-2022 The go-tos Authors"
 	app.Commands = []*cli.Command{
 		// See chaincmd.go:
 		initCommand,
@@ -253,23 +237,23 @@ func prepare(ctx *cli.Context) {
 	// If we're running a known preset, log it for convenience.
 	switch {
 	case ctx.IsSet(utils.RopstenFlag.Name):
-		log.Info("Starting Geth on Ropsten testnet...")
+		log.Info("Starting GTOS on Ropsten testnet...")
 
 	case ctx.IsSet(utils.RinkebyFlag.Name):
-		log.Info("Starting Geth on Rinkeby testnet...")
+		log.Info("Starting GTOS on Rinkeby testnet...")
 
 	case ctx.IsSet(utils.GoerliFlag.Name):
-		log.Info("Starting Geth on Görli testnet...")
+		log.Info("Starting GTOS on Görli testnet...")
 
 	case ctx.IsSet(utils.SepoliaFlag.Name):
-		log.Info("Starting Geth on Sepolia testnet...")
+		log.Info("Starting GTOS on Sepolia testnet...")
 
 	case ctx.IsSet(utils.KilnFlag.Name):
-		log.Info("Starting Geth on Kiln testnet...")
+		log.Info("Starting GTOS on Kiln testnet...")
 
 	case ctx.IsSet(utils.DeveloperFlag.Name):
-		log.Info("Starting Geth in ephemeral dev mode...")
-		log.Warn(`You are running Geth in --dev mode. Please note the following:
+		log.Info("Starting GTOS in ephemeral dev mode...")
+		log.Warn(`You are running GTOS in --dev mode. Please note the following:
 
   1. This mode is only intended for fast, iterative development without assumptions on
      security or persistence.
@@ -286,7 +270,7 @@ func prepare(ctx *cli.Context) {
 `)
 
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
-		log.Info("Starting Geth on Ethereum mainnet...")
+		log.Info("Starting GTOS on TOS mainnet...")
 	}
 	// If we're on mainnet without --cache specified, bump default cache allowance.
 	if !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
@@ -348,7 +332,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 	if err != nil {
 		utils.Fatalf("Failed to attach to self: %v", err)
 	}
-	ethClient := tosclient.NewClient(rpcClient)
+	tosClient := tosclient.NewClient(rpcClient)
 
 	go func() {
 		// Open any wallets already attached
@@ -374,7 +358,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 				}
 				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath)
 
-				event.Wallet.SelfDerive(derivationPaths, ethClient)
+				event.Wallet.SelfDerive(derivationPaths, tosClient)
 
 			case accounts.WalletDropped:
 				log.Info("Old wallet dropped", "url", event.Wallet.URL())
@@ -409,16 +393,16 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 
 	// Start auxiliary services if enabled
 	if ctx.Bool(utils.MiningEnabledFlag.Name) || ctx.Bool(utils.DeveloperFlag.Name) {
-		ethBackend, ok := backend.(*tos.TOSAPIBackend)
+		tosBackend, ok := backend.(*tos.TOSAPIBackend)
 		if !ok {
-			utils.Fatalf("Ethereum service not running")
+			utils.Fatalf("TOS service not running")
 		}
 		// Set the gas price to the limits from the CLI and start mining
 		gasprice := flags.GlobalBig(ctx, utils.MinerGasPriceFlag.Name)
-		ethBackend.TxPool().SetGasPrice(gasprice)
+		tosBackend.TxPool().SetGasPrice(gasprice)
 		// start mining
 		threads := ctx.Int(utils.MinerThreadsFlag.Name)
-		if err := ethBackend.StartMining(threads); err != nil {
+		if err := tosBackend.StartMining(threads); err != nil {
 			utils.Fatalf("Failed to start mining: %v", err)
 		}
 	}

@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -80,13 +64,13 @@ var (
 	errForkIDRejected          = errors.New("fork ID rejected")
 )
 
-// Packet represents a p2p message in the `eth` protocol.
+// Packet represents a p2p message in the `tos` protocol.
 type Packet interface {
 	Name() string // Name returns a string corresponding to the message type.
 	Kind() byte   // Kind returns the message type.
 }
 
-// StatusPacket is the network packet for the status message for eth/64 and later.
+// StatusPacket is the network packet for the status message for tos/64 and later.
 type StatusPacket struct {
 	ProtocolVersion uint32
 	NetworkID       uint64
@@ -127,7 +111,7 @@ type GetBlockHeadersPacket struct {
 	Reverse bool         // Query direction (false = rising towards latest, true = falling towards genesis)
 }
 
-// GetBlockHeadersPacket66 represents a block header query over eth/66
+// GetBlockHeadersPacket66 represents a block header query over tos/66
 type GetBlockHeadersPacket66 struct {
 	RequestId uint64
 	*GetBlockHeadersPacket
@@ -172,7 +156,7 @@ func (hn *HashOrNumber) DecodeRLP(s *rlp.Stream) error {
 // BlockHeadersPacket represents a block header response.
 type BlockHeadersPacket []*types.Header
 
-// BlockHeadersPacket66 represents a block header response over eth/66.
+// BlockHeadersPacket66 represents a block header response over tos/66.
 type BlockHeadersPacket66 struct {
 	RequestId uint64
 	BlockHeadersPacket
@@ -182,7 +166,7 @@ type BlockHeadersPacket66 struct {
 // have the headers rlp encoded.
 type BlockHeadersRLPPacket []rlp.RawValue
 
-// BlockHeadersRLPPacket66 represents a block header response over eth/66.
+// BlockHeadersRLPPacket66 represents a block header response over tos/66.
 type BlockHeadersRLPPacket66 struct {
 	RequestId uint64
 	BlockHeadersRLPPacket
@@ -210,7 +194,7 @@ func (request *NewBlockPacket) sanityCheck() error {
 // GetBlockBodiesPacket represents a block body query.
 type GetBlockBodiesPacket []common.Hash
 
-// GetBlockBodiesPacket66 represents a block body query over eth/66.
+// GetBlockBodiesPacket66 represents a block body query over tos/66.
 type GetBlockBodiesPacket66 struct {
 	RequestId uint64
 	GetBlockBodiesPacket
@@ -219,7 +203,7 @@ type GetBlockBodiesPacket66 struct {
 // BlockBodiesPacket is the network packet for block content distribution.
 type BlockBodiesPacket []*BlockBody
 
-// BlockBodiesPacket66 is the network packet for block content distribution over eth/66.
+// BlockBodiesPacket66 is the network packet for block content distribution over tos/66.
 type BlockBodiesPacket66 struct {
 	RequestId uint64
 	BlockBodiesPacket
@@ -230,7 +214,7 @@ type BlockBodiesPacket66 struct {
 // roundtrip.
 type BlockBodiesRLPPacket []rlp.RawValue
 
-// BlockBodiesRLPPacket66 is the BlockBodiesRLPPacket over eth/66
+// BlockBodiesRLPPacket66 is the BlockBodiesRLPPacket over tos/66
 type BlockBodiesRLPPacket66 struct {
 	RequestId uint64
 	BlockBodiesRLPPacket
@@ -258,7 +242,7 @@ func (p *BlockBodiesPacket) Unpack() ([][]*types.Transaction, [][]*types.Header)
 // GetNodeDataPacket represents a trie node data query.
 type GetNodeDataPacket []common.Hash
 
-// GetNodeDataPacket66 represents a trie node data query over eth/66.
+// GetNodeDataPacket66 represents a trie node data query over tos/66.
 type GetNodeDataPacket66 struct {
 	RequestId uint64
 	GetNodeDataPacket
@@ -267,7 +251,7 @@ type GetNodeDataPacket66 struct {
 // NodeDataPacket is the network packet for trie node data distribution.
 type NodeDataPacket [][]byte
 
-// NodeDataPacket66 is the network packet for trie node data distribution over eth/66.
+// NodeDataPacket66 is the network packet for trie node data distribution over tos/66.
 type NodeDataPacket66 struct {
 	RequestId uint64
 	NodeDataPacket
@@ -276,7 +260,7 @@ type NodeDataPacket66 struct {
 // GetReceiptsPacket represents a block receipts query.
 type GetReceiptsPacket []common.Hash
 
-// GetReceiptsPacket66 represents a block receipts query over eth/66.
+// GetReceiptsPacket66 represents a block receipts query over tos/66.
 type GetReceiptsPacket66 struct {
 	RequestId uint64
 	GetReceiptsPacket
@@ -285,7 +269,7 @@ type GetReceiptsPacket66 struct {
 // ReceiptsPacket is the network packet for block receipts distribution.
 type ReceiptsPacket [][]*types.Receipt
 
-// ReceiptsPacket66 is the network packet for block receipts distribution over eth/66.
+// ReceiptsPacket66 is the network packet for block receipts distribution over tos/66.
 type ReceiptsPacket66 struct {
 	RequestId uint64
 	ReceiptsPacket
@@ -294,7 +278,7 @@ type ReceiptsPacket66 struct {
 // ReceiptsRLPPacket is used for receipts, when we already have it encoded
 type ReceiptsRLPPacket []rlp.RawValue
 
-// ReceiptsRLPPacket66 is the eth-66 version of ReceiptsRLPPacket
+// ReceiptsRLPPacket66 is the tos-66 version of ReceiptsRLPPacket
 type ReceiptsRLPPacket66 struct {
 	RequestId uint64
 	ReceiptsRLPPacket
@@ -314,7 +298,7 @@ type GetPooledTransactionsPacket66 struct {
 // PooledTransactionsPacket is the network packet for transaction distribution.
 type PooledTransactionsPacket []*types.Transaction
 
-// PooledTransactionsPacket66 is the network packet for transaction distribution over eth/66.
+// PooledTransactionsPacket66 is the network packet for transaction distribution over tos/66.
 type PooledTransactionsPacket66 struct {
 	RequestId uint64
 	PooledTransactionsPacket
@@ -351,7 +335,7 @@ type QCPacket struct {
 // in the cases we already have them in rlp-encoded form
 type PooledTransactionsRLPPacket []rlp.RawValue
 
-// PooledTransactionsRLPPacket66 is the eth/66 form of PooledTransactionsRLPPacket
+// PooledTransactionsRLPPacket66 is the tos/66 form of PooledTransactionsRLPPacket
 type PooledTransactionsRLPPacket66 struct {
 	RequestId uint64
 	PooledTransactionsRLPPacket

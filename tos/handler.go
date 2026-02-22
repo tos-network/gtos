@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -52,7 +36,7 @@ var (
 )
 
 // txPool defines the methods needed from a transaction pool implementation to
-// support all the operations needed by the Ethereum chain protocols.
+// support all the operations needed by the TOS chain protocols.
 type txPool interface {
 	// Has returns an indicator whether txpool has a transaction
 	// cached with the given hash.
@@ -80,7 +64,7 @@ type handlerConfig struct {
 	Database       tosdb.Database            // Database for direct sync insertions
 	Chain          *core.BlockChain          // Blockchain to serve data from
 	TxPool         txPool                    // Transaction pool to propagate from
-	Merger         *consensus.Merger         // The manager for eth1/2 transition
+	Merger         *consensus.Merger         // The manager for tos1/2 transition
 	BlockValidator func(*types.Block) error  // Optional external validation hook before block import
 	OnQCFinalized  func(*types.Block)        // Optional callback invoked when a QC finalized block is applied
 	Network        uint64                    // Network identifier to adfvertise
@@ -134,7 +118,7 @@ type handler struct {
 	peerWG    sync.WaitGroup
 }
 
-// newHandler returns a handler for all Ethereum chain management protocol.
+// newHandler returns a handler for all TOS chain management protocol.
 func newHandler(config *handlerConfig) (*handler, error) {
 	// Create the protocol manager with the base fields
 	if config.EventMux == nil {
@@ -291,7 +275,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 			// entirely whenever the transition is started. But in order to
 			// handle the transition boundary reorg in the consensus-layer,
 			// the legacy blocks are still accepted, but only for the terminal
-			// pow blocks. Spec: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-3675.md#halt-the-importing-of-pow-blocks
+			// pow blocks. Spec: https://github.com/tos/EIPs/blob/master/EIPS/eip-3675.md#halt-the-importing-of-pow-blocks
 			for i, block := range blocks {
 				ptd := h.chain.GetTd(block.ParentHash(), block.NumberU64()-1)
 				if ptd == nil {
@@ -328,7 +312,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	return h, nil
 }
 
-// runEthPeer registers an eth peer into the joint eth/snap peerset, adds it to
+// runEthPeer registers an tos peer into the joint tos/snap peerset, adds it to
 // various subsystems and starts handling messages.
 func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 	// If the peer has a `snap` extension, wait for it to connect so we can have
@@ -345,7 +329,7 @@ func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 	h.peerWG.Add(1)
 	defer h.peerWG.Done()
 
-	// Execute the Ethereum handshake
+	// Execute the TOS handshake
 	var (
 		genesis = h.chain.Genesis()
 		head    = h.chain.CurrentHeader()
@@ -355,7 +339,7 @@ func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 	)
 	forkID := forkid.NewID(h.chain.Config(), h.chain.Genesis().Hash(), h.chain.CurrentHeader().Number.Uint64())
 	if err := peer.Handshake(h.networkID, td, hash, genesis.Hash(), forkID, h.forkFilter); err != nil {
-		peer.Log().Debug("Ethereum handshake failed", "err", err)
+		peer.Log().Debug("TOS handshake failed", "err", err)
 		return err
 	}
 	reject := false // reserved peer slots
@@ -375,11 +359,11 @@ func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 			return p2p.DiscTooManyPeers
 		}
 	}
-	peer.Log().Debug("Ethereum peer connected", "name", peer.Name())
+	peer.Log().Debug("TOS peer connected", "name", peer.Name())
 
 	// Register the peer locally
 	if err := h.peers.registerPeer(peer, snap); err != nil {
-		peer.Log().Error("Ethereum peer registration failed", "err", err)
+		peer.Log().Error("TOS peer registration failed", "err", err)
 		return err
 	}
 	defer h.unregisterPeer(peer.ID())
@@ -497,10 +481,10 @@ func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
 	return handler(peer)
 }
 
-// runSnapExtension registers a `snap` peer into the joint eth/snap peerset and
+// runSnapExtension registers a `snap` peer into the joint tos/snap peerset and
 // starts handling inbound messages. As `snap` is only a satellite protocol to
-// `eth`, all subsystem registrations and lifecycle management will be done by
-// the main `eth` handler to prevent strange races.
+// `tos`, all subsystem registrations and lifecycle management will be done by
+// the main `tos` handler to prevent strange races.
 func (h *handler) runSnapExtension(peer *snap.Peer, handler snap.Handler) error {
 	h.peerWG.Add(1)
 	defer h.peerWG.Done()
@@ -533,11 +517,11 @@ func (h *handler) unregisterPeer(id string) {
 	// Abort if the peer does not exist
 	peer := h.peers.peer(id)
 	if peer == nil {
-		logger.Error("Ethereum peer removal failed", "err", errPeerNotRegistered)
+		logger.Error("TOS peer removal failed", "err", errPeerNotRegistered)
 		return
 	}
-	// Remove the `eth` peer if it exists
-	logger.Debug("Removing Ethereum peer", "snap", peer.snapExt != nil)
+	// Remove the `tos` peer if it exists
+	logger.Debug("Removing TOS peer", "snap", peer.snapExt != nil)
 
 	// Remove the `snap` extension if it exists
 	if peer.snapExt != nil {
@@ -547,7 +531,7 @@ func (h *handler) unregisterPeer(id string) {
 	h.txFetcher.Drop(id)
 
 	if err := h.peers.unregisterPeer(id); err != nil {
-		logger.Error("Ethereum peer removal failed", "err", err)
+		logger.Error("TOS peer removal failed", "err", err)
 	}
 }
 
@@ -586,7 +570,7 @@ func (h *handler) Stop() {
 	h.peers.close()
 	h.peerWG.Wait()
 
-	log.Info("Ethereum protocol stopped")
+	log.Info("TOS protocol stopped")
 }
 
 // BroadcastBlock will either propagate a block to a subset of its peers, or

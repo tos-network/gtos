@@ -1,19 +1,3 @@
-// Copyright 2017 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package adapters
 
 import (
@@ -26,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/docker/docker/pkg/reexec"
+	"github.com/gorilla/websocket"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/node"
@@ -33,7 +18,6 @@ import (
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/p2p/enr"
 	"github.com/tos-network/gtos/rpc"
-	"github.com/gorilla/websocket"
 )
 
 // Node represents a node in a simulation network which is created by a
@@ -42,7 +26,6 @@ import (
 // * SimNode    - An in-memory node
 // * ExecNode   - A child process node
 // * DockerNode - A Docker container node
-//
 type Node interface {
 	// Addr returns the node's address (e.g. an Enode URL)
 	Addr() []byte
@@ -260,7 +243,7 @@ type ServiceContext struct {
 
 // RPCDialer is used when initialising services which need to connect to
 // other nodes in the network (for example a simulated Swarm node which needs
-// to connect to a Geth node to resolve ENS names)
+// to connect to a GTOS node to resolve ENS names)
 type RPCDialer interface {
 	DialRPC(id enode.ID) (*rpc.Client, error)
 }

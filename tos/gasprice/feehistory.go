@@ -1,19 +1,3 @@
-// Copyright 2021 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package gasprice
 
 import (
@@ -208,10 +192,11 @@ func (oracle *Oracle) resolveBlockRange(ctx context.Context, reqEnd rpc.BlockNum
 // actually processed range is returned to avoid ambiguity when parts of the requested range
 // are not available or when the head has changed during processing this request.
 // Three arrays are returned based on the processed blocks:
-// - reward: the requested percentiles of effective priority fees per gas of transactions in each
-//   block, sorted in ascending order and weighted by gas used.
-// - baseFee: base fee per gas in the given block
-// - gasUsedRatio: gasUsed/gasLimit in the given block
+//   - reward: the requested percentiles of effective priority fees per gas of transactions in each
+//     block, sorted in ascending order and weighted by gas used.
+//   - baseFee: base fee per gas in the given block
+//   - gasUsedRatio: gasUsed/gasLimit in the given block
+//
 // Note: baseFee includes the next block after the newest of the returned range, because this
 // value can be derived from the newest block.
 func (oracle *Oracle) FeeHistory(ctx context.Context, blocks int, unresolvedLastBlock rpc.BlockNumber, rewardPercentiles []float64) (*big.Int, [][]*big.Int, []*big.Int, []float64, error) {

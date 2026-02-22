@@ -1,7 +1,3 @@
-// Copyright (c) 2021 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
 // Package edwards25519 implements group logic for the twisted Edwards curve
 //
 //	-x^2 + y^2 = 1 + -(121665/121666)*x^2*y^2

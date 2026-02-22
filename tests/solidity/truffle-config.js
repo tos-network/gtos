@@ -1,18 +1,18 @@
-// Copyright 2019 The go-ethereum Authors
-// This file is part of the go-ethereum library.
+// Copyright 2019 The go-tos Authors
+// This file is part of the go-tos library.
 //
-// The go-ethereum library is free software: you can redistribute it and/or modify
+// The go-tos library is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// The go-ethereum library is distributed in the hope that it will be useful,
+// The go-tos library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
 // You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+// along with the go-tos library. If not, see <http://www.gnu.org/licenses/>.
 
 /**
  * Use this file to configure your truffle project. It's seeded with some
@@ -42,7 +42,7 @@
 
 // module.exports = {
 //   /**
-//    * Networks define how you connect to your ethereum client and let you set the
+//    * Networks define how you connect to your tos client and let you set the
 //    * defaults web3 uses to send transactions. If you don't specify one truffle
 //    * will spin up a development blockchain for you on port 9545 when you
 //    * run `develop` or `test`. You can ask a truffle command to use a specific
@@ -54,13 +54,13 @@
 //   networks: {
 //     // Useful for testing. The `development` name is special - truffle uses it by default
 //     // if it's defined here and no other network is specified at the command line.
-//     // You should run a client (like ganache-cli, geth or parity) in a separate terminal
+//     // You should run a client (like ganache-cli, gtos or parity) in a separate terminal
 //     // tab if you use this network and you must also set the `host`, `port` and `network_id`
 //     // options below to some value.
 //     //
 //     // development: {
 //     //  host: "127.0.0.1",     // Localhost (default: none)
-//     //  port: 8545,            // Standard Ethereum port (default: none)
+//     //  port: 8545,            // Standard TOS port (default: none)
 //     //  network_id: "*",       // Any network (default: none)
 //     // },
 //

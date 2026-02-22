@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package trie
 
 import (
@@ -23,8 +7,8 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // Prove constructs a merkle proof for key. The result contains all encoded nodes
@@ -339,9 +323,9 @@ findFork:
 // unset removes all internal node references either the left most or right most.
 // It can meet these scenarios:
 //
-// - The given path is existent in the trie, unset the associated nodes with the
-//   specific direction
-// - The given path is non-existent in the trie
+//   - The given path is existent in the trie, unset the associated nodes with the
+//     specific direction
+//   - The given path is non-existent in the trie
 //   - the fork point is a fullnode, the corresponding child pointed by path
 //     is nil, return
 //   - the fork point is a shortnode, the shortnode is included in the range,
@@ -458,15 +442,15 @@ func hasRightElement(node node, key []byte) bool {
 // Expect the normal case, this function can also be used to verify the following
 // range proofs:
 //
-// - All elements proof. In this case the proof can be nil, but the range should
-//   be all the leaves in the trie.
+//   - All elements proof. In this case the proof can be nil, but the range should
+//     be all the leaves in the trie.
 //
-// - One element proof. In this case no matter the edge proof is a non-existent
-//   proof or not, we can always verify the correctness of the proof.
+//   - One element proof. In this case no matter the edge proof is a non-existent
+//     proof or not, we can always verify the correctness of the proof.
 //
-// - Zero element proof. In this case a single non-existent proof is enough to prove.
-//   Besides, if there are still some other leaves available on the right side, then
-//   an error will be returned.
+//   - Zero element proof. In this case a single non-existent proof is enough to prove.
+//     Besides, if there are still some other leaves available on the right side, then
+//     an error will be returned.
 //
 // Except returning the error to indicate the proof is valid or not, the function will
 // also return a flag to indicate whether there exists more accounts/slots in the trie.

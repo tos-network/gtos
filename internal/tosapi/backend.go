@@ -1,20 +1,4 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package ethapi implements the general Ethereum API functions.
+// Package tosapi implements the general TOS API functions.
 package tosapi
 
 import (
@@ -29,17 +13,17 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/filters"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/tos/filters"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // Backend interface provides the common API services (that are provided by
 // both full and light clients) with access to necessary functions.
 type Backend interface {
-	// General Ethereum API
+	// General TOS API
 	SyncProgress() gtos.SyncProgress
 
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
@@ -47,8 +31,8 @@ type Backend interface {
 	ChainDb() tosdb.Database
 	AccountManager() *accounts.Manager
 	ExtRPCEnabled() bool
-	RPCGasCap() uint64            // global gas cap for eth_call over rpc: DoS protection
-	RPCEVMTimeout() time.Duration // global timeout for eth_call over rpc: DoS protection
+	RPCGasCap() uint64            // global gas cap for tos_call over rpc: DoS protection
+	RPCEVMTimeout() time.Duration // global timeout for tos_call over rpc: DoS protection
 	RPCTxFeeCap() float64         // global tx fee cap for all transaction related APIs
 	UnprotectedAllowed() bool     // allows only for EIP155 transactions.
 
@@ -85,7 +69,7 @@ type Backend interface {
 	ChainConfig() *params.ChainConfig
 	Engine() consensus.Engine
 
-	// eth/filters needs to be initialized from this backend type, so methods needed by
+	// tos/filters needs to be initialized from this backend type, so methods needed by
 	// it must also be included here.
 	filters.Backend
 }
@@ -110,7 +94,7 @@ func GetAPIs(apiBackend Backend) []rpc.API {
 			Service:   NewDebugAPI(apiBackend),
 		}, {
 			Namespace: "tos",
-			Service:   NewEthereumAccountAPI(apiBackend.AccountManager()),
+			Service:   NewTOSAccountAPI(apiBackend.AccountManager()),
 		}, {
 			Namespace: "personal",
 			Service:   NewPersonalAccountAPI(apiBackend, nonceLock),

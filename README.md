@@ -31,7 +31,7 @@ Build GTOS as a production-oriented chain for payment + storage:
 - `transfer` transaction as first-class primitive.
 - Deterministic state transition and replay-safe nonce checks.
 - `signer` is the real signing identity and supports multi-algorithm verification (IPFS-style extensible signer type).
-- Backward-compatible default: if `signer` is not set, use `account address` as signer (same behavior as current geth model).
+- Backward-compatible default: if `signer` is not set, use `account address` as signer (same behavior as current gtos model).
 
 ### 3. Immutable Code Storage
 

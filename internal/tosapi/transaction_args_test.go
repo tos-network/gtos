@@ -1,19 +1,3 @@
-// Copyright 2022 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tosapi
 
 import (
@@ -33,10 +17,10 @@ import (
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // TestSetFeeDefaults tests the logic for filling in default fee values works as expected.
@@ -300,7 +284,7 @@ func (b *backendMock) GetReceipts(ctx context.Context, hash common.Hash) (types.
 func (b *backendMock) GetLogs(ctx context.Context, blockHash common.Hash, number uint64) ([][]*types.Log, error) {
 	return nil, nil
 }
-func (b *backendMock) GetTd(ctx context.Context, hash common.Hash) *big.Int { return nil }
+func (b *backendMock) GetTd(ctx context.Context, hash common.Hash) *big.Int             { return nil }
 func (b *backendMock) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription { return nil }
 func (b *backendMock) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription {
 	return nil

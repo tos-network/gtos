@@ -1,32 +1,16 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
 	"math/big"
 
-	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/protocols/snap"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
-// tosPeerInfo represents a short summary of the `eth` sub-protocol metadata known
+// tosPeerInfo represents a short summary of the `tos` sub-protocol metadata known
 // about a connected peer.
 type tosPeerInfo struct {
-	Version    uint     `json:"version"`    // Ethereum protocol version negotiated
+	Version    uint     `json:"version"`    // TOS protocol version negotiated
 	Difficulty *big.Int `json:"difficulty"` // Total difficulty of the peer's blockchain
 	Head       string   `json:"head"`       // Hex hash of the peer's best owned block
 }
@@ -37,7 +21,7 @@ type tosPeer struct {
 	snapExt *snapPeer // Satellite `snap` connection
 }
 
-// info gathers and returns some `eth` protocol metadata known about a peer.
+// info gathers and returns some `tos` protocol metadata known about a peer.
 func (p *tosPeer) info() *tosPeerInfo {
 	hash, td := p.Head()
 

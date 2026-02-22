@@ -1,19 +1,3 @@
-// Copyright 2019 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package dnsdisc
 
 import (
@@ -37,7 +21,6 @@ const (
 	nodesSeed1     = 0x2945237
 	nodesSeed2     = 0x4567299
 )
-
 
 // In this test, syncing the tree fails because it contains an invalid ENR entry.
 func TestClientSyncTreeBadNode(t *testing.T) {
@@ -148,7 +131,7 @@ func TestIteratorLinks(t *testing.T) {
 
 // This test checks that the iterator works correctly when the tree is initially empty.
 func TestIteratorEmptyTree(t *testing.T) {
-	t.Skip("flaky: WaitForTimers races with iterator goroutine registering its timer (pre-existing go-ethereum issue)")
+	t.Skip("flaky: WaitForTimers races with iterator goroutine registering its timer (pre-existing go-tos issue)")
 	var (
 		clock    = new(mclock.Simulated)
 		nodes    = testNodes(nodesSeed1, 1)
@@ -210,7 +193,7 @@ func updateSomeNodes(keySeed int64, nodes []*enode.Node) {
 // This test verifies that randomIterator re-checks the root of the tree to catch
 // updates to links.
 func TestIteratorLinkUpdates(t *testing.T) {
-	t.Skip("flaky: checkIterator maxCalls=3x may not suffice for random iterator to visit all nodes (pre-existing go-ethereum issue)")
+	t.Skip("flaky: checkIterator maxCalls=3x may not suffice for random iterator to visit all nodes (pre-existing go-tos issue)")
 	var (
 		clock    = new(mclock.Simulated)
 		nodes    = testNodes(nodesSeed1, 30)

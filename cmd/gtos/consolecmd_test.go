@@ -1,19 +1,3 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -30,14 +14,14 @@ import (
 )
 
 const (
-	ipcAPIs  = "admin:1.0 agent:1.0 debug:1.0 discover:1.0 dpos:1.0 miner:1.0 net:1.0 personal:1.0 rpc:1.0 tos:1.0 txpool:1.0 web3:1.0"
+	ipcAPIs  = "admin:1.0 debug:1.0 dpos:1.0 miner:1.0 net:1.0 personal:1.0 rpc:1.0 tos:1.0 txpool:1.0 web3:1.0"
 	httpAPIs = "net:1.0 rpc:1.0 tos:1.0 web3:1.0"
 )
 
 // spawns gtos with the given command line args, using a set of flags to minimise
 // memory and disk IO. If the args don't set --datadir, the
 // child g gets a temporary data directory.
-func runMinimalGeth(t *testing.T, args ...string) *testgeth {
+func runMinimalGTOS(t *testing.T, args ...string) *testgeth {
 	// --ropsten to make the 'writing genesis to disk' faster (no accounts)
 	// --networkid=1337 to avoid cache bump
 	// --syncmode=full to avoid allocating fast sync bloom
@@ -53,13 +37,13 @@ func TestConsoleWelcome(t *testing.T) {
 	coinbase := "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182"
 
 	// Start a gtos console, make sure it's cleaned up and terminate the console
-	gtos := runMinimalGeth(t, "--miner.etherbase", coinbase, "console")
+	gtos := runMinimalGTOS(t, "--miner.coinbase", coinbase, "console")
 
 	// Gather all the infos the welcome message needs to contain
 	gtos.SetTemplateFunc("goos", func() string { return runtime.GOOS })
 	gtos.SetTemplateFunc("goarch", func() string { return runtime.GOARCH })
 	gtos.SetTemplateFunc("gover", runtime.Version)
-	gtos.SetTemplateFunc("gethver", func() string { return params.VersionWithCommit("", "") })
+	gtos.SetTemplateFunc("gtosver", func() string { return params.VersionWithCommit("", "") })
 	gtos.SetTemplateFunc("niltime", func() string {
 		return time.Unix(0, 0).Format("Mon Jan 02 2006 15:04:05 GMT-0700 (MST)")
 	})
@@ -67,10 +51,10 @@ func TestConsoleWelcome(t *testing.T) {
 
 	// Verify the actual welcome message to the required template
 	gtos.Expect(`
-Welcome to the Geth JavaScript console!
+Welcome to the GTOS JavaScript console!
 
-instance: Geth/v{{gethver}}/{{goos}}-{{goarch}}/{{gover}}
-coinbase: {{.Etherbase}}
+instance: GTOS/v{{gtosver}}/{{goos}}-{{goarch}}/{{gover}}
+coinbase: {{.Coinbase}}
 at block: 0 ({{niltime}})
  datadir: {{.Datadir}}
  modules: {{apis}}
@@ -98,7 +82,7 @@ func TestAttachWelcome(t *testing.T) {
 	p := trulyRandInt(1024, 65533) // Yeah, sometimes this will fail, sorry :P
 	httpPort = strconv.Itoa(p)
 	wsPort = strconv.Itoa(p + 1)
-	gtos := runMinimalGeth(t, "--miner.etherbase", "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182",
+	gtos := runMinimalGTOS(t, "--miner.coinbase", "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182",
 		"--ipcpath", ipc,
 		"--http", "--http.port", httpPort,
 		"--ws", "--ws.port", wsPort)
@@ -129,8 +113,8 @@ func testAttachWelcome(t *testing.T, gtos *testgeth, endpoint, apis string) {
 	attach.SetTemplateFunc("goos", func() string { return runtime.GOOS })
 	attach.SetTemplateFunc("goarch", func() string { return runtime.GOARCH })
 	attach.SetTemplateFunc("gover", runtime.Version)
-	attach.SetTemplateFunc("gethver", func() string { return params.VersionWithCommit("", "") })
-	attach.SetTemplateFunc("etherbase", func() string { return gtos.Etherbase })
+	attach.SetTemplateFunc("gtosver", func() string { return params.VersionWithCommit("", "") })
+	attach.SetTemplateFunc("coinbase", func() string { return gtos.Coinbase })
 	attach.SetTemplateFunc("niltime", func() string {
 		return time.Unix(0, 0).Format("Mon Jan 02 2006 15:04:05 GMT-0700 (MST)")
 	})
@@ -140,10 +124,10 @@ func testAttachWelcome(t *testing.T, gtos *testgeth, endpoint, apis string) {
 
 	// Verify the actual welcome message to the required template
 	attach.Expect(`
-Welcome to the Geth JavaScript console!
+Welcome to the GTOS JavaScript console!
 
-instance: Geth/v{{gethver}}/{{goos}}-{{goarch}}/{{gover}}
-coinbase: {{etherbase}}
+instance: GTOS/v{{gtosver}}/{{goos}}-{{goarch}}/{{gover}}
+coinbase: {{coinbase}}
 at block: 0 ({{niltime}}){{if ipc}}
  datadir: {{datadir}}{{end}}
  modules: {{apis}}

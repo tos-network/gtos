@@ -1,19 +1,3 @@
-// Copyright 2016 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Package debug interfaces Go runtime debugging facilities.
 // This package is mostly glue code making these facilities available
 // through the CLI and RPC subsystem. If you want to use them from Go code,
@@ -35,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tos-network/gtos/log"
 	"github.com/hashicorp/go-bexpr"
+	"github.com/tos-network/gtos/log"
 )
 
 // Handler is the global debugging handler.
@@ -206,7 +190,7 @@ func (*HandlerT) Stacks(filter *string) string {
 		// it into a proper boolean expression that can be fed into a parser and
 		// interpreter:
 		//
-		// E.g. (eth || snap) && !p2p -> (eth in Value || snap in Value) && p2p not in Value
+		// E.g. (tos || snap) && !p2p -> (tos in Value || snap in Value) && p2p not in Value
 		expanded = regexp.MustCompile(`[:/\.A-Za-z0-9_-]+`).ReplaceAllString(expanded, "`$0` in Value")
 		expanded = regexp.MustCompile("!(`[:/\\.A-Za-z0-9_-]+`)").ReplaceAllString(expanded, "$1 not")
 		expanded = strings.ReplaceAll(expanded, "||", "or")

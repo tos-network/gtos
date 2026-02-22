@@ -42,4 +42,3 @@ type AgentRegisterPayload struct {
 type AgentHeartbeatPayload struct {
 	AgentID string `json:"agent_id"`
 }
-

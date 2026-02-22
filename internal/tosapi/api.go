@@ -1,19 +1,3 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tosapi
 
 import (
@@ -45,12 +29,12 @@ import (
 	"github.com/tyler-smith/go-bip39"
 )
 
-// TOSAPI provides an API to access Ethereum related information.
+// TOSAPI provides an API to access TOS related information.
 type TOSAPI struct {
 	b Backend
 }
 
-// NewTOSAPI creates a new Ethereum protocol API.
+// NewTOSAPI creates a new TOS protocol API.
 func NewTOSAPI(b Backend) *TOSAPI {
 	return &TOSAPI{b}
 }
@@ -249,19 +233,19 @@ func (s *TxPoolAPI) Inspect() map[string]map[string]map[string]string {
 	return content
 }
 
-// EthereumAccountAPI provides an API to access accounts managed by this node.
+// TOSAccountAPI provides an API to access accounts managed by this node.
 // It offers only methods that can retrieve accounts.
-type EthereumAccountAPI struct {
+type TOSAccountAPI struct {
 	am *accounts.Manager
 }
 
-// NewEthereumAccountAPI creates a new EthereumAccountAPI.
-func NewEthereumAccountAPI(am *accounts.Manager) *EthereumAccountAPI {
-	return &EthereumAccountAPI{am: am}
+// NewTOSAccountAPI creates a new TOSAccountAPI.
+func NewTOSAccountAPI(am *accounts.Manager) *TOSAccountAPI {
+	return &TOSAccountAPI{am: am}
 }
 
 // Accounts returns the collection of accounts this node manages.
-func (s *EthereumAccountAPI) Accounts() []common.Address {
+func (s *TOSAccountAPI) Accounts() []common.Address {
 	return s.am.Accounts()
 }
 
@@ -501,7 +485,7 @@ func (s *PersonalAccountAPI) SignTransaction(ctx context.Context, args Transacti
 	return &SignTransactionResult{data, signed}, nil
 }
 
-// Sign calculates an Ethereum ECDSA signature for:
+// Sign calculates an TOS ECDSA signature for:
 // keccak256("\x19Ethereum Signed Message:\n" + len(message) + message))
 //
 // Note, the produced signature conforms to the secp256k1 curve R, S and V values,
@@ -529,7 +513,8 @@ func (s *PersonalAccountAPI) Sign(ctx context.Context, data hexutil.Bytes, addr 
 }
 
 // EcRecover returns the address for the account that was used to create the signature.
-// Note, this function is compatible with eth_sign and personal_sign. As such it recovers
+// Note, this function is compatible with tos_sign (legacy eth_sign) and personal_sign.
+// As such it recovers
 // the address of:
 // hash = keccak256("\x19Ethereum Signed Message:\n"${message length}${message})
 // addr = ecrecover(hash, signature)
@@ -543,7 +528,7 @@ func (s *PersonalAccountAPI) EcRecover(ctx context.Context, data, sig hexutil.By
 		return common.Address{}, fmt.Errorf("signature must be %d bytes long", crypto.SignatureLength)
 	}
 	if sig[crypto.RecoveryIDOffset] != 27 && sig[crypto.RecoveryIDOffset] != 28 {
-		return common.Address{}, fmt.Errorf("invalid Ethereum signature (V is not 27 or 28)")
+		return common.Address{}, fmt.Errorf("invalid TOS signature (V is not 27 or 28)")
 	}
 	sig[crypto.RecoveryIDOffset] -= 27 // Transform yellow paper V from 27/28 to 0/1
 
@@ -596,17 +581,17 @@ func (s *PersonalAccountAPI) Unpair(ctx context.Context, url string, pin string)
 	}
 }
 
-// BlockChainAPI provides an API to access Ethereum blockchain data.
+// BlockChainAPI provides an API to access TOS blockchain data.
 type BlockChainAPI struct {
 	b Backend
 }
 
-// NewBlockChainAPI creates a new Ethereum blockchain API.
+// NewBlockChainAPI creates a new TOS blockchain API.
 func NewBlockChainAPI(b Backend) *BlockChainAPI {
 	return &BlockChainAPI{b}
 }
 
-// ChainId is the EIP-155 replay-protection chain id for the current Ethereum chain config.
+// ChainId is the EIP-155 replay-protection chain id for the current TOS chain config.
 //
 // Note, this method does not conform to EIP-695 because the configured chain ID is always
 // returned, regardless of the current head block. We used to return an error when the chain
@@ -728,10 +713,10 @@ func (s *BlockChainAPI) GetHeaderByHash(ctx context.Context, hash common.Hash) m
 }
 
 // GetBlockByNumber returns the requested canonical block.
-// * When blockNr is -1 the chain head is returned.
-// * When blockNr is -2 the pending chain head is returned.
-// * When fullTx is true all transactions in the block are returned, otherwise
-//   only the transaction hash is returned.
+//   - When blockNr is -1 the chain head is returned.
+//   - When blockNr is -2 the pending chain head is returned.
+//   - When fullTx is true all transactions in the block are returned, otherwise
+//     only the transaction hash is returned.
 func (s *BlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
 	block, err := s.b.BlockByNumber(ctx, number)
 	if block != nil && err == nil {
@@ -920,7 +905,7 @@ func (diff *BlockOverrides) Apply(blockCtx *vm.BlockContext) {
 
 func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, error) {
 	// Smart contract execution is not supported in GTOS.
-	return nil, errors.New("eth_call not supported: smart contract execution removed in GTOS")
+	return nil, errors.New("tos_call not supported (legacy eth_call): smart contract execution removed in GTOS")
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {
@@ -938,7 +923,7 @@ type revertError struct {
 }
 
 // ErrorCode returns the JSON error code for a revertal.
-// See: https://github.com/ethereum/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
+// See: https://github.com/tos/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
 func (e *revertError) ErrorCode() int {
 	return 3
 }
@@ -1327,7 +1312,7 @@ func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionAr
 
 // AccessList is not supported in GTOS (EVM and tracer removed).
 func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
-	return nil, 0, nil, errors.New("eth_createAccessList not supported: EVM removed in GTOS")
+	return nil, 0, nil, errors.New("tos_createAccessList not supported (legacy eth_createAccessList): EVM removed in GTOS")
 }
 
 // TransactionAPI exposes methods for reading and creating transaction data.
@@ -1627,7 +1612,7 @@ func (s *TransactionAPI) SendRawTransaction(ctx context.Context, input hexutil.B
 //
 // The account associated with addr must be unlocked.
 //
-// https://github.com/ethereum/wiki/wiki/JSON-RPC#eth_sign
+// https://github.com/tos/wiki/wiki/JSON-RPC#tos_sign
 func (s *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (hexutil.Bytes, error) {
 	// Look up the wallet containing the requested signer
 	account := accounts.Account{Address: addr}
@@ -1758,7 +1743,7 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 	return common.Hash{}, fmt.Errorf("transaction %#x not found", matchTx.Hash())
 }
 
-// DebugAPI is the collection of Ethereum APIs exposed over the debugging
+// DebugAPI is the collection of TOS APIs exposed over the debugging
 // namespace.
 type DebugAPI struct {
 	b Backend
@@ -1872,7 +1857,7 @@ func (s *NetAPI) PeerCount() hexutil.Uint {
 	return hexutil.Uint(s.net.PeerCount())
 }
 
-// Version returns the current ethereum protocol version.
+// Version returns the current tos protocol version.
 func (s *NetAPI) Version() string {
 	return fmt.Sprintf("%d", s.networkVersion)
 }
@@ -1884,10 +1869,10 @@ func checkTxFee(gasPrice *big.Int, gas uint64, cap float64) error {
 	if cap == 0 {
 		return nil
 	}
-	feeEth := new(big.Float).Quo(new(big.Float).SetInt(new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(gas))), new(big.Float).SetInt(big.NewInt(params.Ether)))
+	feeEth := new(big.Float).Quo(new(big.Float).SetInt(new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(gas))), new(big.Float).SetInt(big.NewInt(params.TOS)))
 	feeFloat, _ := feeEth.Float64()
 	if feeFloat > cap {
-		return fmt.Errorf("tx fee (%.2f ether) exceeds the configured cap (%.2f ether)", feeFloat, cap)
+		return fmt.Errorf("tx fee (%.2f tos) exceeds the configured cap (%.2f tos)", feeFloat, cap)
 	}
 	return nil
 }

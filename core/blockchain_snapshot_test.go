@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 // Tests that abnormal program termination (i.e.crash) and restart can recovery
 // the snapshot properly if the snapshot is enabled.
 
@@ -32,8 +16,8 @@ import (
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/tosdb"
 )
 
 // snapshotTestBasic wraps the common testing fields in the snapshot tests.
@@ -205,7 +189,7 @@ func (basic *snapshotTestBasic) teardown() {
 }
 
 // snapshotTest is a test case type for normal snapshot recovery.
-// It can be used for testing that restart Geth normally.
+// It can be used for testing that restart GTOS normally.
 type snapshotTest struct {
 	snapshotTestBasic
 }
@@ -228,7 +212,7 @@ func (snaptest *snapshotTest) test(t *testing.T) {
 }
 
 // crashSnapshotTest is a test case type for innormal snapshot recovery.
-// It can be used for testing that restart Geth after the crash.
+// It can be used for testing that restart GTOS after the crash.
 type crashSnapshotTest struct {
 	snapshotTestBasic
 }
@@ -396,7 +380,7 @@ func (snaptest *wipeCrashSnapshotTest) test(t *testing.T) {
 	snaptest.verify(t, newchain, blocks)
 }
 
-// Tests a Geth restart with valid snapshot. Before the shutdown, all snapshot
+// Tests a GTOS restart with valid snapshot. Before the shutdown, all snapshot
 // journal will be persisted correctly. In this case no snapshot recovery is
 // required.
 func TestRestartWithNewSnapshot(t *testing.T) {
@@ -433,7 +417,7 @@ func TestRestartWithNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests a Geth was crashed and restarts with a broken snapshot. In this case the
+// Tests a GTOS was crashed and restarts with a broken snapshot. In this case the
 // chain head should be rewound to the point with available state. And also the
 // new head should must be lower than disk layer. But there is no committed point
 // so the chain should be rewound to genesis and the disk layer should be left
@@ -472,7 +456,7 @@ func TestNoCommitCrashWithNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests a Geth was crashed and restarts with a broken snapshot. In this case the
+// Tests a GTOS was crashed and restarts with a broken snapshot. In this case the
 // chain head should be rewound to the point with available state. And also the
 // new head should must be lower than disk layer. But there is only a low committed
 // point so the chain should be rewound to committed point and the disk layer
@@ -511,7 +495,7 @@ func TestLowCommitCrashWithNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests a Geth was crashed and restarts with a broken snapshot. In this case
+// Tests a GTOS was crashed and restarts with a broken snapshot. In this case
 // the chain head should be rewound to the point with available state. And also
 // the new head should must be lower than disk layer. But there is only a high
 // committed point so the chain should be rewound to genesis and the disk layer
@@ -550,7 +534,7 @@ func TestHighCommitCrashWithNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests a Geth was running with snapshot enabled. Then restarts without
+// Tests a GTOS was running with snapshot enabled. Then restarts without
 // enabling snapshot and after that re-enable the snapshot again. In this
 // case the snapshot should be rebuilt with latest chain head.
 func TestGappedNewSnapshot(t *testing.T) {
@@ -588,7 +572,7 @@ func TestGappedNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests the Geth was running with snapshot enabled and resetHead is applied.
+// Tests the GTOS was running with snapshot enabled and resetHead is applied.
 // In this case the head is rewound to the target(with state available). After
 // that the chain is restarted and the original disk layer is kept.
 func TestSetHeadWithNewSnapshot(t *testing.T) {
@@ -626,7 +610,7 @@ func TestSetHeadWithNewSnapshot(t *testing.T) {
 	test.teardown()
 }
 
-// Tests the Geth was running with a complete snapshot and then imports a few
+// Tests the GTOS was running with a complete snapshot and then imports a few
 // more new blocks on top without enabling the snapshot. After the restart,
 // crash happens. Check everything is ok after the restart.
 func TestRecoverSnapshotFromWipingCrash(t *testing.T) {

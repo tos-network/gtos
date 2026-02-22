@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
 package tos
 
 import (
@@ -31,17 +15,17 @@ import (
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
+	"github.com/tos-network/gtos/tos/downloader"
+	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
 // testEthHandler is a mock event handler to listen for inbound network requests
-// on the `eth` protocol and convert them into a more easily testable form.
+// on the `tos` protocol and convert them into a more easily testable form.
 type testEthHandler struct {
 	blockBroadcasts event.Feed
 	txAnnounces     event.Feed
@@ -73,7 +57,7 @@ func (h *testEthHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 		return nil
 
 	default:
-		panic(fmt.Sprintf("unexpected eth packet type in tests: %T", packet))
+		panic(fmt.Sprintf("unexpected tos packet type in tests: %T", packet))
 	}
 }
 
@@ -110,7 +94,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		blocksNoFork, _  = core.GenerateChain(configNoFork, genesisNoFork, engine, dbNoFork, 2, nil)
 		blocksProFork, _ = core.GenerateChain(configProFork, genesisProFork, engine, dbProFork, 2, nil)
 
-		ethNoFork, _ = newHandler(&handlerConfig{
+		tosNoFork, _ = newHandler(&handlerConfig{
 			Database:   dbNoFork,
 			Chain:      chainNoFork,
 			TxPool:     newTestTxPool(),
@@ -119,7 +103,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 			Sync:       downloader.FullSync,
 			BloomCache: 1,
 		})
-		ethProFork, _ = newHandler(&handlerConfig{
+		tosProFork, _ = newHandler(&handlerConfig{
 			Database:   dbProFork,
 			Chain:      chainProFork,
 			TxPool:     newTestTxPool(),
@@ -129,15 +113,15 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 			BloomCache: 1,
 		})
 	)
-	ethNoFork.Start(1000)
-	ethProFork.Start(1000)
+	tosNoFork.Start(1000)
+	tosProFork.Start(1000)
 
 	// Clean up everything after ourselves
 	defer chainNoFork.Stop()
 	defer chainProFork.Stop()
 
-	defer ethNoFork.Stop()
-	defer ethProFork.Stop()
+	defer tosNoFork.Stop()
+	defer tosProFork.Stop()
 
 	// Both nodes should allow the other to connect (same genesis, next fork is the same)
 	p2pNoFork, p2pProFork := p2p.MsgPipe()
@@ -151,10 +135,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc := make(chan error, 2)
 	go func(errc chan error) {
-		errc <- ethNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- ethProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	for i := 0; i < 2; i++ {
@@ -182,10 +166,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc = make(chan error, 2)
 	go func(errc chan error) {
-		errc <- ethNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- ethProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	for i := 0; i < 2; i++ {
@@ -213,10 +197,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc = make(chan error, 2)
 	go func(errc chan error) {
-		errc <- ethNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- ethProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	var successes int
@@ -362,7 +346,7 @@ func testSendTransactions(t *testing.T, protocol uint) {
 					seen[hash] = struct{}{}
 				}
 			case <-bcasts:
-				t.Errorf("initial tx broadcast received on post eth/66")
+				t.Errorf("initial tx broadcast received on post tos/66")
 			}
 
 		default:
@@ -449,7 +433,7 @@ func testTransactionPropagation(t *testing.T, protocol uint) {
 	}
 }
 
-// Tests that post eth protocol handshake, clients perform a mutual checkpoint
+// Tests that post tos protocol handshake, clients perform a mutual checkpoint
 // challenge to validate each other's chains. Hash mismatches, or missing ones
 // during a fast sync should lead to the peer getting dropped.
 func TestCheckpointChallenge(t *testing.T) {

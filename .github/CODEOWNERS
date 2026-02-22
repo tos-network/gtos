@@ -8,9 +8,9 @@ cmd/clef                        @holiman
 cmd/puppeth                     @karalabe
 consensus                       @karalabe
 core/                           @karalabe @holiman @rjl493456442
-eth/                            @karalabe @holiman @rjl493456442
-eth/catalyst/                   @gballet
-eth/tracers/                    @s1na
+tos/                            @karalabe @holiman @rjl493456442
+tos/catalyst/                   @gballet
+tos/tracers/                    @s1na
 graphql/                        @gballet @s1na
 les/                            @zsfelfoldi @rjl493456442
 light/                          @zsfelfoldi @rjl493456442

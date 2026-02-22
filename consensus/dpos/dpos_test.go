@@ -212,9 +212,12 @@ func TestCoinbaseMismatch(t *testing.T) {
 //
 // With 3 validators, limit = 3/2+1 = 2.
 // If signer last signed at block 2 and current block is 3:
-//   seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
+//
+//	seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
+//
 // If signer last signed at block 1 and current block is 3:
-//   seen=1, number=3, limit=2 → seen > number-limit ↔ 1 > 3-2 ↔ 1 > 1 → ALLOW
+//
+//	seen=1, number=3, limit=2 → seen > number-limit ↔ 1 > 3-2 ↔ 1 > 1 → ALLOW
 func TestRecentlySigned(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)

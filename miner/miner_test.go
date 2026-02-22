@@ -1,20 +1,4 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of the go-ethereum library.
-//
-// The go-ethereum library is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// The go-ethereum library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public License
-// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
-
-// Package miner implements Ethereum block creation and mining.
+// Package miner implements TOS block creation and mining.
 package miner
 
 import (
@@ -200,9 +184,9 @@ func TestCloseMiner(t *testing.T) {
 	waitForMiningState(t, miner, false)
 }
 
-// TestMinerSetEtherbase checks that etherbase becomes set even if mining isn't
+// TestMinerSetCoinbase checks that coinbase becomes set even if mining isn't
 // possible at the moment
-func TestMinerSetEtherbase(t *testing.T) {
+func TestMinerSetCoinbase(t *testing.T) {
 	miner, mux, cleanup := createMiner(t)
 	defer cleanup(false)
 	// Start with a 'bad' mining address
@@ -240,9 +224,9 @@ func waitForMiningState(t *testing.T, m *Miner, mining bool) {
 }
 
 func createMiner(t *testing.T) (*Miner, *event.TypeMux, func(skipMiner bool)) {
-	// Create Ethash config
+	// Create miner config
 	config := Config{
-		Etherbase: common.HexToAddress("123456789"),
+		Coinbase: common.HexToAddress("123456789"),
 	}
 	// Create chainConfig
 	memdb := memorydb.New()
@@ -254,7 +238,7 @@ func createMiner(t *testing.T) (*Miner, *event.TypeMux, func(skipMiner bool)) {
 	}
 	// Create consensus engine
 	engine := dpos.NewFaker()
-	// Create Ethereum backend
+	// Create TOS backend
 	bc, err := core.NewBlockChain(chainDB, nil, chainConfig, engine, nil, nil)
 	if err != nil {
 		t.Fatalf("can't create new chain %v", err)

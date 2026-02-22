@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -93,7 +77,7 @@ func TestMatching(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := func(version string) {
-		vFull := fmt.Sprintf("Geth/%v-unstable-15339cf1-20201204/linux-amd64/go1.15.4", version)
+		vFull := fmt.Sprintf("GTOS/%v-unstable-15339cf1-20201204/linux-amd64/go1.15.4", version)
 		for _, vuln := range vulns {
 			r, err := regexp.Compile(vuln.Check)
 			vulnIntro := versionUint(vuln.Introduced)
@@ -130,8 +114,8 @@ func TestMatching(t *testing.T) {
 	}
 }
 
-func TestGethPubKeysParseable(t *testing.T) {
-	for _, pubkey := range gethPubKeys {
+func TestGTOSPubKeysParseable(t *testing.T) {
+	for _, pubkey := range gtosPubKeys {
 		_, err := minisign.NewPublicKey(pubkey)
 		if err != nil {
 			t.Errorf("Should be parseable")
@@ -148,9 +132,9 @@ func TestKeyID(t *testing.T) {
 		args args
 		want string
 	}{
-		{"@holiman key", args{id: extractKeyId(gethPubKeys[0])}, "FB1D084D39BAEC24"},
-		{"second key", args{id: extractKeyId(gethPubKeys[1])}, "138B1CA303E51687"},
-		{"third key", args{id: extractKeyId(gethPubKeys[2])}, "FD9813B2D2098484"},
+		{"@holiman key", args{id: extractKeyId(gtosPubKeys[0])}, "FB1D084D39BAEC24"},
+		{"second key", args{id: extractKeyId(gtosPubKeys[1])}, "138B1CA303E51687"},
+		{"third key", args{id: extractKeyId(gtosPubKeys[2])}, "FD9813B2D2098484"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

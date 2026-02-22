@@ -1,19 +1,3 @@
-// Copyright 2020 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
 package main
 
 import (
@@ -26,12 +10,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tos-network/gtos/log"
 	"github.com/jedisct1/go-minisign"
+	"github.com/tos-network/gtos/log"
 	"github.com/urfave/cli/v2"
 )
 
-var gethPubKeys []string = []string{
+var gtosPubKeys = []string{
 	//@holiman, minisign public key FB1D084D39BAEC24
 	"RWQk7Lo5TQgd+wxBNZM+Zoy+7UhhMHaWKzqoes9tvSbFLJYZhNTbrIjx",
 	//minisign public key 138B1CA303E51687
@@ -73,7 +57,7 @@ func checkCurrent(url, current string) error {
 	if sig, err = fetch(fmt.Sprintf("%v.minisig", url)); err != nil {
 		return fmt.Errorf("could not retrieve signature: %w", err)
 	}
-	if err = verifySignature(gethPubKeys, data, sig); err != nil {
+	if err = verifySignature(gtosPubKeys, data, sig); err != nil {
 		return err
 	}
 	var vulns []vulnJson
@@ -128,7 +112,7 @@ func fetch(url string) ([]byte, error) {
 }
 
 // verifySignature checks that the sigData is a valid signature of the given
-// data, for pubkey GethPubkey
+// data, for pubkey GTOSPubkey
 func verifySignature(pubkeys []string, data, sigdata []byte) error {
 	sig, err := minisign.DecodeSignature(string(sigdata))
 	if err != nil {

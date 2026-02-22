@@ -1,20 +1,4 @@
-// Copyright 2015 The go-ethereum Authors
-// This file is part of go-ethereum.
-//
-// go-ethereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// go-ethereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with go-ethereum. If not, see <http://www.gnu.org/licenses/>.
-
-// Package utils contains internal helper functions for go-ethereum commands.
+// Package utils contains internal helper functions for go-tos commands.
 package utils
 
 import (
@@ -75,7 +59,7 @@ var (
 		Name:     "datadir",
 		Usage:    "Data directory for the databases and keystore",
 		Value:    flags.DirectoryString(node.DefaultDataDir()),
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	RemoteDBFlag = &cli.StringFlag{
 		Name:     "remotedb",
@@ -85,12 +69,12 @@ var (
 	AncientFlag = &flags.DirectoryFlag{
 		Name:     "datadir.ancient",
 		Usage:    "Root directory for ancient data (default = inside chaindata)",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	MinFreeDiskSpaceFlag = &flags.DirectoryFlag{
 		Name:     "datadir.minfreedisk",
 		Usage:    "Minimum free disk space in MB, once reached triggers auto shut down (default = --cache.gc converted to MB, 0 = disabled)",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	KeyStoreDirFlag = &flags.DirectoryFlag{
 		Name:     "keystore",
@@ -112,37 +96,37 @@ var (
 		Name:     "networkid",
 		Usage:    "Explicitly set network id (integer)(For testnets: use --ropsten, --rinkeby, --goerli instead)",
 		Value:    tosconfig.Defaults.NetworkId,
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	MainnetFlag = &cli.BoolFlag{
 		Name:     "mainnet",
-		Usage:    "Ethereum mainnet",
-		Category: flags.EthCategory,
+		Usage:    "TOS mainnet",
+		Category: flags.TOSCategory,
 	}
 	RopstenFlag = &cli.BoolFlag{
 		Name:     "ropsten",
 		Usage:    "Ropsten network: pre-configured proof-of-stake test network",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	RinkebyFlag = &cli.BoolFlag{
 		Name:     "rinkeby",
 		Usage:    "Rinkeby network: pre-configured proof-of-authority test network",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	GoerliFlag = &cli.BoolFlag{
 		Name:     "goerli",
 		Usage:    "Görli network: pre-configured proof-of-authority test network",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	SepoliaFlag = &cli.BoolFlag{
 		Name:     "sepolia",
 		Usage:    "Sepolia network: pre-configured proof-of-work test network",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	KilnFlag = &cli.BoolFlag{
 		Name:     "kiln",
 		Usage:    "Kiln network: pre-configured proof-of-work to proof-of-stake test network",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 
 	// Dev mode
@@ -178,7 +162,7 @@ var (
 	ExitWhenSyncedFlag = &cli.BoolFlag{
 		Name:     "exitwhensynced",
 		Usage:    "Exits after block synchronisation completes",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 
 	// Dump command options.
@@ -215,35 +199,35 @@ var (
 		Name:     "syncmode",
 		Usage:    `Blockchain sync mode ("snap", "full" or "light")`,
 		Value:    &defaultSyncMode,
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	GCModeFlag = &cli.StringFlag{
 		Name:     "gcmode",
 		Usage:    `Blockchain garbage collection mode ("full", "archive")`,
 		Value:    "full",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	SnapshotFlag = &cli.BoolFlag{
 		Name:     "snapshot",
 		Usage:    `Enables snapshot-database mode (default = enable)`,
 		Value:    true,
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	TxLookupLimitFlag = &cli.Uint64Flag{
 		Name:     "txlookuplimit",
 		Usage:    "Number of recent blocks to maintain transactions index for (default = about one year, 0 = entire chain)",
 		Value:    tosconfig.Defaults.TxLookupLimit,
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	LightKDFFlag = &cli.BoolFlag{
 		Name:     "lightkdf",
 		Usage:    "Reduce key-derivation RAM & CPU usage at some expense of KDF strength",
 		Category: flags.AccountCategory,
 	}
-	EthRequiredBlocksFlag = &cli.StringFlag{
+	TOSRequiredBlocksFlag = &cli.StringFlag{
 		Name:     "tos.requiredblocks",
 		Usage:    "Comma separated block number-to-hash mappings to require for peering (<number>=<hash>)",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	LegacyWhitelistFlag = &cli.StringFlag{
 		Name:     "whitelist",
@@ -254,17 +238,17 @@ var (
 		Name:     "bloomfilter.size",
 		Usage:    "Megabytes of memory allocated to bloom-filter for pruning",
 		Value:    2048,
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	OverrideTerminalTotalDifficulty = &flags.BigFlag{
 		Name:     "override.terminaltotaldifficulty",
 		Usage:    "Manually specify TerminalTotalDifficulty, overriding the bundled setting",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	OverrideTerminalTotalDifficultyPassed = &cli.BoolFlag{
 		Name:     "override.terminaltotaldifficultypassed",
 		Usage:    "Manually specify TerminalTotalDifficultyPassed, overriding the bundled setting",
-		Category: flags.EthCategory,
+		Category: flags.TOSCategory,
 	}
 	// Light server and client settings
 	LightServeFlag = &cli.IntFlag{
@@ -484,12 +468,14 @@ var (
 		Value:    tosconfig.Defaults.Miner.GasPrice,
 		Category: flags.MinerCategory,
 	}
-	MinerEtherbaseFlag = &cli.StringFlag{
-		Name:     "miner.etherbase",
+	MinerCoinbaseFlag = &cli.StringFlag{
+		Name:     "miner.coinbase",
+		Aliases:  []string{"miner.etherbase"},
 		Usage:    "Public address for block mining rewards (default = first account)",
 		Value:    "0",
 		Category: flags.MinerCategory,
 	}
+	MinerEtherbaseFlag = MinerCoinbaseFlag // Deprecated alias.
 	MinerExtraDataFlag = &cli.StringFlag{
 		Name:     "miner.extradata",
 		Usage:    "Block extra data set by the miner (default = client version)",
@@ -554,7 +540,7 @@ var (
 	}
 	RPCGlobalTxFeeCapFlag = &cli.Float64Flag{
 		Name:     "rpc.txfeecap",
-		Usage:    "Sets a cap on transaction fee (in ether) that can be sent via the RPC APIs (0 = no cap)",
+		Usage:    "Sets a cap on transaction fee (in tos) that can be sent via the RPC APIs (0 = no cap)",
 		Value:    tosconfig.Defaults.RPCTxFeeCap,
 		Category: flags.APICategory,
 	}
@@ -584,9 +570,9 @@ var (
 	}
 
 	// Logging and debug settings
-	EthStatsURLFlag = &cli.StringFlag{
-		Name:     "ethstats",
-		Usage:    "Reporting URL of a ethstats service (nodename:secret@host:port)",
+	TOSStatsURLFlag = &cli.StringFlag{
+		Name:     "tosstats",
+		Usage:    "Reporting URL of a tosstats service (nodename:secret@host:port)",
 		Category: flags.MetricsCategory,
 	}
 	FakePoWFlag = &cli.BoolFlag{
@@ -602,7 +588,7 @@ var (
 
 	IgnoreLegacyReceiptsFlag = &cli.BoolFlag{
 		Name:     "ignore-legacy-receipts",
-		Usage:    "Geth will start up even if there are legacy receipts in freezer",
+		Usage:    "GTOS will start up even if there are legacy receipts in freezer",
 		Category: flags.MiscCategory,
 	}
 
@@ -952,7 +938,7 @@ var (
 func MakeDataDir(ctx *cli.Context) string {
 	if path := ctx.String(DataDirFlag.Name); path != "" {
 		if ctx.Bool(RopstenFlag.Name) {
-			// Maintain compatibility with older Geth configurations storing the
+			// Maintain compatibility with older GTOS configurations storing the
 			// Ropsten database in `testnet` instead of `ropsten`.
 			return filepath.Join(path, "ropsten")
 		}
@@ -1233,7 +1219,7 @@ func setLes(ctx *cli.Context, cfg *tosconfig.Config) {
 }
 
 // MakeDatabaseHandles raises out the number of allowed file handles per process
-// for Geth and returns half of the allowance to assign to the database.
+// for GTOS and returns half of the allowance to assign to the database.
 func MakeDatabaseHandles(max int) int {
 	limit, err := fdlimit.Maximum()
 	if err != nil {
@@ -1284,26 +1270,32 @@ func MakeAddress(ks *keystore.KeyStore, account string) (accounts.Account, error
 	return accs[index], nil
 }
 
-// setEtherbase retrieves the etherbase either from the directly specified
+// setCoinbase retrieves the coinbase either from the directly specified
 // command line flags or from the keystore if CLI indexed.
-func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config) {
-	// Extract the current etherbase
-	var etherbase string
-	if ctx.IsSet(MinerEtherbaseFlag.Name) {
-		etherbase = ctx.String(MinerEtherbaseFlag.Name)
+func setCoinbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config) {
+	// Extract the current coinbase
+	var coinbase string
+	if ctx.IsSet(MinerCoinbaseFlag.Name) {
+		coinbase = ctx.String(MinerCoinbaseFlag.Name)
 	}
-	// Convert the etherbase into an address and configure it
-	if etherbase != "" {
+	// Convert the coinbase into an address and configure it.
+	if coinbase != "" {
 		if ks != nil {
-			account, err := MakeAddress(ks, etherbase)
+			account, err := MakeAddress(ks, coinbase)
 			if err != nil {
-				Fatalf("Invalid miner etherbase: %v", err)
+				Fatalf("Invalid miner coinbase: %v", err)
 			}
-			cfg.Miner.Etherbase = account.Address
+			cfg.Miner.Coinbase = account.Address
+			cfg.Miner.Etherbase = account.Address // keep deprecated alias in sync
 		} else {
-			Fatalf("No etherbase configured")
+			Fatalf("No coinbase configured")
 		}
 	}
+}
+
+// setEtherbase is a deprecated alias for setCoinbase.
+func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config) {
+	setCoinbase(ctx, ks, cfg)
 }
 
 // MakePasswordList reads password lines from the file specified by the global --password flag.
@@ -1356,11 +1348,11 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 	if !(lightClient || lightServer) {
 		lightPeers = 0
 	}
-	ethPeers := cfg.MaxPeers - lightPeers
+	tosPeers := cfg.MaxPeers - lightPeers
 	if lightClient {
-		ethPeers = 0
+		tosPeers = 0
 	}
-	log.Info("Maximum peer count", "ETH", ethPeers, "LES", lightPeers, "total", cfg.MaxPeers)
+	log.Info("Maximum peer count", "ETH", tosPeers, "LES", lightPeers, "total", cfg.MaxPeers)
 
 	if ctx.IsSet(MaxPendingPeersFlag.Name) {
 		cfg.MaxPendingPeers = ctx.Int(MaxPendingPeersFlag.Name)
@@ -1463,7 +1455,7 @@ func SetDataDir(ctx *cli.Context, cfg *node.Config) {
 	case ctx.Bool(DeveloperFlag.Name):
 		cfg.DataDir = "" // unless explicitly requested, use memory databases
 	case ctx.Bool(RopstenFlag.Name) && cfg.DataDir == node.DefaultDataDir():
-		// Maintain compatibility with older Geth configurations storing the
+		// Maintain compatibility with older GTOS configurations storing the
 		// Ropsten database in `testnet` instead of `ropsten`.
 		legacyPath := filepath.Join(node.DefaultDataDir(), "testnet")
 		if common.FileExist(legacyPath) {
@@ -1574,7 +1566,7 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 }
 
 func setRequiredBlocks(ctx *cli.Context, cfg *tosconfig.Config) {
-	requiredBlocks := ctx.String(EthRequiredBlocksFlag.Name)
+	requiredBlocks := ctx.String(TOSRequiredBlocksFlag.Name)
 	if requiredBlocks == "" {
 		if ctx.IsSet(LegacyWhitelistFlag.Name) {
 			log.Warn("The flag --whitelist is deprecated and will be removed, please use --tos.requiredblocks")
@@ -1642,7 +1634,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 	}
 }
 
-// SetTOSConfig applies eth-related command line flags to the config.
+// SetTOSConfig applies tos-related command line flags to the config.
 func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	// Avoid conflicting network flags
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag, RopstenFlag, RinkebyFlag, GoerliFlag, SepoliaFlag, KilnFlag)
@@ -1659,7 +1651,7 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	if keystores := stack.AccountManager().Backends(keystore.KeyStoreType); len(keystores) > 0 {
 		ks = keystores[0].(*keystore.KeyStore)
 	}
-	setEtherbase(ctx, ks, cfg)
+	setCoinbase(ctx, ks, cfg)
 	setGPO(ctx, &cfg.GPO, ctx.String(SyncModeFlag.Name) == "light")
 	setTxPool(ctx, &cfg.TxPool)
 	setMiner(ctx, &cfg.Miner)
@@ -1842,9 +1834,9 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 			// when we're definitely concerned with only one account.
 			passphrase = list[0]
 		}
-		// setEtherbase has been called above, configuring the miner address from command line flags.
-		if cfg.Miner.Etherbase != (common.Address{}) {
-			developer = accounts.Account{Address: cfg.Miner.Etherbase}
+		// setCoinbase has been called above, configuring the miner address from command line flags.
+		if cfg.Miner.Coinbase != (common.Address{}) {
+			developer = accounts.Account{Address: cfg.Miner.Coinbase}
 		} else if accs := ks.Accounts(); len(accs) > 0 {
 			developer = ks.Accounts()[0]
 		} else {
@@ -1901,7 +1893,7 @@ func SetDNSDiscoveryDefaults(cfg *tosconfig.Config, genesis common.Hash) {
 	}
 }
 
-// RegisterTOSService adds an Ethereum client to the stack.
+// RegisterTOSService adds an TOS client to the stack.
 // The second return value is the full node instance, which may be nil if the
 // node is running as a light client.
 func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend, *tos.TOS) {
@@ -1910,7 +1902,7 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 	}
 	backend, err := tos.New(stack, cfg)
 	if err != nil {
-		Fatalf("Failed to register the Ethereum service: %v", err)
+		Fatalf("Failed to register the TOS service: %v", err)
 	}
 	if cfg.LightServ > 0 {
 		log.Warn("Ignoring light server setting in gtos consensus-layer profile", "light.serve", cfg.LightServ)
@@ -1918,9 +1910,9 @@ func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend
 	return backend.APIBackend, backend
 }
 
-// RegisterEthStatsService configures the Ethereum Stats daemon and adds it to the node.
-func RegisterEthStatsService(stack *node.Node, backend tosapi.Backend, url string) {
-	log.Warn("Ignoring ethstats setting in gtos consensus-layer profile", "url", url)
+// RegisterTOSStatsService configures the TOS Stats daemon and adds it to the node.
+func RegisterTOSStatsService(stack *node.Node, backend tosapi.Backend, url string) {
+	log.Warn("Ignoring tosstats setting in gtos consensus-layer profile", "url", url)
 }
 
 // RegisterGraphQLService is a no-op stub: GraphQL has been removed from GTOS.
@@ -1928,7 +1920,7 @@ func RegisterGraphQLService(stack *node.Node, backend tosapi.Backend, filterSyst
 	// GraphQL service removed; graphql/ directory was deleted as part of EVM removal.
 }
 
-// RegisterFilterAPI adds the eth log filtering RPC API to the node.
+// RegisterFilterAPI adds the tos log filtering RPC API to the node.
 func RegisterFilterAPI(stack *node.Node, backend tosapi.Backend, ethcfg *tosconfig.Config) *filters.FilterSystem {
 	isLightClient := ethcfg.SyncMode == downloader.LightSync
 	filterSystem := filters.NewFilterSystem(backend, filters.Config{
