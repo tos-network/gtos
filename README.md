@@ -1,121 +1,75 @@
-# GTOS (Chain + TOS Agent Network)
+# GTOS
 
-GTOS is a unified node implementation for TOS Network.
+GTOS is a DPoS-based blockchain focused on two native capabilities:
 
-Its goal is to combine two capability sets in a single node process:
+- Transfer payment: deterministic account/balance transfer settlement.
+- Decentralized storage:
+  - immutable smart-contract code storage (contract code cannot be modified after deployment)
+  - general key-value storage with TTL (time-to-live)
 
-- Blockchain core: account balances, transfers, consensus, deterministic state execution
-- Agent network: agent registration, capability discovery, MCP extensions, and challenge/escrow/slash/jail governance
+## Product Goal
 
-The GTOS direction is not "run multiple stacked daemons on every machine". Instead, each machine runs one `gtos` node that provides both chain and agent control-plane capabilities.
+Build GTOS as a production-oriented chain for payment + storage:
 
-## Vision
+1. Fast finality with DPoS consensus.
+2. Transfer-first transaction model with predictable execution.
+3. On-chain immutable contract code storage.
+4. Native KV storage supporting expiration by TTL.
 
-GTOS is intended to be the chain and collaboration substrate for TOS Network:
+## Core Features
 
-1. Use on-chain state to keep balances and governance outcomes globally consistent.
-2. Use off-chain indexing for high-performance capability search and routing.
-3. Support business-critical agent actions via a restricted execution engine.
-4. Provide a unified access layer for upper agents through MCP/RPC extensions.
+### 1. DPoS Consensus
 
-## Current Status
+- Validator set governed by stake/delegation.
+- Weighted voting and quorum finality.
+- Epoch-based validator rotation.
 
-Current repository status:
+### 2. Transfer Payment
 
-- Chain-core baseline has been imported.
-- GTOS integration design document has been added.
-- Restricted execution engine and full agent control-plane integration are planned next phases (not fully implemented yet).
+- Account model (`address`, `balance`, `nonce`).
+- `transfer` transaction as first-class primitive.
+- Deterministic state transition and replay-safe nonce checks.
 
-Design document:
+### 3. Immutable Contract Storage
 
-- `docs/gtos-agent-integration-design.md`
+- `contract_deploy` writes contract bytecode to chain state.
+- Contract bytecode is immutable once committed.
+- Contract evolution uses new deployment/version address, never in-place rewrite.
 
-## Target Architecture
+### 4. KV Storage with TTL
 
-GTOS is planned as three planes:
+- `kv_put(key, value, ttl)` writes expiring records.
+- Expiration is evaluated by block time/height policy (defined in protocol rules).
+- Expired keys are ignored by reads and can be pruned by background/state-maintenance logic.
 
-1. Chain Core Plane
-- accounts and transfers
-- consensus and finality
-- deterministic system-action execution
+## State Model (MVP)
 
-2. Agent Control Plane
-- agent register/update/status
-- governance actions (challenge/slash/jail/release)
-- settlement-critical states (escrow/challenge/release/refund)
+- `Accounts`: balances, nonces.
+- `Contracts`: immutable bytecode + metadata.
+- `KV`: namespace/key -> value + created_at + expire_at.
 
-3. Discovery & Query Plane
-- capability indexing
-- capability search and filtering
-- MCP extension interfaces
+All state transitions are consensus-verified and auditable on-chain.
 
-Boundary principle:
+## Transaction Types (MVP)
 
-- On-chain: facts and constraints (balances, identity, penalties, settlement)
-- Off-chain: high-frequency search and ranking (must still be constrained by on-chain status)
+- `transfer`
+- `contract_deploy`
+- `kv_put_ttl`
+- `kv_delete` (optional governance/owner rule based)
 
-## Restricted Execution Engine (Planned)
+## Repository Direction
 
-GTOS plans to use restricted "system actions" instead of custom EVM opcodes.
+The repository should now prioritize this target directly:
 
-Planned MVP action set:
+- Keep only modules required for DPoS + transfer + storage.
+- Remove legacy paths that do not serve the core product direction.
+- Implement protocol rules in small, testable milestones.
 
-- `AGENT_REGISTER`
-- `AGENT_UPDATE`
-- `AGENT_HEARTBEAT`
-- `ESCROW_OPEN`
-- `ESCROW_RELEASE`
-- `ESCROW_REFUND`
-- `CHALLENGE_OPEN`
-- `CHALLENGE_RESOLVE`
-- `SLASH`
-- `JAIL`
-- `UNJAIL`
+## Roadmap
 
-## Build (Baseline)
-
-You can currently build the full tool suite:
-
-```bash
-make all
-```
-
-> Note: these commands reflect the current chain-core baseline phase. GTOS-specific subcommands and Agent/RPC extensions will be added in later iterations.
-
-## TPS Benchmark
-
-GTOS includes a local TPS benchmark helper:
-
-```bash
-make tps
-```
-
-Latest benchmark report:
-
-- `docs/benchmarks/tps/2026-02-19-dev-transfer-tps.md`
-
-Note:
-
-- The current report is a local `--dev` synthetic transfer benchmark.
-- Use it for relative performance tracking across code changes.
-
-## Roadmap (Short)
-
-1. Define internal GTOS module boundaries (`chaincore`, `agentcore`, `discovery`, `mcpapi`).
-2. Define system-action transaction schema and state-machine validation.
-3. Implement event indexing pipeline: chain events -> capability index.
-4. Add RPC namespaces: `agent_*`, `discover_*`, `mcp_*`.
-5. Add integrated tests for register/discover/challenge/slash/jail flows.
-
-## Development Notes
-
-- This repository uses a v1.10.25 chain-core baseline; all changes should prioritize determinism and consensus safety.
-- Advanced discovery/ranking logic should stay in the off-chain indexing layer, not in consensus-critical execution.
-- Governance and penalty actions must emit auditable transition events.
+See `docs/ROADMAP.md` for phased delivery plan and acceptance criteria.
 
 ## License
-
-This repository follows the current licensing model:
 
 - Library code (outside `cmd`): LGPL-3.0 (`COPYING.LESSER`)
 - Binary-related code (inside `cmd`): GPL-3.0 (`COPYING`)
