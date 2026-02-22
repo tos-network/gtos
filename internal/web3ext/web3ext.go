@@ -4,7 +4,7 @@ package web3ext
 var Modules = map[string]string{
 	"admin":    AdminJs,
 	"clique":   CliqueJs,
-	"tosash":   EthashJs,
+	"tosash":   TosashJs,
 	"debug":    DebugJs,
 	"tos":      TOSJs,
 	"miner":    MinerJs,
@@ -73,7 +73,7 @@ web3._extend({
 });
 `
 
-const EthashJs = `
+const TosashJs = `
 web3._extend({
 	property: 'tosash',
 	methods: [
@@ -617,8 +617,8 @@ web3._extend({
 			call: 'miner_stop'
 		}),
 		new web3._extend.Method({
-			name: 'setEtherbase',
-			call: 'miner_setEtherbase',
+			name: 'setTosbase',
+			call: 'miner_setTosbase',
 			params: 1,
 			inputFormatter: [web3._extend.formatters.inputAddressFormatter]
 		}),

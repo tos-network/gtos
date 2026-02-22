@@ -37,7 +37,7 @@ func TestDeriveSha(t *testing.T) {
 }
 
 // TestTypedEnvelopeDeriveSha tests that the input to the DeriveSha function is correct.
-func TestEIP2718DeriveSha(t *testing.T) {
+func TestTypedEnvelopeDeriveSha(t *testing.T) {
 	for _, tc := range []struct {
 		rlpData string
 		exp     string

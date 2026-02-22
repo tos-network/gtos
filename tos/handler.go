@@ -295,9 +295,9 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	return h, nil
 }
 
-// runEthPeer registers an tos peer into the joint tos/snap peerset, adds it to
+// runTosPeer registers an tos peer into the joint tos/snap peerset, adds it to
 // various subsystems and starts handling messages.
-func (h *handler) runEthPeer(peer *tos.Peer, handler tos.Handler) error {
+func (h *handler) runTosPeer(peer *tos.Peer, handler tos.Handler) error {
 	// If the peer has a `snap` extension, wait for it to connect so we can have
 	// a uniform initialization/teardown mechanism
 	snap, err := h.peers.waitSnapExtension(peer)

@@ -39,7 +39,7 @@ func importPreSaleKey(keyStore keyStore, keyJSON []byte, password string) (accou
 func decryptPreSaleKey(fileContent []byte, password string) (key *Key, err error) {
 	preSaleKeyStruct := struct {
 		EncSeed string `json:"encseed"`
-		EthAddr string `json:"ethaddr"`
+		TosAddr string `json:"ethaddr"`
 		TOSAddr string `json:"tosaddr"`
 		Email   string `json:"email"`
 		BtcAddr string `json:"btcaddr"`
@@ -81,7 +81,7 @@ func decryptPreSaleKey(fileContent []byte, password string) (key *Key, err error
 	derivedAddr := hex.EncodeToString(key.Address.Bytes()) // needed because .Hex() gives leading "0x"
 	expectedAddr := preSaleKeyStruct.TOSAddr
 	if expectedAddr == "" {
-		expectedAddr = preSaleKeyStruct.EthAddr
+		expectedAddr = preSaleKeyStruct.TosAddr
 	}
 	if derivedAddr != expectedAddr {
 		err = fmt.Errorf("decrypted addr '%s' not equal to expected addr '%s'", derivedAddr, expectedAddr)

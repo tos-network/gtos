@@ -20,7 +20,7 @@ import (
 )
 
 var typesStandard = apitypes.Types{
-	"EIP712Domain": {
+	apitypes.TypedDataDomainTypeName: {
 		{
 			Name: "name",
 			Type: "string",
@@ -67,7 +67,7 @@ var typesStandard = apitypes.Types{
 var jsonTypedData = `
     {
       "types": {
-        "EIP712Domain": [
+        "__DOMAIN_TYPE__": [
           {
             "name": "name",
             "type": "string"
@@ -165,6 +165,10 @@ var typedData = apitypes.TypedData{
 	Message:     messageStandard,
 }
 
+func withDomainTypeName(input string) string {
+	return strings.ReplaceAll(input, "__DOMAIN_TYPE__", apitypes.TypedDataDomainTypeName)
+}
+
 func TestSignData(t *testing.T) {
 	api, control := setup(t)
 	//Create two accounts
@@ -219,7 +223,7 @@ func TestSignData(t *testing.T) {
 func TestDomainChainId(t *testing.T) {
 	withoutChainID := apitypes.TypedData{
 		Types: apitypes.Types{
-			"EIP712Domain": []apitypes.Type{
+			apitypes.TypedDataDomainTypeName: {
 				{Name: "name", Type: "string"},
 			},
 		},
@@ -232,12 +236,12 @@ func TestDomainChainId(t *testing.T) {
 		t.Errorf("Expected the chainId key to not be present in the domain map")
 	}
 	// should encode successfully
-	if _, err := withoutChainID.HashStruct("EIP712Domain", withoutChainID.Domain.Map()); err != nil {
+	if _, err := withoutChainID.HashStruct(apitypes.TypedDataDomainTypeName, withoutChainID.Domain.Map()); err != nil {
 		t.Errorf("Expected the typedData to encode the domain successfully, got %v", err)
 	}
 	withChainID := apitypes.TypedData{
 		Types: apitypes.Types{
-			"EIP712Domain": []apitypes.Type{
+			apitypes.TypedDataDomainTypeName: {
 				{Name: "name", Type: "string"},
 				{Name: "chainId", Type: "uint256"},
 			},
@@ -252,7 +256,7 @@ func TestDomainChainId(t *testing.T) {
 		t.Errorf("Expected the chainId key be present in the domain map")
 	}
 	// should encode successfully
-	if _, err := withChainID.HashStruct("EIP712Domain", withChainID.Domain.Map()); err != nil {
+	if _, err := withChainID.HashStruct(apitypes.TypedDataDomainTypeName, withChainID.Domain.Map()); err != nil {
 		t.Errorf("Expected the typedData to encode the domain successfully, got %v", err)
 	}
 }
@@ -267,7 +271,7 @@ func TestHashStruct(t *testing.T) {
 		t.Errorf("Expected different hashStruct result (got %s)", mainHash)
 	}
 
-	hash, err = typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
+	hash, err = typedData.HashStruct(apitypes.TypedDataDomainTypeName, typedData.Domain.Map())
 	if err != nil {
 		t.Error(err)
 	}
@@ -278,8 +282,8 @@ func TestHashStruct(t *testing.T) {
 }
 
 func TestEncodeType(t *testing.T) {
-	domainTypeEncoding := string(typedData.EncodeType("EIP712Domain"))
-	if domainTypeEncoding != "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)" {
+	domainTypeEncoding := string(typedData.EncodeType(apitypes.TypedDataDomainTypeName))
+	if domainTypeEncoding != apitypes.TypedDataDomainTypeName+"(string name,string version,uint256 chainId,address verifyingContract)" {
 		t.Errorf("Expected different encodeType result (got %s)", domainTypeEncoding)
 	}
 
@@ -309,7 +313,7 @@ func TestEncodeData(t *testing.T) {
 
 func TestFormatter(t *testing.T) {
 	var d apitypes.TypedData
-	err := json.Unmarshal([]byte(jsonTypedData), &d)
+	err := json.Unmarshal([]byte(withDomainTypeName(jsonTypedData)), &d)
 	if err != nil {
 		t.Fatalf("unmarshalling failed '%v'", err)
 	}
@@ -323,7 +327,7 @@ func TestFormatter(t *testing.T) {
 }
 
 func sign(typedData apitypes.TypedData) ([]byte, []byte, error) {
-	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
+	domainSeparator, err := typedData.HashStruct(apitypes.TypedDataDomainTypeName, typedData.Domain.Map())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -389,7 +393,7 @@ func TestFuzzerFiles(t *testing.T) {
 			t.Errorf("Test %d, file %v, json unmarshalling failed: %v", i, fInfo.Name(), err)
 			continue
 		}
-		_, err = typedData.EncodeData("EIP712Domain", typedData.Domain.Map(), 1)
+		_, err = typedData.EncodeData(apitypes.TypedDataDomainTypeName, typedData.Domain.Map(), 1)
 		if verbose && err != nil {
 			t.Logf("%d, EncodeData[1] err: %v\n", i, err)
 		}
@@ -404,7 +408,7 @@ func TestFuzzerFiles(t *testing.T) {
 var gnosisTypedData = `
 {
 	"types": {
-		"EIP712Domain": [
+		"__DOMAIN_TYPE__": [
 			{ "type": "address", "name": "verifyingContract" }
 		],
 		"SafeTx": [
@@ -480,11 +484,11 @@ var gnosisTx = `
     }
 `
 
-// TestGnosisTypedData tests the scenario where a user submits a full TIP-712
+// TestGnosisTypedData tests the scenario where a user submits a full Protocol-712
 // struct without using the gnosis-specific endpoint
 func TestGnosisTypedData(t *testing.T) {
 	var td apitypes.TypedData
-	err := json.Unmarshal([]byte(gnosisTypedData), &td)
+	err := json.Unmarshal([]byte(withDomainTypeName(gnosisTypedData)), &td)
 	if err != nil {
 		t.Fatalf("unmarshalling failed '%v'", err)
 	}
@@ -520,7 +524,7 @@ func TestGnosisCustomData(t *testing.T) {
 var gnosisTypedDataWithChainId = `
 {
 	"types": {
-    "EIP712Domain": [
+    "__DOMAIN_TYPE__": [
         { "type": "uint256", "name": "chainId" },
         { "type": "address", "name": "verifyingContract" }
     ],
@@ -614,7 +618,7 @@ var gnosisTxWithChainId = `
 
 func TestGnosisTypedDataWithChainId(t *testing.T) {
 	var td apitypes.TypedData
-	err := json.Unmarshal([]byte(gnosisTypedDataWithChainId), &td)
+	err := json.Unmarshal([]byte(withDomainTypeName(gnosisTypedDataWithChainId)), &td)
 	if err != nil {
 		t.Fatalf("unmarshalling failed '%v'", err)
 	}
@@ -650,7 +654,7 @@ func TestGnosisCustomDataWithChainId(t *testing.T) {
 var complexTypedData = `
 {
     "types": {
-        "EIP712Domain": [
+        "__DOMAIN_TYPE__": [
             {
                 "name": "chainId",
                 "type": "uint256"
@@ -783,7 +787,7 @@ var complexTypedData = `
 
 func TestComplexTypedData(t *testing.T) {
 	var td apitypes.TypedData
-	err := json.Unmarshal([]byte(complexTypedData), &td)
+	err := json.Unmarshal([]byte(withDomainTypeName(complexTypedData)), &td)
 	if err != nil {
 		t.Fatalf("unmarshalling failed '%v'", err)
 	}

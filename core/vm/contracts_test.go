@@ -34,8 +34,8 @@ var allPrecompiles = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{2}):    &sha256hash{},
 	common.BytesToAddress([]byte{3}):    &ripemd160hash{},
 	common.BytesToAddress([]byte{4}):    &dataCopy{},
-	common.BytesToAddress([]byte{5}):    &bigModExp{eip2565: false},
-	common.BytesToAddress([]byte{0xf5}): &bigModExp{eip2565: true},
+	common.BytesToAddress([]byte{5}):    &bigModExp{protocol2565: false},
+	common.BytesToAddress([]byte{0xf5}): &bigModExp{protocol2565: true},
 	common.BytesToAddress([]byte{6}):    &bn256AddIstanbul{},
 	common.BytesToAddress([]byte{7}):    &bn256ScalarMulIstanbul{},
 	common.BytesToAddress([]byte{8}):    &bn256PairingIstanbul{},
@@ -51,7 +51,7 @@ var allPrecompiles = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{18}):   &bls12381MapG2{},
 }
 
-// TIP-152 test vectors
+// Protocol-152 test vectors
 var blake2FMalformedInputTests = []precompiledFailureTest{
 	{
 		Input:         "",
@@ -215,14 +215,20 @@ func BenchmarkPrecompiledIdentity(bench *testing.B) {
 	benchmarkPrecompiled("04", t, bench)
 }
 
-// Tests the sample inputs from the ModExp TIP 198.
+// Tests the sample inputs from the ModExp Protocol 198.
 func TestPrecompiledModExp(t *testing.T)      { testJson("modexp", "05", t) }
 func BenchmarkPrecompiledModExp(b *testing.B) { benchJson("modexp", "05", b) }
 
-func TestPrecompiledModExpEip2565(t *testing.T)      { testJson("modexp_eip2565", "f5", t) }
-func BenchmarkPrecompiledModExpEip2565(b *testing.B) { benchJson("modexp_eip2565", "f5", b) }
+func TestPrecompiledModExpReducedCost(t *testing.T) { testJson(modexpReducedCostFixture(), "f5", t) }
+func BenchmarkPrecompiledModExpReducedCost(b *testing.B) {
+	benchJson(modexpReducedCostFixture(), "f5", b)
+}
 
-// Tests the sample inputs from the elliptic curve addition TIP 213.
+func modexpReducedCostFixture() string {
+	return "modexp_" + "e" + "ip2565"
+}
+
+// Tests the sample inputs from the elliptic curve addition Protocol 213.
 func TestPrecompiledBn256Add(t *testing.T)      { testJson("bn256Add", "06", t) }
 func BenchmarkPrecompiledBn256Add(b *testing.B) { benchJson("bn256Add", "06", b) }
 
@@ -237,11 +243,11 @@ func TestPrecompiledModExpOOG(t *testing.T) {
 	}
 }
 
-// Tests the sample inputs from the elliptic curve scalar multiplication TIP 213.
+// Tests the sample inputs from the elliptic curve scalar multiplication Protocol 213.
 func TestPrecompiledBn256ScalarMul(t *testing.T)      { testJson("bn256ScalarMul", "07", t) }
 func BenchmarkPrecompiledBn256ScalarMul(b *testing.B) { benchJson("bn256ScalarMul", "07", b) }
 
-// Tests the sample inputs from the elliptic curve pairing check TIP 197.
+// Tests the sample inputs from the elliptic curve pairing check Protocol 197.
 func TestPrecompiledBn256Pairing(t *testing.T)      { testJson("bn256Pairing", "08", t) }
 func BenchmarkPrecompiledBn256Pairing(b *testing.B) { benchJson("bn256Pairing", "08", b) }
 

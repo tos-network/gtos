@@ -1,2 +1,2 @@
-// Package dnsdisc implements node discovery via DNS (TIP-1459).
+// Package dnsdisc implements node discovery via DNS (Protocol-1459).
 package dnsdisc

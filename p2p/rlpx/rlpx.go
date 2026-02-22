@@ -370,7 +370,7 @@ type handshakeState struct {
 	wbuf writeBuffer
 }
 
-// RLPx v4 handshake auth (defined in TIP-8).
+// RLPx v4 handshake auth (defined in Protocol-8).
 type authMsgV4 struct {
 	Signature       [sigLen]byte
 	InitiatorPubkey [pubLen]byte
@@ -381,7 +381,7 @@ type authMsgV4 struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-// RLPx v4 handshake response (defined in TIP-8).
+// RLPx v4 handshake response (defined in Protocol-8).
 type authRespV4 struct {
 	RandomPubkey [pubLen]byte
 	Nonce        [shaLen]byte
@@ -409,7 +409,7 @@ func (h *handshakeState) runRecipient(conn io.ReadWriter, prv *ecdsa.PrivateKey)
 	if err != nil {
 		return s, err
 	}
-	authRespPacket, err := h.sealEIP8(authRespMsg)
+	authRespPacket, err := h.sealProtocol8(authRespMsg)
 	if err != nil {
 		return s, err
 	}
@@ -503,7 +503,7 @@ func (h *handshakeState) runInitiator(conn io.ReadWriter, prv *ecdsa.PrivateKey,
 	if err != nil {
 		return s, err
 	}
-	authPacket, err := h.sealEIP8(authMsg)
+	authPacket, err := h.sealProtocol8(authMsg)
 	if err != nil {
 		return s, err
 	}
@@ -606,7 +606,7 @@ func (h *handshakeState) readMsg(msg interface{}, prv *ecdsa.PrivateKey, r io.Re
 }
 
 // sealHandshakeV4 encrypts a handshake message.
-func (h *handshakeState) sealEIP8(msg interface{}) ([]byte, error) {
+func (h *handshakeState) sealProtocol8(msg interface{}) ([]byte, error) {
 	h.wbuf.reset()
 
 	// Write the message plaintext.
@@ -614,7 +614,7 @@ func (h *handshakeState) sealEIP8(msg interface{}) ([]byte, error) {
 		return nil, err
 	}
 	// Pad with random amount of data. the amount needs to be at least 100 bytes to make
-	// the message distinguishable from pre-TIP-8 handshakes.
+	// the message distinguishable from pre-Protocol-8 handshakes.
 	h.wbuf.appendZero(mrand.Intn(100) + 100)
 
 	prefix := make([]byte, 2)

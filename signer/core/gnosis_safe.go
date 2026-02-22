@@ -34,7 +34,7 @@ type GnosisSafeTx struct {
 	ChainId        *math.HexOrDecimal256   `json:"chainId,omitempty"`
 }
 
-// ToTypedData converts the tx to a TIP-712 Typed Data structure for signing
+// ToTypedData converts the tx to a Protocol-712 Typed Data structure for signing
 func (tx *GnosisSafeTx) ToTypedData() apitypes.TypedData {
 	var data hexutil.Bytes
 	if tx.Data != nil {
@@ -47,7 +47,7 @@ func (tx *GnosisSafeTx) ToTypedData() apitypes.TypedData {
 
 	gnosisTypedData := apitypes.TypedData{
 		Types: apitypes.Types{
-			"EIP712Domain": domainType,
+			apitypes.TypedDataDomainTypeName: domainType,
 			"SafeTx": []apitypes.Type{
 				{Name: "to", Type: "address"},
 				{Name: "value", Type: "uint256"},

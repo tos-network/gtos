@@ -441,8 +441,8 @@ func TestUDPv4_successfulPing(t *testing.T) {
 	}
 }
 
-// This test checks that TIP-868 requests work.
-func TestUDPv4_EIP868(t *testing.T) {
+// This test checks that Protocol-868 requests work.
+func TestUDPv4_Protocol868(t *testing.T) {
 	test := newUDPTest(t)
 	defer test.close()
 

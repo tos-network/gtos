@@ -27,7 +27,7 @@ func MakeSigner(config *params.ChainConfig, _ *big.Int) Signer {
 }
 
 // LatestSigner returns the most permissive signer available for the given chain
-// configuration. In GTOS, TIP-155 replay protection and TIP-2718 typed
+// configuration. In GTOS, replay protection and typed
 // transaction support are always active when chain ID is configured.
 //
 // Use this in transaction-handling code where the current block number is unknown. If you
@@ -37,7 +37,7 @@ func LatestSigner(config *params.ChainConfig) Signer {
 }
 
 // LatestSignerForChainID returns the 'most permissive' Signer available. Specifically,
-// this enables support for TIP-155 replay protection and all implemented TIP-2718
+// this enables support for replay protection and all implemented typed envelope
 // transaction types if chainID is non-nil.
 //
 // Use this in transaction-handling code where the current block number and fork
@@ -134,20 +134,20 @@ type Signer interface {
 	Equal(Signer) bool
 }
 
-type londonSigner struct{ eip2930Signer }
+type londonSigner struct{ accessListSigner }
 
 // NewLondonSigner returns a signer that accepts
-// - TIP-1559 dynamic fee transactions
-// - TIP-2930 access list transactions,
-// - TIP-155 replay protected transactions, and
+// - dynamic-fee dynamic fee transactions
+// - access-list access list transactions,
+// - replay-protected transactions, and
 // - legacy transactions with replay protection.
 func NewLondonSigner(chainId *big.Int) Signer {
-	return londonSigner{eip2930Signer{NewReplayProtectedSigner(chainId)}}
+	return londonSigner{accessListSigner{NewReplayProtectedSigner(chainId)}}
 }
 
 func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
 	if tx.Type() != DynamicFeeTxType {
-		return s.eip2930Signer.Sender(tx)
+		return s.accessListSigner.Sender(tx)
 	}
 	V, R, S := tx.RawSignatureValues()
 	// DynamicFee txs are defined to use 0 and 1 as their recovery
@@ -167,7 +167,7 @@ func (s londonSigner) Equal(s2 Signer) bool {
 func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
 	txdata, ok := tx.inner.(*DynamicFeeTx)
 	if !ok {
-		return s.eip2930Signer.SignatureValues(tx, sig)
+		return s.accessListSigner.SignatureValues(tx, sig)
 	}
 	// Check that chain ID of tx matches the signer. We also accept ID zero here,
 	// because it indicates that the chain ID was not specified in the tx.
@@ -183,7 +183,7 @@ func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 // It does not uniquely identify the transaction.
 func (s londonSigner) Hash(tx *Transaction) common.Hash {
 	if tx.Type() != DynamicFeeTxType {
-		return s.eip2930Signer.Hash(tx)
+		return s.accessListSigner.Hash(tx)
 	}
 	return prefixedRlpHash(
 		tx.Type(),
@@ -200,24 +200,24 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 		})
 }
 
-type eip2930Signer struct{ ReplayProtectedSigner }
+type accessListSigner struct{ ReplayProtectedSigner }
 
-// New access-list signer constructor accepts TIP-2930 access list transactions,
-// TIP-155 replay protected transactions, and replay-protected legacy transactions.
-func NewEIP2930Signer(chainId *big.Int) Signer {
-	return eip2930Signer{NewReplayProtectedSigner(chainId)}
+// New access-list signer constructor accepts access-list access list transactions,
+// replay-protected transactions, and replay-protected legacy transactions.
+func NewAccessListSigner(chainId *big.Int) Signer {
+	return accessListSigner{NewReplayProtectedSigner(chainId)}
 }
 
-func (s eip2930Signer) ChainID() *big.Int {
+func (s accessListSigner) ChainID() *big.Int {
 	return s.chainId
 }
 
-func (s eip2930Signer) Equal(s2 Signer) bool {
-	x, ok := s2.(eip2930Signer)
+func (s accessListSigner) Equal(s2 Signer) bool {
+	x, ok := s2.(accessListSigner)
 	return ok && x.chainId.Cmp(s.chainId) == 0
 }
 
-func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
+func (s accessListSigner) Sender(tx *Transaction) (common.Address, error) {
 	V, R, S := tx.RawSignatureValues()
 	switch tx.Type() {
 	case LegacyTxType:
@@ -239,7 +239,7 @@ func (s eip2930Signer) Sender(tx *Transaction) (common.Address, error) {
 	return recoverPlain(s.Hash(tx), R, S, V, true)
 }
 
-func (s eip2930Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
+func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
 	switch txdata := tx.inner.(type) {
 	case *LegacyTx:
 		return s.ReplayProtectedSigner.SignatureValues(tx, sig)
@@ -259,7 +259,7 @@ func (s eip2930Signer) SignatureValues(tx *Transaction, sig []byte) (R, S, V *bi
 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
-func (s eip2930Signer) Hash(tx *Transaction) common.Hash {
+func (s accessListSigner) Hash(tx *Transaction) common.Hash {
 	switch tx.Type() {
 	case LegacyTxType:
 		return rlpHash([]interface{}{
@@ -293,7 +293,7 @@ func (s eip2930Signer) Hash(tx *Transaction) common.Hash {
 	}
 }
 
-// TIP155Signer implements Signer using the TIP-155 rules. This accepts transactions which
+// ReplayProtectedSigner implements Signer using the replay-protected rules. This accepts transactions which
 // are replay-protected.
 type ReplayProtectedSigner struct {
 	chainId, chainIdMul *big.Int

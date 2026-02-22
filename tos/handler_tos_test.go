@@ -24,21 +24,21 @@ import (
 	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
-// testEthHandler is a mock event handler to listen for inbound network requests
+// testTosHandler is a mock event handler to listen for inbound network requests
 // on the `tos` protocol and convert them into a more easily testable form.
-type testEthHandler struct {
+type testTosHandler struct {
 	blockBroadcasts event.Feed
 	txAnnounces     event.Feed
 	txBroadcasts    event.Feed
 }
 
-func (h *testEthHandler) Chain() *core.BlockChain              { panic("no backing chain") }
-func (h *testEthHandler) TxPool() tos.TxPool                   { panic("no backing tx pool") }
-func (h *testEthHandler) AcceptTxs() bool                      { return true }
-func (h *testEthHandler) RunPeer(*tos.Peer, tos.Handler) error { panic("not used in tests") }
-func (h *testEthHandler) PeerInfo(enode.ID) interface{}        { panic("not used in tests") }
+func (h *testTosHandler) Chain() *core.BlockChain              { panic("no backing chain") }
+func (h *testTosHandler) TxPool() tos.TxPool                   { panic("no backing tx pool") }
+func (h *testTosHandler) AcceptTxs() bool                      { return true }
+func (h *testTosHandler) RunPeer(*tos.Peer, tos.Handler) error { panic("not used in tests") }
+func (h *testTosHandler) PeerInfo(enode.ID) interface{}        { panic("not used in tests") }
 
-func (h *testEthHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
+func (h *testTosHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 	switch packet := packet.(type) {
 	case *tos.NewBlockPacket:
 		h.blockBroadcasts.Send(packet.Block)
@@ -129,10 +129,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc := make(chan error, 2)
 	go func(errc chan error) {
-		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runTosPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runTosPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	for i := 0; i < 2; i++ {
@@ -160,10 +160,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc = make(chan error, 2)
 	go func(errc chan error) {
-		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runTosPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runTosPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	for i := 0; i < 2; i++ {
@@ -191,10 +191,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 
 	errc = make(chan error, 2)
 	go func(errc chan error) {
-		errc <- tosNoFork.runEthPeer(peerProFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosNoFork.runTosPeer(peerProFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 	go func(errc chan error) {
-		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
+		errc <- tosProFork.runTosPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
 	for i := 0; i < 2; i++ {
@@ -235,7 +235,7 @@ func testRecvTransactions(t *testing.T, protocol uint) {
 	defer src.Close()
 	defer sink.Close()
 
-	go handler.handler.runEthPeer(sink, func(peer *tos.Peer) error {
+	go handler.handler.runTosPeer(sink, func(peer *tos.Peer) error {
 		return tos.Handle((*tosHandler)(handler.handler), peer)
 	})
 	// Run the handshake locally to avoid spinning up a source handler
@@ -296,7 +296,7 @@ func testSendTransactions(t *testing.T, protocol uint) {
 	defer src.Close()
 	defer sink.Close()
 
-	go handler.handler.runEthPeer(src, func(peer *tos.Peer) error {
+	go handler.handler.runTosPeer(src, func(peer *tos.Peer) error {
 		return tos.Handle((*tosHandler)(handler.handler), peer)
 	})
 	// Run the handshake locally to avoid spinning up a source handler
@@ -310,7 +310,7 @@ func testSendTransactions(t *testing.T, protocol uint) {
 	}
 	// After the handshake completes, the source handler should stream the sink
 	// the transactions, subscribe to all inbound network events
-	backend := new(testEthHandler)
+	backend := new(testTosHandler)
 
 	anns := make(chan []common.Hash)
 	annSub := backend.txAnnounces.Subscribe(anns)
@@ -384,10 +384,10 @@ func testTransactionPropagation(t *testing.T, protocol uint) {
 		defer sourcePeer.Close()
 		defer sinkPeer.Close()
 
-		go source.handler.runEthPeer(sourcePeer, func(peer *tos.Peer) error {
+		go source.handler.runTosPeer(sourcePeer, func(peer *tos.Peer) error {
 			return tos.Handle((*tosHandler)(source.handler), peer)
 		})
-		go sink.handler.runEthPeer(sinkPeer, func(peer *tos.Peer) error {
+		go sink.handler.runTosPeer(sinkPeer, func(peer *tos.Peer) error {
 			return tos.Handle((*tosHandler)(sink.handler), peer)
 		})
 	}
@@ -500,7 +500,7 @@ func testCheckpointChallenge(t *testing.T, syncmode downloader.SyncMode, checkpo
 	handlerDone := make(chan struct{})
 	go func() {
 		defer close(handlerDone)
-		handler.handler.runEthPeer(local, func(peer *tos.Peer) error {
+		handler.handler.runTosPeer(local, func(peer *tos.Peer) error {
 			return tos.Handle((*tosHandler)(handler.handler), peer)
 		})
 	}()
@@ -585,9 +585,9 @@ func testBroadcastBlock(t *testing.T, peers, bcasts int) {
 	source := newTestHandlerWithBlocks(1)
 	defer source.close()
 
-	sinks := make([]*testEthHandler, peers)
+	sinks := make([]*testTosHandler, peers)
 	for i := 0; i < len(sinks); i++ {
-		sinks[i] = new(testEthHandler)
+		sinks[i] = new(testTosHandler)
 	}
 	// Interconnect all the sink handlers with the source handler
 	var (
@@ -606,7 +606,7 @@ func testBroadcastBlock(t *testing.T, peers, bcasts int) {
 		defer sourcePeer.Close()
 		defer sinkPeer.Close()
 
-		go source.handler.runEthPeer(sourcePeer, func(peer *tos.Peer) error {
+		go source.handler.runTosPeer(sourcePeer, func(peer *tos.Peer) error {
 			return tos.Handle((*tosHandler)(source.handler), peer)
 		})
 		if err := sinkPeer.Handshake(1, td, genesis.Hash(), genesis.Hash(), forkid.NewIDWithChain(source.chain), forkid.NewFilter(source.chain)); err != nil {
@@ -673,7 +673,7 @@ func testBroadcastMalformedBlock(t *testing.T, protocol uint) {
 	defer src.Close()
 	defer sink.Close()
 
-	go source.handler.runEthPeer(src, func(peer *tos.Peer) error {
+	go source.handler.runTosPeer(src, func(peer *tos.Peer) error {
 		return tos.Handle((*tosHandler)(source.handler), peer)
 	})
 	// Run the handshake locally to avoid spinning up a sink handler
@@ -686,7 +686,7 @@ func testBroadcastMalformedBlock(t *testing.T, protocol uint) {
 	}
 	// After the handshake completes, the source handler should stream the sink
 	// the blocks, subscribe to inbound network events
-	backend := new(testEthHandler)
+	backend := new(testTosHandler)
 
 	blocks := make(chan *types.Block, 1)
 	sub := backend.blockBroadcasts.Subscribe(blocks)

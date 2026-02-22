@@ -41,7 +41,7 @@ import (
 	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
 )
 
-// Config contains the configuration options of the ETH protocol.
+// Config contains the configuration options of the TOS protocol.
 // Deprecated: use tosconfig.Config instead.
 type Config = tosconfig.Config
 
@@ -98,8 +98,8 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		log.Warn("Sanitizing invalid miner gas price", "provided", config.Miner.GasPrice, "updated", tosconfig.Defaults.Miner.GasPrice)
 		config.Miner.GasPrice = new(big.Int).Set(tosconfig.Defaults.Miner.GasPrice)
 	}
-	if config.Miner.Coinbase == (common.Address{}) && config.Miner.Etherbase != (common.Address{}) {
-		config.Miner.Coinbase = config.Miner.Etherbase
+	if config.Miner.Coinbase == (common.Address{}) && config.Miner.Tosbase != (common.Address{}) {
+		config.Miner.Coinbase = config.Miner.Tosbase
 	}
 	if config.NoPruning && config.TrieDirtyCache > 0 {
 		if config.SnapshotCache > 0 {
@@ -397,13 +397,13 @@ func (s *TOS) SetCoinbase(coinbase common.Address) {
 	s.miner.SetCoinbase(coinbase)
 }
 
-// SetEtherbase is a deprecated alias for SetCoinbase.
-func (s *TOS) SetEtherbase(coinbase common.Address) {
+// SetTosbase is a deprecated alias for SetCoinbase.
+func (s *TOS) SetTosbase(coinbase common.Address) {
 	s.SetCoinbase(coinbase)
 }
 
-// Etherbase is a deprecated alias for Coinbase.
-func (s *TOS) Etherbase() (common.Address, error) {
+// Tosbase is a deprecated alias for Coinbase.
+func (s *TOS) Tosbase() (common.Address, error) {
 	return s.Coinbase()
 }
 

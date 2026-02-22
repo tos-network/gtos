@@ -449,7 +449,7 @@ var (
 		Value:    "0",
 		Category: flags.MinerCategory,
 	}
-	MinerEtherbaseFlag = MinerCoinbaseFlag // Deprecated alias.
+	MinerTosbaseFlag   = MinerCoinbaseFlag // Deprecated alias.
 	MinerExtraDataFlag = &cli.StringFlag{
 		Name:     "miner.extradata",
 		Usage:    "Block extra data set by the miner (default = client version)",
@@ -1224,15 +1224,15 @@ func setCoinbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config)
 				Fatalf("Invalid miner coinbase: %v", err)
 			}
 			cfg.Miner.Coinbase = account.Address
-			cfg.Miner.Etherbase = account.Address // keep deprecated alias in sync
+			cfg.Miner.Tosbase = account.Address // keep deprecated alias in sync
 		} else {
 			Fatalf("No coinbase configured")
 		}
 	}
 }
 
-// setEtherbase is a deprecated alias for setCoinbase.
-func setEtherbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config) {
+// setTosbase is a deprecated alias for setCoinbase.
+func setTosbase(ctx *cli.Context, ks *keystore.KeyStore, cfg *tosconfig.Config) {
 	setCoinbase(ctx, ks, cfg)
 }
 
@@ -1290,7 +1290,7 @@ func SetP2PConfig(ctx *cli.Context, cfg *p2p.Config) {
 	if lightClient {
 		tosPeers = 0
 	}
-	log.Info("Maximum peer count", "ETH", tosPeers, "LES", lightPeers, "total", cfg.MaxPeers)
+	log.Info("Maximum peer count", "TOS", tosPeers, "LES", lightPeers, "total", cfg.MaxPeers)
 
 	if ctx.IsSet(MaxPendingPeersFlag.Name) {
 		cfg.MaxPendingPeers = ctx.Int(MaxPendingPeersFlag.Name)

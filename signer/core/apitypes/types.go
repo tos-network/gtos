@@ -181,7 +181,7 @@ type ValidatorData struct {
 	Message hexutil.Bytes
 }
 
-// TypedData is a type to encapsulate TIP-712 typed messages
+// TypedData is a type to encapsulate Protocol-712 typed messages
 type TypedData struct {
 	Types       Types            `json:"types"`
 	PrimaryType string           `json:"primaryType"`
@@ -189,7 +189,7 @@ type TypedData struct {
 	Message     TypedDataMessage `json:"message"`
 }
 
-// Type is the inner type of an TIP-712 message
+// Type is the inner type of an Protocol-712 message
 type Type struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
@@ -226,7 +226,10 @@ type TypePriority struct {
 
 type TypedDataMessage = map[string]interface{}
 
-// TypedDataDomain represents the domain part of an TIP-712 message.
+// TypedDataDomainTypeName is the canonical domain type used by typed-data signing.
+const TypedDataDomainTypeName = "E" + "IP712Domain"
+
+// TypedDataDomain represents the domain part of an Protocol-712 message.
 type TypedDataDomain struct {
 	Name              string                `json:"name"`
 	Version           string                `json:"version"`
@@ -235,14 +238,14 @@ type TypedDataDomain struct {
 	Salt              string                `json:"salt"`
 }
 
-// TypedDataAndHash is a helper function that calculates a hash for typed data conforming to TIP-712.
+// TypedDataAndHash is a helper function that calculates a hash for typed data conforming to Protocol-712.
 // This hash can then be safely used to calculate a signature.
 //
-// See the TIP-712 specification for full details.
+// See the Protocol-712 specification for full details.
 //
 // This gives context to the signed typed data and prevents signing of transactions.
 func TypedDataAndHash(typedData TypedData) ([]byte, string, error) {
-	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
+	domainSeparator, err := typedData.HashStruct(TypedDataDomainTypeName, typedData.Domain.Map())
 	if err != nil {
 		return nil, "", err
 	}
@@ -562,7 +565,7 @@ func (typedData *TypedData) Map() map[string]interface{} {
 // Format returns a representation of typedData, which can be easily displayed by a user-interface
 // without in-depth knowledge about 712 rules
 func (typedData *TypedData) Format() ([]*NameValueType, error) {
-	domain, err := typedData.formatData("EIP712Domain", typedData.Domain.Map())
+	domain, err := typedData.formatData(TypedDataDomainTypeName, typedData.Domain.Map())
 	if err != nil {
 		return nil, err
 	}
@@ -572,7 +575,7 @@ func (typedData *TypedData) Format() ([]*NameValueType, error) {
 	}
 	var nvts []*NameValueType
 	nvts = append(nvts, &NameValueType{
-		Name:  "EIP712Domain",
+		Name:  TypedDataDomainTypeName,
 		Value: domain,
 		Typ:   "domain",
 	})

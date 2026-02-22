@@ -566,9 +566,9 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	switch tx.Type() {
 	case types.LegacyTxType, types.AccessListTxType:
-		// TIP-2718 typed envelopes are always enabled.
+		// typed envelopes are always enabled.
 	case types.DynamicFeeTxType:
-		// TIP-1559 dynamic fee transactions are not supported in GTOS.
+		// dynamic-fee dynamic fee transactions are not supported in GTOS.
 		return ErrTxTypeNotSupported
 	default:
 		return ErrTxTypeNotSupported

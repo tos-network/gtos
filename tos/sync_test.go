@@ -38,19 +38,19 @@ func testSnapSyncDisabling(t *testing.T, tosVer uint, snapVer uint) {
 	// Sync up the two handlers via both `tos` and `snap`
 	caps := []p2p.Cap{{Name: "tos", Version: tosVer}, {Name: "snap", Version: snapVer}}
 
-	emptyPipeEth, fullPipeEth := p2p.MsgPipe()
-	defer emptyPipeEth.Close()
-	defer fullPipeEth.Close()
+	emptyPipeTos, fullPipeTos := p2p.MsgPipe()
+	defer emptyPipeTos.Close()
+	defer fullPipeTos.Close()
 
-	emptyPeerEth := tos.NewPeer(tosVer, p2p.NewPeer(enode.ID{1}, "", caps), emptyPipeEth, empty.txpool)
-	fullPeerEth := tos.NewPeer(tosVer, p2p.NewPeer(enode.ID{2}, "", caps), fullPipeEth, full.txpool)
-	defer emptyPeerEth.Close()
-	defer fullPeerEth.Close()
+	emptyPeerTos := tos.NewPeer(tosVer, p2p.NewPeer(enode.ID{1}, "", caps), emptyPipeTos, empty.txpool)
+	fullPeerTos := tos.NewPeer(tosVer, p2p.NewPeer(enode.ID{2}, "", caps), fullPipeTos, full.txpool)
+	defer emptyPeerTos.Close()
+	defer fullPeerTos.Close()
 
-	go empty.handler.runEthPeer(emptyPeerEth, func(peer *tos.Peer) error {
+	go empty.handler.runTosPeer(emptyPeerTos, func(peer *tos.Peer) error {
 		return tos.Handle((*tosHandler)(empty.handler), peer)
 	})
-	go full.handler.runEthPeer(fullPeerEth, func(peer *tos.Peer) error {
+	go full.handler.runTosPeer(fullPeerTos, func(peer *tos.Peer) error {
 		return tos.Handle((*tosHandler)(full.handler), peer)
 	})
 

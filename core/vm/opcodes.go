@@ -105,7 +105,7 @@ const (
 	JUMPDEST OpCode = 0x5b
 )
 
-// Push opcodes (TIP-3855)
+// Push opcodes (Protocol-3855)
 const (
 	PUSH0 OpCode = 0x5f
 )
@@ -521,7 +521,8 @@ var stringToOp = map[string]OpCode{
 	"SELFDESTRUCT":   SELFDESTRUCT,
 }
 
-// ValidEip returns whether the given TIP is valid/supported (stub, always false).
-func ValidEip(eipNum int) bool {
+// ValidProtocolChange returns whether the given change code is valid/supported (stub, always false).
+func ValidProtocolChange(changeNum int) bool {
+	_ = changeNum
 	return false
 }

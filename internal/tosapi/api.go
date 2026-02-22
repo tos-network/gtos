@@ -302,7 +302,7 @@ func (s *PersonalAccountAPI) ListWallets() []rawWallet {
 // OpenWallet initiates a hardware wallet opening procedure, establishing a USB
 // connection and attempting to authenticate via the provided passphrase. Note,
 // the method may return an extra challenge requiring a second open (e.g. the
-// Trezor PIN matrix challenge).
+// hardware-wallet PIN challenge).
 func (s *PersonalAccountAPI) OpenWallet(url string, passphrase *string) error {
 	wallet, err := s.am.Wallet(url)
 	if err != nil {
@@ -485,7 +485,7 @@ func (s *PersonalAccountAPI) SignTransaction(ctx context.Context, args Transacti
 }
 
 // Sign calculates an TOS ECDSA signature for:
-// keccak256("\x19Ethereum Signed Message:\n" + len(message) + message))
+// keccak256("\x19Tosnetwk Signed Message:\n" + len(message) + message))
 //
 // Note, the produced signature conforms to the secp256k1 curve R, S and V values,
 // where the V value will be 27 or 28 for legacy reasons.
@@ -515,7 +515,7 @@ func (s *PersonalAccountAPI) Sign(ctx context.Context, data hexutil.Bytes, addr 
 // Note, this function is compatible with tos_sign (legacy eth_sign) and personal_sign.
 // As such it recovers
 // the address of:
-// hash = keccak256("\x19Ethereum Signed Message:\n"${message length}${message})
+// hash = keccak256("\x19Tosnetwk Signed Message:\n"${message length}${message})
 // addr = ecrecover(hash, signature)
 //
 // Note, the signature must conform to the secp256k1 curve R, S and V values, where
@@ -590,11 +590,11 @@ func NewBlockChainAPI(b Backend) *BlockChainAPI {
 	return &BlockChainAPI{b}
 }
 
-// ChainId is the TIP-155 replay-protection chain id for the current TOS chain config.
+// ChainId is the replay-protected replay-protection chain id for the current TOS chain config.
 //
-// Note, this method does not conform to TIP-695 because the configured chain ID is always
+// Note, this method does not conform to Protocol-695 because the configured chain ID is always
 // returned, regardless of the current head block. We used to return an error when the chain
-// wasn't synced up to a block where TIP-155 is enabled, but this behavior caused issues
+// wasn't synced up to a block where replay-protected is enabled, but this behavior caused issues
 // in CL clients.
 func (api *BlockChainAPI) ChainId() *hexutil.Big {
 	return (*hexutil.Big)(api.b.ChainConfig().ChainID)
@@ -1216,7 +1216,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	}
 	switch tx.Type() {
 	case types.LegacyTxType:
-		// if a legacy transaction has an TIP-155 chain id, include it explicitly
+		// if a legacy transaction has a replay-protected chain id, include it explicitly
 		if id := tx.ChainId(); id.Sign() != 0 {
 			result.ChainID = (*hexutil.Big)(id)
 		}
@@ -1293,7 +1293,7 @@ type accessListResult struct {
 	GasUsed    hexutil.Uint64    `json:"gasUsed"`
 }
 
-// CreateAccessList creates a TIP-2930 type AccessList for the given transaction.
+// CreateAccessList creates a access-list type AccessList for the given transaction.
 // Reexec and BlockNrOrHash can be specified to create the accessList on top of a certain state.
 func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*accessListResult, error) {
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
@@ -1524,8 +1524,8 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 		return common.Hash{}, err
 	}
 	if !b.UnprotectedAllowed() && !tx.Protected() {
-		// Ensure only TIP155 signed transactions are submitted if TIP155Required is set.
-		return common.Hash{}, errors.New("only replay-protected (EIP-155) transactions allowed over RPC")
+		// Ensure only replay-protected signed transactions are submitted if replayProtectionRequired is set.
+		return common.Hash{}, errors.New("only replay-protected (chain-id protected) transactions allowed over RPC")
 	}
 	if err := b.SendTx(ctx, tx); err != nil {
 		return common.Hash{}, err
@@ -1606,7 +1606,7 @@ func (s *TransactionAPI) SendRawTransaction(ctx context.Context, input hexutil.B
 }
 
 // Sign calculates an ECDSA signature for:
-// keccak256("\x19Ethereum Signed Message:\n" + len(message) + message).
+// keccak256("\x19Tosnetwk Signed Message:\n" + len(message) + message).
 //
 // Note, the produced signature conforms to the secp256k1 curve R, S and V values,
 // where the V value will be 27 or 28 for legacy reasons.
@@ -1870,8 +1870,8 @@ func checkTxFee(gasPrice *big.Int, gas uint64, cap float64) error {
 	if cap == 0 {
 		return nil
 	}
-	feeEth := new(big.Float).Quo(new(big.Float).SetInt(new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(gas))), new(big.Float).SetInt(big.NewInt(params.TOS)))
-	feeFloat, _ := feeEth.Float64()
+	feeTos := new(big.Float).Quo(new(big.Float).SetInt(new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(gas))), new(big.Float).SetInt(big.NewInt(params.TOS)))
+	feeFloat, _ := feeTos.Float64()
 	if feeFloat > cap {
 		return fmt.Errorf("tx fee (%.2f tos) exceeds the configured cap (%.2f tos)", feeFloat, cap)
 	}

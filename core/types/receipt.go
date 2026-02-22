@@ -166,7 +166,7 @@ func (r *Receipt) DecodeRLP(s *rlp.Stream) error {
 		r.Type = LegacyTxType
 		return r.setFromRLP(dec)
 	default:
-		// It's an TIP-2718 typed tx receipt.
+		// It's an typed tx receipt.
 		b, err := s.Bytes()
 		if err != nil {
 			return err
@@ -176,7 +176,7 @@ func (r *Receipt) DecodeRLP(s *rlp.Stream) error {
 }
 
 // UnmarshalBinary decodes the consensus encoding of receipts.
-// It supports legacy RLP receipts and TIP-2718 typed receipts.
+// It supports legacy RLP receipts and typed receipts.
 func (r *Receipt) UnmarshalBinary(b []byte) error {
 	if len(b) > 0 && b[0] > 0x7f {
 		// It's a legacy receipt decode the RLP
@@ -188,7 +188,7 @@ func (r *Receipt) UnmarshalBinary(b []byte) error {
 		r.Type = LegacyTxType
 		return r.setFromRLP(data)
 	}
-	// It's an TIP2718 typed transaction envelope.
+	// It's an typed transaction envelope.
 	return r.decodeTyped(b)
 }
 

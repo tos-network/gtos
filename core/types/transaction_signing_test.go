@@ -64,7 +64,7 @@ func TestReplayProtectionChainId(t *testing.T) {
 }
 
 func TestReplayProtectionSigningVitalik(t *testing.T) {
-	// Test vectors come from http://vitalik.ca/files/TIP155_testvec.txt
+	// Test vectors come from http://vitalik.ca/files/replay-protected_testvec.txt
 	for i, test := range []struct {
 		txRlp, addr string
 	}{

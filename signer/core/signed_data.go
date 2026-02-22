@@ -75,12 +75,12 @@ func (api *SignerAPI) SignData(ctx context.Context, contentType string, addr com
 // This method returns the mimetype for signing along with the request
 func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType string, addr common.MixedcaseAddress, data interface{}) (*SignDataRequest, bool, error) {
 	var (
-		req          *SignDataRequest
-		useEthereumV = true // Default to use V = 27 or 28, the legacy TOS format
+		req        *SignDataRequest
+		useLegacyV = true // Default to use V = 27 or 28, the legacy TOS format
 	)
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return nil, useEthereumV, err
+		return nil, useLegacyV, err
 	}
 
 	switch mediaType {
@@ -88,12 +88,12 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		// Data with an intended validator
 		validatorData, err := UnmarshalValidatorData(data)
 		if err != nil {
-			return nil, useEthereumV, err
+			return nil, useLegacyV, err
 		}
 		sighash, msg := SignTextValidator(validatorData)
 		messages := []*apitypes.NameValueType{
 			{
-				Name:  "This is a request to sign data intended for a particular validator (see EIP 191 version 0)",
+				Name:  "This is a request to sign data intended for a particular validator (see Protocol 191 version 0)",
 				Typ:   "description",
 				Value: "",
 			},
@@ -116,13 +116,13 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		req = &SignDataRequest{ContentType: mediaType, Rawdata: []byte(msg), Messages: messages, Hash: sighash}
 	default: // also case TextPlain.Mime:
 		// Calculates an TOS ECDSA signature for:
-		// hash = keccak256("\x19Ethereum Signed Message:\n${message length}${message}")
+		// hash = keccak256("\x19Tosnetwk Signed Message:\n${message length}${message}")
 		// We expect it to be a string
 		if stringData, ok := data.(string); !ok {
-			return nil, useEthereumV, fmt.Errorf("input for text/plain must be an hex-encoded string")
+			return nil, useLegacyV, fmt.Errorf("input for text/plain must be an hex-encoded string")
 		} else {
 			if textData, err := hexutil.Decode(stringData); err != nil {
-				return nil, useEthereumV, err
+				return nil, useLegacyV, err
 			} else {
 				sighash, msg := accounts.TextAndHash(textData)
 				messages := []*apitypes.NameValueType{
@@ -138,7 +138,7 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 	}
 	req.Address = addr
 	req.Meta = MetadataFromContext(ctx)
-	return req, useEthereumV, nil
+	return req, useLegacyV, nil
 }
 
 // SignTextValidator signs the given message which can be further recovered
@@ -149,7 +149,7 @@ func SignTextValidator(validatorData apitypes.ValidatorData) (hexutil.Bytes, str
 	return crypto.Keccak256([]byte(msg)), msg
 }
 
-// SignTypedData signs TIP-712 conformant typed data
+// SignTypedData signs Protocol-712 conformant typed data
 // hash = keccak256("\x19${byteVersion}${domainSeparator}${hashStruct(message)}")
 // It returns
 // - the signature,
@@ -195,7 +195,7 @@ func (api *SignerAPI) EcRecover(ctx context.Context, data hexutil.Bytes, sig hex
 	//
 	// Note, this function is compatible with eth_sign and personal_sign. As such it recovers
 	// the address of:
-	// hash = keccak256("\x19Ethereum Signed Message:\n${message length}${message}")
+	// hash = keccak256("\x19Tosnetwk Signed Message:\n${message length}${message}")
 	// addr = ecrecover(hash, signature)
 	//
 	// Note, the signature must conform to the secp256k1 curve R, S and V values, where

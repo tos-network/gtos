@@ -40,8 +40,8 @@ func (api *TOSAPI) Coinbase() (common.Address, error) {
 	return api.e.Coinbase()
 }
 
-// Etherbase is a deprecated alias for Coinbase.
-func (api *TOSAPI) Etherbase() (common.Address, error) {
+// Tosbase is a deprecated alias for Coinbase.
+func (api *TOSAPI) Tosbase() (common.Address, error) {
 	return api.Coinbase()
 }
 
@@ -113,8 +113,8 @@ func (api *MinerAPI) SetCoinbase(coinbase common.Address) bool {
 	return true
 }
 
-// SetEtherbase is a deprecated alias for SetCoinbase.
-func (api *MinerAPI) SetEtherbase(coinbase common.Address) bool {
+// SetTosbase is a deprecated alias for SetCoinbase.
+func (api *MinerAPI) SetTosbase(coinbase common.Address) bool {
 	api.e.SetCoinbase(coinbase)
 	return true
 }

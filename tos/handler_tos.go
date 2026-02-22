@@ -22,7 +22,7 @@ func (h *tosHandler) TxPool() tos.TxPool      { return h.txpool }
 
 // RunPeer is invoked when a peer joins on the `tos` protocol.
 func (h *tosHandler) RunPeer(peer *tos.Peer, hand tos.Handler) error {
-	return (*handler)(h).runEthPeer(peer, hand)
+	return (*handler)(h).runTosPeer(peer, hand)
 }
 
 // PeerInfo retrieves all known `tos` information about a peer.

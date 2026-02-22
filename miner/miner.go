@@ -29,7 +29,7 @@ type Backend interface {
 // Config is the configuration parameters of mining.
 type Config struct {
 	Coinbase   common.Address `toml:",omitempty"` // Public address for block mining rewards (default = first account)
-	Etherbase  common.Address `toml:",omitempty"` // Deprecated alias for Coinbase.
+	Tosbase    common.Address `toml:",omitempty"` // Deprecated alias for Coinbase.
 	Notify     []string       `toml:",omitempty"` // HTTP URL list to be notified of new work packages.
 	NotifyFull bool           `toml:",omitempty"` // Notify with pending block headers instead of work packages
 	ExtraData  hexutil.Bytes  `toml:",omitempty"` // Block extra data set by the miner
@@ -55,8 +55,8 @@ type Miner struct {
 }
 
 func New(tos Backend, config *Config, chainConfig *params.ChainConfig, mux *event.TypeMux, engine consensus.Engine, isLocalBlock func(header *types.Header) bool) *Miner {
-	if config.Coinbase == (common.Address{}) && config.Etherbase != (common.Address{}) {
-		config.Coinbase = config.Etherbase
+	if config.Coinbase == (common.Address{}) && config.Tosbase != (common.Address{}) {
+		config.Coinbase = config.Tosbase
 	}
 	miner := &Miner{
 		tos:     tos,
@@ -199,8 +199,8 @@ func (miner *Miner) SetCoinbase(addr common.Address) {
 	miner.worker.setCoinbase(addr)
 }
 
-// SetEtherbase is a deprecated alias for SetCoinbase.
-func (miner *Miner) SetEtherbase(addr common.Address) {
+// SetTosbase is a deprecated alias for SetCoinbase.
+func (miner *Miner) SetTosbase(addr common.Address) {
 	miner.SetCoinbase(addr)
 }
 

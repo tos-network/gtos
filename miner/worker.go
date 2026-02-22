@@ -293,8 +293,8 @@ func (w *worker) setCoinbase(addr common.Address) {
 	w.coinbase = addr
 }
 
-// setEtherbase is a deprecated alias for setCoinbase.
-func (w *worker) setEtherbase(addr common.Address) { w.setCoinbase(addr) }
+// setTosbase is a deprecated alias for setCoinbase.
+func (w *worker) setTosbase(addr common.Address) { w.setCoinbase(addr) }
 
 func (w *worker) setGasCeil(ceil uint64) {
 	w.mu.Lock()
@@ -858,7 +858,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		// Error may be ignored here. The error has already been checked
 		// during transaction acceptance in the transaction pool.
 		//
-		// TIP-155 replay protection is always active in GTOS.
+		// Protocol-155 replay protection is always active in GTOS.
 		from, _ := types.Sender(env.signer, tx)
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)
@@ -1188,7 +1188,7 @@ func (w *worker) postSideBlock(event core.ChainSideEvent) {
 	}
 }
 
-// totalFees computes total consumed miner fees in ETH. Block transactions and receipts have to have the same order.
+// totalFees computes total consumed miner fees in TOS. Block transactions and receipts have to have the same order.
 func totalFees(block *types.Block, receipts []*types.Receipt) *big.Float {
 	feesWei := new(big.Int)
 	for i, tx := range block.Transactions() {

@@ -182,7 +182,7 @@ type Config struct {
 	trustedNodesWarning    bool
 	oldGTOSResourceWarning bool
 
-	// AllowUnprotectedTxs allows non TIP-155 protected transactions to be send over RPC.
+	// AllowUnprotectedTxs allows non Protocol-155 protected transactions to be send over RPC.
 	AllowUnprotectedTxs bool `toml:",omitempty"`
 
 	// JWTSecret is the hex-encoded jwt secret.

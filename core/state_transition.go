@@ -86,7 +86,7 @@ func (result *ExecutionResult) Revert() []byte {
 var ErrContractNotSupported = errors.New("smart contract execution not supported in GTOS")
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool) (uint64, error) {
+func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isReducedDataGas bool) (uint64, error) {
 	var gas uint64
 	if isContractCreation && isHomestead {
 		gas = params.TxGasContractCreation
@@ -101,8 +101,8 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 			}
 		}
 		nonZeroGas := params.TxDataNonZeroGasFrontier
-		if isEIP2028 {
-			nonZeroGas = params.TxDataNonZeroGasEIP2028
+		if isReducedDataGas {
+			nonZeroGas = params.TxDataNonZeroGasReduced
 		}
 		if (math.MaxUint64-gas)/nonZeroGas < nz {
 			return 0, ErrGasUintOverflow

@@ -117,7 +117,7 @@ func (s *UIServerAPI) ImportRawKey(privkey string, password string) (accounts.Ac
 // OpenWallet initiates a hardware wallet opening procedure, establishing a USB
 // connection and attempting to authenticate via the provided passphrase. Note,
 // the method may return an extra challenge requiring a second open (e.g. the
-// Trezor PIN matrix challenge).
+// hardware-wallet PIN challenge).
 // Example
 // {"jsonrpc":"2.0","method":"clef_openWallet","params":["ledger://",""], "id":6}
 func (s *UIServerAPI) OpenWallet(url string, passphrase *string) error {
@@ -132,7 +132,7 @@ func (s *UIServerAPI) OpenWallet(url string, passphrase *string) error {
 	return wallet.Open(pass)
 }
 
-// ChainId returns the chainid in use for TIP-155 replay protection
+// ChainId returns the chainid in use for Protocol-155 replay protection
 // Example call
 // {"jsonrpc":"2.0","method":"clef_chainId","params":[], "id":8}
 func (s *UIServerAPI) ChainId() math.HexOrDecimal64 {

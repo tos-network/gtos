@@ -17,7 +17,7 @@ import (
 
 var (
 	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
-	ErrUnexpectedProtection = errors.New("transaction type does not supported EIP-155 protected signatures")
+	ErrUnexpectedProtection = errors.New("transaction type does not supported replay-protected protected signatures")
 	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
 	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
 	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
@@ -76,7 +76,7 @@ func (tx *Transaction) EncodeRLP(w io.Writer) error {
 	if tx.Type() == LegacyTxType {
 		return rlp.Encode(w, tx.inner)
 	}
-	// It's an TIP-2718 typed TX envelope.
+	// It's an typed TX envelope.
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
 	defer encodeBufferPool.Put(buf)
 	buf.Reset()
@@ -93,7 +93,7 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 }
 
 // MarshalBinary returns the canonical encoding of the transaction.
-// For legacy transactions, it returns the RLP encoding. For TIP-2718 typed
+// For legacy transactions, it returns the RLP encoding. For typed
 // transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
 	if tx.Type() == LegacyTxType {
@@ -119,7 +119,7 @@ func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
 		}
 		return err
 	default:
-		// It's an TIP-2718 typed TX envelope.
+		// It's an typed TX envelope.
 		var b []byte
 		if b, err = s.Bytes(); err != nil {
 			return err
@@ -133,7 +133,7 @@ func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
 }
 
 // UnmarshalBinary decodes the canonical encoding of transactions.
-// It supports legacy RLP transactions and TIP2718 typed transactions.
+// It supports legacy RLP transactions and typed transactions.
 func (tx *Transaction) UnmarshalBinary(b []byte) error {
 	if len(b) > 0 && b[0] > 0x7f {
 		// It's a legacy transaction.
@@ -145,7 +145,7 @@ func (tx *Transaction) UnmarshalBinary(b []byte) error {
 		tx.setDecoded(&data, len(b))
 		return nil
 	}
-	// It's an TIP2718 typed transaction envelope.
+	// It's an typed transaction envelope.
 	inner, err := tx.decodeTyped(b)
 	if err != nil {
 		return err
@@ -192,7 +192,7 @@ func sanityCheckSignature(v *big.Int, r *big.Int, s *big.Int, maybeProtected boo
 		chainID := deriveChainId(v).Uint64()
 		plainV = byte(v.Uint64() - 35 - 2*chainID)
 	} else if maybeProtected {
-		// Only TIP-155 signatures can be optionally protected. Since
+		// Only replay-protected signatures can be optionally protected. Since
 		// we determined this v value is not protected, it must be a
 		// raw 27 or 28.
 		plainV = byte(v.Uint64() - 27)
@@ -232,7 +232,7 @@ func (tx *Transaction) Type() uint8 {
 	return tx.inner.txType()
 }
 
-// ChainId returns the TIP155 chain ID of the transaction. The return value will always be
+// ChainId returns the replay-protected chain ID of the transaction. The return value will always be
 // non-nil. For legacy transactions which are not replay-protected, the return value is
 // zero.
 func (tx *Transaction) ChainId() *big.Int {

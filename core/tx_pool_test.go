@@ -26,7 +26,7 @@ var (
 	// sideeffects used during testing.
 	testTxPoolConfig TxPoolConfig
 
-	// TIP1559Config is a chain config with TIP-1559 enabled at block 0.
+	// dynamic-feeConfig is a chain config with dynamic-fee enabled at block 0.
 	dynamicFeeConfig *params.ChainConfig
 )
 
