@@ -38,7 +38,6 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, i
 		signer   = types.MakeSigner(p.config, header.Number)
 	)
 	// Iterate over and process the individual transactions
-	aiBaseline := p.config.IsAIGenesis(block.Number())
 	for i, tx := range block.Transactions() {
 		// If block precaching was interrupted, abort
 		if interrupt != nil && atomic.LoadUint32(interrupt) == 1 {
@@ -53,13 +52,6 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, i
 		if _, err := ApplyMessage(blockCtx, p.config, msg, gaspool, statedb); err != nil {
 			return // Ugh, something went horribly wrong, bail out
 		}
-		// If baseline rules are not active, pre-load trie nodes for the intermediate root.
-		if !aiBaseline {
-			statedb.IntermediateRoot(true)
-		}
 	}
-	// If baseline rules are active, pre-load trie nodes for the final root hash.
-	if aiBaseline {
-		statedb.IntermediateRoot(true)
-	}
+	statedb.IntermediateRoot(true)
 }

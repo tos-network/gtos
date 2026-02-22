@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"hash/crc32"
 	"math"
-	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
@@ -15,10 +14,7 @@ import (
 // TestCreation tests that different genesis and fork rule combinations result in
 // the correct fork ID.
 func TestCreation(t *testing.T) {
-	mergeConfig := *params.MainnetChainConfig
-	mergeConfig.MergeNetsplitBlock = big.NewInt(18000000)
 	baseHash := checksumToBytes(crc32.ChecksumIEEE(params.MainnetGenesisHash[:]))
-	mergeHash := checksumToBytes(checksumUpdate(crc32.ChecksumIEEE(params.MainnetGenesisHash[:]), 18000000))
 	type testcase struct {
 		head uint64
 		want ID
@@ -28,7 +24,6 @@ func TestCreation(t *testing.T) {
 		genesis common.Hash
 		cases   []testcase
 	}{
-		// Mainnet test cases
 		{
 			params.MainnetChainConfig,
 			params.MainnetGenesisHash,
@@ -36,17 +31,6 @@ func TestCreation(t *testing.T) {
 				{0, ID{Hash: baseHash, Next: 0}},
 				{15050000, ID{Hash: baseHash, Next: 0}},
 				{20000000, ID{Hash: baseHash, Next: 0}},
-			},
-		},
-		// Merge test cases
-		{
-			&mergeConfig,
-			params.MainnetGenesisHash,
-			[]testcase{
-				{0, ID{Hash: baseHash, Next: 18000000}},
-				{17999999, ID{Hash: baseHash, Next: 18000000}},
-				{18000000, ID{Hash: mergeHash, Next: 0}},
-				{20000000, ID{Hash: mergeHash, Next: 0}},
 			},
 		},
 	}
@@ -63,12 +47,8 @@ func TestCreation(t *testing.T) {
 // fork ID.
 func TestValidation(t *testing.T) {
 	baseConfig := *params.MainnetChainConfig
-	mergeConfig := *params.MainnetChainConfig
-	mergeConfig.MergeNetsplitBlock = big.NewInt(200)
 
 	baseHash := NewID(&baseConfig, params.MainnetGenesisHash, 0).Hash
-	beforeMerge := NewID(&mergeConfig, params.MainnetGenesisHash, 100)
-	afterMerge := NewID(&mergeConfig, params.MainnetGenesisHash, 300)
 
 	tests := []struct {
 		config *params.ChainConfig
@@ -80,10 +60,6 @@ func TestValidation(t *testing.T) {
 		{&baseConfig, 100, ID{Hash: baseHash, Next: math.MaxUint64}, nil},
 		{&baseConfig, 100, ID{Hash: baseHash, Next: 50}, ErrLocalIncompatibleOrStale},
 		{&baseConfig, 100, ID{Hash: checksumToBytes(0xdeadbeef), Next: 0}, ErrLocalIncompatibleOrStale},
-		{&mergeConfig, 150, beforeMerge, nil},
-		{&mergeConfig, 300, ID{Hash: beforeMerge.Hash, Next: beforeMerge.Next}, nil},
-		{&mergeConfig, 300, ID{Hash: beforeMerge.Hash, Next: 0}, ErrRemoteStale},
-		{&mergeConfig, 150, afterMerge, nil},
 	}
 	for i, tt := range tests {
 		filter := newFilter(tt.config, params.MainnetGenesisHash, func() uint64 { return tt.head })

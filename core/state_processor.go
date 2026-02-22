@@ -77,12 +77,8 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, blockCtx vm
 	}
 
 	// Update the state with pending changes.
+	statedb.Finalise(true)
 	var root []byte
-	if config.IsAIGenesis(blockNumber) {
-		statedb.Finalise(true)
-	} else {
-		root = statedb.IntermediateRoot(true).Bytes()
-	}
 	*usedGas += result.UsedGas
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used

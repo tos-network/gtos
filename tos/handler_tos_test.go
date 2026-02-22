@@ -71,12 +71,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 	var (
 		engine = dpos.NewFaker()
 
-		configNoFork  = &params.ChainConfig{AIGenesisBlock: nil}
-		configProFork = &params.ChainConfig{
-			AIGenesisBlock: big.NewInt(2),
-		}
-		dbNoFork  = rawdb.NewMemoryDatabase()
-		dbProFork = rawdb.NewMemoryDatabase()
+		configNoFork  = &params.ChainConfig{ChainID: big.NewInt(1)}
+		configProFork = &params.ChainConfig{ChainID: big.NewInt(1)}
+		dbNoFork      = rawdb.NewMemoryDatabase()
+		dbProFork     = rawdb.NewMemoryDatabase()
 
 		gspecNoFork  = &core.Genesis{Config: configNoFork}
 		gspecProFork = &core.Genesis{Config: configProFork}
@@ -119,7 +117,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 	defer tosNoFork.Stop()
 	defer tosProFork.Stop()
 
-	// Both nodes should allow the other to connect (same genesis, next fork is the same)
+	// Both nodes should allow the other to connect.
 	p2pNoFork, p2pProFork := p2p.MsgPipe()
 	defer p2pNoFork.Close()
 	defer p2pProFork.Close()
@@ -147,7 +145,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 			t.Fatalf("frontier nofork <-> profork handler timeout")
 		}
 	}
-	// Progress into Homestead. Fork's match, so we don't care what the future holds
+	// Progress one block and ensure peers still connect.
 	chainNoFork.InsertChain(blocksNoFork[:1])
 	chainProFork.InsertChain(blocksProFork[:1])
 
@@ -178,7 +176,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 			t.Fatalf("homestead nofork <-> profork handler timeout")
 		}
 	}
-	// Progress into block #2. Forks mismatch from this height, signalling differing chains, reject
+	// Progress into block #2 and ensure peers still connect.
 	chainNoFork.InsertChain(blocksNoFork[1:2])
 	chainProFork.InsertChain(blocksProFork[1:2])
 
@@ -199,18 +197,14 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		errc <- tosProFork.runEthPeer(peerNoFork, func(peer *tos.Peer) error { return nil })
 	}(errc)
 
-	var successes int
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-errc:
-			if err == nil {
-				successes++
-				if successes == 2 { // Only one side disconnects
-					t.Fatalf("fork ID rejection didn't happen")
-				}
+			if err != nil {
+				t.Fatalf("split peers failed: %v", err)
 			}
 		case <-time.After(250 * time.Millisecond):
-			t.Fatalf("split peers not rejected")
+			t.Fatalf("split peers handler timeout")
 		}
 	}
 }

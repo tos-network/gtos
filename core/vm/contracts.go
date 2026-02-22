@@ -107,13 +107,8 @@ func init() {
 }
 
 // ActivePrecompiles returns the precompiles enabled with the current configuration.
-func ActivePrecompiles(rules params.Rules) []common.Address {
-	switch {
-	case rules.IsAiBaseline:
-		return PrecompiledAddressesBaseline
-	default:
-		return PrecompiledAddressesLegacy
-	}
+func ActivePrecompiles(_ params.Rules) []common.Address {
+	return PrecompiledAddressesBaseline
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.

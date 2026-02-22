@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/crc32"
 	"math"
-	"math/big"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
@@ -194,38 +193,6 @@ func checksumToBytes(hash uint32) [4]byte {
 }
 
 // gatherForks gathers all the known forks and creates a sorted list out of them.
-func gatherForks(config *params.ChainConfig) []uint64 {
-	// Keep forkid based on AI Genesis and later staged upgrades only.
-	rules := []*big.Int{
-		config.AIGenesisBlock,
-		config.MergeNetsplitBlock,
-		config.ShanghaiBlock,
-		config.CancunBlock,
-	}
-	forks := make([]uint64, 0, len(rules))
-	for _, rule := range rules {
-		if rule != nil {
-			forks = append(forks, rule.Uint64())
-		}
-	}
-	// Sort the fork block numbers to permit chronological XOR
-	for i := 0; i < len(forks); i++ {
-		for j := i + 1; j < len(forks); j++ {
-			if forks[i] > forks[j] {
-				forks[i], forks[j] = forks[j], forks[i]
-			}
-		}
-	}
-	// Deduplicate block numbers applying multiple forks
-	for i := 1; i < len(forks); i++ {
-		if forks[i] == forks[i-1] {
-			forks = append(forks[:i], forks[i+1:]...)
-			i--
-		}
-	}
-	// Skip any forks in block 0, that's the genesis ruleset
-	if len(forks) > 0 && forks[0] == 0 {
-		forks = forks[1:]
-	}
-	return forks
+func gatherForks(_ *params.ChainConfig) []uint64 {
+	return nil
 }

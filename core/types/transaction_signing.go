@@ -20,19 +20,12 @@ type sigCache struct {
 	from   common.Address
 }
 
-// MakeSigner returns a Signer based on the given chain config and block number.
-func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
-	switch {
-	case config.ChainID != nil && config.IsAIGenesis(blockNumber):
+// MakeSigner returns a Signer based on the given chain config.
+func MakeSigner(config *params.ChainConfig, _ *big.Int) Signer {
+	if config.ChainID != nil {
 		return NewLondonSigner(config.ChainID)
-	case config.ChainID != nil:
-		// TIP-155 replay protection and TIP-2718 typed envelopes are always active.
-		return NewEIP2930Signer(config.ChainID)
-	case config.IsAIGenesis(blockNumber):
-		return HomesteadSigner{}
-	default:
-		return FrontierSigner{}
 	}
+	return HomesteadSigner{}
 }
 
 // LatestSigner returns the most permissive signer available for the given chain

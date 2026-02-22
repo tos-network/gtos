@@ -19,16 +19,17 @@ func TestInvalidCliqueConfig(t *testing.T) {
 
 func TestSetupGenesis(t *testing.T) {
 	var (
-		customghash = common.HexToHash("0x89c99d90b79719238d2645c7642f2c9295246e80775b38cfd162b696817fbd50")
-		customg     = Genesis{
-			Config: &params.ChainConfig{AIGenesisBlock: big.NewInt(3)},
+		customg = Genesis{
+			Config: &params.ChainConfig{ChainID: big.NewInt(3)},
 			Alloc: GenesisAlloc{
 				{1}: {Balance: big.NewInt(1), Storage: map[common.Hash]common.Hash{{1}: {1}}},
 			},
 		}
-		oldcustomg = customg
+		customghash     = customg.ToBlock().Hash()
+		oldcustomg      = customg
+		oldMismatchConf = customg
 	)
-	oldcustomg.Config = &params.ChainConfig{AIGenesisBlock: big.NewInt(2)}
+	oldMismatchConf.Config = &params.ChainConfig{ChainID: big.NewInt(2)}
 	tests := []struct {
 		name       string
 		fn         func(tosdb.Database) (*params.ChainConfig, common.Hash, error)
@@ -90,29 +91,21 @@ func TestSetupGenesis(t *testing.T) {
 			wantConfig: customg.Config,
 		},
 		{
-			name: "incompatible config in DB",
+			name: "different config in DB",
 			fn: func(db tosdb.Database) (*params.ChainConfig, common.Hash, error) {
-				// Commit the 'old' genesis block with AI Genesis baseline at #2.
-				// Advance to block #4, past the baseline block of customg.
-				genesis := oldcustomg.MustCommit(db)
+				genesis := oldMismatchConf.MustCommit(db)
 
-				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, dpos.NewFaker(), nil, nil)
+				bc, _ := NewBlockChain(db, nil, oldMismatchConf.Config, dpos.NewFaker(), nil, nil)
 				defer bc.Stop()
 
-				blocks, _ := GenerateChain(oldcustomg.Config, genesis, dpos.NewFaker(), db, 4, nil)
+				blocks, _ := GenerateChain(oldMismatchConf.Config, genesis, dpos.NewFaker(), db, 4, nil)
 				bc.InsertChain(blocks)
 				bc.CurrentBlock()
-				// This should return a compatibility error.
 				return SetupGenesisBlock(db, &customg)
 			},
 			wantHash:   customghash,
 			wantConfig: customg.Config,
-			wantErr: &params.ConfigCompatError{
-				What:         "AI Genesis fork block",
-				StoredConfig: big.NewInt(2),
-				NewConfig:    big.NewInt(3),
-				RewindTo:     1,
-			},
+			wantErr:    nil,
 		},
 	}
 

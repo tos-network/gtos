@@ -16,54 +16,20 @@ func TestCheckCompatible(t *testing.T) {
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 0, wantErr: nil},
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 100, wantErr: nil},
 		{
-			stored:  &ChainConfig{AIGenesisBlock: big.NewInt(10)},
-			new:     &ChainConfig{AIGenesisBlock: big.NewInt(20)},
-			head:    9,
+			stored: &ChainConfig{
+				ChainID:                 big.NewInt(1),
+				TerminalTotalDifficulty: big.NewInt(100),
+			},
+			new: &ChainConfig{
+				ChainID:                 big.NewInt(1),
+				TerminalTotalDifficulty: big.NewInt(200),
+			},
+			head:    150,
 			wantErr: nil,
 		},
 		{
-			stored: &ChainConfig{AIGenesisBlock: big.NewInt(10)},
-			new:    &ChainConfig{AIGenesisBlock: big.NewInt(20)},
-			head:   25,
-			wantErr: &ConfigCompatError{
-				What:         "AI Genesis fork block",
-				StoredConfig: big.NewInt(10),
-				NewConfig:    big.NewInt(20),
-				RewindTo:     9,
-			},
-		},
-		{
-			stored: &ChainConfig{
-				AIGenesisBlock:     big.NewInt(0),
-				MergeNetsplitBlock: big.NewInt(100),
-			},
-			new: &ChainConfig{
-				AIGenesisBlock:     big.NewInt(0),
-				MergeNetsplitBlock: big.NewInt(120),
-			},
-			head:    80,
-			wantErr: nil,
-		},
-		{
-			stored: &ChainConfig{
-				AIGenesisBlock:     big.NewInt(0),
-				MergeNetsplitBlock: big.NewInt(100),
-			},
-			new: &ChainConfig{
-				AIGenesisBlock:     big.NewInt(0),
-				MergeNetsplitBlock: big.NewInt(120),
-			},
-			head: 150,
-			wantErr: &ConfigCompatError{
-				What:         "Merge netsplit fork block",
-				StoredConfig: big.NewInt(100),
-				NewConfig:    big.NewInt(120),
-				RewindTo:     99,
-			},
-		},
-		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), AIGenesisBlock: big.NewInt(0)},
-			new:    &ChainConfig{ChainID: big.NewInt(2), AIGenesisBlock: big.NewInt(0)},
+			stored: &ChainConfig{ChainID: big.NewInt(1)},
+			new:    &ChainConfig{ChainID: big.NewInt(2)},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "chain ID",

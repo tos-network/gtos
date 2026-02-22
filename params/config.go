@@ -32,7 +32,6 @@ var (
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
 	MainnetChainConfig = &ChainConfig{
 		ChainID:                       big.NewInt(1),
-		AIGenesisBlock:                big.NewInt(0),
 		TerminalTotalDifficulty:       MainnetTerminalTotalDifficulty, // 58_750_000_000_000_000_000_000
 		TerminalTotalDifficultyPassed: true,
 	}
@@ -61,15 +60,13 @@ var (
 	// AllDPoSProtocolChanges contains every protocol change proposal introduced
 	// and accepted by the TOS core developers into the DPoS consensus.
 	AllDPoSProtocolChanges = &ChainConfig{
-		ChainID:        big.NewInt(1337),
-		AIGenesisBlock: big.NewInt(0),
-		DPoS:           &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		ChainID: big.NewInt(1337),
+		DPoS:    &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 	}
 
 	TestChainConfig = &ChainConfig{
-		ChainID:        big.NewInt(1),
-		AIGenesisBlock: big.NewInt(0),
-		DPoS:           &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		ChainID: big.NewInt(1),
+		DPoS:    &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false)
 )
@@ -135,11 +132,6 @@ type CheckpointOracleConfig struct {
 type ChainConfig struct {
 	ChainID *big.Int `json:"chainId"` // chainId identifies the current chain and is used for replay protection
 
-	AIGenesisBlock     *big.Int `json:"aiGenesisBlock,omitempty"`     // TIP-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
-	MergeNetsplitBlock *big.Int `json:"mergeNetsplitBlock,omitempty"` // Virtual fork after The Merge to use as a network splitter
-	ShanghaiBlock      *big.Int `json:"shanghaiBlock,omitempty"`      // Shanghai switch block (nil = no fork, 0 = already on shanghai)
-	CancunBlock        *big.Int `json:"cancunBlock,omitempty"`        // Cancun switch block (nil = no fork, 0 = already on cancun)
-
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
 	TerminalTotalDifficulty *big.Int `json:"terminalTotalDifficulty,omitempty"`
@@ -183,18 +175,6 @@ func (c *ChainConfig) String() string {
 	}
 	banner += "\n"
 
-	banner += "Pre-Merge rules:\n"
-	if c.AIGenesisBlock != nil {
-		banner += fmt.Sprintf(" - AI Genesis baseline:       %-8v (all prior rules included)\n", c.AIGenesisBlock)
-	}
-	if c.ShanghaiBlock != nil {
-		banner += fmt.Sprintf(" - Shanghai:                     %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/shanghai.md)\n", c.ShanghaiBlock)
-	}
-	if c.CancunBlock != nil {
-		banner += fmt.Sprintf(" - Cancun:                      %-8v\n", c.CancunBlock)
-	}
-	banner += "\n"
-
 	// Add a special section for the merge as it's non-obvious
 	if c.TerminalTotalDifficulty == nil {
 		banner += "The Merge is not yet available for this network!\n"
@@ -203,15 +183,9 @@ func (c *ChainConfig) String() string {
 		banner += "Merge configured:\n"
 		banner += " - Hard-fork specification:    https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/paris.md\n"
 		banner += fmt.Sprintf(" - Network known to be merged: %v\n", c.TerminalTotalDifficultyPassed)
-		banner += fmt.Sprintf(" - Total terminal difficulty:  %v\n", c.TerminalTotalDifficulty)
-		banner += fmt.Sprintf(" - Merge netsplit block:       %-8v", c.MergeNetsplitBlock)
+		banner += fmt.Sprintf(" - Total terminal difficulty:  %v", c.TerminalTotalDifficulty)
 	}
 	return banner
-}
-
-// IsAIGenesis returns whether num is either equal to the AI Genesis (TIP-5133) fork block or greater.
-func (c *ChainConfig) IsAIGenesis(num *big.Int) bool {
-	return isForked(c.AIGenesisBlock, num)
 }
 
 // IsTerminalPoWBlock returns whether the given block is the last block of PoW stage.
@@ -220,16 +194,6 @@ func (c *ChainConfig) IsTerminalPoWBlock(parentTotalDiff *big.Int, totalDiff *bi
 		return false
 	}
 	return parentTotalDiff.Cmp(c.TerminalTotalDifficulty) < 0 && totalDiff.Cmp(c.TerminalTotalDifficulty) >= 0
-}
-
-// IsShanghai returns whether num is either equal to the Shanghai fork block or greater.
-func (c *ChainConfig) IsShanghai(num *big.Int) bool {
-	return isForked(c.ShanghaiBlock, num)
-}
-
-// IsCancun returns whether num is either equal to the Cancun fork block or greater.
-func (c *ChainConfig) IsCancun(num *big.Int) bool {
-	return isForked(c.CancunBlock, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -250,39 +214,8 @@ func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *Confi
 	return lasterr
 }
 
-// CheckConfigForkOrder checks that we don't "skip" any forks, gtos isn't pluggable enough
-// to guarantee that forks can be implemented in a different order than on official networks
+// CheckConfigForkOrder validates chain-config ordering constraints.
 func (c *ChainConfig) CheckConfigForkOrder() error {
-	type fork struct {
-		name     string
-		block    *big.Int
-		optional bool // if true, the fork may be nil and next fork is still allowed
-	}
-	var lastFork fork
-	for _, cur := range []fork{
-		{name: "aiGenesisBlock", block: c.AIGenesisBlock, optional: true},
-		{name: "mergeNetsplitBlock", block: c.MergeNetsplitBlock, optional: true},
-		{name: "shanghaiBlock", block: c.ShanghaiBlock, optional: true},
-		{name: "cancunBlock", block: c.CancunBlock, optional: true},
-	} {
-		if lastFork.name != "" {
-			// Next one must be higher number
-			if lastFork.block == nil && cur.block != nil {
-				return fmt.Errorf("unsupported fork ordering: %v not enabled, but %v enabled at %v",
-					lastFork.name, cur.name, cur.block)
-			}
-			if lastFork.block != nil && cur.block != nil {
-				if lastFork.block.Cmp(cur.block) > 0 {
-					return fmt.Errorf("unsupported fork ordering: %v enabled at %v, but %v enabled at %v",
-						lastFork.name, lastFork.block, cur.name, cur.block)
-				}
-			}
-		}
-		// If it was optional and not set, then ignore it
-		if !cur.optional || cur.block != nil {
-			lastFork = cur
-		}
-	}
 	return nil
 }
 
@@ -295,33 +228,7 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 			RewindTo:     0,
 		}
 	}
-	if isForkIncompatible(c.AIGenesisBlock, newcfg.AIGenesisBlock, head) {
-		return newCompatError("AI Genesis fork block", c.AIGenesisBlock, newcfg.AIGenesisBlock)
-	}
-	if isForkIncompatible(c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock, head) {
-		return newCompatError("Merge netsplit fork block", c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock)
-	}
-	if isForkIncompatible(c.ShanghaiBlock, newcfg.ShanghaiBlock, head) {
-		return newCompatError("Shanghai fork block", c.ShanghaiBlock, newcfg.ShanghaiBlock)
-	}
-	if isForkIncompatible(c.CancunBlock, newcfg.CancunBlock, head) {
-		return newCompatError("Cancun fork block", c.CancunBlock, newcfg.CancunBlock)
-	}
 	return nil
-}
-
-// isForkIncompatible returns true if a fork scheduled at s1 cannot be rescheduled to
-// block s2 because head is already past the fork.
-func isForkIncompatible(s1, s2, head *big.Int) bool {
-	return (isForked(s1, head) || isForked(s2, head)) && !configNumEqual(s1, s2)
-}
-
-// isForked returns whether a fork scheduled at block s is active at the given head block.
-func isForked(s, head *big.Int) bool {
-	if s == nil || head == nil {
-		return false
-	}
-	return s.Cmp(head) <= 0
 }
 
 func configNumEqual(x, y *big.Int) bool {
@@ -371,22 +278,18 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                       *big.Int
-	IsAiBaseline                  bool
-	IsMerge, IsShanghai, IsCancun bool
+	ChainID *big.Int
+	IsMerge bool
 }
 
 // Rules ensures c's ChainID is not nil.
-func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
+func (c *ChainConfig) Rules(_ *big.Int, isMerge bool) Rules {
 	chainID := c.ChainID
 	if chainID == nil {
 		chainID = new(big.Int)
 	}
 	return Rules{
-		ChainID:      new(big.Int).Set(chainID),
-		IsAiBaseline: c.IsAIGenesis(num),
-		IsMerge:      isMerge,
-		IsShanghai:   c.IsShanghai(num),
-		IsCancun:     c.IsCancun(num),
+		ChainID: new(big.Int).Set(chainID),
+		IsMerge: isMerge,
 	}
 }

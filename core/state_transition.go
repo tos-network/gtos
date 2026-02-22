@@ -209,12 +209,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 	var (
 		msg              = st.msg
-		rules            = st.chainConfig.Rules(st.blockCtx.BlockNumber, st.blockCtx.Random != nil)
 		contractCreation = msg.To() == nil
 	)
 
 	// Subtract intrinsic gas
-	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, rules.IsAiBaseline, rules.IsAiBaseline)
+	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, true, true)
 	if err != nil {
 		return nil, err
 	}
