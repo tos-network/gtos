@@ -72,7 +72,7 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 	if bf.results.baseFee = bf.header.BaseFee; bf.results.baseFee == nil {
 		bf.results.baseFee = new(big.Int)
 	}
-	if chainconfig.IsLondon(big.NewInt(int64(bf.blockNumber + 1))) {
+	if chainconfig.IsGrayGlacier(big.NewInt(int64(bf.blockNumber + 1))) {
 		bf.results.nextBaseFee = misc.CalcBaseFee(chainconfig, bf.header)
 	} else {
 		bf.results.nextBaseFee = new(big.Int)

@@ -1248,7 +1248,7 @@ func TestEIP155Transition(t *testing.T) {
 		funds      = big.NewInt(1000000000)
 		deleteAddr = common.Address{1}
 		gspec      = &Genesis{
-			Config: &params.ChainConfig{ChainID: big.NewInt(1), HomesteadBlock: new(big.Int)},
+			Config: &params.ChainConfig{ChainID: big.NewInt(1), GrayGlacierBlock: new(big.Int)},
 			Alloc:  GenesisAlloc{address: {Balance: funds}, deleteAddr: {Balance: new(big.Int)}},
 		}
 		genesis = gspec.MustCommit(db)
@@ -1319,7 +1319,7 @@ func TestEIP155Transition(t *testing.T) {
 	}
 
 	// generate an invalid chain id transaction
-	config := &params.ChainConfig{ChainID: big.NewInt(2), HomesteadBlock: new(big.Int)}
+	config := &params.ChainConfig{ChainID: big.NewInt(2), GrayGlacierBlock: new(big.Int)}
 	blocks, _ = GenerateChain(config, blocks[len(blocks)-1], dpos.NewFaker(), db, 4, func(i int, block *BlockGen) {
 		var (
 			tx      *types.Transaction
@@ -2664,16 +2664,16 @@ func TestSideImportPrunedBlocks(t *testing.T) {
 // in the first place.
 //
 
-// TestEIP2718Transition tests that an EIP-2718 transaction will be accepted
-// after the fork block has passed. This is verified by sending an EIP-2930
+// Typed-envelope transition test ensures a TIP-2718 transaction is accepted.
+// This is verified by sending an TIP-2930
 // access list transaction, which specifies a single slot access, and then
 // checking that the gas usage of a hot SLOAD and a cold SLOAD are calculated
 // correctly.
 
-// TestEIP1559Transition tests the following:
+// Dynamic-fee transition test covers the following:
 //
 // 1. A transaction whose gasFeeCap is greater than the baseFee is valid.
-// 2. Gas accounting for access lists on EIP-1559 transactions is correct.
+// 2. Gas accounting for access lists on TIP-1559 transactions is correct.
 // 3. Only the transaction's tip will be received by the coinbase.
 // 4. The transaction sender pays for both the tip and baseFee.
 // 5. The coinbase receives only the partially realized tip when

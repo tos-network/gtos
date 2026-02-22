@@ -858,7 +858,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		// Error may be ignored here. The error has already been checked
 		// during transaction acceptance in the transaction pool.
 		//
-		// EIP-155 replay protection is always active in GTOS.
+		// TIP-155 replay protection is always active in GTOS.
 		from, _ := types.Sender(env.signer, tx)
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)
@@ -974,10 +974,10 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 	if genParams.random != (common.Hash{}) {
 		header.MixDigest = genParams.random
 	}
-	// Set baseFee and GasLimit if we are on an EIP-1559 chain
-	if w.chainConfig.IsLondon(header.Number) {
+	// Set baseFee and GasLimit if we are on an TIP-1559 chain
+	if w.chainConfig.IsGrayGlacier(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(w.chainConfig, parent.Header())
-		if !w.chainConfig.IsLondon(parent.Number()) {
+		if !w.chainConfig.IsGrayGlacier(parent.Number()) {
 			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
 			header.GasLimit = core.CalcGasLimit(parentGasLimit, w.config.GasCeil)
 		}

@@ -24,18 +24,16 @@ type PrecompiledContract interface {
 	Run(input []byte) ([]byte, error) // Run runs the precompiled contract
 }
 
-// PrecompiledContractsHomestead contains the default set of pre-compiled TOS
-// contracts used in the Frontier and Homestead releases.
-var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
+// PrecompiledContractsLegacy contains the legacy pre-compiled TOS contract set.
+var PrecompiledContractsLegacy = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{1}): &ecrecover{},
 	common.BytesToAddress([]byte{2}): &sha256hash{},
 	common.BytesToAddress([]byte{3}): &ripemd160hash{},
 	common.BytesToAddress([]byte{4}): &dataCopy{},
 }
 
-// PrecompiledContractsByzantium contains the default set of pre-compiled TOS
-// contracts used in the Byzantium release.
-var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
+// PrecompiledContractsExtended contains an intermediate pre-compiled contract set.
+var PrecompiledContractsExtended = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{1}): &ecrecover{},
 	common.BytesToAddress([]byte{2}): &sha256hash{},
 	common.BytesToAddress([]byte{3}): &ripemd160hash{},
@@ -46,9 +44,8 @@ var PrecompiledContractsByzantium = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{8}): &bn256PairingByzantium{},
 }
 
-// PrecompiledContractsIstanbul contains the default set of pre-compiled TOS
-// contracts used in the Istanbul release.
-var PrecompiledContractsIstanbul = map[common.Address]PrecompiledContract{
+// PrecompiledContractsModern contains a newer pre-compiled contract set.
+var PrecompiledContractsModern = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{1}): &ecrecover{},
 	common.BytesToAddress([]byte{2}): &sha256hash{},
 	common.BytesToAddress([]byte{3}): &ripemd160hash{},
@@ -60,9 +57,8 @@ var PrecompiledContractsIstanbul = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{9}): &blake2F{},
 }
 
-// PrecompiledContractsBerlin contains the default set of pre-compiled TOS
-// contracts used in the Berlin release.
-var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
+// PrecompiledContractsBaseline contains the active baseline pre-compiled contract set.
+var PrecompiledContractsBaseline = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{1}): &ecrecover{},
 	common.BytesToAddress([]byte{2}): &sha256hash{},
 	common.BytesToAddress([]byte{3}): &ripemd160hash{},
@@ -75,7 +71,7 @@ var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
 }
 
 // PrecompiledContractsBLS contains the set of pre-compiled TOS
-// contracts specified in EIP-2537. These are exported for testing purposes.
+// contracts specified in TIP-2537. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{10}): &bls12381G1Add{},
 	common.BytesToAddress([]byte{11}): &bls12381G1Mul{},
@@ -89,38 +85,34 @@ var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 }
 
 var (
-	PrecompiledAddressesBerlin    []common.Address
-	PrecompiledAddressesIstanbul  []common.Address
-	PrecompiledAddressesByzantium []common.Address
-	PrecompiledAddressesHomestead []common.Address
+	PrecompiledAddressesBaseline []common.Address
+	PrecompiledAddressesModern   []common.Address
+	PrecompiledAddressesExtended []common.Address
+	PrecompiledAddressesLegacy   []common.Address
 )
 
 func init() {
-	for k := range PrecompiledContractsHomestead {
-		PrecompiledAddressesHomestead = append(PrecompiledAddressesHomestead, k)
+	for k := range PrecompiledContractsLegacy {
+		PrecompiledAddressesLegacy = append(PrecompiledAddressesLegacy, k)
 	}
-	for k := range PrecompiledContractsByzantium {
-		PrecompiledAddressesByzantium = append(PrecompiledAddressesByzantium, k)
+	for k := range PrecompiledContractsExtended {
+		PrecompiledAddressesExtended = append(PrecompiledAddressesExtended, k)
 	}
-	for k := range PrecompiledContractsIstanbul {
-		PrecompiledAddressesIstanbul = append(PrecompiledAddressesIstanbul, k)
+	for k := range PrecompiledContractsModern {
+		PrecompiledAddressesModern = append(PrecompiledAddressesModern, k)
 	}
-	for k := range PrecompiledContractsBerlin {
-		PrecompiledAddressesBerlin = append(PrecompiledAddressesBerlin, k)
+	for k := range PrecompiledContractsBaseline {
+		PrecompiledAddressesBaseline = append(PrecompiledAddressesBaseline, k)
 	}
 }
 
 // ActivePrecompiles returns the precompiles enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
-	case rules.IsBerlin:
-		return PrecompiledAddressesBerlin
-	case rules.IsIstanbul:
-		return PrecompiledAddressesIstanbul
-	case rules.IsByzantium:
-		return PrecompiledAddressesByzantium
+	case rules.IsGrayBaseline:
+		return PrecompiledAddressesBaseline
 	default:
-		return PrecompiledAddressesHomestead
+		return PrecompiledAddressesLegacy
 	}
 }
 
@@ -245,7 +237,7 @@ var (
 	big199680 = big.NewInt(199680)
 )
 
-// modexpMultComplexity implements bigModexp multComplexity formula, as defined in EIP-198
+// modexpMultComplexity implements bigModexp multComplexity formula, as defined in TIP-198
 //
 // def mult_complexity(x):
 //
@@ -311,9 +303,9 @@ func (c *bigModExp) RequiredGas(input []byte) uint64 {
 	// Calculate the gas cost of the operation
 	gas := new(big.Int).Set(math.BigMax(modLen, baseLen))
 	if c.eip2565 {
-		// EIP-2565 has three changes
+		// TIP-2565 has three changes
 		// 1. Different multComplexity (inlined here)
-		// in EIP-2565 (https://eips.tos.org/EIPS/eip-2565):
+		// in TIP-2565:
 		//
 		// def mult_complexity(x):
 		//    ceiling(x/8)^2
@@ -609,7 +601,7 @@ var (
 	errBLS12381G2PointSubgroup             = errors.New("g2 point is not on correct subgroup")
 )
 
-// bls12381G1Add implements EIP-2537 G1Add precompile.
+// bls12381G1Add implements TIP-2537 G1Add precompile.
 type bls12381G1Add struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -618,7 +610,7 @@ func (c *bls12381G1Add) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1Add) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G1Add precompile.
+	// Implements TIP-2537 G1Add precompile.
 	// > G1 addition call expects `256` bytes as an input that is interpreted as byte concatenation of two G1 points (`128` bytes each).
 	// > Output is an encoding of addition operation result - single G1 point (`128` bytes).
 	if len(input) != 256 {
@@ -647,7 +639,7 @@ func (c *bls12381G1Add) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G1Mul implements EIP-2537 G1Mul precompile.
+// bls12381G1Mul implements TIP-2537 G1Mul precompile.
 type bls12381G1Mul struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -656,7 +648,7 @@ func (c *bls12381G1Mul) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1Mul) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G1Mul precompile.
+	// Implements TIP-2537 G1Mul precompile.
 	// > G1 multiplication call expects `160` bytes as an input that is interpreted as byte concatenation of encoding of G1 point (`128` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiplication operation result - single G1 point (`128` bytes).
 	if len(input) != 160 {
@@ -683,7 +675,7 @@ func (c *bls12381G1Mul) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G1MultiExp implements EIP-2537 G1MultiExp precompile.
+// bls12381G1MultiExp implements TIP-2537 G1MultiExp precompile.
 type bls12381G1MultiExp struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -706,7 +698,7 @@ func (c *bls12381G1MultiExp) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G1MultiExp) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G1MultiExp precompile.
+	// Implements TIP-2537 G1MultiExp precompile.
 	// G1 multiplication call expects `160*k` bytes as an input that is interpreted as byte concatenation of `k` slices each of them being a byte concatenation of encoding of G1 point (`128` bytes) and encoding of a scalar value (`32` bytes).
 	// Output is an encoding of multiexponentiation operation result - single G1 point (`128` bytes).
 	k := len(input) / 160
@@ -740,7 +732,7 @@ func (c *bls12381G1MultiExp) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2Add implements EIP-2537 G2Add precompile.
+// bls12381G2Add implements TIP-2537 G2Add precompile.
 type bls12381G2Add struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -749,7 +741,7 @@ func (c *bls12381G2Add) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2Add) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G2Add precompile.
+	// Implements TIP-2537 G2Add precompile.
 	// > G2 addition call expects `512` bytes as an input that is interpreted as byte concatenation of two G2 points (`256` bytes each).
 	// > Output is an encoding of addition operation result - single G2 point (`256` bytes).
 	if len(input) != 512 {
@@ -778,7 +770,7 @@ func (c *bls12381G2Add) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2Mul implements EIP-2537 G2Mul precompile.
+// bls12381G2Mul implements TIP-2537 G2Mul precompile.
 type bls12381G2Mul struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -787,7 +779,7 @@ func (c *bls12381G2Mul) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2Mul) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G2MUL precompile logic.
+	// Implements TIP-2537 G2MUL precompile logic.
 	// > G2 multiplication call expects `288` bytes as an input that is interpreted as byte concatenation of encoding of G2 point (`256` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiplication operation result - single G2 point (`256` bytes).
 	if len(input) != 288 {
@@ -814,7 +806,7 @@ func (c *bls12381G2Mul) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381G2MultiExp implements EIP-2537 G2MultiExp precompile.
+// bls12381G2MultiExp implements TIP-2537 G2MultiExp precompile.
 type bls12381G2MultiExp struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -837,7 +829,7 @@ func (c *bls12381G2MultiExp) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381G2MultiExp) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 G2MultiExp precompile logic
+	// Implements TIP-2537 G2MultiExp precompile logic
 	// > G2 multiplication call expects `288*k` bytes as an input that is interpreted as byte concatenation of `k` slices each of them being a byte concatenation of encoding of G2 point (`256` bytes) and encoding of a scalar value (`32` bytes).
 	// > Output is an encoding of multiexponentiation operation result - single G2 point (`256` bytes).
 	k := len(input) / 288
@@ -871,7 +863,7 @@ func (c *bls12381G2MultiExp) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381Pairing implements EIP-2537 Pairing precompile.
+// bls12381Pairing implements TIP-2537 Pairing precompile.
 type bls12381Pairing struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -880,7 +872,7 @@ func (c *bls12381Pairing) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381Pairing) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 Pairing precompile logic.
+	// Implements TIP-2537 Pairing precompile logic.
 	// > Pairing call expects `384*k` bytes as an inputs that is interpreted as byte concatenation of `k` slices. Each slice has the following structure:
 	// > - `128` bytes of G1 point encoding
 	// > - `256` bytes of G2 point encoding
@@ -950,7 +942,7 @@ func decodeBLS12381FieldElement(in []byte) ([]byte, error) {
 	return out, nil
 }
 
-// bls12381MapG1 implements EIP-2537 MapG1 precompile.
+// bls12381MapG1 implements TIP-2537 MapG1 precompile.
 type bls12381MapG1 struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -959,7 +951,7 @@ func (c *bls12381MapG1) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381MapG1) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 Map_To_G1 precompile.
+	// Implements TIP-2537 Map_To_G1 precompile.
 	// > Field-to-curve call expects `64` bytes an an input that is interpreted as a an element of the base field.
 	// > Output of this call is `128` bytes and is G1 point following respective encoding rules.
 	if len(input) != 64 {
@@ -985,7 +977,7 @@ func (c *bls12381MapG1) Run(input []byte) ([]byte, error) {
 	return g.EncodePoint(r), nil
 }
 
-// bls12381MapG2 implements EIP-2537 MapG2 precompile.
+// bls12381MapG2 implements TIP-2537 MapG2 precompile.
 type bls12381MapG2 struct{}
 
 // RequiredGas returns the gas required to execute the pre-compiled contract.
@@ -994,7 +986,7 @@ func (c *bls12381MapG2) RequiredGas(input []byte) uint64 {
 }
 
 func (c *bls12381MapG2) Run(input []byte) ([]byte, error) {
-	// Implements EIP-2537 Map_FP2_TO_G2 precompile logic.
+	// Implements TIP-2537 Map_FP2_TO_G2 precompile logic.
 	// > Field-to-curve call expects `128` bytes an an input that is interpreted as a an element of the quadratic extension field.
 	// > Output of this call is `256` bytes and is G2 point following respective encoding rules.
 	if len(input) != 128 {

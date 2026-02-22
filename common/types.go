@@ -215,7 +215,7 @@ func (a Address) Bytes() []byte { return a[:] }
 // Hash converts an address to a hash by left-padding it with zeros.
 func (a Address) Hash() Hash { return BytesToHash(a[:]) }
 
-// Hex returns an EIP55-compliant hex string representation of the address.
+// Hex returns an TIP55-compliant hex string representation of the address.
 func (a Address) Hex() string {
 	return string(a.checksumHex())
 }

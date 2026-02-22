@@ -105,7 +105,7 @@ const (
 	JUMPDEST OpCode = 0x5b
 )
 
-// Push opcodes (EIP-3855)
+// Push opcodes (TIP-3855)
 const (
 	PUSH0 OpCode = 0x5f
 )
@@ -521,7 +521,7 @@ var stringToOp = map[string]OpCode{
 	"SELFDESTRUCT":   SELFDESTRUCT,
 }
 
-// ValidEip returns whether the given EIP is valid/supported (stub, always false).
+// ValidEip returns whether the given TIP is valid/supported (stub, always false).
 func ValidEip(eipNum int) bool {
 	return false
 }

@@ -113,7 +113,7 @@ func (b *BlockGen) Number() *big.Int {
 	return new(big.Int).Set(b.header.Number)
 }
 
-// BaseFee returns the EIP-1559 base fee of the block being generated.
+// BaseFee returns the TIP-1559 base fee of the block being generated.
 func (b *BlockGen) BaseFee() *big.Int {
 	return new(big.Int).Set(b.header.BaseFee)
 }
@@ -153,9 +153,9 @@ func (b *BlockGen) AddUncle(h *types.Header) {
 
 	// The gas limit and price should be derived from the parent
 	h.GasLimit = parent.GasLimit
-	if b.config.IsLondon(h.Number) {
+	if b.config.IsGrayGlacier(h.Number) {
 		h.BaseFee = misc.CalcBaseFee(b.config, parent)
-		if !b.config.IsLondon(parent.Number) {
+		if !b.config.IsGrayGlacier(parent.Number) {
 			parentGasLimit := parent.GasLimit * params.ElasticityMultiplier
 			h.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
 		}
@@ -276,9 +276,9 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 		Number:   new(big.Int).Add(parent.Number(), common.Big1),
 		Time:     time,
 	}
-	if chain.Config().IsLondon(header.Number) {
+	if chain.Config().IsGrayGlacier(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(chain.Config(), parent.Header())
-		if !chain.Config().IsLondon(parent.Number()) {
+		if !chain.Config().IsGrayGlacier(parent.Number()) {
 			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
 			header.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
 		}

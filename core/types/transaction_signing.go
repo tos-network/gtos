@@ -23,37 +23,33 @@ type sigCache struct {
 // MakeSigner returns a Signer based on the given chain config and block number.
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
 	switch {
-	case config.ChainID != nil && config.IsLondon(blockNumber):
+	case config.ChainID != nil && config.IsGrayGlacier(blockNumber):
 		return NewLondonSigner(config.ChainID)
 	case config.ChainID != nil:
-		// EIP-155 replay protection and EIP-2718 typed envelopes are always active.
+		// TIP-155 replay protection and TIP-2718 typed envelopes are always active.
 		return NewEIP2930Signer(config.ChainID)
-	case config.IsHomestead(blockNumber):
+	case config.IsGrayGlacier(blockNumber):
 		return HomesteadSigner{}
 	default:
 		return FrontierSigner{}
 	}
 }
 
-// LatestSigner returns the 'most permissive' Signer available for the given chain
-// configuration. Specifically, this enables support of EIP-155 replay protection and
-// EIP-2930 access list transactions when their respective forks are scheduled to occur at
-// any block number in the chain config.
+// LatestSigner returns the most permissive signer available for the given chain
+// configuration. In GTOS, TIP-155 replay protection and TIP-2718 typed
+// transaction support are always active when chain ID is configured.
 //
 // Use this in transaction-handling code where the current block number is unknown. If you
 // have the current block number available, use MakeSigner instead.
 func LatestSigner(config *params.ChainConfig) Signer {
 	if config.ChainID != nil {
-		if config.LondonBlock != nil {
-			return NewLondonSigner(config.ChainID)
-		}
-		return NewEIP2930Signer(config.ChainID)
+		return NewLondonSigner(config.ChainID)
 	}
 	return HomesteadSigner{}
 }
 
 // LatestSignerForChainID returns the 'most permissive' Signer available. Specifically,
-// this enables support for EIP-155 replay protection and all implemented EIP-2718
+// this enables support for TIP-155 replay protection and all implemented TIP-2718
 // transaction types if chainID is non-nil.
 //
 // Use this in transaction-handling code where the current block number and fork
@@ -149,9 +145,9 @@ type Signer interface {
 type londonSigner struct{ eip2930Signer }
 
 // NewLondonSigner returns a signer that accepts
-// - EIP-1559 dynamic fee transactions
-// - EIP-2930 access list transactions,
-// - EIP-155 replay protected transactions, and
+// - TIP-1559 dynamic fee transactions
+// - TIP-2930 access list transactions,
+// - TIP-155 replay protected transactions, and
 // - legacy Homestead transactions.
 func NewLondonSigner(chainId *big.Int) Signer {
 	return londonSigner{eip2930Signer{NewEIP155Signer(chainId)}}
@@ -214,8 +210,8 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 
 type eip2930Signer struct{ EIP155Signer }
 
-// NewEIP2930Signer returns a signer that accepts EIP-2930 access list transactions,
-// EIP-155 replay protected transactions, and legacy Homestead transactions.
+// New access-list signer constructor accepts TIP-2930 access list transactions,
+// TIP-155 replay protected transactions, and legacy Homestead transactions.
 func NewEIP2930Signer(chainId *big.Int) Signer {
 	return eip2930Signer{NewEIP155Signer(chainId)}
 }
@@ -305,7 +301,7 @@ func (s eip2930Signer) Hash(tx *Transaction) common.Hash {
 	}
 }
 
-// EIP155Signer implements Signer using the EIP-155 rules. This accepts transactions which
+// TIP155Signer implements Signer using the TIP-155 rules. This accepts transactions which
 // are replay-protected as well as unprotected homestead transactions.
 type EIP155Signer struct {
 	chainId, chainIdMul *big.Int

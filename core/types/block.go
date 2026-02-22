@@ -68,7 +68,7 @@ type Header struct {
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
 
-	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	// BaseFee was added by TIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	/*

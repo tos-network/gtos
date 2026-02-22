@@ -149,7 +149,7 @@ func SignTextValidator(validatorData apitypes.ValidatorData) (hexutil.Bytes, str
 	return crypto.Keccak256([]byte(msg)), msg
 }
 
-// SignTypedData signs EIP-712 conformant typed data
+// SignTypedData signs TIP-712 conformant typed data
 // hash = keccak256("\x19${byteVersion}${domainSeparator}${hashStruct(message)}")
 // It returns
 // - the signature,

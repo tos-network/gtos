@@ -7,8 +7,6 @@ import (
 	"hash/crc32"
 	"math"
 	"math/big"
-	"reflect"
-	"strings"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
@@ -197,22 +195,15 @@ func checksumToBytes(hash uint32) [4]byte {
 
 // gatherForks gathers all the known forks and creates a sorted list out of them.
 func gatherForks(config *params.ChainConfig) []uint64 {
-	// Gather all the fork block numbers via reflection
-	kind := reflect.TypeOf(params.ChainConfig{})
-	conf := reflect.ValueOf(config).Elem()
-
-	var forks []uint64
-	for i := 0; i < kind.NumField(); i++ {
-		// Fetch the next field and skip non-fork rules
-		field := kind.Field(i)
-		if !strings.HasSuffix(field.Name, "Block") {
-			continue
-		}
-		if field.Type != reflect.TypeOf(new(big.Int)) {
-			continue
-		}
-		// Extract the fork rule block number and aggregate it
-		rule := conf.Field(i).Interface().(*big.Int)
+	// Keep forkid based on Gray Glacier and later staged upgrades only.
+	rules := []*big.Int{
+		config.GrayGlacierBlock,
+		config.MergeNetsplitBlock,
+		config.ShanghaiBlock,
+		config.CancunBlock,
+	}
+	forks := make([]uint64, 0, len(rules))
+	for _, rule := range rules {
 		if rule != nil {
 			forks = append(forks, rule.Uint64())
 		}

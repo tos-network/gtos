@@ -224,7 +224,7 @@ type TxPool struct {
 	signer      types.Signer
 	mu          sync.RWMutex
 
-	istanbul bool // Fork indicator whether we are in the istanbul stage.
+	grayBaseline bool // Indicates whether the Gray Glacier baseline rules are active.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *txNoncer      // Pending state tracking virtual nonces
@@ -568,9 +568,9 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	switch tx.Type() {
 	case types.LegacyTxType, types.AccessListTxType:
-		// EIP-2718 typed envelopes are always enabled.
+		// TIP-2718 typed envelopes are always enabled.
 	case types.DynamicFeeTxType:
-		// EIP-1559 dynamic fee transactions are not supported in GTOS.
+		// TIP-1559 dynamic fee transactions are not supported in GTOS.
 		return ErrTxTypeNotSupported
 	default:
 		return ErrTxTypeNotSupported
@@ -618,7 +618,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrInsufficientFunds
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
-	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.istanbul)
+	intrGas, err := IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.grayBaseline)
 	if err != nil {
 		return err
 	}
@@ -1161,7 +1161,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 	// because of another transaction (e.g. higher gas price).
 	if reset != nil {
 		pool.demoteUnexecutables()
-		if reset.newHead != nil && pool.chainconfig.IsLondon(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
+		if reset.newHead != nil && pool.chainconfig.IsGrayGlacier(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
 			pendingBaseFee := misc.CalcBaseFee(pool.chainconfig, reset.newHead)
 			pool.priced.SetBaseFee(pendingBaseFee)
 		}
@@ -1284,7 +1284,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 
 	// Update all fork indicator by next pending block number.
 	next := new(big.Int).Add(newHead.Number, big.NewInt(1))
-	pool.istanbul = pool.chainconfig.IsIstanbul(next)
+	pool.grayBaseline = pool.chainconfig.IsGrayGlacier(next)
 }
 
 // promoteExecutables moves transactions that have become processable from the

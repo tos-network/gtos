@@ -11,7 +11,7 @@ import (
 	"github.com/tos-network/gtos/rlp"
 )
 
-// EIP-8 test vectors.
+// TIP-8 test vectors.
 var testPackets = []struct {
 	input      string
 	wantPacket interface{}
@@ -79,7 +79,7 @@ var testPackets = []struct {
 	},
 }
 
-// This test checks that the decoder accepts packets according to EIP-8.
+// This test checks that the decoder accepts packets according to TIP-8.
 func TestForwardCompatibility(t *testing.T) {
 	testkey, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	wantNodeKey := EncodePubkey(&testkey.PublicKey)

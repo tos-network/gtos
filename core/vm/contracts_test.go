@@ -51,7 +51,7 @@ var allPrecompiles = map[common.Address]PrecompiledContract{
 	common.BytesToAddress([]byte{18}):   &bls12381MapG2{},
 }
 
-// EIP-152 test vectors
+// TIP-152 test vectors
 var blake2FMalformedInputTests = []precompiledFailureTest{
 	{
 		Input:         "",
@@ -215,14 +215,14 @@ func BenchmarkPrecompiledIdentity(bench *testing.B) {
 	benchmarkPrecompiled("04", t, bench)
 }
 
-// Tests the sample inputs from the ModExp EIP 198.
+// Tests the sample inputs from the ModExp TIP 198.
 func TestPrecompiledModExp(t *testing.T)      { testJson("modexp", "05", t) }
 func BenchmarkPrecompiledModExp(b *testing.B) { benchJson("modexp", "05", b) }
 
 func TestPrecompiledModExpEip2565(t *testing.T)      { testJson("modexp_eip2565", "f5", t) }
 func BenchmarkPrecompiledModExpEip2565(b *testing.B) { benchJson("modexp_eip2565", "f5", b) }
 
-// Tests the sample inputs from the elliptic curve addition EIP 213.
+// Tests the sample inputs from the elliptic curve addition TIP 213.
 func TestPrecompiledBn256Add(t *testing.T)      { testJson("bn256Add", "06", t) }
 func BenchmarkPrecompiledBn256Add(b *testing.B) { benchJson("bn256Add", "06", b) }
 
@@ -237,11 +237,11 @@ func TestPrecompiledModExpOOG(t *testing.T) {
 	}
 }
 
-// Tests the sample inputs from the elliptic curve scalar multiplication EIP 213.
+// Tests the sample inputs from the elliptic curve scalar multiplication TIP 213.
 func TestPrecompiledBn256ScalarMul(t *testing.T)      { testJson("bn256ScalarMul", "07", t) }
 func BenchmarkPrecompiledBn256ScalarMul(b *testing.B) { benchJson("bn256ScalarMul", "07", b) }
 
-// Tests the sample inputs from the elliptic curve pairing check EIP 197.
+// Tests the sample inputs from the elliptic curve pairing check TIP 197.
 func TestPrecompiledBn256Pairing(t *testing.T)      { testJson("bn256Pairing", "08", t) }
 func BenchmarkPrecompiledBn256Pairing(b *testing.B) { benchJson("bn256Pairing", "08", b) }
 

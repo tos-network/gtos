@@ -25,16 +25,9 @@ import (
 func TestStateProcessorErrors(t *testing.T) {
 	var (
 		config = &params.ChainConfig{
-			ChainID:             big.NewInt(1),
-			HomesteadBlock:      big.NewInt(0),
-			ByzantiumBlock:      big.NewInt(0),
-			ConstantinopleBlock: big.NewInt(0),
-			PetersburgBlock:     big.NewInt(0),
-			IstanbulBlock:       big.NewInt(0),
-			MuirGlacierBlock:    big.NewInt(0),
-			BerlinBlock:         big.NewInt(0),
-			LondonBlock:         big.NewInt(0),
-			DPoS:                &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+			ChainID:          big.NewInt(1),
+			GrayGlacierBlock: big.NewInt(0),
+			DPoS:             &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
 		}
 		signer  = types.LatestSigner(config)
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -144,19 +137,14 @@ func TestStateProcessorErrors(t *testing.T) {
 		}
 	}
 
-	// ErrTxTypeNotSupported, For this, we need an older chain
+	// ErrTxTypeNotSupported
 	{
 		var (
 			db    = rawdb.NewMemoryDatabase()
 			gspec = &Genesis{
 				Config: &params.ChainConfig{
-					ChainID:             big.NewInt(1),
-					HomesteadBlock:      big.NewInt(0),
-					ByzantiumBlock:      big.NewInt(0),
-					ConstantinopleBlock: big.NewInt(0),
-					PetersburgBlock:     big.NewInt(0),
-					IstanbulBlock:       big.NewInt(0),
-					MuirGlacierBlock:    big.NewInt(0),
+					ChainID:          big.NewInt(1),
+					GrayGlacierBlock: big.NewInt(0),
 				},
 				Alloc: GenesisAlloc{
 					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
@@ -173,11 +161,11 @@ func TestStateProcessorErrors(t *testing.T) {
 			txs  []*types.Transaction
 			want string
 		}{
-			{ // ErrTxTypeNotSupported
+			{ // ErrIntrinsicGas
 				txs: []*types.Transaction{
 					mkDynamicTx(0, common.Address{}, params.TxGas-1000, big.NewInt(0), big.NewInt(0)),
 				},
-				want: "could not apply tx 0 [0xa657e8b1c3bf4ad1a47acaf1f2bf0be0bb08bce49fa1ec538e702338b8bcfaad]: transaction type not supported",
+				want: "could not apply tx 0 [0xa657e8b1c3bf4ad1a47acaf1f2bf0be0bb08bce49fa1ec538e702338b8bcfaad]: intrinsic gas too low: have 2000, want 3000",
 			},
 		} {
 			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)
@@ -251,7 +239,7 @@ func GenerateBadBlock(parent *types.Block, engine consensus.Engine, txs types.Tr
 		Time:      parent.Time() + 10,
 		UncleHash: types.EmptyUncleHash,
 	}
-	if config.IsLondon(header.Number) {
+	if config.IsGrayGlacier(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(config, parent.Header())
 	}
 	var receipts []*types.Receipt

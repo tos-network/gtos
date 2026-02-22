@@ -46,9 +46,9 @@ const (
 	ColdSloadCostEIP2929         = uint64(2100) // COLD_SLOAD_COST
 	WarmStorageReadCostEIP2929   = uint64(100)  // WARM_STORAGE_READ_COST
 
-	// In EIP-2200: SstoreResetGas was 5000.
-	// In EIP-2929: SstoreResetGas was changed to '5000 - COLD_SLOAD_COST'.
-	// In EIP-3529: SSTORE_CLEARS_SCHEDULE is defined as SSTORE_RESET_GAS + ACCESS_LIST_STORAGE_KEY_COST
+	// In TIP-2200: SstoreResetGas was 5000.
+	// In TIP-2929: SstoreResetGas was changed to '5000 - COLD_SLOAD_COST'.
+	// In TIP-3529: SSTORE_CLEARS_SCHEDULE is defined as SSTORE_RESET_GAS + ACCESS_LIST_STORAGE_KEY_COST
 	// Which becomes: 5000 - 2100 + 1900 = 4800
 	SstoreClearsScheduleRefundEIP3529 uint64 = SstoreResetGasEIP2200 - ColdSloadCostEIP2929 + TxAccessListStorageKeyGas
 
@@ -69,29 +69,29 @@ const (
 	MemoryGas             uint64 = 3     // Times the address of the (highest referenced byte in memory + 1). NOTE: referencing happens on read, write and in instructions such as RETURN and CALL.
 
 	TxDataNonZeroGasFrontier  uint64 = 68   // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.
-	TxDataNonZeroGasEIP2028   uint64 = 16   // Per byte of non zero data attached to a transaction after EIP 2028 (part in Istanbul)
-	TxAccessListAddressGas    uint64 = 2400 // Per address specified in EIP 2930 access list
-	TxAccessListStorageKeyGas uint64 = 1900 // Per storage key specified in EIP 2930 access list
+	TxDataNonZeroGasEIP2028   uint64 = 16   // Per byte of non zero data attached to a transaction after TIP 2028 (part in Istanbul)
+	TxAccessListAddressGas    uint64 = 2400 // Per address specified in TIP 2930 access list
+	TxAccessListStorageKeyGas uint64 = 1900 // Per storage key specified in TIP 2930 access list
 
 	// These have been changed during the course of the chain
 	CallGasFrontier              uint64 = 40  // Once per CALL operation & message call transaction.
 	CallGasRepriced              uint64 = 700 // Repriced static portion of gas for CALL-derivatives.
 	BalanceGasFrontier           uint64 = 20  // The cost of a BALANCE operation.
 	BalanceGasRepriced           uint64 = 400 // Repriced cost of a BALANCE operation.
-	BalanceGasEIP1884            uint64 = 700 // The cost of a BALANCE operation after EIP 1884 (part of Istanbul)
+	BalanceGasEIP1884            uint64 = 700 // The cost of a BALANCE operation after TIP 1884 (part of Istanbul)
 	ExtcodeSizeGasFrontier       uint64 = 20  // Cost of EXTCODESIZE in the initial schedule.
 	ExtcodeSizeGasRepriced       uint64 = 700 // Repriced cost of EXTCODESIZE.
 	SloadGasFrontier             uint64 = 50
 	SloadGasRepriced             uint64 = 200
-	SloadGasEIP1884              uint64 = 800  // Cost of SLOAD after EIP 1884 (part of Istanbul)
-	SloadGasEIP2200              uint64 = 800  // Cost of SLOAD after EIP 2200 (part of Istanbul)
+	SloadGasEIP1884              uint64 = 800  // Cost of SLOAD after TIP 1884 (part of Istanbul)
+	SloadGasEIP2200              uint64 = 800  // Cost of SLOAD after TIP 2200 (part of Istanbul)
 	ExtcodeHashGasConstantinople uint64 = 400  // Cost of EXTCODEHASH (introduced in Constantinople)
-	ExtcodeHashGasEIP1884        uint64 = 700  // Cost of EXTCODEHASH after EIP 1884 (part in Istanbul)
+	ExtcodeHashGasEIP1884        uint64 = 700  // Cost of EXTCODEHASH after TIP 1884 (part in Istanbul)
 	SelfdestructGasRepriced      uint64 = 5000 // Repriced cost of SELFDESTRUCT.
 
 	// EXP has a dynamic portion depending on the size of the exponent
 	ExpByteFrontier uint64 = 10 // was set to 10 in Frontier
-	ExpByteEIP158   uint64 = 50 // was raised to 50 during Eip158 (Spurious Dragon)
+	ExpByteEIP158   uint64 = 50 // was raised to 50 during TIP158 (Spurious Dragon)
 
 	// Extcodecopy has a dynamic and a static cost. This represents only the
 	// static portion of the gas after repricing.
@@ -103,8 +103,8 @@ const (
 	CreateBySelfdestructGas uint64 = 25000
 
 	BaseFeeChangeDenominator = 8          // Bounds the amount the base fee can change between blocks.
-	ElasticityMultiplier     = 2          // Bounds the maximum gas limit an EIP-1559 block may have.
-	InitialBaseFee           = 1000000000 // Initial base fee for EIP-1559 blocks.
+	ElasticityMultiplier     = 2          // Bounds the maximum gas limit an TIP-1559 block may have.
+	InitialBaseFee           = 1000000000 // Initial base fee for TIP-1559 blocks.
 
 	MaxCodeSize = 24576 // Maximum bytecode to permit for a contract
 
@@ -136,8 +136,8 @@ const (
 	Bls12381MapG1Gas          uint64 = 5500   // Gas price for BLS12-381 mapping field element to G1 operation
 	Bls12381MapG2Gas          uint64 = 110000 // Gas price for BLS12-381 mapping field element to G2 operation
 
-	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before EIP-3529,
-	// up to half the consumed gas could be refunded. Redefined as 1/5th in EIP-3529
+	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before TIP-3529,
+	// up to half the consumed gas could be refunded. Redefined as 1/5th in TIP-3529
 	RefundQuotient        uint64 = 2
 	RefundQuotientEIP3529 uint64 = 5
 )

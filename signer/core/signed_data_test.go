@@ -480,7 +480,7 @@ var gnosisTx = `
     }
 `
 
-// TestGnosisTypedData tests the scenario where a user submits a full EIP-712
+// TestGnosisTypedData tests the scenario where a user submits a full TIP-712
 // struct without using the gnosis-specific endpoint
 func TestGnosisTypedData(t *testing.T) {
 	var td apitypes.TypedData

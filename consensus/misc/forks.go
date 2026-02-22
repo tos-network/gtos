@@ -15,6 +15,6 @@ func VerifyForkHashes(config *params.ChainConfig, header *types.Header, uncle bo
 	if uncle {
 		return nil
 	}
-	// GTOS does not enforce gas-related EIP fork hashes.
+	// GTOS does not enforce gas-related TIP fork hashes.
 	return nil
 }

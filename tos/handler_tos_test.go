@@ -71,10 +71,9 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 	var (
 		engine = dpos.NewFaker()
 
-		configNoFork  = &params.ChainConfig{HomesteadBlock: big.NewInt(1)}
+		configNoFork  = &params.ChainConfig{GrayGlacierBlock: nil}
 		configProFork = &params.ChainConfig{
-			HomesteadBlock: big.NewInt(1),
-			ByzantiumBlock: big.NewInt(2),
+			GrayGlacierBlock: big.NewInt(2),
 		}
 		dbNoFork  = rawdb.NewMemoryDatabase()
 		dbProFork = rawdb.NewMemoryDatabase()

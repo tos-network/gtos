@@ -26,7 +26,7 @@ var (
 	// sideeffects used during testing.
 	testTxPoolConfig TxPoolConfig
 
-	// eip1559Config is a chain config with EIP-1559 enabled at block 0.
+	// TIP1559Config is a chain config with TIP-1559 enabled at block 0.
 	eip1559Config *params.ChainConfig
 )
 
@@ -36,8 +36,7 @@ func init() {
 
 	cpy := *params.TestChainConfig
 	eip1559Config = &cpy
-	eip1559Config.BerlinBlock = common.Big0
-	eip1559Config.LondonBlock = common.Big0
+	eip1559Config.GrayGlacierBlock = common.Big0
 }
 
 type testBlockChain struct {

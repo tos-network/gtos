@@ -215,7 +215,7 @@ func (w *trezorDriver) trezorSign(derivationPath []uint32, tx *types.Transaction
 	} else {
 		request.DataInitialChunk, data = data, nil
 	}
-	if chainID != nil { // EIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
+	if chainID != nil { // TIP-155 transaction, set chain ID explicitly (only 32 bit is supported!?)
 		id := uint32(chainID.Int64())
 		request.ChainId = &id
 	}
