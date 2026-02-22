@@ -1,20 +1,18 @@
 # GTOS
 
-GTOS is a DPoS-based blockchain focused on two native capabilities:
+GTOS is a DPoS-based blockchain focused on decentralized storage.
 
-- Transfer payment: deterministic account/balance transfer settlement.
-- Decentralized storage:
-  - immutable code storage (code cannot be modified after deployment)
-  - general key-value storage with TTL (time-to-live)
+- Code storage with TTL.
+- General key-value storage with TTL.
 
 ## Product Goal
 
-Build GTOS as a production-oriented chain for payment + storage:
+Build GTOS as a production-oriented chain for storage-first workloads:
 
 1. Fast finality with DPoS consensus.
-2. Transfer-first transaction model with predictable execution.
-3. On-chain immutable code storage.
-4. Native KV storage supporting expiration by TTL.
+2. Native decentralized storage as the primary capability.
+3. TTL-based lifecycle for all stored data, including code storage.
+4. Predictable pruning and low storage pressure without archive nodes.
 
 ## Core Features
 
@@ -25,39 +23,32 @@ Build GTOS as a production-oriented chain for payment + storage:
 - Epoch-based validator rotation.
 - Target block interval: `1s` (`target_block_interval=1s`).
 
-### 2. Transfer Payment
+### 2. Decentralized Storage (TTL Native)
 
-- Account model (`address`, `balance`, `nonce`, `signer`).
-- `transfer` transaction as first-class primitive.
-- Deterministic state transition and replay-safe nonce checks.
-- `signer` is the real signing identity and supports multi-algorithm verification (IPFS-style extensible signer type).
-- Backward-compatible default: if `signer` is not set, use `account address` as signer (same behavior as current gtos model).
-
-### 3. Immutable Code Storage
-
-- `contract_deploy` writes contract bytecode to chain state.
-- Contract bytecode is immutable once committed.
-- Contract evolution uses new deployment/version address, never in-place rewrite.
-
-### 4. KV Storage with TTL
-
-- `kv_put(key, value, ttl)` writes expiring records.
+- `code_put_ttl(code, ttl)` writes code objects with explicit expiration.
+- `kv_put_ttl(key, value, ttl)` writes expiring KV records.
 - Expiration is evaluated by block time/height policy (defined in protocol rules).
-- Expired keys are ignored by reads and can be pruned by background/state-maintenance logic.
+- Expired items are ignored by reads and can be pruned by background/state-maintenance logic.
+
+### 3. Signer-Capable Accounts
+
+- Account model (`address`, `nonce`, `signer`, optional `balance`).
+- `signer` is the real signing identity and supports multi-algorithm verification (IPFS-style extensible signer type).
+- Backward-compatible default: if `signer` is not set, use `account address` as signer.
 
 ## State Model (MVP)
 
-- `Accounts`: balances, nonces, signer.
-- `Contracts`: immutable bytecode + metadata.
-- `KV`: namespace/key -> value + created_at + expire_at.
+- `Accounts`: nonce, signer, and account metadata.
+- `CodeStore`: code hash/object -> payload + created_at + expire_at.
+- `KVStore`: namespace/key -> value + created_at + expire_at.
 
 All state transitions are consensus-verified and auditable on-chain.
 
 ## Transaction Types (MVP)
 
-- `transfer`
 - `account_set_signer`
-- `contract_deploy`
+- `code_put_ttl`
+- `code_delete` (optional governance/owner rule based)
 - `kv_put_ttl`
 - `kv_delete` (optional governance/owner rule based)
 
@@ -78,7 +69,7 @@ Tradeoff:
 
 The repository should now prioritize this target directly:
 
-- Keep only modules required for DPoS + transfer + storage.
+- Keep only modules required for DPoS + decentralized storage.
 - Remove legacy paths that do not serve the core product direction.
 - Implement protocol rules in small, testable milestones.
 
@@ -88,5 +79,6 @@ See `docs/ROADMAP.md` for phased delivery plan and acceptance criteria.
 
 ## License
 
-- Library code (outside `cmd`): LGPL-3.0 (`COPYING.LESSER`)
-- Binary-related code (inside `cmd`): GPL-3.0 (`COPYING`)
+This repository uses the BSD 3-Clause License.
+
+See `LICENSE`.
