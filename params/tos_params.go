@@ -6,18 +6,15 @@ import (
 	"github.com/tos-network/gtos/common"
 )
 
-// TOS system addresses — fixed, well-known addresses used by the protocol.
+// Protocol system addresses — fixed, well-known addresses used by GTOS.
 var (
 	// SystemActionAddress is the sentinel To-address for system action transactions.
 	// Transactions sent to this address carry a JSON-encoded SysAction in tx.Data
 	// and are executed outside the EVM by the state processor.
-	SystemActionAddress = common.HexToAddress("0x0000000000000000000000000000000054534F31") // "TOS1"
-
-	// AgentRegistryAddress stores on-chain agent registry state via storage slots.
-	AgentRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000054534F32") // "TOS2"
+	SystemActionAddress = common.HexToAddress("0x53595354454D5F414354494F4E5F43454E544552") // "SYSTEM_ACTION_CENTER"
 
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.
-	ValidatorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000054534F33") // "TOS3"
+	ValidatorRegistryAddress = common.HexToAddress("0x56414C494441544F525F535441544553544F5245") // "VALIDATOR_STATESTORE"
 )
 
 // DPoS validator stake and reward parameters.

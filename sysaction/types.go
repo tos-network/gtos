@@ -3,7 +3,7 @@
 // System actions are special transactions sent to params.SystemActionAddress.
 // Their tx.Data field is a JSON-encoded SysAction message. The EVM is never
 // invoked; instead the state processor calls sysaction.Execute() which
-// dispatches to the appropriate handler (e.g. agent).
+// dispatches to the appropriate handler.
 package sysaction
 
 import "encoding/json"
@@ -12,11 +12,6 @@ import "encoding/json"
 type ActionKind string
 
 const (
-	// Agent lifecycle
-	ActionAgentRegister  ActionKind = "AGENT_REGISTER"
-	ActionAgentUpdate    ActionKind = "AGENT_UPDATE"
-	ActionAgentHeartbeat ActionKind = "AGENT_HEARTBEAT"
-
 	// Validator lifecycle (DPoS)
 	ActionValidatorRegister ActionKind = "VALIDATOR_REGISTER"
 	ActionValidatorWithdraw ActionKind = "VALIDATOR_WITHDRAW"
@@ -26,19 +21,4 @@ const (
 type SysAction struct {
 	Action  ActionKind      `json:"action"`
 	Payload json.RawMessage `json:"payload,omitempty"`
-}
-
-// AgentRegisterPayload is the payload for AGENT_REGISTER / AGENT_UPDATE.
-type AgentRegisterPayload struct {
-	AgentID     string          `json:"agent_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Category    string          `json:"category"`
-	Tags        []string        `json:"tags"`
-	Manifest    json.RawMessage `json:"manifest"` // ToolManifest JSON
-}
-
-// AgentHeartbeatPayload is the payload for AGENT_HEARTBEAT.
-type AgentHeartbeatPayload struct {
-	AgentID string `json:"agent_id"`
 }

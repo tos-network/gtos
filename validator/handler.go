@@ -64,7 +64,7 @@ func (h *validatorHandler) handleRegister(ctx *sysaction.Context, _ *sysaction.S
 
 	// ── Mutation phase ───────────────────────────────────────────────────────
 
-	// 5. Lock stake: sender → TOS3.
+	// 5. Lock stake: sender -> validator registry account.
 	ctx.StateDB.SubBalance(ctx.From, ctx.Value)
 	ctx.StateDB.AddBalance(params.ValidatorRegistryAddress, ctx.Value)
 
@@ -91,15 +91,15 @@ func (h *validatorHandler) handleWithdraw(ctx *sysaction.Context, _ *sysaction.S
 	}
 	selfStake := ReadSelfStake(ctx.StateDB, ctx.From)
 
-	// Defensive: TOS3 balance should always >= selfStake if invariant holds.
+	// Defensive: validator registry balance should always >= selfStake if invariant holds.
 	// Guards against future bugs that could corrupt the accounting.
 	if ctx.StateDB.GetBalance(params.ValidatorRegistryAddress).Cmp(selfStake) < 0 {
-		return ErrTOS3BalanceBroken
+		return ErrValidatorRegistryBalanceBroken
 	}
 
 	// ── Mutation phase ───────────────────────────────────────────────────────
 
-	// Refund stake: TOS3 → sender.
+	// Refund stake: validator registry account -> sender.
 	ctx.StateDB.SubBalance(params.ValidatorRegistryAddress, selfStake)
 	ctx.StateDB.AddBalance(ctx.From, selfStake)
 

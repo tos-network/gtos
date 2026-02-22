@@ -150,8 +150,9 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		// Epoch boundary: update validator set from header.Extra.
 		//
 		// R2-H1 NOTE (accepted MVP limitation): apply() has no access to StateDB,
-		// so it cannot independently verify that header.Extra matches TOS3 state.
-		// Honest nodes use FinalizeAndAssemble which always reads TOS3 correctly.
+		// so it cannot independently verify that header.Extra matches validator
+		// registry state. Honest nodes use FinalizeAndAssemble which always reads
+		// validator registry state correctly.
 		// A byzantine validator (with <50% stake) could embed a wrong list,
 		// but cannot sustain a fork since honest nodes build on the honest chain.
 		if number%s.config.Epoch == 0 {

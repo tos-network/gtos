@@ -89,7 +89,7 @@ func writeRegisteredFlag(db vm.StateDB, addr common.Address) {
 	db.SetState(params.ValidatorRegistryAddress, validatorSlot(addr, "registered"), val)
 }
 
-// WriteValidatorStatus writes the status for addr to TOS3.
+// WriteValidatorStatus writes the status for addr to the validator registry account.
 func WriteValidatorStatus(db vm.StateDB, addr common.Address, s ValidatorStatus) {
 	var val common.Hash
 	val[31] = byte(s)

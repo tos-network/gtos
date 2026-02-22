@@ -15,9 +15,9 @@ const (
 
 // Sentinel errors returned by system action handlers.
 var (
-	ErrAlreadyRegistered   = errors.New("validator: already registered")
-	ErrNotActive           = errors.New("validator: not active")
-	ErrInsufficientStake   = errors.New("validator: insufficient stake")
-	ErrInsufficientBalance = errors.New("validator: sender balance below stake amount")
-	ErrTOS3BalanceBroken   = errors.New("validator: TOS3 balance invariant violated")
+	ErrAlreadyRegistered              = errors.New("validator: already registered")
+	ErrNotActive                      = errors.New("validator: not active")
+	ErrInsufficientStake              = errors.New("validator: insufficient stake")
+	ErrInsufficientBalance            = errors.New("validator: sender balance below stake amount")
+	ErrValidatorRegistryBalanceBroken = errors.New("validator: validator registry balance invariant violated")
 )

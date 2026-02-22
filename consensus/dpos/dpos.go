@@ -2,7 +2,7 @@
 //
 // Block production is round-robin among staked validators. Validators are
 // registered via VALIDATOR_REGISTER system actions; their on-chain state is
-// stored at params.ValidatorRegistryAddress (TOS3).
+// stored at params.ValidatorRegistryAddress (validator registry account).
 //
 // The Extra field format mirrors Clique:
 //
@@ -525,8 +525,9 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 // Finalize implements consensus.Engine, adding the block reward.
 //
 // R2-H1 — Accepted MVP limitation: Finalize() has no error return in
-// consensus.Engine, so we cannot verify that header.Extra matches TOS3 state
-// here. FinalizeAndAssemble (the honest proposer path) always reads TOS3 and
+// consensus.Engine, so we cannot verify that header.Extra matches validator
+// registry state here. FinalizeAndAssemble (the honest proposer path) always
+// reads validator registry state and
 // embeds the correct list. A byzantine validator could produce an epoch block
 // with a wrong Extra, but cannot sustain a fork without >50% of validators.
 func (d *DPoS) Finalize(chain consensus.ChainHeaderReader, header *types.Header,

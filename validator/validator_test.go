@@ -90,9 +90,9 @@ func TestReregisterAfterWithdraw(t *testing.T) {
 	}
 }
 
-// TestWithdrawTOS3BalanceGuard verifies that handleWithdraw returns
-// ErrTOS3BalanceBroken when TOS3 balance < selfStake (invariant violation).
-func TestWithdrawTOS3BalanceGuard(t *testing.T) {
+// TestWithdrawRegistryBalanceGuard verifies that handleWithdraw returns
+// ErrValidatorRegistryBalanceBroken when registry balance < selfStake (invariant violation).
+func TestWithdrawRegistryBalanceGuard(t *testing.T) {
 	st := newTestState()
 	a := tAddr(0x03)
 	fund(st, a, params.DPoSMinValidatorStake)
@@ -100,12 +100,12 @@ func TestWithdrawTOS3BalanceGuard(t *testing.T) {
 	if err := h.Handle(newCtx(st, a, params.DPoSMinValidatorStake), regSA); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	// Corrupt TOS3 balance by draining it entirely.
-	tos3Balance := st.GetBalance(params.ValidatorRegistryAddress)
-	st.SubBalance(params.ValidatorRegistryAddress, tos3Balance)
+	// Corrupt registry balance by draining it entirely.
+	registryBalance := st.GetBalance(params.ValidatorRegistryAddress)
+	st.SubBalance(params.ValidatorRegistryAddress, registryBalance)
 
-	if err := h.Handle(newCtx(st, a, big.NewInt(0)), wdSA); err != ErrTOS3BalanceBroken {
-		t.Errorf("want ErrTOS3BalanceBroken, got %v", err)
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), wdSA); err != ErrValidatorRegistryBalanceBroken {
+		t.Errorf("want ErrValidatorRegistryBalanceBroken, got %v", err)
 	}
 }
 
