@@ -13,6 +13,8 @@ This document defines the public RPC v2 surface aligned with GTOS roadmap:
 - Consensus-specific validator queries remain under `dpos_*`.
 - Public RPC should prioritize deterministic state queries over VM-style simulation.
 - History outside retention window must return explicit pruning errors.
+- Code storage is immutable while active: no update and no delete RPC.
+- KV storage is non-deletable but updatable via `tos_putKVTTL` overwrite.
 
 ## 2. Public Namespaces
 
@@ -46,9 +48,7 @@ Write/tx-submission methods:
 - `tos_setSigner({...tx fields...})`
 - `tos_buildSetSignerTx({...tx fields...})`
 - `tos_putCodeTTL({...tx fields...})`
-- `tos_deleteCodeObject({...tx fields...})`
 - `tos_putKVTTL({...tx fields...})`
-- `tos_deleteKV({...tx fields...})`
 
 ## 3.2 `dpos_*`
 
@@ -56,6 +56,17 @@ Write/tx-submission methods:
 - `dpos_getValidators(number?)`
 - `dpos_getValidator({address, block?})`
 - `dpos_getEpochInfo(block?)`
+
+## 3.3 Storage Mutability Rules
+
+- Code storage:
+  - `tos_putCodeTTL` creates code object records with TTL.
+  - Active code objects are immutable: update and delete are not supported.
+  - Only TTL expiry/system pruning clears code objects.
+- KV storage:
+  - `tos_putKVTTL` is an upsert operation for `(namespace, key)`.
+  - `tos_deleteKV` is not part of v2.
+  - Reads only return active (non-expired) values.
 
 ## 4. JSON Schema
 
@@ -259,6 +270,12 @@ Result schema:
 
 ### `tos_putCodeTTL`
 
+Behavior:
+
+- Creates a code object with TTL.
+- If the target code object is still active, replacement is rejected.
+- Manual delete/update is not supported.
+
 Params schema (`params[0]`):
 
 ```json
@@ -332,33 +349,15 @@ Result schema:
 }
 ```
 
-### `tos_deleteCodeObject`
-
-Params schema (`params[0]`):
-
-```json
-{
-  "type": "object",
-  "required": ["from", "codeHash", "gasPrice"],
-  "properties": {
-    "from": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
-    "codeHash": {"$ref": "gtos.rpc.v2.common#/definitions/hash32"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
-  }
-}
-```
-
-Result schema:
-
-```json
-{"$ref": "gtos.rpc.v2.common#/definitions/hash32"}
-```
-
 ## 4.5 KV Storage TTL
 
 ### `tos_putKVTTL`
+
+Behavior:
+
+- Upsert operation for `(namespace, key)`.
+- Existing active entries are overwritten with new value/TTL metadata.
+- Manual delete is not supported.
 
 Params schema (`params[0]`):
 
@@ -433,31 +432,6 @@ Result schema:
     "expired": {"type": "boolean"}
   }
 }
-```
-
-### `tos_deleteKV`
-
-Params schema (`params[0]`):
-
-```json
-{
-  "type": "object",
-  "required": ["from", "namespace", "key", "gasPrice"],
-  "properties": {
-    "from": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
-    "namespace": {"type": "string", "minLength": 1},
-    "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
-  }
-}
-```
-
-Result schema:
-
-```json
-{"$ref": "gtos.rpc.v2.common#/definitions/hash32"}
 ```
 
 ### `tos_listKV`
@@ -547,6 +521,7 @@ Error payload shape (`error.data`):
 | `tos_getCode` | `tos_getCodeObject` | Switch from contract-code semantics to code-object storage semantics. |
 | `tos_getStorageAt` | `tos_getKV` | TTL KV read semantics. |
 | `tos_sendTransaction` (data to system address) | `tos_setSigner` / `tos_putCodeTTL` / `tos_putKVTTL` | Explicit operation RPCs. |
+| legacy delete-style storage actions | removed | v2 forbids manual delete for both code and KV. |
 | `tos_sendRawTransaction` | unchanged | Still valid for raw tx broadcast. |
 | `tos_getTransactionByHash` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
 | `tos_getTransactionReceipt` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
@@ -568,6 +543,7 @@ Stage B (execution wiring):
 
 - Bind `tos_setSigner` to account signer state transition.
 - Bind code/KV TTL writes and reads to finalized state model.
+- Enforce code immutability and KV upsert/no-delete behavior in validation.
 - Add deterministic prune/expire behavior and errors.
 
 Stage C (deprecation enforcement):

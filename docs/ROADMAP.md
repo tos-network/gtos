@@ -1,159 +1,130 @@
-# GTOS Roadmap (DPoS + Transfer + Decentralized Storage)
+# GTOS Roadmap (DPoS + TTL-Native Decentralized Storage)
 
-## Scope Reset
+## Product Alignment
 
-This roadmap replaces prior CL/EL split planning. GTOS now targets one clear product:
+This roadmap is aligned with `README.md` and defines GTOS as a storage-first chain:
 
-- DPoS consensus
-- Transfer payment
-- Immutable code storage
-- TTL-based generic key-value storage
+- DPoS consensus with fast finality.
+- Native decentralized storage as the primary capability.
+- TTL lifecycle for both code storage and generic KV storage.
+- Predictable pruning with no archive-node dependency.
 
 ## Retention Strategy (No Archive Nodes)
 
-- Persistent data: current state + all finalized block headers.
-- Rolling history window: latest `200` finalized blocks for block bodies/transactions/receipts (`retain_blocks=200`).
-- Snapshot policy: create state snapshot every `1000` blocks (`snapshot_interval=1000`).
-- Pruning rule: only prune finalized blocks that are older than retention window.
+- Persistent data: current state and all finalized block headers.
+- Rolling history window: latest `200` finalized blocks for bodies/transactions/receipts (`retain_blocks=200`).
+- Snapshot policy: create state snapshots every `1000` blocks (`snapshot_interval=1000`).
+- Pruning rule: prune only finalized blocks outside the retention window.
 
 ## Phase 0: Protocol Freeze
 
 ### Goal
 
-Freeze the minimum protocol and state rules before implementation expansion.
+Freeze the minimum protocol and state rules before feature expansion.
 
 ### Deliverables
 
-- Consensus spec: validator set, voting weight, quorum, finality, epoch transition.
-- Consensus timing spec: default target block interval `1s` (`target_block_interval=1s`) and timeout ladder.
-- State spec:
-  - account state
-  - signer binding on account (`signer` as real signing key reference)
-  - signer fallback rule (`signer` unset -> use account address, gtos-compatible)
-  - immutable contract-code state
-  - TTL KV state
-- Signature verification spec:
-  - multi-algorithm signer support (extensible signer type)
-  - signature domain/encoding per algorithm
-- Retention spec:
-  - header/body retention boundary
-  - prune trigger rules
-  - snapshot format and recovery flow
-- Transaction spec:
-  - `transfer`
-  - `account_set_signer`
-  - `contract_deploy`
-  - `kv_put_ttl`
-  - `kv_delete` (if enabled)
-- Hash/signing spec for block header and transaction payload.
+- Consensus spec: validator set, weighted voting, quorum/finality, epoch transition.
+- Consensus timing spec: target block interval `1s` (`target_block_interval=1s`).
+- State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
+- Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
+- Signer spec: multi-algorithm verification and fallback rule (`signer` unset -> `account address`).
+- Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
+- Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`.
 
 ### Definition of Done
 
 - Specs reviewed and versioned.
-- At least one golden test vector for each transaction type.
-- Retention/snapshot parameters frozen (`retain_blocks=200`, `snapshot_interval=1000`).
-- Consensus timing parameters frozen (`target_block_interval=1s`).
+- Golden vectors for each transaction type.
+- Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
 
-## Phase 1: DPoS + Transfer MVP
+## Phase 1: DPoS + Account/Signer Foundation
 
 ### Goal
 
-Run a stable DPoS network with finalized `transfer` transactions.
+Run a stable DPoS network with deterministic account and signer processing.
 
 ### Deliverables
 
-- DPoS validator lifecycle (register, activate, rotate by epoch).
-- Proposal/vote/finality flow with safety checks.
-- Transfer execution pipeline:
-  - signature verification
-  - signer resolution (`account.signer` first, fallback to account address)
-  - nonce/balance validation
-  - deterministic state commit
-- RPC endpoints for transfer submit/query.
+- Validator lifecycle: register, activate, epoch rotation.
+- Proposal/vote/finality flow and safety checks.
+- Signature verification pipeline with signer resolution and fallback.
+- Deterministic nonce/state transition checks.
 
 ### Definition of Done
 
 - 3-validator network runs continuously.
-- 1000+ sequential finalized transfer blocks without fork divergence.
-- Replay and double-spend rejection tests pass.
-- Multi-algorithm signature verification passes compatibility tests with signer fallback behavior.
+- 1000+ sequential finalized blocks without divergence.
+- Replay rejection and signer compatibility tests pass.
 
-## Phase 2: Immutable Code Storage
+## Phase 2: Code Storage with TTL
 
 ### Goal
 
-Store contract bytecode on-chain immutably and make it queryable.
+Store code objects with TTL and provide deterministic read/expiry behavior.
 
 ### Deliverables
 
-- `contract_deploy` transaction.
-- Contract address derivation rule (deterministic).
-- Contract metadata index (code hash, deployer, block height, timestamp).
-- Query API for contract code and metadata.
-
-### Protocol Rules
-
-- Contract bytecode is write-once.
-- Any update requires new deployment; previous code remains unchanged.
+- `code_put_ttl(code, ttl)` execution support.
+- Code immutability rules: active code objects cannot be updated or deleted.
+- TTL validation rules and overflow protection.
+- Code read/index APIs (payload/hash/metadata).
+- Expiry and pruning behavior integrated with state maintenance.
 
 ### Definition of Done
 
-- Attempted overwrite of existing contract code is rejected by consensus rules.
-- Contract code/metadata can be retrieved from any full node and match code hash.
+- Code records expire deterministically across nodes.
+- State root remains identical across nodes before/after prune cycles.
 
-## Phase 3: TTL KV Storage
+## Phase 3: KV Storage with TTL
 
 ### Goal
 
-Introduce native key-value storage entries with expiration.
+Provide native TTL-based key-value storage with deterministic lifecycle.
 
 ### Deliverables
 
 - `kv_put_ttl(key, value, ttl)` execution support.
-- TTL validity checks (min/max range, overflow protection).
-- Read semantics:
-  - active key returns value
-  - expired key returns not-found
-- State maintenance/pruning strategy for expired entries.
+- Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
+- Explicitly no `kv_delete` transaction path.
+- Read semantics: active returns value, expired returns not-found.
+- Maintenance pipeline for pruning expired KV entries.
 
 ### Definition of Done
 
-- TTL expiration behavior is deterministic across nodes.
-- Cross-node state root remains identical before and after prune cycle.
+- TTL behavior is deterministic across nodes.
+- Long-run pruning keeps storage bounded while preserving consensus correctness.
 
 ## Phase 4: Hardening and Production Readiness
 
 ### Goal
 
-Make the chain safe to operate under sustained load.
+Harden the chain for sustained production load.
 
 ### Deliverables
 
 - Performance profiling and bottleneck fixes.
-- Snapshot/state-sync for node bootstrap.
-- Automated finalized-history pruning pipeline with retention window enforcement.
+- Snapshot/state-sync bootstrap and recovery drills.
+- Automated retention-window pruning enforcement.
 - Observability: metrics, structured logs, consensus/storage health dashboards.
-- Security hardening:
-  - transaction validation limits
-  - DoS protections
-  - fuzz and property-based tests for state transition logic
+- Security hardening: validation limits, DoS protections, fuzz/property tests.
 
 ### Definition of Done
 
-- 24h stability run with no consensus halt.
-- Recovery drills (node restart/sync) succeed on latest finalized height.
-- Retention window remains bounded and deterministic across nodes during long-run test.
+- 24h stability run without consensus halt.
+- Restart/recovery drills succeed at latest finalized height.
+- Retention window remains deterministic and bounded across nodes.
 
 ## Milestone Priorities
 
-1. Consensus safety and deterministic transfer finality.
-2. Immutable code storage correctness.
-3. TTL KV deterministic expiration and pruning.
+1. Consensus safety and deterministic finality.
+2. Code storage TTL correctness.
+3. KV storage TTL correctness and pruning determinism.
 4. Operability and production hardening.
 
-## Out of Scope (Current Roadmap)
+## Out of Scope
 
 - General-purpose contract VM compatibility.
-- Complex contract runtime execution semantics.
+- Contract runtime execution semantics.
 - Cross-chain bridge features.
-- Off-chain indexing productization beyond basic query support.
+- Archive-node deployment requirements.

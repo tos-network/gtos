@@ -45,17 +45,6 @@ func newV2NotImplementedError(method string) error {
 	}
 }
 
-// TOSV2API exposes storage-first RPC methods under the "tos" namespace.
-type TOSV2API struct {
-	b         Backend
-	nonceLock *AddrLocker
-}
-
-// NewTOSV2API creates a new RPC v2 service.
-func NewTOSV2API(b Backend, nonceLock *AddrLocker) *TOSV2API {
-	return &TOSV2API{b: b, nonceLock: nonceLock}
-}
-
 type V2ChainProfile struct {
 	ChainID               *hexutil.Big   `json:"chainId"`
 	NetworkID             *hexutil.Big   `json:"networkId"`
@@ -151,11 +140,6 @@ type V2CodeObjectMeta struct {
 	Expired   bool           `json:"expired"`
 }
 
-type V2DeleteCodeObjectArgs struct {
-	V2TxCommonArgs
-	CodeHash common.Hash `json:"codeHash"`
-}
-
 type V2PutKVTTLArgs struct {
 	V2TxCommonArgs
 	Namespace string         `json:"namespace"`
@@ -184,12 +168,6 @@ type V2KVMetaResult struct {
 	Expired   bool           `json:"expired"`
 }
 
-type V2DeleteKVArgs struct {
-	V2TxCommonArgs
-	Namespace string        `json:"namespace"`
-	Key       hexutil.Bytes `json:"key"`
-}
-
 type V2ListKVArgs struct {
 	Namespace string                 `json:"namespace"`
 	Cursor    *string                `json:"cursor,omitempty"`
@@ -208,19 +186,19 @@ type V2ListKVResult struct {
 	NextCursor *string        `json:"nextCursor"`
 }
 
-func (api *TOSV2API) retainBlocks() uint64 { return v2DefaultRetainBlocks }
+func (s *TOSAPI) retainBlocks() uint64 { return v2DefaultRetainBlocks }
 
-func (api *TOSV2API) snapshotInterval() uint64 { return v2DefaultSnapshotInterval }
+func (s *TOSAPI) snapshotInterval() uint64 { return v2DefaultSnapshotInterval }
 
-func (api *TOSV2API) targetBlockIntervalMs() uint64 {
-	if cfg := api.b.ChainConfig(); cfg != nil && cfg.DPoS != nil && cfg.DPoS.Period > 0 {
+func (s *TOSAPI) targetBlockIntervalMs() uint64 {
+	if cfg := s.b.ChainConfig(); cfg != nil && cfg.DPoS != nil && cfg.DPoS.Period > 0 {
 		return cfg.DPoS.Period * 1000
 	}
 	return 1000
 }
 
-func (api *TOSV2API) currentHead() uint64 {
-	header := api.b.CurrentHeader()
+func (s *TOSAPI) currentHead() uint64 {
+	header := s.b.CurrentHeader()
 	if header == nil || header.Number == nil {
 		return 0
 	}
@@ -242,36 +220,36 @@ func resolveBlockArg(block *rpc.BlockNumberOrHash) rpc.BlockNumberOrHash {
 }
 
 // GetChainProfile returns chain identity and storage/retention profile.
-func (api *TOSV2API) GetChainProfile() *V2ChainProfile {
+func (s *TOSAPI) GetChainProfile() *V2ChainProfile {
 	chainID := new(big.Int)
-	if cfg := api.b.ChainConfig(); cfg != nil && cfg.ChainID != nil {
+	if cfg := s.b.ChainConfig(); cfg != nil && cfg.ChainID != nil {
 		chainID.Set(cfg.ChainID)
 	}
 	return &V2ChainProfile{
 		ChainID:               (*hexutil.Big)(new(big.Int).Set(chainID)),
 		NetworkID:             (*hexutil.Big)(new(big.Int).Set(chainID)),
-		TargetBlockIntervalMs: hexutil.Uint64(api.targetBlockIntervalMs()),
-		RetainBlocks:          hexutil.Uint64(api.retainBlocks()),
-		SnapshotInterval:      hexutil.Uint64(api.snapshotInterval()),
+		TargetBlockIntervalMs: hexutil.Uint64(s.targetBlockIntervalMs()),
+		RetainBlocks:          hexutil.Uint64(s.retainBlocks()),
+		SnapshotInterval:      hexutil.Uint64(s.snapshotInterval()),
 	}
 }
 
 // GetRetentionPolicy returns the configured retention/snapshot values and current watermark.
-func (api *TOSV2API) GetRetentionPolicy() *V2RetentionPolicy {
-	head := api.currentHead()
-	retain := api.retainBlocks()
+func (s *TOSAPI) GetRetentionPolicy() *V2RetentionPolicy {
+	head := s.currentHead()
+	retain := s.retainBlocks()
 	return &V2RetentionPolicy{
 		RetainBlocks:         hexutil.Uint64(retain),
-		SnapshotInterval:     hexutil.Uint64(api.snapshotInterval()),
+		SnapshotInterval:     hexutil.Uint64(s.snapshotInterval()),
 		HeadBlock:            hexutil.Uint64(head),
 		OldestAvailableBlock: hexutil.Uint64(oldestAvailableBlock(head, retain)),
 	}
 }
 
 // GetPruneWatermark returns the oldest block still expected to be queryable by non-archive nodes.
-func (api *TOSV2API) GetPruneWatermark() *V2PruneWatermark {
-	head := api.currentHead()
-	retain := api.retainBlocks()
+func (s *TOSAPI) GetPruneWatermark() *V2PruneWatermark {
+	head := s.currentHead()
+	retain := s.retainBlocks()
 	return &V2PruneWatermark{
 		HeadBlock:            hexutil.Uint64(head),
 		OldestAvailableBlock: hexutil.Uint64(oldestAvailableBlock(head, retain)),
@@ -280,8 +258,8 @@ func (api *TOSV2API) GetPruneWatermark() *V2PruneWatermark {
 }
 
 // GetAccount returns nonce/balance and signer view (fallback signer for now).
-func (api *TOSV2API) GetAccount(ctx context.Context, args V2GetAccountArgs) (*V2AccountResult, error) {
-	state, header, err := api.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(args.Block))
+func (s *TOSAPI) GetAccount(ctx context.Context, args V2GetAccountArgs) (*V2AccountResult, error) {
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(args.Block))
 	if err != nil {
 		return nil, err
 	}
@@ -302,8 +280,8 @@ func (api *TOSV2API) GetAccount(ctx context.Context, args V2GetAccountArgs) (*V2
 }
 
 // GetSigner returns signer info; if signer is unset, fallback is account address.
-func (api *TOSV2API) GetSigner(ctx context.Context, args V2GetSignerArgs) (*V2SignerResult, error) {
-	acc, err := api.GetAccount(ctx, V2GetAccountArgs{
+func (s *TOSAPI) GetSigner(ctx context.Context, args V2GetSignerArgs) (*V2SignerResult, error) {
+	acc, err := s.GetAccount(ctx, V2GetAccountArgs{
 		Address: args.Address,
 		Block:   args.Block,
 	})
@@ -317,67 +295,55 @@ func (api *TOSV2API) GetSigner(ctx context.Context, args V2GetSignerArgs) (*V2Si
 	}, nil
 }
 
-func (api *TOSV2API) SetSigner(ctx context.Context, args V2SetSignerArgs) (common.Hash, error) {
+func (s *TOSAPI) SetSigner(ctx context.Context, args V2SetSignerArgs) (common.Hash, error) {
 	_ = ctx
 	_ = args
 	return common.Hash{}, newV2NotImplementedError("tos_setSigner")
 }
 
-func (api *TOSV2API) BuildSetSignerTx(ctx context.Context, args V2SetSignerArgs) (*V2BuildTxResult, error) {
+func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args V2SetSignerArgs) (*V2BuildTxResult, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_buildSetSignerTx")
 }
 
-func (api *TOSV2API) PutCodeTTL(ctx context.Context, args V2PutCodeTTLArgs) (common.Hash, error) {
+func (s *TOSAPI) PutCodeTTL(ctx context.Context, args V2PutCodeTTLArgs) (common.Hash, error) {
 	_ = ctx
 	_ = args
 	return common.Hash{}, newV2NotImplementedError("tos_putCodeTTL")
 }
 
-func (api *TOSV2API) GetCodeObject(ctx context.Context, args V2GetCodeObjectArgs) (*V2CodeObject, error) {
+func (s *TOSAPI) GetCodeObject(ctx context.Context, args V2GetCodeObjectArgs) (*V2CodeObject, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_getCodeObject")
 }
 
-func (api *TOSV2API) GetCodeObjectMeta(ctx context.Context, args V2GetCodeObjectArgs) (*V2CodeObjectMeta, error) {
+func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, args V2GetCodeObjectArgs) (*V2CodeObjectMeta, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_getCodeObjectMeta")
 }
 
-func (api *TOSV2API) DeleteCodeObject(ctx context.Context, args V2DeleteCodeObjectArgs) (common.Hash, error) {
-	_ = ctx
-	_ = args
-	return common.Hash{}, newV2NotImplementedError("tos_deleteCodeObject")
-}
-
-func (api *TOSV2API) PutKVTTL(ctx context.Context, args V2PutKVTTLArgs) (common.Hash, error) {
+func (s *TOSAPI) PutKVTTL(ctx context.Context, args V2PutKVTTLArgs) (common.Hash, error) {
 	_ = ctx
 	_ = args
 	return common.Hash{}, newV2NotImplementedError("tos_putKVTTL")
 }
 
-func (api *TOSV2API) GetKV(ctx context.Context, args V2GetKVArgs) (*V2KVResult, error) {
+func (s *TOSAPI) GetKV(ctx context.Context, args V2GetKVArgs) (*V2KVResult, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_getKV")
 }
 
-func (api *TOSV2API) GetKVMeta(ctx context.Context, args V2GetKVArgs) (*V2KVMetaResult, error) {
+func (s *TOSAPI) GetKVMeta(ctx context.Context, args V2GetKVArgs) (*V2KVMetaResult, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_getKVMeta")
 }
 
-func (api *TOSV2API) DeleteKV(ctx context.Context, args V2DeleteKVArgs) (common.Hash, error) {
-	_ = ctx
-	_ = args
-	return common.Hash{}, newV2NotImplementedError("tos_deleteKV")
-}
-
-func (api *TOSV2API) ListKV(ctx context.Context, args V2ListKVArgs) (*V2ListKVResult, error) {
+func (s *TOSAPI) ListKV(ctx context.Context, args V2ListKVArgs) (*V2ListKVResult, error) {
 	_ = ctx
 	_ = args
 	return nil, newV2NotImplementedError("tos_listKV")

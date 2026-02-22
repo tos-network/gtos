@@ -82,9 +82,6 @@ func GetAPIs(apiBackend Backend) []rpc.API {
 			Service:   NewTOSAPI(apiBackend),
 		}, {
 			Namespace: "tos",
-			Service:   NewTOSV2API(apiBackend, nonceLock),
-		}, {
-			Namespace: "tos",
 			Service:   NewBlockChainAPI(apiBackend),
 		}, {
 			Namespace: "tos",

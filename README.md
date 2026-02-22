@@ -26,7 +26,10 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 ### 2. Decentralized Storage (TTL Native)
 
 - `code_put_ttl(code, ttl)` writes code objects with explicit expiration.
+- Code objects are immutable while active: no update, no delete.
 - `kv_put_ttl(key, value, ttl)` writes expiring KV records.
+- KV entries are updatable by writing a new value for the same key.
+- KV entries are not manually deletable.
 - Expiration is evaluated by block time/height policy (defined in protocol rules).
 - Expired items are ignored by reads and can be pruned by background/state-maintenance logic.
 
@@ -48,9 +51,7 @@ All state transitions are consensus-verified and auditable on-chain.
 
 - `account_set_signer`
 - `code_put_ttl`
-- `code_delete` (optional governance/owner rule based)
 - `kv_put_ttl`
-- `kv_delete` (optional governance/owner rule based)
 
 ## History Retention Policy (No Archive Nodes)
 
