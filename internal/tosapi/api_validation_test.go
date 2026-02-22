@@ -117,3 +117,37 @@ func TestPutCodeTTLValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
 	}
 }
+
+func TestValidateAndComputeExpireBlock(t *testing.T) {
+	created, expire, err := validateAndComputeExpireBlock(10, 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created != 100 || expire != 110 {
+		t.Fatalf("unexpected blocks created=%d expire=%d", created, expire)
+	}
+
+	_, _, err = validateAndComputeExpireBlock(0, 100)
+	if err == nil {
+		t.Fatalf("expected invalid ttl error")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidTTL {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
+	}
+
+	_, _, err = validateAndComputeExpireBlock(2, ^uint64(0)-1)
+	if err == nil {
+		t.Fatalf("expected overflow ttl error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidTTL {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
+	}
+}

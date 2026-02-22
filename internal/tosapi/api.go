@@ -2056,6 +2056,9 @@ func (s *TOSAPI) targetBlockIntervalMs() uint64 {
 }
 
 func (s *TOSAPI) currentHead() uint64 {
+	if s == nil || s.b == nil {
+		return 0
+	}
 	header := s.b.CurrentHeader()
 	if header == nil || header.Number == nil {
 		return 0
@@ -2075,6 +2078,31 @@ func resolveBlockArg(block *rpc.BlockNumberOrHash) rpc.BlockNumberOrHash {
 		return rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	}
 	return *block
+}
+
+func validateAndComputeExpireBlock(ttl hexutil.Uint64, currentBlock uint64) (uint64, uint64, error) {
+	if ttl == 0 {
+		return 0, 0, &rpcAPIError{
+			code:    rpcErrInvalidTTL,
+			message: "invalid ttl",
+			data: map[string]interface{}{
+				"reason": "ttl must be greater than zero",
+			},
+		}
+	}
+	delta := uint64(ttl)
+	if delta > ^uint64(0)-currentBlock {
+		return 0, 0, &rpcAPIError{
+			code:    rpcErrInvalidTTL,
+			message: "invalid ttl",
+			data: map[string]interface{}{
+				"reason":       "ttl overflows expire block",
+				"currentBlock": currentBlock,
+				"ttl":          delta,
+			},
+		}
+	}
+	return currentBlock, currentBlock + delta, nil
 }
 
 // GetChainProfile returns chain identity and storage/retention profile.
@@ -2202,14 +2230,8 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 
 func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common.Hash, error) {
 	_ = ctx
-	if args.TTL == 0 {
-		return common.Hash{}, &rpcAPIError{
-			code:    rpcErrInvalidTTL,
-			message: "invalid ttl",
-			data: map[string]interface{}{
-				"reason": "ttl must be greater than zero",
-			},
-		}
+	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
+		return common.Hash{}, err
 	}
 	if len(args.Code) > int(params.MaxCodeSize) {
 		return common.Hash{}, &rpcAPIError{
@@ -2240,14 +2262,8 @@ func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, bl
 
 func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Hash, error) {
 	_ = ctx
-	if args.TTL == 0 {
-		return common.Hash{}, &rpcAPIError{
-			code:    rpcErrInvalidTTL,
-			message: "invalid ttl",
-			data: map[string]interface{}{
-				"reason": "ttl must be greater than zero",
-			},
-		}
+	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
+		return common.Hash{}, err
 	}
 	return common.Hash{}, newRPCNotImplementedError("tos_putKVTTL")
 }
