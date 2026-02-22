@@ -16,6 +16,9 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - History outside retention window must return explicit pruning errors.
 - Code storage is immutable while active: no update and no delete RPC.
 - KV storage is non-deletable but updatable via `tos_putKVTTL` overwrite.
+- `ttl` unit is block count (not seconds/milliseconds).
+- Expiry is computed by height: `expireBlock = currentBlock + ttl`.
+- State persistence stores computed expiry height (`expireBlock`), not raw `ttl`.
 
 ## 2. Public Namespaces
 
@@ -68,6 +71,13 @@ Write/tx-submission methods:
   - `tos_putKVTTL` is an upsert operation for `(namespace, key)`.
   - `tos_deleteKV` is not part of this API.
   - Reads only return active (non-expired) values.
+
+## 3.4 TTL Semantics
+
+- `ttl` is a block-count delta.
+- At write block `B`, effective expiry is `expireBlock = B + ttl`.
+- `ttl` itself is request input and validation data; persisted state keeps `expireBlock`.
+- In RPC responses, `createdAt` and `expireAt` are block heights.
 
 ## 4. JSON Schema
 
@@ -269,6 +279,8 @@ Behavior:
 - If the target code object is still active, replacement is rejected.
 - Manual delete/update is not supported.
 - Code payload is limited to `65536` bytes (`64KiB`).
+- `ttl` is block count; expiry is computed as `expireBlock = currentBlock + ttl`.
+- State persists `expireBlock` (reported by `expireAt`).
 
 Params schema (`params[0]`):
 
@@ -344,6 +356,8 @@ Behavior:
 - Upsert operation for `(namespace, key)`.
 - Existing active entries are overwritten with new value/TTL metadata.
 - Manual delete is not supported.
+- `ttl` is block count; expiry is computed as `expireBlock = currentBlock + ttl`.
+- State persists `expireBlock` (reported by `expireAt`).
 
 Params schema (`params[0]`):
 
@@ -555,7 +569,7 @@ GTOS application errors:
 
 - `-38000` `not_supported` - method/feature intentionally unsupported on this chain profile.
 - `-38001` `not_implemented` - method skeleton exists but execution path is not implemented yet.
-- `-38002` `invalid_ttl` - TTL is zero, overflowed, or violates policy.
+- `-38002` `invalid_ttl` - TTL block-count is zero, overflowed, or violates policy.
 - `-38003` `expired` - record exists but is expired at requested block context.
 - `-38004` `not_found` - record is not found in active state.
 - `-38005` `history_pruned` - requested block/tx is outside retention window.

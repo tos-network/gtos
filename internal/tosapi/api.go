@@ -2150,20 +2150,67 @@ func (s *TOSAPI) GetSigner(ctx context.Context, address common.Address, blockNrO
 	}, nil
 }
 
+func validateSetSignerArgs(args RPCSetSignerArgs) error {
+	if args.From == (common.Address{}) {
+		return &rpcAPIError{
+			code:    rpcErrInvalidSigner,
+			message: "invalid signer argument",
+			data: map[string]interface{}{
+				"field":  "from",
+				"reason": "must not be zero address",
+			},
+		}
+	}
+	if strings.TrimSpace(args.SignerType) == "" {
+		return &rpcAPIError{
+			code:    rpcErrInvalidSigner,
+			message: "invalid signer argument",
+			data: map[string]interface{}{
+				"field":  "signerType",
+				"reason": "must not be empty",
+			},
+		}
+	}
+	if strings.TrimSpace(args.SignerValue) == "" {
+		return &rpcAPIError{
+			code:    rpcErrInvalidSigner,
+			message: "invalid signer argument",
+			data: map[string]interface{}{
+				"field":  "signerValue",
+				"reason": "must not be empty",
+			},
+		}
+	}
+	return nil
+}
+
 func (s *TOSAPI) SetSigner(ctx context.Context, args RPCSetSignerArgs) (common.Hash, error) {
 	_ = ctx
-	_ = args
+	if err := validateSetSignerArgs(args); err != nil {
+		return common.Hash{}, err
+	}
 	return common.Hash{}, newRPCNotImplementedError("tos_setSigner")
 }
 
 func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*RPCBuildTxResult, error) {
 	_ = ctx
-	_ = args
+	if err := validateSetSignerArgs(args); err != nil {
+		return nil, err
+	}
 	return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
 }
 
 func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common.Hash, error) {
 	_ = ctx
+	if args.TTL == 0 {
+		return common.Hash{}, &rpcAPIError{
+			code:    rpcErrInvalidTTL,
+			message: "invalid ttl",
+			data: map[string]interface{}{
+				"reason": "ttl must be greater than zero",
+			},
+		}
+	}
 	if len(args.Code) > int(params.MaxCodeSize) {
 		return common.Hash{}, &rpcAPIError{
 			code:    rpcErrCodeTooLarge,
@@ -2193,7 +2240,15 @@ func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, bl
 
 func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Hash, error) {
 	_ = ctx
-	_ = args
+	if args.TTL == 0 {
+		return common.Hash{}, &rpcAPIError{
+			code:    rpcErrInvalidTTL,
+			message: "invalid ttl",
+			data: map[string]interface{}{
+				"reason": "ttl must be greater than zero",
+			},
+		}
+	}
 	return common.Hash{}, newRPCNotImplementedError("tos_putKVTTL")
 }
 

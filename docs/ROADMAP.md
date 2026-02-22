@@ -7,6 +7,7 @@ This roadmap is aligned with `README.md` and defines GTOS as a storage-first cha
 - DPoS consensus with fast finality.
 - Native decentralized storage as the primary capability.
 - TTL lifecycle for both code storage and generic KV storage.
+- TTL unit is block count, with deterministic expiry by height.
 - Predictable pruning with no archive-node dependency.
 
 ## Retention Strategy (No Archive Nodes)
@@ -27,6 +28,7 @@ Freeze the minimum protocol and state rules before feature expansion.
 - Consensus spec: validator set, weighted voting, quorum/finality, epoch transition.
 - Consensus timing spec: target block interval `1s` (`target_block_interval=1s`).
 - State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
+- TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
 - Signer spec: multi-algorithm verification and fallback rule (`signer` unset -> `account address`).
 - Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
@@ -66,6 +68,7 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 ### Deliverables
 
 - `code_put_ttl(code, ttl)` execution support.
+- TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
 - Code immutability rules: active code objects cannot be updated or deleted.
 - TTL validation rules and overflow protection.
 - Code read/index APIs (payload/hash/metadata).
@@ -85,6 +88,7 @@ Provide native TTL-based key-value storage with deterministic lifecycle.
 ### Deliverables
 
 - `kv_put_ttl(key, value, ttl)` execution support.
+- TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
 - Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
 - Explicitly no `kv_delete` transaction path.
 - Read semantics: active returns value, expired returns not-found.

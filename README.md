@@ -30,7 +30,9 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 - `kv_put_ttl(key, value, ttl)` writes expiring KV records.
 - KV entries are updatable by writing a new value for the same key.
 - KV entries are not manually deletable.
-- Expiration is evaluated by block time/height policy (defined in protocol rules).
+- `ttl` unit is **block count** (not seconds, not milliseconds).
+- Expiry rule is deterministic: `expire_block = current_block + ttl`.
+- State/database persists `expire_block` (and `created_block`), not raw `ttl`.
 - Expired items are ignored by reads and can be pruned by background/state-maintenance logic.
 
 ### 3. Signer-Capable Accounts
@@ -42,8 +44,8 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 ## State Model (MVP)
 
 - `Accounts`: nonce, signer, and account metadata.
-- `CodeStore`: code hash/object -> payload + created_at + expire_at.
-- `KVStore`: namespace/key -> value + created_at + expire_at.
+- `CodeStore`: code hash/object -> payload + created_block + expire_block.
+- `KVStore`: namespace/key -> value + created_block + expire_block.
 
 All state transitions are consensus-verified and auditable on-chain.
 

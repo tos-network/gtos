@@ -12,7 +12,10 @@ func TestPutCodeTTLCodeSizeLimit(t *testing.T) {
 	api := &TOSAPI{}
 
 	oversized := make(hexutil.Bytes, int(params.MaxCodeSize)+1)
-	_, err := api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{Code: oversized})
+	_, err := api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+		Code: oversized,
+		TTL:  1,
+	})
 	if err == nil {
 		t.Fatalf("expected oversized code error")
 	}
@@ -35,7 +38,10 @@ func TestPutCodeTTLCodeSizeLimit(t *testing.T) {
 	}
 
 	atLimit := make(hexutil.Bytes, int(params.MaxCodeSize))
-	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{Code: atLimit})
+	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+		Code: atLimit,
+		TTL:  1,
+	})
 	if err == nil {
 		t.Fatalf("expected not implemented error at limit")
 	}
