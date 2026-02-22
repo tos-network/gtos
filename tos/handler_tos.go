@@ -60,12 +60,6 @@ func (h *tosHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 	case *tos.PooledTransactionsPacket:
 		return h.txFetcher.Enqueue(peer.ID(), *packet, true)
 
-	case *tos.VotePacket:
-		return (*handler)(h).handleVotePacket(packet)
-
-	case *tos.QCPacket:
-		return (*handler)(h).handleQCPacket(packet)
-
 	default:
 		return fmt.Errorf("unexpected tos packet type: %T", packet)
 	}

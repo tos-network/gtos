@@ -28,7 +28,7 @@ var ProtocolVersions = []uint{TOS67, TOS66}
 
 // protocolLengths are the number of implemented message corresponding to
 // different protocol versions.
-var protocolLengths = map[uint]uint64{TOS67: 19, TOS66: 19}
+var protocolLengths = map[uint]uint64{TOS67: 17, TOS66: 17}
 
 // maxMessageSize is the maximum cap on the size of a protocol message.
 const maxMessageSize = 10 * 1024 * 1024
@@ -49,8 +49,6 @@ const (
 	NewPooledTransactionHashesMsg = 0x08
 	GetPooledTransactionsMsg      = 0x09
 	PooledTransactionsMsg         = 0x0a
-	VoteMsg                       = 0x11
-	QCMsg                         = 0x12
 )
 
 var (
@@ -304,33 +302,6 @@ type PooledTransactionsPacket66 struct {
 	PooledTransactionsPacket
 }
 
-// VotePacket is the network packet for Phase-1 BFT vote propagation.
-type VotePacket struct {
-	Height    uint64
-	Round     uint64
-	BlockHash common.Hash
-	Validator common.Address
-	Weight    uint64
-	Signature []byte
-}
-
-// QCAttestationPacket carries one validator attestation inside a QC packet.
-type QCAttestationPacket struct {
-	Validator common.Address
-	Weight    uint64
-	Signature []byte
-}
-
-// QCPacket is the network packet for Phase-1 quorum certificate propagation.
-type QCPacket struct {
-	Height       uint64
-	Round        uint64
-	BlockHash    common.Hash
-	TotalWeight  uint64
-	Required     uint64
-	Attestations []QCAttestationPacket
-}
-
 // PooledTransactionsRLPPacket is the network packet for transaction distribution, used
 // in the cases we already have them in rlp-encoded form
 type PooledTransactionsRLPPacket []rlp.RawValue
@@ -385,9 +356,3 @@ func (*GetPooledTransactionsPacket) Kind() byte   { return GetPooledTransactions
 
 func (*PooledTransactionsPacket) Name() string { return "PooledTransactions" }
 func (*PooledTransactionsPacket) Kind() byte   { return PooledTransactionsMsg }
-
-func (*VotePacket) Name() string { return "Vote" }
-func (*VotePacket) Kind() byte   { return VoteMsg }
-
-func (*QCPacket) Name() string { return "QC" }
-func (*QCPacket) Kind() byte   { return QCMsg }

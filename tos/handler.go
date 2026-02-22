@@ -10,7 +10,6 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/consensus/bft"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
@@ -66,7 +65,6 @@ type handlerConfig struct {
 	TxPool         txPool                    // Transaction pool to propagate from
 	Merger         *consensus.Merger         // The manager for tos1/2 transition
 	BlockValidator func(*types.Block) error  // Optional external validation hook before block import
-	OnQCFinalized  func(*types.Block)        // Optional callback invoked when a QC finalized block is applied
 	Network        uint64                    // Network identifier to adfvertise
 	Sync           downloader.SyncMode       // Whether to snap or full sync
 	BloomCache     uint64                    // Megabytes to alloc for snap sync bloom
@@ -103,12 +101,6 @@ type handler struct {
 
 	requiredBlocks map[uint64]common.Hash
 	blockValidator func(*types.Block) error
-	onQCFinalized  func(*types.Block)
-
-	bftReactor  *bft.Reactor
-	bftMu       sync.RWMutex
-	bftLatestQC *bft.QC
-	bftSeenQCs  map[string]struct{}
 
 	// channels for fetcher, syncer, txsyncLoop
 	quitSync chan struct{}
@@ -134,18 +126,9 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		peers:          newPeerSet(),
 		merger:         config.Merger,
 		blockValidator: config.BlockValidator,
-		onQCFinalized:  config.OnQCFinalized,
 		requiredBlocks: config.RequiredBlocks,
-		bftSeenQCs:     make(map[string]struct{}),
 		quitSync:       make(chan struct{}),
 	}
-	totalWeight := params.DPoSMaxValidators
-	if cfg := config.Chain.Config().DPoS; cfg != nil && cfg.MaxValidators > 0 {
-		totalWeight = cfg.MaxValidators
-	}
-	h.bftReactor = bft.NewReactor(bft.NewVotePool(totalWeight), &handlerBFTBroadcaster{h: h}, func(qc *bft.QC) {
-		h.setLatestQC(qc)
-	})
 	if config.Sync == downloader.FullSync {
 		// The database seems empty as the current block is the genesis. Yet the snap
 		// block is ahead, so snap sync was enabled for this node at a certain point.

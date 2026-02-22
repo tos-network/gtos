@@ -163,8 +163,6 @@ var tos66 = map[uint64]msgHandler{
 	ReceiptsMsg:                   handleReceipts66,
 	GetPooledTransactionsMsg:      handleGetPooledTransactions66,
 	PooledTransactionsMsg:         handlePooledTransactions66,
-	VoteMsg:                       handleVote,
-	QCMsg:                         handleQC,
 }
 
 var tos67 = map[uint64]msgHandler{
@@ -180,8 +178,6 @@ var tos67 = map[uint64]msgHandler{
 	ReceiptsMsg:                   handleReceipts66,
 	GetPooledTransactionsMsg:      handleGetPooledTransactions66,
 	PooledTransactionsMsg:         handlePooledTransactions66,
-	VoteMsg:                       handleVote,
-	QCMsg:                         handleQC,
 }
 
 // handleMessage is invoked whenever an inbound message is received from a remote
