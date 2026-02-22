@@ -119,7 +119,7 @@ func (tosNode *TOS) StateAtBlock(block *types.Block, reexec uint64, base *state.
 			return nil, fmt.Errorf("processing block %d failed: %v", current.NumberU64(), err)
 		}
 		// Finalize the state so any modifications are written to the trie
-		root, err := statedb.Commit(tosNode.blockchain.Config().IsEIP158(current.Number()))
+		root, err := statedb.Commit(true)
 		if err != nil {
 			return nil, fmt.Errorf("stateAtBlock commit failed, number %d root %v: %w",
 				current.NumberU64(), current.Root().Hex(), err)
@@ -175,7 +175,7 @@ func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec u
 			return nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Ensure any modifications are committed to the state
-		statedb.Finalise(tosNode.blockchain.Config().IsEIP158(block.Number()))
+		statedb.Finalise(true)
 	}
 	return nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }

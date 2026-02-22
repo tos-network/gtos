@@ -74,8 +74,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		configNoFork  = &params.ChainConfig{HomesteadBlock: big.NewInt(1)}
 		configProFork = &params.ChainConfig{
 			HomesteadBlock: big.NewInt(1),
-			EIP158Block:    big.NewInt(2),
-			ByzantiumBlock: big.NewInt(3),
+			ByzantiumBlock: big.NewInt(2),
 		}
 		dbNoFork  = rawdb.NewMemoryDatabase()
 		dbProFork = rawdb.NewMemoryDatabase()
@@ -180,7 +179,7 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 			t.Fatalf("homestead nofork <-> profork handler timeout")
 		}
 	}
-	// Progress into Spurious. Forks mismatch, signalling differing chains, reject
+	// Progress into block #2. Forks mismatch from this height, signalling differing chains, reject
 	chainNoFork.InsertChain(blocksNoFork[1:2])
 	chainProFork.InsertChain(blocksProFork[1:2])
 

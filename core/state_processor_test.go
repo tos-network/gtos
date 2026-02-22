@@ -27,7 +27,6 @@ func TestStateProcessorErrors(t *testing.T) {
 		config = &params.ChainConfig{
 			ChainID:             big.NewInt(1),
 			HomesteadBlock:      big.NewInt(0),
-			EIP158Block:         big.NewInt(0),
 			ByzantiumBlock:      big.NewInt(0),
 			ConstantinopleBlock: big.NewInt(0),
 			PetersburgBlock:     big.NewInt(0),
@@ -153,7 +152,6 @@ func TestStateProcessorErrors(t *testing.T) {
 				Config: &params.ChainConfig{
 					ChainID:             big.NewInt(1),
 					HomesteadBlock:      big.NewInt(0),
-					EIP158Block:         big.NewInt(0),
 					ByzantiumBlock:      big.NewInt(0),
 					ConstantinopleBlock: big.NewInt(0),
 					PetersburgBlock:     big.NewInt(0),

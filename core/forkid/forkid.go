@@ -1,4 +1,4 @@
-// Package forkid implements EIP-2124 (https://eips.tos.org/EIPS/eip-2124).
+// Package forkid implements the devp2p fork identifier scheme.
 package forkid
 
 import (
@@ -40,7 +40,7 @@ type Blockchain interface {
 	CurrentHeader() *types.Header
 }
 
-// ID is a fork identifier as defined by EIP-2124.
+// ID is a fork identifier.
 type ID struct {
 	Hash [4]byte // CRC32 checksum of the genesis block and passed fork block numbers
 	Next uint64  // Block number of the next upcoming fork, or 0 if no forks are known

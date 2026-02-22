@@ -534,7 +534,7 @@ func (d *DPoS) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	st *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 
 	st.AddBalance(header.Coinbase, params.DPoSBlockReward)
-	header.Root = st.IntermediateRoot(chain.Config().IsEIP158(header.Number))
+	header.Root = st.IntermediateRoot(true)
 	header.UncleHash = types.EmptyUncleHash
 }
 

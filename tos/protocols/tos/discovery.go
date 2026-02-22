@@ -9,7 +9,7 @@ import (
 
 // enrEntry is the ENR entry which advertises `tos` protocol on the discovery.
 type enrEntry struct {
-	ForkID forkid.ID // Fork identifier per EIP-2124
+	ForkID forkid.ID // Fork identifier
 
 	// Ignore additional fields (for forward compatibility).
 	Rest []rlp.RawValue `rlp:"tail"`

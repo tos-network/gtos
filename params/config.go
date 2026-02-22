@@ -33,7 +33,6 @@ var (
 	MainnetChainConfig = &ChainConfig{
 		ChainID:                       big.NewInt(1),
 		HomesteadBlock:                big.NewInt(1_150_000),
-		EIP158Block:                   big.NewInt(2_675_000),
 		ByzantiumBlock:                big.NewInt(4_370_000),
 		ConstantinopleBlock:           big.NewInt(7_280_000),
 		PetersburgBlock:               big.NewInt(7_280_000),
@@ -73,7 +72,6 @@ var (
 	AllDPoSProtocolChanges = &ChainConfig{
 		ChainID:             big.NewInt(1337),
 		HomesteadBlock:      big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
 		ByzantiumBlock:      big.NewInt(0),
 		ConstantinopleBlock: big.NewInt(0),
 		PetersburgBlock:     big.NewInt(0),
@@ -86,7 +84,6 @@ var (
 	TestChainConfig = &ChainConfig{
 		ChainID:             big.NewInt(1),
 		HomesteadBlock:      big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
 		ByzantiumBlock:      big.NewInt(0),
 		ConstantinopleBlock: big.NewInt(0),
 		PetersburgBlock:     big.NewInt(0),
@@ -161,8 +158,6 @@ type ChainConfig struct {
 
 	HomesteadBlock *big.Int `json:"homesteadBlock,omitempty"` // Homestead switch block (nil = no fork, 0 = already homestead)
 
-	EIP158Block *big.Int `json:"eip158Block,omitempty"` // EIP158 HF block
-
 	ByzantiumBlock      *big.Int `json:"byzantiumBlock,omitempty"`      // Byzantium switch block (nil = no fork, 0 = already on byzantium)
 	ConstantinopleBlock *big.Int `json:"constantinopleBlock,omitempty"` // Constantinople switch block (nil = no fork, 0 = already activated)
 	PetersburgBlock     *big.Int `json:"petersburgBlock,omitempty"`     // Petersburg switch block (nil = same as Constantinople)
@@ -225,7 +220,7 @@ func (c *ChainConfig) String() string {
 	banner += "Pre-Merge hard forks:\n"
 	banner += fmt.Sprintf(" - Homestead:                   %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/homestead.md)\n", c.HomesteadBlock)
 	banner += " - Spurious Dragon/1 (EIP 155): always   (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n"
-	banner += fmt.Sprintf(" - Spurious Dragon/2 (EIP 158): %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n", c.EIP158Block)
+	banner += " - Spurious Dragon/2 (EIP 158): always   (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n"
 	banner += fmt.Sprintf(" - Byzantium:                   %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/byzantium.md)\n", c.ByzantiumBlock)
 	banner += fmt.Sprintf(" - Constantinople:              %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/constantinople.md)\n", c.ConstantinopleBlock)
 	banner += fmt.Sprintf(" - Petersburg:                  %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/petersburg.md)\n", c.PetersburgBlock)
@@ -266,13 +261,6 @@ func (c *ChainConfig) String() string {
 // IsHomestead returns whether num is either equal to the homestead block or greater.
 func (c *ChainConfig) IsHomestead(num *big.Int) bool {
 	return isForked(c.HomesteadBlock, num)
-}
-
-// IsEIP158 returns whether num is either equal to the EIP158 fork block or greater.
-func (c *ChainConfig) IsEIP158(num *big.Int) bool {
-	_ = num
-	// EIP-158/EIP-161 state clearing semantics are always enabled in GTOS.
-	return true
 }
 
 // IsByzantium returns whether num is either equal to the Byzantium fork block or greater.
@@ -407,8 +395,13 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 	if isForkIncompatible(c.HomesteadBlock, newcfg.HomesteadBlock, head) {
 		return newCompatError("Homestead fork block", c.HomesteadBlock, newcfg.HomesteadBlock)
 	}
-	if c.IsEIP158(head) && !configNumEqual(c.ChainID, newcfg.ChainID) {
-		return newCompatError("EIP158 chain ID", c.EIP158Block, newcfg.EIP158Block)
+	if !configNumEqual(c.ChainID, newcfg.ChainID) {
+		return &ConfigCompatError{
+			What:         "chain ID",
+			StoredConfig: c.ChainID,
+			NewConfig:    newcfg.ChainID,
+			RewindTo:     0,
+		}
 	}
 	if isForkIncompatible(c.ByzantiumBlock, newcfg.ByzantiumBlock, head) {
 		return newCompatError("Byzantium fork block", c.ByzantiumBlock, newcfg.ByzantiumBlock)
@@ -515,7 +508,7 @@ func (err *ConfigCompatError) Error() string {
 // phases.
 type Rules struct {
 	ChainID                                                 *big.Int
-	IsHomestead, IsEIP158                                   bool
+	IsHomestead                                             bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon                                      bool
 	IsMerge, IsShanghai, isCancun                           bool
@@ -530,7 +523,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
 	return Rules{
 		ChainID:          new(big.Int).Set(chainID),
 		IsHomestead:      c.IsHomestead(num),
-		IsEIP158:         c.IsEIP158(num),
 		IsByzantium:      c.IsByzantium(num),
 		IsConstantinople: c.IsConstantinople(num),
 		IsPetersburg:     c.IsPetersburg(num),
