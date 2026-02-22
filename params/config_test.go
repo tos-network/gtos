@@ -16,8 +16,8 @@ func TestCheckCompatible(t *testing.T) {
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 0, wantErr: nil},
 		{stored: AllDPoSProtocolChanges, new: AllDPoSProtocolChanges, head: 100, wantErr: nil},
 		{
-			stored:  &ChainConfig{EIP150Block: big.NewInt(10)},
-			new:     &ChainConfig{EIP150Block: big.NewInt(20)},
+			stored:  &ChainConfig{HomesteadBlock: big.NewInt(10)},
+			new:     &ChainConfig{HomesteadBlock: big.NewInt(20)},
 			head:    9,
 			wantErr: nil,
 		},
@@ -44,11 +44,11 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{HomesteadBlock: big.NewInt(30), EIP150Block: big.NewInt(10)},
-			new:    &ChainConfig{HomesteadBlock: big.NewInt(25), EIP150Block: big.NewInt(20)},
+			stored: &ChainConfig{HomesteadBlock: big.NewInt(30), ByzantiumBlock: big.NewInt(10)},
+			new:    &ChainConfig{HomesteadBlock: big.NewInt(30), ByzantiumBlock: big.NewInt(20)},
 			head:   25,
 			wantErr: &ConfigCompatError{
-				What:         "EIP150 fork block",
+				What:         "Byzantium fork block",
 				StoredConfig: big.NewInt(10),
 				NewConfig:    big.NewInt(20),
 				RewindTo:     9,

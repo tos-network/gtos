@@ -16,15 +16,13 @@ const (
 
 // callGas returns the actual gas cost of the call.
 //
-// The cost of gas was changed during the homestead price change HF.
-// As part of EIP 150 (TangerineWhistle), the returned gas is gas - base * 63 / 64.
-func callGas(isEip150 bool, availableGas, base uint64, callCost *uint256.Int) (uint64, error) {
-	if isEip150 {
+// When the 63/64 rule is enabled, the returned gas is gas - base * 63 / 64.
+func callGas(apply63Over64Rule bool, availableGas, base uint64, callCost *uint256.Int) (uint64, error) {
+	if apply63Over64Rule {
 		availableGas = availableGas - base
 		gas := availableGas - availableGas/64
-		// If the bit length exceeds 64 bit we know that the newly calculated "gas" for EIP150
-		// is smaller than the requested amount. Therefore we return the new gas instead
-		// of returning an error.
+		// If the bit length exceeds 64 bits, the requested call gas is larger than
+		// the capped amount, so return the capped value instead of an overflow error.
 		if !callCost.IsUint64() || gas < callCost.Uint64() {
 			return gas, nil
 		}
