@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/params"
 )
@@ -13,8 +14,9 @@ func TestPutCodeTTLCodeSizeLimit(t *testing.T) {
 
 	oversized := make(hexutil.Bytes, int(params.MaxCodeSize)+1)
 	_, err := api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
-		Code: oversized,
-		TTL:  1,
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Code:            oversized,
+		TTL:             1,
 	})
 	if err == nil {
 		t.Fatalf("expected oversized code error")
@@ -39,8 +41,9 @@ func TestPutCodeTTLCodeSizeLimit(t *testing.T) {
 
 	atLimit := make(hexutil.Bytes, int(params.MaxCodeSize))
 	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
-		Code: atLimit,
-		TTL:  1,
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Code:            atLimit,
+		TTL:             1,
 	})
 	if err == nil {
 		t.Fatalf("expected not implemented error at limit")

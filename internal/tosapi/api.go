@@ -1901,6 +1901,7 @@ const (
 	rpcErrInvalidSigner        = -38007
 	rpcErrRetentionUnavailable = -38008
 	rpcErrCodeTooLarge         = -38009
+	rpcErrInvalidParams        = -32602
 )
 
 // rpcAPIError is a JSON-RPC error with stable application code and optional data payload.
@@ -1920,6 +1921,17 @@ func newRPCNotImplementedError(method string) error {
 		message: "not implemented",
 		data: map[string]interface{}{
 			"reason": method + " is not implemented yet",
+		},
+	}
+}
+
+func newRPCInvalidParamsError(field, reason string) error {
+	return &rpcAPIError{
+		code:    rpcErrInvalidParams,
+		message: "invalid params",
+		data: map[string]interface{}{
+			"field":  field,
+			"reason": reason,
 		},
 	}
 }
@@ -2230,6 +2242,9 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 
 func (s *TOSAPI) PutCodeTTL(ctx context.Context, args RPCPutCodeTTLArgs) (common.Hash, error) {
 	_ = ctx
+	if args.From == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
+	}
 	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
 		return common.Hash{}, err
 	}
@@ -2262,6 +2277,12 @@ func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, bl
 
 func (s *TOSAPI) PutKVTTL(ctx context.Context, args RPCPutKVTTLArgs) (common.Hash, error) {
 	_ = ctx
+	if args.From == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if strings.TrimSpace(args.Namespace) == "" {
+		return common.Hash{}, newRPCInvalidParamsError("namespace", "must not be empty")
+	}
 	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
 		return common.Hash{}, err
 	}

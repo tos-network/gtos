@@ -63,17 +63,54 @@ func TestBuildSetSignerTxValidation(t *testing.T) {
 
 func TestPutKVTTLValidation(t *testing.T) {
 	api := &TOSAPI{}
+	var err error
 
-	_, err := api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
 		Namespace: "ns",
 		Key:       hexutil.Bytes("k"),
 		Value:     hexutil.Bytes("v"),
-		TTL:       0,
+		TTL:       1,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for from")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Namespace:       "   ",
+		Key:             hexutil.Bytes("k"),
+		Value:           hexutil.Bytes("v"),
+		TTL:             1,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for namespace")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Namespace:       "ns",
+		Key:             hexutil.Bytes("k"),
+		Value:           hexutil.Bytes("v"),
+		TTL:             0,
 	})
 	if err == nil {
 		t.Fatalf("expected invalid ttl error")
 	}
-	rpcErr, ok := err.(*rpcAPIError)
+	rpcErr, ok = err.(*rpcAPIError)
 	if !ok {
 		t.Fatalf("unexpected error type %T", err)
 	}
@@ -82,10 +119,11 @@ func TestPutKVTTLValidation(t *testing.T) {
 	}
 
 	_, err = api.PutKVTTL(context.Background(), RPCPutKVTTLArgs{
-		Namespace: "ns",
-		Key:       hexutil.Bytes("k"),
-		Value:     hexutil.Bytes("v"),
-		TTL:       1,
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Namespace:       "ns",
+		Key:             hexutil.Bytes("k"),
+		Value:           hexutil.Bytes("v"),
+		TTL:             1,
 	})
 	if err == nil {
 		t.Fatalf("expected not-implemented error")
@@ -101,15 +139,32 @@ func TestPutKVTTLValidation(t *testing.T) {
 
 func TestPutCodeTTLValidation(t *testing.T) {
 	api := &TOSAPI{}
+	var err error
 
-	_, err := api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
 		Code: hexutil.Bytes{0x60, 0x00},
-		TTL:  0,
+		TTL:  1,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for from")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	_, err = api.PutCodeTTL(context.Background(), RPCPutCodeTTLArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		Code:            hexutil.Bytes{0x60, 0x00},
+		TTL:             0,
 	})
 	if err == nil {
 		t.Fatalf("expected invalid ttl error")
 	}
-	rpcErr, ok := err.(*rpcAPIError)
+	rpcErr, ok = err.(*rpcAPIError)
 	if !ok {
 		t.Fatalf("unexpected error type %T", err)
 	}
