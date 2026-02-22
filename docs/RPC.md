@@ -1,6 +1,7 @@
-# GTOS RPC v2 Specification (Draft)
+# GTOS RPC Specification (Draft)
 
-This document defines the public RPC v2 surface aligned with GTOS roadmap:
+This document defines the public RPC surface aligned with GTOS roadmap.
+It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stack.
 
 - DPoS consensus.
 - Storage-first chain capabilities.
@@ -35,13 +36,13 @@ Read methods:
 - `tos_getChainProfile()`
 - `tos_getRetentionPolicy()`
 - `tos_getPruneWatermark()`
-- `tos_getAccount({address, block?})`
-- `tos_getSigner({address, block?})`
-- `tos_getCodeObject({codeHash, block?})`
-- `tos_getCodeObjectMeta({codeHash, block?})`
-- `tos_getKV({namespace, key, block?})`
-- `tos_getKVMeta({namespace, key, block?})`
-- `tos_listKV({namespace, cursor?, limit?, block?})`
+- `tos_getAccount(address, block?)`
+- `tos_getSigner(address, block?)`
+- `tos_getCodeObject(codeHash, block?)`
+- `tos_getCodeObjectMeta(codeHash, block?)`
+- `tos_getKV(namespace, key, block?)`
+- `tos_getKVMeta(namespace, key, block?)`
+- `tos_listKV(namespace, cursor?, limit?, block?)`
 
 Write/tx-submission methods:
 
@@ -54,8 +55,8 @@ Write/tx-submission methods:
 
 - `dpos_getSnapshot(number?)`
 - `dpos_getValidators(number?)`
-- `dpos_getValidator({address, block?})`
-- `dpos_getEpochInfo(block?)`
+- `dpos_getValidator(address, number?)`
+- `dpos_getEpochInfo(number?)`
 
 ## 3.3 Storage Mutability Rules
 
@@ -65,7 +66,7 @@ Write/tx-submission methods:
   - Only TTL expiry/system pruning clears code objects.
 - KV storage:
   - `tos_putKVTTL` is an upsert operation for `(namespace, key)`.
-  - `tos_deleteKV` is not part of v2.
+  - `tos_deleteKV` is not part of this API.
   - Reads only return active (non-expired) values.
 
 ## 4. JSON Schema
@@ -76,7 +77,7 @@ The schema snippets below define `params[0]` and `result` shape. For methods wit
 
 ```json
 {
-  "$id": "gtos.rpc.v2.common",
+  "$id": "gtos.rpc.common",
   "definitions": {
     "hexQuantity": {
       "type": "string",
@@ -115,8 +116,8 @@ Result schema:
   "type": "object",
   "required": ["chainId", "networkId", "targetBlockIntervalMs", "retainBlocks", "snapshotInterval"],
   "properties": {
-    "chainId": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "networkId": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "chainId": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "networkId": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "targetBlockIntervalMs": {"type": "integer", "minimum": 1},
     "retainBlocks": {"type": "integer", "minimum": 1},
     "snapshotInterval": {"type": "integer", "minimum": 1}
@@ -135,8 +136,8 @@ Result schema:
   "properties": {
     "retainBlocks": {"type": "integer", "minimum": 1},
     "snapshotInterval": {"type": "integer", "minimum": 1},
-    "headBlock": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "oldestAvailableBlock": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "headBlock": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "oldestAvailableBlock": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -150,8 +151,8 @@ Result schema:
   "type": "object",
   "required": ["headBlock", "oldestAvailableBlock", "retainBlocks"],
   "properties": {
-    "headBlock": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "oldestAvailableBlock": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "headBlock": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "oldestAvailableBlock": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "retainBlocks": {"type": "integer", "minimum": 1}
   }
 }
@@ -161,18 +162,10 @@ Result schema:
 
 ### `tos_getAccount`
 
-Params schema (`params[0]`):
+Params:
 
-```json
-{
-  "type": "object",
-  "required": ["address"],
-  "properties": {
-    "address": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
-    "block": {"$ref": "gtos.rpc.v2.common#/definitions/blockTag"}
-  }
-}
-```
+- `params[0]` address schema: `{"$ref":"gtos.rpc.common#/definitions/address"}`
+- `params[1]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
@@ -181,9 +174,9 @@ Result schema:
   "type": "object",
   "required": ["address", "nonce", "balance", "signer", "blockNumber"],
   "properties": {
-    "address": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "balance": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "address": {"$ref": "gtos.rpc.common#/definitions/address"},
+    "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "balance": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "signer": {
       "type": "object",
       "required": ["type", "value", "defaulted"],
@@ -193,14 +186,14 @@ Result schema:
         "defaulted": {"type": "boolean"}
       }
     },
-    "blockNumber": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "blockNumber": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
 
 ### `tos_getSigner`
 
-Params schema (`params[0]`): same as `tos_getAccount`.
+Params: same as `tos_getAccount`.
 
 Result schema:
 
@@ -209,7 +202,7 @@ Result schema:
   "type": "object",
   "required": ["address", "signer", "blockNumber"],
   "properties": {
-    "address": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
+    "address": {"$ref": "gtos.rpc.common#/definitions/address"},
     "signer": {
       "type": "object",
       "required": ["type", "value", "defaulted"],
@@ -219,7 +212,7 @@ Result schema:
         "defaulted": {"type": "boolean"}
       }
     },
-    "blockNumber": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "blockNumber": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -233,12 +226,12 @@ Params schema (`params[0]`):
   "type": "object",
   "required": ["from", "signerType", "signerValue", "gasPrice"],
   "properties": {
-    "from": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
+    "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "signerType": {"type": "string"},
     "signerValue": {"type": "string"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -246,7 +239,7 @@ Params schema (`params[0]`):
 Result schema:
 
 ```json
-{"$ref": "gtos.rpc.v2.common#/definitions/hash32"}
+{"$ref": "gtos.rpc.common#/definitions/hash32"}
 ```
 
 ### `tos_buildSetSignerTx`
@@ -261,7 +254,7 @@ Result schema:
   "required": ["tx", "raw"],
   "properties": {
     "tx": {"type": "object"},
-    "raw": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"}
+    "raw": {"$ref": "gtos.rpc.common#/definitions/hexData"}
   }
 }
 ```
@@ -283,12 +276,12 @@ Params schema (`params[0]`):
   "type": "object",
   "required": ["from", "code", "ttl", "gasPrice"],
   "properties": {
-    "from": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
-    "code": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "ttl": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "from": {"$ref": "gtos.rpc.common#/definitions/address"},
+    "code": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "ttl": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -296,23 +289,15 @@ Params schema (`params[0]`):
 Result schema:
 
 ```json
-{"$ref": "gtos.rpc.v2.common#/definitions/hash32"}
+{"$ref": "gtos.rpc.common#/definitions/hash32"}
 ```
 
 ### `tos_getCodeObject`
 
-Params schema (`params[0]`):
+Params:
 
-```json
-{
-  "type": "object",
-  "required": ["codeHash"],
-  "properties": {
-    "codeHash": {"$ref": "gtos.rpc.v2.common#/definitions/hash32"},
-    "block": {"$ref": "gtos.rpc.v2.common#/definitions/blockTag"}
-  }
-}
-```
+- `params[0]` code hash schema: `{"$ref":"gtos.rpc.common#/definitions/hash32"}`
+- `params[1]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
@@ -321,10 +306,10 @@ Result schema:
   "type": "object",
   "required": ["codeHash", "code", "createdAt", "expireAt", "expired"],
   "properties": {
-    "codeHash": {"$ref": "gtos.rpc.v2.common#/definitions/hash32"},
-    "code": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "createdAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "expireAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "codeHash": {"$ref": "gtos.rpc.common#/definitions/hash32"},
+    "code": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expired": {"type": "boolean"}
   }
 }
@@ -332,7 +317,7 @@ Result schema:
 
 ### `tos_getCodeObjectMeta`
 
-Params schema (`params[0]`): same as `tos_getCodeObject`.
+Params: same as `tos_getCodeObject`.
 
 Result schema:
 
@@ -341,9 +326,9 @@ Result schema:
   "type": "object",
   "required": ["codeHash", "createdAt", "expireAt", "expired"],
   "properties": {
-    "codeHash": {"$ref": "gtos.rpc.v2.common#/definitions/hash32"},
-    "createdAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "expireAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "codeHash": {"$ref": "gtos.rpc.common#/definitions/hash32"},
+    "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expired": {"type": "boolean"}
   }
 }
@@ -366,14 +351,14 @@ Params schema (`params[0]`):
   "type": "object",
   "required": ["from", "namespace", "key", "value", "ttl", "gasPrice"],
   "properties": {
-    "from": {"$ref": "gtos.rpc.v2.common#/definitions/address"},
+    "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "namespace": {"type": "string", "minLength": 1},
-    "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "value": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "ttl": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "nonce": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"}
+    "key": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "value": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "ttl": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -381,24 +366,19 @@ Params schema (`params[0]`):
 Result schema:
 
 ```json
-{"$ref": "gtos.rpc.v2.common#/definitions/hash32"}
+{"$ref": "gtos.rpc.common#/definitions/hash32"}
 ```
 
 ### `tos_getKV`
 
-Params schema (`params[0]`):
+Params:
 
+- `params[0]` namespace schema:
 ```json
-{
-  "type": "object",
-  "required": ["namespace", "key"],
-  "properties": {
-    "namespace": {"type": "string", "minLength": 1},
-    "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "block": {"$ref": "gtos.rpc.v2.common#/definitions/blockTag"}
-  }
-}
+{"type":"string","minLength":1}
 ```
+- `params[1]` key schema: `{"$ref":"gtos.rpc.common#/definitions/hexData"}`
+- `params[2]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
@@ -408,15 +388,15 @@ Result schema:
   "required": ["namespace", "key", "value"],
   "properties": {
     "namespace": {"type": "string"},
-    "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "value": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"}
+    "key": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "value": {"$ref": "gtos.rpc.common#/definitions/hexData"}
   }
 }
 ```
 
 ### `tos_getKVMeta`
 
-Params schema (`params[0]`): same as `tos_getKV`.
+Params: same as `tos_getKV`.
 
 Result schema:
 
@@ -426,9 +406,9 @@ Result schema:
   "required": ["namespace", "key", "createdAt", "expireAt", "expired"],
   "properties": {
     "namespace": {"type": "string"},
-    "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-    "createdAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
-    "expireAt": {"$ref": "gtos.rpc.v2.common#/definitions/hexQuantity"},
+    "key": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+    "createdAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "expireAt": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "expired": {"type": "boolean"}
   }
 }
@@ -436,20 +416,21 @@ Result schema:
 
 ### `tos_listKV`
 
-Params schema (`params[0]`):
+Params:
 
+- `params[0]` namespace schema:
 ```json
-{
-  "type": "object",
-  "required": ["namespace"],
-  "properties": {
-    "namespace": {"type": "string", "minLength": 1},
-    "cursor": {"type": "string"},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
-    "block": {"$ref": "gtos.rpc.v2.common#/definitions/blockTag"}
-  }
-}
+{"type":"string","minLength":1}
 ```
+- `params[1]` optional cursor schema:
+```json
+{"type":"string"}
+```
+- `params[2]` optional limit schema:
+```json
+{"type":"integer","minimum":1,"maximum":1000}
+```
+- `params[3]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
@@ -465,12 +446,96 @@ Result schema:
         "required": ["namespace", "key", "value"],
         "properties": {
           "namespace": {"type": "string"},
-          "key": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"},
-          "value": {"$ref": "gtos.rpc.v2.common#/definitions/hexData"}
+          "key": {"$ref": "gtos.rpc.common#/definitions/hexData"},
+          "value": {"$ref": "gtos.rpc.common#/definitions/hexData"}
         }
       }
     },
     "nextCursor": {"type": ["string", "null"]}
+  }
+}
+```
+
+## 4.6 DPoS Queries
+
+### `dpos_getSnapshot`
+
+Params: optional block number/tag value.
+
+Result: snapshot object with validator set and recents map.
+
+### `dpos_getValidators`
+
+Params: optional block number/tag value.
+
+Result schema:
+
+```json
+{
+  "type": "array",
+  "items": {"$ref": "gtos.rpc.common#/definitions/address"}
+}
+```
+
+### `dpos_getValidator`
+
+Params:
+
+- `params[0]` address schema: `{"$ref":"gtos.rpc.common#/definitions/address"}`
+- `params[1]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
+
+Result schema:
+
+```json
+{
+  "type": "object",
+  "required": ["address", "active", "snapshotBlock", "snapshotHash"],
+  "properties": {
+    "address": {"$ref": "gtos.rpc.common#/definitions/address"},
+    "active": {"type": "boolean"},
+    "index": {"type": "integer", "minimum": 0},
+    "snapshotBlock": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "snapshotHash": {"$ref": "gtos.rpc.common#/definitions/hash32"},
+    "recentSignedBlocks": {
+      "type": "array",
+      "items": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
+    }
+  }
+}
+```
+
+### `dpos_getEpochInfo`
+
+Params: optional block number/tag value.
+
+Result schema:
+
+```json
+{
+  "type": "object",
+  "required": [
+    "blockNumber",
+    "epochLength",
+    "epochIndex",
+    "epochStart",
+    "nextEpochStart",
+    "blocksUntilEpoch",
+    "targetBlockPeriodS",
+    "maxValidators",
+    "validatorCount",
+    "snapshotHash"
+  ],
+  "properties": {
+    "blockNumber": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "epochLength": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "epochIndex": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "epochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "nextEpochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "blocksUntilEpoch": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "targetBlockPeriodS": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "maxValidators": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "validatorCount": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "snapshotHash": {"$ref": "gtos.rpc.common#/definitions/hash32"}
   }
 }
 ```
@@ -485,7 +550,7 @@ JSON-RPC standard:
 - `-32602` invalid params
 - `-32603` internal error
 
-GTOS application errors (v2):
+GTOS application errors:
 
 - `-38000` `not_supported` - method/feature intentionally unsupported on this chain profile.
 - `-38001` `not_implemented` - method skeleton exists but execution path is not implemented yet.
@@ -511,9 +576,9 @@ Error payload shape (`error.data`):
 }
 ```
 
-## 6. Legacy -> v2 Mapping
+## 6. Legacy -> Extended Mapping
 
-| Legacy method | v2 method | Notes |
+| Legacy method | extended method | Notes |
 |---|---|---|
 | `tos_chainId` | `tos_getChainProfile` | `chainId` also available in profile output. |
 | `tos_blockNumber` | `tos_getPruneWatermark` | `headBlock` included. |
@@ -521,7 +586,7 @@ Error payload shape (`error.data`):
 | `tos_getCode` | `tos_getCodeObject` | Switch from contract-code semantics to code-object storage semantics. |
 | `tos_getStorageAt` | `tos_getKV` | TTL KV read semantics. |
 | `tos_sendTransaction` (data to system address) | `tos_setSigner` / `tos_putCodeTTL` / `tos_putKVTTL` | Explicit operation RPCs. |
-| legacy delete-style storage actions | removed | v2 forbids manual delete for both code and KV. |
+| legacy delete-style storage actions | removed | this API forbids manual delete for both code and KV. |
 | `tos_sendRawTransaction` | unchanged | Still valid for raw tx broadcast. |
 | `tos_getTransactionByHash` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
 | `tos_getTransactionReceipt` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
@@ -535,7 +600,7 @@ Error payload shape (`error.data`):
 
 Stage A (skeleton in code):
 
-- Add all `tos_*` v2 method endpoints and typed request/response structs.
+- Add all `tos_*` extension method endpoints and typed request/response structs.
 - Return deterministic `not_implemented` for methods lacking execution backend.
 - Implement read-only profile/retention/account/signer methods first.
 
@@ -549,4 +614,4 @@ Stage B (execution wiring):
 Stage C (deprecation enforcement):
 
 - Gate or remove VM-era RPCs (`tos_call`, `tos_estimateGas`, etc.).
-- Move clients to v2 methods with compatibility window.
+- Move clients to extension methods with compatibility window.

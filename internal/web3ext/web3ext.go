@@ -4,6 +4,7 @@ package web3ext
 var Modules = map[string]string{
 	"admin":    AdminJs,
 	"clique":   CliqueJs,
+	"dpos":     DPoSJs,
 	"tosash":   TosashJs,
 	"debug":    DebugJs,
 	"tos":      TOSJs,
@@ -70,6 +71,38 @@ web3._extend({
 			getter: 'clique_proposals'
 		}),
 	]
+});
+`
+
+const DPoSJs = `
+web3._extend({
+	property: 'dpos',
+	methods: [
+		new web3._extend.Method({
+			name: 'getSnapshot',
+			call: 'dpos_getSnapshot',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getValidators',
+			call: 'dpos_getValidators',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getValidator',
+			call: 'dpos_getValidator',
+			params: 2,
+			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'getEpochInfo',
+			call: 'dpos_getEpochInfo',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+	],
 });
 `
 
