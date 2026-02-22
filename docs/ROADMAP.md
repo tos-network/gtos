@@ -6,8 +6,15 @@ This roadmap replaces prior CL/EL split planning. GTOS now targets one clear pro
 
 - DPoS consensus
 - Transfer payment
-- Immutable smart-contract code storage
+- Immutable code storage
 - TTL-based generic key-value storage
+
+## Retention Strategy (No Archive Nodes)
+
+- Persistent data: current state + all finalized block headers.
+- Rolling history window: latest `200` finalized blocks for block bodies/transactions/receipts (`retain_blocks=200`).
+- Snapshot policy: create state snapshot every `1000` blocks (`snapshot_interval=1000`).
+- Pruning rule: only prune finalized blocks that are older than retention window.
 
 ## Phase 0: Protocol Freeze
 
@@ -18,10 +25,15 @@ Freeze the minimum protocol and state rules before implementation expansion.
 ### Deliverables
 
 - Consensus spec: validator set, voting weight, quorum, finality, epoch transition.
+- Consensus timing spec: default target block interval `1s` (`target_block_interval=1s`) and timeout ladder.
 - State spec:
   - account state
   - immutable contract-code state
   - TTL KV state
+- Retention spec:
+  - header/body retention boundary
+  - prune trigger rules
+  - snapshot format and recovery flow
 - Transaction spec:
   - `transfer`
   - `contract_deploy`
@@ -33,6 +45,8 @@ Freeze the minimum protocol and state rules before implementation expansion.
 
 - Specs reviewed and versioned.
 - At least one golden test vector for each transaction type.
+- Retention/snapshot parameters frozen (`retain_blocks=200`, `snapshot_interval=1000`).
+- Consensus timing parameters frozen (`target_block_interval=1s`).
 
 ## Phase 1: DPoS + Transfer MVP
 
@@ -56,7 +70,7 @@ Run a stable DPoS network with finalized `transfer` transactions.
 - 1000+ sequential finalized transfer blocks without fork divergence.
 - Replay and double-spend rejection tests pass.
 
-## Phase 2: Immutable Contract Storage
+## Phase 2: Immutable Code Storage
 
 ### Goal
 
@@ -109,6 +123,7 @@ Make the chain safe to operate under sustained load.
 
 - Performance profiling and bottleneck fixes.
 - Snapshot/state-sync for node bootstrap.
+- Automated finalized-history pruning pipeline with retention window enforcement.
 - Observability: metrics, structured logs, consensus/storage health dashboards.
 - Security hardening:
   - transaction validation limits
@@ -119,11 +134,12 @@ Make the chain safe to operate under sustained load.
 
 - 24h stability run with no consensus halt.
 - Recovery drills (node restart/sync) succeed on latest finalized height.
+- Retention window remains bounded and deterministic across nodes during long-run test.
 
 ## Milestone Priorities
 
 1. Consensus safety and deterministic transfer finality.
-2. Immutable contract storage correctness.
+2. Immutable code storage correctness.
 3. TTL KV deterministic expiration and pruning.
 4. Operability and production hardening.
 
