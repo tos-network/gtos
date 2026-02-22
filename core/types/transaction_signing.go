@@ -22,20 +22,17 @@ type sigCache struct {
 
 // MakeSigner returns a Signer based on the given chain config and block number.
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
-	var signer Signer
 	switch {
-	case config.IsLondon(blockNumber):
-		signer = NewLondonSigner(config.ChainID)
-	case config.IsBerlin(blockNumber):
-		signer = NewEIP2930Signer(config.ChainID)
-	case config.IsEIP155(blockNumber):
-		signer = NewEIP155Signer(config.ChainID)
+	case config.ChainID != nil && config.IsLondon(blockNumber):
+		return NewLondonSigner(config.ChainID)
+	case config.ChainID != nil:
+		// EIP-155 replay protection and EIP-2718 typed envelopes are always active.
+		return NewEIP2930Signer(config.ChainID)
 	case config.IsHomestead(blockNumber):
-		signer = HomesteadSigner{}
+		return HomesteadSigner{}
 	default:
-		signer = FrontierSigner{}
+		return FrontierSigner{}
 	}
-	return signer
 }
 
 // LatestSigner returns the 'most permissive' Signer available for the given chain
@@ -50,12 +47,7 @@ func LatestSigner(config *params.ChainConfig) Signer {
 		if config.LondonBlock != nil {
 			return NewLondonSigner(config.ChainID)
 		}
-		if config.BerlinBlock != nil {
-			return NewEIP2930Signer(config.ChainID)
-		}
-		if config.EIP155Block != nil {
-			return NewEIP155Signer(config.ChainID)
-		}
+		return NewEIP2930Signer(config.ChainID)
 	}
 	return HomesteadSigner{}
 }

@@ -62,9 +62,6 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	if err := args.setFeeDefaults(ctx, b); err != nil {
 		return err
 	}
-	if args.AccessList != nil {
-		return errors.New("accessList is not supported in GTOS")
-	}
 	if args.Value == nil {
 		args.Value = new(hexutil.Big)
 	}
@@ -141,9 +138,6 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	if args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil {
 		return types.Message{}, errors.New("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS")
 	}
-	if args.AccessList != nil {
-		return types.Message{}, errors.New("accessList is not supported in GTOS")
-	}
 	// Set sender address or use zero address if none specified.
 	addr := args.from()
 
@@ -169,20 +163,38 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		value = args.Value.ToInt()
 	}
 	data := args.data()
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, data, nil, true)
+	var accessList types.AccessList
+	if args.AccessList != nil {
+		accessList = *args.AccessList
+	}
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, gasFeeCap, gasTipCap, data, accessList, true)
 	return msg, nil
 }
 
 // toTransaction converts the arguments to a transaction.
 // This assumes that setDefaults has been called.
 func (args *TransactionArgs) toTransaction() *types.Transaction {
-	data := &types.LegacyTx{
-		To:       args.To,
-		Nonce:    uint64(*args.Nonce),
-		Gas:      uint64(*args.Gas),
-		GasPrice: (*big.Int)(args.GasPrice),
-		Value:    (*big.Int)(args.Value),
-		Data:     args.data(),
+	var data types.TxData
+	if args.AccessList != nil {
+		data = &types.AccessListTx{
+			To:         args.To,
+			ChainID:    (*big.Int)(args.ChainID),
+			Nonce:      uint64(*args.Nonce),
+			Gas:        uint64(*args.Gas),
+			GasPrice:   (*big.Int)(args.GasPrice),
+			Value:      (*big.Int)(args.Value),
+			Data:       args.data(),
+			AccessList: *args.AccessList,
+		}
+	} else {
+		data = &types.LegacyTx{
+			To:       args.To,
+			Nonce:    uint64(*args.Nonce),
+			Gas:      uint64(*args.Gas),
+			GasPrice: (*big.Int)(args.GasPrice),
+			Value:    (*big.Int)(args.Value),
+			Data:     args.data(),
+		}
 	}
 	return types.NewTx(data)
 }
