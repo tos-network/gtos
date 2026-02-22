@@ -38,7 +38,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/crypto"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
@@ -244,34 +243,6 @@ var (
 	EthRequiredBlocksFlag = &cli.StringFlag{
 		Name:     "tos.requiredblocks",
 		Usage:    "Comma separated block number-to-hash mappings to require for peering (<number>=<hash>)",
-		Category: flags.EthCategory,
-	}
-	EngineAPIEnabledFlag = &cli.BoolFlag{
-		Name:     "engine.enabled",
-		Usage:    "Enable external execution layer bridge (phase-1 scaffold)",
-		Category: flags.EthCategory,
-	}
-	EngineAPIEndpointFlag = &cli.StringFlag{
-		Name:     "engine.endpoint",
-		Usage:    "Execution layer Engine API endpoint",
-		Value:    engineclient.DefaultConfig.Endpoint,
-		Category: flags.EthCategory,
-	}
-	EngineAPIJWTSecretFlag = &flags.DirectoryFlag{
-		Name:     "engine.jwtsecret",
-		Usage:    "Path to JWT secret file used by Engine API",
-		Category: flags.EthCategory,
-	}
-	EngineAPIRequestTimeoutFlag = &cli.DurationFlag{
-		Name:     "engine.timeout",
-		Usage:    "Engine API request timeout",
-		Value:    engineclient.DefaultConfig.RequestTimeout,
-		Category: flags.EthCategory,
-	}
-	EngineAPIAllowTxPoolFallbackFlag = &cli.BoolFlag{
-		Name:     "engine.allow-txpool-fallback",
-		Usage:    "Allow falling back to local txpool when Engine API payload retrieval fails",
-		Value:    engineclient.DefaultConfig.AllowTxPoolFallback,
 		Category: flags.EthCategory,
 	}
 	LegacyWhitelistFlag = &cli.StringFlag{
@@ -1627,25 +1598,6 @@ func setRequiredBlocks(ctx *cli.Context, cfg *tosconfig.Config) {
 			Fatalf("Invalid required block hash %s: %v", parts[1], err)
 		}
 		cfg.RequiredBlocks[number] = hash
-	}
-}
-
-// SetEngineAPIConfig applies engine bridge related CLI flags.
-func SetEngineAPIConfig(ctx *cli.Context, cfg *engineclient.Config) {
-	if ctx.IsSet(EngineAPIEnabledFlag.Name) {
-		cfg.Enabled = ctx.Bool(EngineAPIEnabledFlag.Name)
-	}
-	if ctx.IsSet(EngineAPIEndpointFlag.Name) {
-		cfg.Endpoint = ctx.String(EngineAPIEndpointFlag.Name)
-	}
-	if ctx.IsSet(EngineAPIJWTSecretFlag.Name) {
-		cfg.JWTSecretFile = ctx.String(EngineAPIJWTSecretFlag.Name)
-	}
-	if ctx.IsSet(EngineAPIRequestTimeoutFlag.Name) {
-		cfg.RequestTimeout = ctx.Duration(EngineAPIRequestTimeoutFlag.Name)
-	}
-	if ctx.IsSet(EngineAPIAllowTxPoolFallbackFlag.Name) {
-		cfg.AllowTxPoolFallback = ctx.Bool(EngineAPIAllowTxPoolFallbackFlag.Name)
 	}
 }
 

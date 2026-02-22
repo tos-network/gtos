@@ -33,7 +33,6 @@ import (
 	"github.com/tos-network/gtos/accounts/usbwallet"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/core/rawdb"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
@@ -87,11 +86,10 @@ type ethstatsConfig struct {
 }
 
 type gethConfig struct {
-	TOS       tosconfig.Config
-	Node      node.Config
-	TOSStats  ethstatsConfig
-	Metrics   metrics.Config
-	EngineAPI engineclient.Config
+	TOS      tosconfig.Config
+	Node     node.Config
+	TOSStats ethstatsConfig
+	Metrics  metrics.Config
 }
 
 func loadConfig(file string, cfg *gethConfig) error {
@@ -123,10 +121,9 @@ func defaultNodeConfig() node.Config {
 func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	// Load defaults.
 	cfg := gethConfig{
-		TOS:       tosconfig.Defaults,
-		Node:      defaultNodeConfig(),
-		Metrics:   metrics.DefaultConfig,
-		EngineAPI: engineclient.DefaultConfig,
+		TOS:     tosconfig.Defaults,
+		Node:    defaultNodeConfig(),
+		Metrics: metrics.DefaultConfig,
 	}
 
 	// Load config file.
@@ -148,7 +145,6 @@ func makeConfigNode(ctx *cli.Context) (*node.Node, gethConfig) {
 	}
 
 	utils.SetTOSConfig(ctx, stack, &cfg.TOS)
-	utils.SetEngineAPIConfig(ctx, &cfg.EngineAPI)
 	if ctx.IsSet(utils.EthStatsURLFlag.Name) {
 		cfg.TOSStats.URL = ctx.String(utils.EthStatsURLFlag.Name)
 	}
@@ -169,9 +165,6 @@ func makeFullNode(ctx *cli.Context) (*node.Node, tosapi.Backend) {
 	}
 
 	backend, tosBackend := utils.RegisterTOSService(stack, &cfg.TOS)
-	if tosBackend != nil {
-		tosBackend.ConfigureEngineAPI(cfg.EngineAPI)
-	}
 
 	// Warn users to migrate if they have a legacy freezer format.
 	if tosBackend != nil && !ctx.IsSet(utils.IgnoreLegacyReceiptsFlag.Name) {

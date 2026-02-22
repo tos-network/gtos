@@ -17,12 +17,9 @@
 package miner
 
 import (
-	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,9 +31,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/crypto/tosalign"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
-	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
@@ -71,8 +65,6 @@ const (
 	// any newly arrived transactions.
 	maxRecommitInterval = 15 * time.Second
 
-	enginePayloadEncodingTOSV1 = "tos_v1"
-
 	// intervalAdjustRatio is the impact a single interval adjustment has on sealing work
 	// resubmitting interval.
 	intervalAdjustRatio = 0.1
@@ -83,9 +75,6 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
-
-	// engineAPIPayloadRequestTimeout bounds proposer payload requests to execution layer.
-	engineAPIPayloadRequestTimeout = 2 * time.Second
 )
 
 var (
@@ -1052,10 +1041,6 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
 func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
-	if usedEnginePayload, err := w.fillTransactionsFromEngine(interrupt, env); usedEnginePayload || err != nil {
-		return err
-	}
-
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
 	pending := w.tos.TxPool().Pending(true)
@@ -1079,134 +1064,6 @@ func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
 		}
 	}
 	return nil
-}
-
-func (w *worker) fillTransactionsFromEngine(interrupt *int32, env *environment) (bool, error) {
-	client := w.tos.EngineAPIClient()
-	if client == nil {
-		return false, nil
-	}
-	allowTxPoolFallback := w.tos.EngineAPIAllowTxPoolFallback()
-	ctx, cancel := context.WithTimeout(context.Background(), engineAPIPayloadRequestTimeout)
-	defer cancel()
-
-	resp, err := client.GetPayload(ctx, &engineclient.GetPayloadRequest{
-		ParentHash: env.header.ParentHash.Hex(),
-		Height:     env.header.Number.Uint64(),
-		Timestamp:  env.header.Time,
-	})
-	if err != nil {
-		if allowTxPoolFallback {
-			if !errors.Is(err, engineclient.ErrNotImplemented) {
-				log.Warn("Engine payload request failed, falling back to local txpool", "err", err)
-			}
-			return false, nil
-		}
-		return true, fmt.Errorf("engine payload request failed with txpool fallback disabled: %w", err)
-	}
-	if !verifyEnginePayloadEncoding(resp.PayloadEncoding) {
-		err := fmt.Errorf("unsupported engine payload encoding %q", resp.PayloadEncoding)
-		if allowTxPoolFallback {
-			log.Warn("Engine payload encoding unsupported, falling back to local txpool", "encoding", resp.PayloadEncoding)
-			return false, nil
-		}
-		return true, err
-	}
-	if len(resp.Payload) == 0 {
-		log.Debug("Engine payload is empty")
-		return true, nil
-	}
-	if !verifyEnginePayloadCommitment(resp.Payload, resp.PayloadCommitment) {
-		err := fmt.Errorf("engine payload commitment mismatch")
-		if allowTxPoolFallback {
-			log.Warn("Engine payload commitment mismatch, falling back to local txpool")
-			return false, nil
-		}
-		return true, err
-	}
-
-	txBlobs, err := enginepayloadtosv1.Decode(resp.Payload)
-	if err != nil {
-		if allowTxPoolFallback {
-			log.Warn("Engine payload decode failed, falling back to local txpool", "err", err)
-			return false, nil
-		}
-		return true, fmt.Errorf("engine payload decode failed with txpool fallback disabled: %w", err)
-	}
-
-	if env.gasPool == nil {
-		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
-	}
-
-	txs := make(types.Transactions, 0, len(txBlobs))
-	for i, blob := range txBlobs {
-		var tx types.Transaction
-		if err := tx.UnmarshalBinary(blob); err != nil {
-			decodeErr := fmt.Errorf("engine tx[%d] decode failed: %w", i, err)
-			if allowTxPoolFallback {
-				log.Warn("Engine tx decode failed, falling back to local txpool", "index", i, "err", err)
-				return false, nil
-			}
-			return true, decodeErr
-		}
-		txs = append(txs, &tx)
-	}
-	if len(txs) == 0 {
-		log.Debug("Engine payload contains zero transactions")
-		return true, nil
-	}
-	coalescedLogs := make([]*types.Log, 0, len(txs))
-	for _, tx := range txs {
-		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
-			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
-				w.resubmitAdjustCh <- &intervalAdjust{inc: true}
-				return true, errBlockInterruptedByRecommit
-			}
-			return true, errBlockInterruptedByNewHead
-		}
-		logs, err := w.commitTransaction(env, tx)
-		if allowTxPoolFallback {
-			if err != nil {
-				log.Warn("Engine payload transaction rejected, falling back to local txpool", "err", err)
-				return false, nil
-			}
-		}
-		if err != nil {
-			return true, err
-		}
-		env.tcount++
-		coalescedLogs = append(coalescedLogs, logs...)
-	}
-	if !w.isRunning() && len(coalescedLogs) > 0 {
-		cpy := make([]*types.Log, len(coalescedLogs))
-		for i, l := range coalescedLogs {
-			cpy[i] = new(types.Log)
-			*cpy[i] = *l
-		}
-		w.pendingLogsFeed.Send(cpy)
-	}
-	if interrupt != nil {
-		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
-	}
-	log.Debug("Filled block transactions from engine payload", "count", len(txs), "statehash", resp.StateHash)
-	return true, nil
-}
-
-func verifyEnginePayloadCommitment(payload []byte, commitment string) bool {
-	trimmed := strings.TrimSpace(commitment)
-	if trimmed == "" {
-		return true
-	}
-	expected := "0x" + hex.EncodeToString(tosalign.HashBytes(payload).Bytes())
-	return strings.EqualFold(trimmed, expected)
-}
-
-func verifyEnginePayloadEncoding(encoding string) bool {
-	trimmed := strings.TrimSpace(encoding)
-	if trimmed == "" {
-		return true
-	}
-	return strings.EqualFold(trimmed, enginePayloadEncodingTOSV1)
 }
 
 // generateWork generates a sealing block based on the given parameters.

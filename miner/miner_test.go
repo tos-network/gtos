@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tosdb/memorydb"
@@ -53,14 +52,6 @@ func (m *mockBackend) BlockChain() *core.BlockChain {
 
 func (m *mockBackend) TxPool() *core.TxPool {
 	return m.txPool
-}
-
-func (m *mockBackend) EngineAPIClient() engineclient.Client {
-	return nil
-}
-
-func (m *mockBackend) EngineAPIAllowTxPoolFallback() bool {
-	return false
 }
 
 func (m *mockBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {

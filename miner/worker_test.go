@@ -17,7 +17,6 @@
 package miner
 
 import (
-	"context"
 	"errors"
 	"math/big"
 	"math/rand"
@@ -33,8 +32,6 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
-	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tosdb"
@@ -103,13 +100,11 @@ func init() {
 
 // testWorkerBackend implements worker.Backend interfaces and wraps all information needed during the testing.
 type testWorkerBackend struct {
-	db                  tosdb.Database
-	txPool              *core.TxPool
-	chain               *core.BlockChain
-	genesis             *core.Genesis
-	uncleBlock          *types.Block
-	engine              engineclient.Client
-	allowTxPoolFallback bool
+	db         tosdb.Database
+	txPool     *core.TxPool
+	chain      *core.BlockChain
+	genesis    *core.Genesis
+	uncleBlock *types.Block
 }
 
 func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, n int) *testWorkerBackend {
@@ -150,58 +145,8 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 
 func (b *testWorkerBackend) BlockChain() *core.BlockChain { return b.chain }
 func (b *testWorkerBackend) TxPool() *core.TxPool         { return b.txPool }
-func (b *testWorkerBackend) EngineAPIClient() engineclient.Client {
-	return b.engine
-}
-
-func (b *testWorkerBackend) EngineAPIAllowTxPoolFallback() bool {
-	return b.allowTxPoolFallback
-}
 func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
 	return nil, errors.New("not supported")
-}
-
-type mockEngineClient struct {
-	payload           []byte
-	payloadEncoding   string
-	payloadCommitment string
-	err               error
-}
-
-func (m *mockEngineClient) GetPayload(context.Context, *engineclient.GetPayloadRequest) (*engineclient.GetPayloadResponse, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return &engineclient.GetPayloadResponse{
-		Payload:           m.payload,
-		PayloadEncoding:   m.payloadEncoding,
-		PayloadCommitment: m.payloadCommitment,
-	}, nil
-}
-
-func (m *mockEngineClient) NewPayload(context.Context, *engineclient.NewPayloadRequest) (*engineclient.NewPayloadResponse, error) {
-	return nil, engineclient.ErrNotImplemented
-}
-
-func (m *mockEngineClient) ForkchoiceUpdated(context.Context, *engineclient.ForkchoiceState) error {
-	return engineclient.ErrNotImplemented
-}
-
-func mustEncodeTOSV1Payload(t *testing.T, txs ...*types.Transaction) []byte {
-	t.Helper()
-	txBlobs := make([][]byte, 0, len(txs))
-	for i, tx := range txs {
-		raw, err := tx.MarshalBinary()
-		if err != nil {
-			t.Fatalf("failed to marshal tx[%d]: %v", i, err)
-		}
-		txBlobs = append(txBlobs, raw)
-	}
-	payload, err := enginepayloadtosv1.Encode(txBlobs)
-	if err != nil {
-		t.Fatalf("failed to encode tos_v1 payload: %v", err)
-	}
-	return payload
 }
 
 func (b *testWorkerBackend) newRandomUncle() *types.Block {
@@ -520,297 +465,6 @@ func testAdjustInterval(t *testing.T, chainConfig *params.ChainConfig, engine co
 	case <-progress:
 	case <-time.NewTimer(time.Second).C:
 		t.Error("interval reset timeout")
-	}
-}
-
-func TestFillTransactionsFromEnginePayload(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
-	b.engine = &mockEngineClient{payload: payload}
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("failed to fill transactions from engine payload: %v", err)
-	}
-	if len(work.txs) != 1 {
-		t.Fatalf("unexpected tx count from engine payload: got %d want %d", len(work.txs), 1)
-	}
-	if work.txs[0].Hash() != pendingTxs[0].Hash() {
-		t.Fatalf("unexpected tx selected from engine payload: got %s want %s", work.txs[0].Hash(), pendingTxs[0].Hash())
-	}
-}
-
-func TestFillTransactionsFromEngineErrorWithoutFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{err: errors.New("engine unavailable")}
-	b.allowTxPoolFallback = false
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err == nil {
-		t.Fatalf("expected fillTransactions to fail when engine request fails and fallback is disabled")
-	}
-	if len(work.txs) != 0 {
-		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
-	}
-}
-
-func TestFillTransactionsFromEngineErrorWithFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{err: errors.New("engine unavailable")}
-	b.allowTxPoolFallback = true
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected local txpool fallback to succeed, got error: %v", err)
-	}
-	if len(work.txs) == 0 {
-		t.Fatalf("expected txpool fallback to include pending txs")
-	}
-}
-
-func TestFillTransactionsFromEngineDecodeErrorWithoutFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{payload: []byte{0xff, 0x00, 0x11}}
-	b.allowTxPoolFallback = false
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err == nil {
-		t.Fatalf("expected fillTransactions to fail when engine payload decode fails and fallback is disabled")
-	}
-	if len(work.txs) != 0 {
-		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
-	}
-}
-
-func TestFillTransactionsFromEngineDecodeErrorWithFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{payload: []byte{0xff, 0x00, 0x11}}
-	b.allowTxPoolFallback = true
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected local txpool fallback to succeed on decode failure, got error: %v", err)
-	}
-	if len(work.txs) == 0 {
-		t.Fatalf("expected txpool fallback to include pending txs")
-	}
-}
-
-func TestFillTransactionsFromEngineEmptyTOSV1PayloadNoFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{payload: enginepayloadtosv1.EmptyPayloadBytes()}
-	b.allowTxPoolFallback = true
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected empty tos_v1 payload to be accepted, got error: %v", err)
-	}
-	if len(work.txs) != 0 {
-		t.Fatalf("expected no txs for empty tos_v1 payload, got %d", len(work.txs))
-	}
-}
-
-func TestFillTransactionsFromEngineCommitmentMismatchWithoutFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
-	b.engine = &mockEngineClient{
-		payload:           payload,
-		payloadCommitment: "0xdeadbeef",
-	}
-	b.allowTxPoolFallback = false
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err == nil {
-		t.Fatalf("expected fillTransactions to fail on payload commitment mismatch")
-	}
-	if len(work.txs) != 0 {
-		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 0)
-	}
-}
-
-func TestFillTransactionsFromEngineCommitmentMismatchWithFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
-	b.engine = &mockEngineClient{
-		payload:           payload,
-		payloadCommitment: "0xdeadbeef",
-	}
-	b.allowTxPoolFallback = true
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected local txpool fallback on commitment mismatch, got error: %v", err)
-	}
-	if len(work.txs) == 0 {
-		t.Fatalf("expected txpool fallback to include pending txs")
-	}
-}
-
-func TestFillTransactionsFromEngineSupportedEncodingWithoutFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	payload := mustEncodeTOSV1Payload(t, pendingTxs[0])
-	b.engine = &mockEngineClient{
-		payload:         payload,
-		payloadEncoding: "tos_v1",
-	}
-	b.allowTxPoolFallback = false
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected fillTransactions to accept tos_v1 payload encoding, got error: %v", err)
-	}
-	if len(work.txs) != 1 {
-		t.Fatalf("unexpected tx count: got %d want %d", len(work.txs), 1)
-	}
-	if work.txs[0].Hash() != pendingTxs[0].Hash() {
-		t.Fatalf("unexpected tx selected from engine payload: got %s want %s", work.txs[0].Hash(), pendingTxs[0].Hash())
-	}
-}
-
-func TestFillTransactionsFromEngineMalformedTOSV1WithFallback(t *testing.T) {
-	engine := dpos.NewFaker()
-	defer engine.Close()
-
-	w, b := newTestWorker(t, ethashChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
-	defer w.close()
-
-	b.engine = &mockEngineClient{
-		payload:         []byte{0x01, 0x02},
-		payloadEncoding: "tos_v1",
-	}
-	b.allowTxPoolFallback = true
-
-	work, err := w.prepareWork(&generateParams{
-		timestamp: uint64(time.Now().Unix()),
-		coinbase:  testBankAddress,
-	})
-	if err != nil {
-		t.Fatalf("failed to prepare work: %v", err)
-	}
-	defer work.discard()
-
-	if err := w.fillTransactions(nil, work); err != nil {
-		t.Fatalf("expected local txpool fallback on malformed tos_v1 payload, got error: %v", err)
-	}
-	if len(work.txs) == 0 {
-		t.Fatalf("expected txpool fallback to include pending txs")
 	}
 }
 

@@ -29,7 +29,6 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
@@ -41,8 +40,6 @@ import (
 type Backend interface {
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
-	EngineAPIClient() engineclient.Client
-	EngineAPIAllowTxPoolFallback() bool
 }
 
 // Config is the configuration parameters of mining.

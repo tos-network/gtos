@@ -18,7 +18,6 @@
 package tos
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -26,7 +25,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
@@ -38,8 +36,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/pruner"
 	"github.com/tos-network/gtos/core/types"
-	engineclient "github.com/tos-network/gtos/engineapi/client"
-	enginepayloadtosv1 "github.com/tos-network/gtos/engineapi/payload/tosv1"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/internal/tosapi"
@@ -103,11 +99,6 @@ type TOS struct {
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
-
-	// External execution layer bridge (phase-1 scaffold).
-	engineAPIConfig     engineclient.Config
-	engineAPIClient     engineclient.Client
-	lastForkchoiceState *engineclient.ForkchoiceState
 }
 
 // New creates a new Ethereum object (including the
@@ -236,8 +227,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		Chain:          tosNode.blockchain,
 		TxPool:         tosNode.txPool,
 		Merger:         merger,
-		BlockValidator: tosNode.validateImportedBlockWithEngine,
-		OnQCFinalized:  tosNode.onQCFinalized,
 		Network:        config.NetworkId,
 		Sync:           config.SyncMode,
 		BloomCache:     uint64(cacheLimit),
@@ -572,92 +561,6 @@ func (s *TOS) Stop() error {
 	return nil
 }
 
-// ConfigureEngineAPI configures the local engine API bridge client.
-// In phase-1 this wires the client object only; integration into proposal/vote
-// flow will be added incrementally.
-func (s *TOS) ConfigureEngineAPI(cfg engineclient.Config) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	s.engineAPIConfig = cfg
-	s.lastForkchoiceState = nil
-	if !cfg.Enabled {
-		s.engineAPIClient = nil
-		log.Info("Engine API bridge disabled")
-		return
-	}
-	s.engineAPIClient = engineclient.NewRPCClient(cfg)
-	log.Info("Engine API bridge configured", "endpoint", cfg.Endpoint, "timeout", cfg.RequestTimeout, "allowTxPoolFallback", cfg.AllowTxPoolFallback)
-}
-
-// EngineAPIClient returns the configured engine API bridge client.
-func (s *TOS) EngineAPIClient() engineclient.Client {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.engineAPIClient
-}
-
-// EngineAPIAllowTxPoolFallback reports whether local txpool fallback is allowed
-// when engine payload retrieval fails.
-func (s *TOS) EngineAPIAllowTxPoolFallback() bool {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.engineAPIConfig.AllowTxPoolFallback
-}
-
-func (s *TOS) validateImportedBlockWithEngine(block *types.Block) error {
-	s.lock.RLock()
-	client := s.engineAPIClient
-	cfg := s.engineAPIConfig
-	s.lock.RUnlock()
-	if client == nil {
-		return nil
-	}
-	txBlobs := make([][]byte, 0, len(block.Transactions()))
-	for i, tx := range block.Transactions() {
-		raw, err := tx.MarshalBinary()
-		if err != nil {
-			return fmt.Errorf("encode engine tx[%d] for block %s: %w", i, block.Hash(), err)
-		}
-		txBlobs = append(txBlobs, raw)
-	}
-	payload, err := enginepayloadtosv1.Encode(txBlobs)
-	if err != nil {
-		return fmt.Errorf("encode engine payload for block %s: %w", block.Hash(), err)
-	}
-	timeout := cfg.RequestTimeout
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	resp, err := client.NewPayload(ctx, &engineclient.NewPayloadRequest{
-		Payload:    payload,
-		ParentHash: block.ParentHash().Hex(),
-	})
-	if err != nil {
-		if errors.Is(err, engineclient.ErrNotImplemented) {
-			return nil
-		}
-		log.Warn("Engine NewPayload failed, allowing local import fallback", "hash", block.Hash(), "err", err)
-		return nil
-	}
-	if resp != nil && !resp.Valid {
-		return fmt.Errorf("engine rejected block %s (state=%s)", block.Hash(), resp.StateHash)
-	}
-	if resp != nil && resp.StateHash != "" {
-		var engineStateHash common.Hash
-		if err := engineStateHash.UnmarshalText([]byte(resp.StateHash)); err != nil {
-			return fmt.Errorf("engine returned invalid state hash %q for block %s: %w", resp.StateHash, block.Hash(), err)
-		}
-		if engineStateHash != block.Root() {
-			return fmt.Errorf("engine state hash mismatch for block %s (engine=%s, block=%s)", block.Hash(), engineStateHash.Hex(), block.Root().Hex())
-		}
-	}
-	return nil
-}
-
 func (s *TOS) engineHeadLoop(sub event.Subscription, headCh <-chan core.ChainHeadEvent) {
 	for {
 		select {
@@ -679,81 +582,5 @@ func (s *TOS) onChainHead(head *types.Block) {
 		if err := s.handler.proposeVoteForBlock(head); err != nil {
 			log.Warn("Failed to propose BFT vote for head", "hash", head.Hash(), "err", err)
 		}
-	}
-	s.notifyForkchoiceUpdated(head)
-}
-
-func (s *TOS) notifyForkchoiceUpdated(head *types.Block) {
-	s.lock.RLock()
-	client := s.engineAPIClient
-	cfg := s.engineAPIConfig
-	prev := cloneForkchoiceState(s.lastForkchoiceState)
-	s.lock.RUnlock()
-	if client == nil || head == nil {
-		return
-	}
-	state := resolveForkchoiceState(head, s.blockchain.CurrentSafeBlock(), s.blockchain.CurrentFinalizedBlock())
-	if state == nil || sameForkchoiceState(state, prev) {
-		return
-	}
-	timeout := cfg.RequestTimeout
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	if err := client.ForkchoiceUpdated(ctx, state); err != nil && !errors.Is(err, engineclient.ErrNotImplemented) {
-		log.Warn("Engine ForkchoiceUpdated failed", "head", head.Hash(), "err", err)
-		return
-	}
-	s.lock.Lock()
-	s.lastForkchoiceState = cloneForkchoiceState(state)
-	s.lock.Unlock()
-}
-
-func (s *TOS) onQCFinalized(finalized *types.Block) {
-	if finalized == nil || s.blockchain == nil {
-		return
-	}
-	if head := s.blockchain.CurrentBlock(); head != nil {
-		s.notifyForkchoiceUpdated(head)
-	}
-}
-
-func resolveForkchoiceState(head, safe, finalized *types.Block) *engineclient.ForkchoiceState {
-	if head == nil {
-		return nil
-	}
-	if safe == nil {
-		safe = head
-	}
-	if finalized == nil {
-		finalized = safe
-	}
-	return &engineclient.ForkchoiceState{
-		HeadHash:      head.Hash().Hex(),
-		SafeHash:      safe.Hash().Hex(),
-		FinalizedHash: finalized.Hash().Hex(),
-	}
-}
-
-func sameForkchoiceState(a, b *engineclient.ForkchoiceState) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return a.HeadHash == b.HeadHash &&
-		a.SafeHash == b.SafeHash &&
-		a.FinalizedHash == b.FinalizedHash
-}
-
-func cloneForkchoiceState(state *engineclient.ForkchoiceState) *engineclient.ForkchoiceState {
-	if state == nil {
-		return nil
-	}
-	return &engineclient.ForkchoiceState{
-		HeadHash:      state.HeadHash,
-		SafeHash:      state.SafeHash,
-		FinalizedHash: state.FinalizedHash,
 	}
 }
