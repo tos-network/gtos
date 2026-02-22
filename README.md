@@ -27,9 +27,11 @@ Build GTOS as a production-oriented chain for payment + storage:
 
 ### 2. Transfer Payment
 
-- Account model (`address`, `balance`, `nonce`).
+- Account model (`address`, `balance`, `nonce`, `signer`).
 - `transfer` transaction as first-class primitive.
 - Deterministic state transition and replay-safe nonce checks.
+- `signer` is the real signing identity and supports multi-algorithm verification (IPFS-style extensible signer type).
+- Backward-compatible default: if `signer` is not set, use `account address` as signer (same behavior as current geth model).
 
 ### 3. Immutable Code Storage
 
@@ -45,7 +47,7 @@ Build GTOS as a production-oriented chain for payment + storage:
 
 ## State Model (MVP)
 
-- `Accounts`: balances, nonces.
+- `Accounts`: balances, nonces, signer.
 - `Contracts`: immutable bytecode + metadata.
 - `KV`: namespace/key -> value + created_at + expire_at.
 
@@ -54,6 +56,7 @@ All state transitions are consensus-verified and auditable on-chain.
 ## Transaction Types (MVP)
 
 - `transfer`
+- `account_set_signer`
 - `contract_deploy`
 - `kv_put_ttl`
 - `kv_delete` (optional governance/owner rule based)

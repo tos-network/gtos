@@ -28,14 +28,20 @@ Freeze the minimum protocol and state rules before implementation expansion.
 - Consensus timing spec: default target block interval `1s` (`target_block_interval=1s`) and timeout ladder.
 - State spec:
   - account state
+  - signer binding on account (`signer` as real signing key reference)
+  - signer fallback rule (`signer` unset -> use account address, geth-compatible)
   - immutable contract-code state
   - TTL KV state
+- Signature verification spec:
+  - multi-algorithm signer support (extensible signer type)
+  - signature domain/encoding per algorithm
 - Retention spec:
   - header/body retention boundary
   - prune trigger rules
   - snapshot format and recovery flow
 - Transaction spec:
   - `transfer`
+  - `account_set_signer`
   - `contract_deploy`
   - `kv_put_ttl`
   - `kv_delete` (if enabled)
@@ -60,6 +66,7 @@ Run a stable DPoS network with finalized `transfer` transactions.
 - Proposal/vote/finality flow with safety checks.
 - Transfer execution pipeline:
   - signature verification
+  - signer resolution (`account.signer` first, fallback to account address)
   - nonce/balance validation
   - deterministic state commit
 - RPC endpoints for transfer submit/query.
@@ -69,6 +76,7 @@ Run a stable DPoS network with finalized `transfer` transactions.
 - 3-validator network runs continuously.
 - 1000+ sequential finalized transfer blocks without fork divergence.
 - Replay and double-spend rejection tests pass.
+- Multi-algorithm signature verification passes compatibility tests with signer fallback behavior.
 
 ## Phase 2: Immutable Code Storage
 
