@@ -74,7 +74,6 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		configNoFork  = &params.ChainConfig{HomesteadBlock: big.NewInt(1)}
 		configProFork = &params.ChainConfig{
 			HomesteadBlock: big.NewInt(1),
-			EIP155Block:    big.NewInt(2),
 			EIP158Block:    big.NewInt(2),
 			ByzantiumBlock: big.NewInt(3),
 		}

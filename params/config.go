@@ -33,7 +33,6 @@ var (
 	MainnetChainConfig = &ChainConfig{
 		ChainID:                       big.NewInt(1),
 		HomesteadBlock:                big.NewInt(1_150_000),
-		EIP155Block:                   big.NewInt(2_675_000),
 		EIP158Block:                   big.NewInt(2_675_000),
 		ByzantiumBlock:                big.NewInt(4_370_000),
 		ConstantinopleBlock:           big.NewInt(7_280_000),
@@ -74,7 +73,6 @@ var (
 	AllDPoSProtocolChanges = &ChainConfig{
 		ChainID:             big.NewInt(1337),
 		HomesteadBlock:      big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
 		EIP158Block:         big.NewInt(0),
 		ByzantiumBlock:      big.NewInt(0),
 		ConstantinopleBlock: big.NewInt(0),
@@ -88,7 +86,6 @@ var (
 	TestChainConfig = &ChainConfig{
 		ChainID:             big.NewInt(1),
 		HomesteadBlock:      big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
 		EIP158Block:         big.NewInt(0),
 		ByzantiumBlock:      big.NewInt(0),
 		ConstantinopleBlock: big.NewInt(0),
@@ -164,7 +161,6 @@ type ChainConfig struct {
 
 	HomesteadBlock *big.Int `json:"homesteadBlock,omitempty"` // Homestead switch block (nil = no fork, 0 = already homestead)
 
-	EIP155Block *big.Int `json:"eip155Block,omitempty"` // EIP155 HF block
 	EIP158Block *big.Int `json:"eip158Block,omitempty"` // EIP158 HF block
 
 	ByzantiumBlock      *big.Int `json:"byzantiumBlock,omitempty"`      // Byzantium switch block (nil = no fork, 0 = already on byzantium)
@@ -228,8 +224,8 @@ func (c *ChainConfig) String() string {
 	// the output for testnets and private networks.
 	banner += "Pre-Merge hard forks:\n"
 	banner += fmt.Sprintf(" - Homestead:                   %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/homestead.md)\n", c.HomesteadBlock)
-	banner += fmt.Sprintf(" - Spurious Dragon/1 (EIP 155): %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n", c.EIP155Block)
-	banner += fmt.Sprintf(" - Spurious Dragon/2 (EIP 158): %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n", c.EIP155Block)
+	banner += " - Spurious Dragon/1 (EIP 155): always   (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n"
+	banner += fmt.Sprintf(" - Spurious Dragon/2 (EIP 158): %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)\n", c.EIP158Block)
 	banner += fmt.Sprintf(" - Byzantium:                   %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/byzantium.md)\n", c.ByzantiumBlock)
 	banner += fmt.Sprintf(" - Constantinople:              %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/constantinople.md)\n", c.ConstantinopleBlock)
 	banner += fmt.Sprintf(" - Petersburg:                  %-8v (https://github.com/tos/execution-specs/blob/master/network-upgrades/mainnet-upgrades/petersburg.md)\n", c.PetersburgBlock)
@@ -270,13 +266,6 @@ func (c *ChainConfig) String() string {
 // IsHomestead returns whether num is either equal to the homestead block or greater.
 func (c *ChainConfig) IsHomestead(num *big.Int) bool {
 	return isForked(c.HomesteadBlock, num)
-}
-
-// IsEIP155 returns whether num is either equal to the EIP155 fork block or greater.
-func (c *ChainConfig) IsEIP155(num *big.Int) bool {
-	_ = num
-	// EIP-155 replay protection is always enabled in GTOS.
-	return true
 }
 
 // IsEIP158 returns whether num is either equal to the EIP158 fork block or greater.
@@ -526,7 +515,7 @@ func (err *ConfigCompatError) Error() string {
 // phases.
 type Rules struct {
 	ChainID                                                 *big.Int
-	IsHomestead, IsEIP155, IsEIP158                         bool
+	IsHomestead, IsEIP158                                   bool
 	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
 	IsBerlin, IsLondon                                      bool
 	IsMerge, IsShanghai, isCancun                           bool
@@ -541,7 +530,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool) Rules {
 	return Rules{
 		ChainID:          new(big.Int).Set(chainID),
 		IsHomestead:      c.IsHomestead(num),
-		IsEIP155:         c.IsEIP155(num),
 		IsEIP158:         c.IsEIP158(num),
 		IsByzantium:      c.IsByzantium(num),
 		IsConstantinople: c.IsConstantinople(num),
