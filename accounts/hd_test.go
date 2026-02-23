@@ -82,21 +82,12 @@ func TestHdPathIteration(t *testing.T) {
 			"m/44'/60'/0'/0/8", "m/44'/60'/0'/0/9",
 		})
 
-	testDerive(t, DefaultIterator(LegacyLedgerBaseDerivationPath),
+	testDerive(t, DefaultIterator(DefaultRootDerivationPath),
 		[]string{
 			"m/44'/60'/0'/0", "m/44'/60'/0'/1",
 			"m/44'/60'/0'/2", "m/44'/60'/0'/3",
 			"m/44'/60'/0'/4", "m/44'/60'/0'/5",
 			"m/44'/60'/0'/6", "m/44'/60'/0'/7",
 			"m/44'/60'/0'/8", "m/44'/60'/0'/9",
-		})
-
-	testDerive(t, LedgerLiveIterator(DefaultBaseDerivationPath),
-		[]string{
-			"m/44'/60'/0'/0/0", "m/44'/60'/1'/0/0",
-			"m/44'/60'/2'/0/0", "m/44'/60'/3'/0/0",
-			"m/44'/60'/4'/0/0", "m/44'/60'/5'/0/0",
-			"m/44'/60'/6'/0/0", "m/44'/60'/7'/0/0",
-			"m/44'/60'/8'/0/0", "m/44'/60'/9'/0/0",
 		})
 }

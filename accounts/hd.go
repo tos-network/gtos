@@ -19,11 +19,6 @@ var DefaultRootDerivationPath = DerivationPath{0x80000000 + 44, 0x80000000 + 60,
 // at m/44'/60'/0'/0/1, etc.
 var DefaultBaseDerivationPath = DerivationPath{0x80000000 + 44, 0x80000000 + 60, 0x80000000 + 0, 0, 0}
 
-// LegacyLedgerBaseDerivationPath is the legacy base path from which custom derivation
-// endpoints are incremented. As such, the first account will be at m/44'/60'/0'/0, the
-// second at m/44'/60'/0'/1, etc.
-var LegacyLedgerBaseDerivationPath = DerivationPath{0x80000000 + 44, 0x80000000 + 60, 0x80000000 + 0, 0}
-
 // DerivationPath represents the computer friendly version of a hierarchical
 // deterministic wallet account derivation path.
 //
@@ -144,21 +139,6 @@ func DefaultIterator(base DerivationPath) func() DerivationPath {
 	path[len(path)-1]--
 	return func() DerivationPath {
 		path[len(path)-1]++
-		return path
-	}
-}
-
-// LedgerLiveIterator creates a bip44 path iterator for Ledger Live.
-// Ledger Live increments the third component rather than the fifth component
-// i.e. m/44'/60'/0'/0/0, m/44'/60'/1'/0/0, m/44'/60'/2'/0/0, ... m/44'/60'/N'/0/0.
-func LedgerLiveIterator(base DerivationPath) func() DerivationPath {
-	path := make(DerivationPath, len(base))
-	copy(path[:], base[:])
-	// Set it back by one, so the first call gives the first result
-	path[2]--
-	return func() DerivationPath {
-		// ledgerLivePathIterator iterates on the third component
-		path[2]++
 		return path
 	}
 }
