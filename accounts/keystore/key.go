@@ -3,6 +3,7 @@ package keystore
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 )
@@ -26,9 +28,14 @@ type Key struct {
 	Id uuid.UUID // Version 4 "random" for unique id not derived from key data
 	// to simplify lookups we also store the address
 	Address common.Address
+	// signer type associated with this key material.
+	// defaults to secp256k1 when empty.
+	SignerType string
 	// we only store privkey as pubkey/address can be derived from it
-	// privkey in this struct is always in plaintext
+	// privkey in this struct is always in plaintext.
 	PrivateKey *ecdsa.PrivateKey
+	// Native ed25519 private key (64-byte expanded form). Nil for non-ed25519 accounts.
+	Ed25519PrivateKey ed25519.PrivateKey
 }
 
 type keyStore interface {
@@ -42,23 +49,26 @@ type keyStore interface {
 
 type plainKeyJSON struct {
 	Address    string `json:"address"`
+	SignerType string `json:"signerType,omitempty"`
 	PrivateKey string `json:"privatekey"`
 	Id         string `json:"id"`
 	Version    int    `json:"version"`
 }
 
 type encryptedKeyJSONV3 struct {
-	Address string     `json:"address"`
-	Crypto  CryptoJSON `json:"crypto"`
-	Id      string     `json:"id"`
-	Version int        `json:"version"`
+	Address    string     `json:"address"`
+	Crypto     CryptoJSON `json:"crypto"`
+	SignerType string     `json:"signerType,omitempty"`
+	Id         string     `json:"id"`
+	Version    int        `json:"version"`
 }
 
 type encryptedKeyJSONV1 struct {
-	Address string     `json:"address"`
-	Crypto  CryptoJSON `json:"crypto"`
-	Id      string     `json:"id"`
-	Version string     `json:"version"`
+	Address    string     `json:"address"`
+	Crypto     CryptoJSON `json:"crypto"`
+	SignerType string     `json:"signerType,omitempty"`
+	Id         string     `json:"id"`
+	Version    string     `json:"version"`
 }
 
 type CryptoJSON struct {
@@ -75,9 +85,14 @@ type cipherparamsJSON struct {
 }
 
 func (k *Key) MarshalJSON() (j []byte, err error) {
+	keyHex, err := k.privateKeyHex()
+	if err != nil {
+		return nil, err
+	}
 	jStruct := plainKeyJSON{
 		hex.EncodeToString(k.Address[:]),
-		hex.EncodeToString(crypto.FromECDSA(k.PrivateKey)),
+		canonicalSignerTypeOrDefault(k.SignerType),
+		keyHex,
 		k.Id.String(),
 		version,
 	}
@@ -102,13 +117,28 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 	if err != nil {
 		return err
 	}
-	privkey, err := crypto.HexToECDSA(keyJSON.PrivateKey)
-	if err != nil {
-		return err
+	signerType := canonicalSignerTypeOrDefault(keyJSON.SignerType)
+	switch signerType {
+	case accountsigner.SignerTypeSecp256k1:
+		privkey, decErr := crypto.HexToECDSA(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = privkey
+		k.Ed25519PrivateKey = nil
+	case accountsigner.SignerTypeEd25519:
+		edPriv, decErr := decodeEd25519PrivateKeyHex(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = nil
+		k.Ed25519PrivateKey = edPriv
+	default:
+		return fmt.Errorf("unsupported signer type in keystore key json: %s", signerType)
 	}
 
 	k.Address = common.BytesToAddress(addr)
-	k.PrivateKey = privkey
+	k.SignerType = signerType
 
 	return nil
 }
@@ -121,9 +151,36 @@ func newKeyFromECDSA(privateKeyECDSA *ecdsa.PrivateKey) *Key {
 	key := &Key{
 		Id:         id,
 		Address:    crypto.PubkeyToAddress(privateKeyECDSA.PublicKey),
+		SignerType: accountsigner.SignerTypeSecp256k1,
 		PrivateKey: privateKeyECDSA,
 	}
 	return key
+}
+
+func newKeyFromEd25519(privateKeyED25519 ed25519.PrivateKey) (*Key, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("could not create random uuid: %w", err)
+	}
+	if len(privateKeyED25519) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("invalid ed25519 private key size: %d", len(privateKeyED25519))
+	}
+	pub, ok := privateKeyED25519.Public().(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid ed25519 public key")
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeEd25519, pub)
+	if err != nil {
+		return nil, err
+	}
+	key := &Key{
+		Id:                id,
+		Address:           addr,
+		SignerType:        accountsigner.SignerTypeEd25519,
+		PrivateKey:        nil,
+		Ed25519PrivateKey: append(ed25519.PrivateKey(nil), privateKeyED25519...),
+	}
+	return key, nil
 }
 
 // NewKeyForDirectICAP generates a key whose address fits into < 155 bits so it can fit
@@ -155,6 +212,14 @@ func newKey(rand io.Reader) (*Key, error) {
 	return newKeyFromECDSA(privateKeyECDSA), nil
 }
 
+func newEd25519Key(rand io.Reader) (*Key, error) {
+	seed := make([]byte, ed25519.SeedSize)
+	if _, err := io.ReadFull(rand, seed); err != nil {
+		return nil, err
+	}
+	return newKeyFromEd25519(ed25519.NewKeyFromSeed(seed))
+}
+
 func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
 	key, err := newKey(rand)
 	if err != nil {
@@ -165,10 +230,69 @@ func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Accou
 		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
 	}
 	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
-		zeroKey(key.PrivateKey)
+		zeroKeyMaterial(key)
 		return nil, a, err
 	}
 	return key, a, err
+}
+
+func storeNewEd25519Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
+	key, err := newEd25519Key(rand)
+	if err != nil {
+		return nil, accounts.Account{}, err
+	}
+	a := accounts.Account{
+		Address: key.Address,
+		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
+	}
+	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
+		zeroKeyMaterial(key)
+		return nil, a, err
+	}
+	return key, a, err
+}
+
+func canonicalSignerTypeOrDefault(signerType string) string {
+	if signerType == "" {
+		return accountsigner.SignerTypeSecp256k1
+	}
+	normalized, err := accountsigner.CanonicalSignerType(signerType)
+	if err != nil {
+		return strings.ToLower(strings.TrimSpace(signerType))
+	}
+	return normalized
+}
+
+func decodeEd25519PrivateKeyHex(privHex string) (ed25519.PrivateKey, error) {
+	raw, err := hex.DecodeString(privHex)
+	if err != nil {
+		return nil, err
+	}
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(raw), nil
+	default:
+		return nil, fmt.Errorf("invalid ed25519 private key size: %d", len(raw))
+	}
+}
+
+func (k *Key) privateKeyHex() (string, error) {
+	switch canonicalSignerTypeOrDefault(k.SignerType) {
+	case accountsigner.SignerTypeSecp256k1:
+		if k.PrivateKey == nil {
+			return "", fmt.Errorf("missing ecdsa private key")
+		}
+		return hex.EncodeToString(crypto.FromECDSA(k.PrivateKey)), nil
+	case accountsigner.SignerTypeEd25519:
+		if len(k.Ed25519PrivateKey) != ed25519.PrivateKeySize {
+			return "", fmt.Errorf("missing ed25519 private key")
+		}
+		return hex.EncodeToString(k.Ed25519PrivateKey.Seed()), nil
+	default:
+		return "", fmt.Errorf("unsupported signer type: %s", k.SignerType)
+	}
 }
 
 func writeTemporaryKeyFile(file string, content []byte) (string, error) {

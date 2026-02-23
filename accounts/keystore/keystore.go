@@ -1,4 +1,4 @@
-// Package keystore implements encrypted storage of secp256k1 private keys.
+// Package keystore implements encrypted storage of account private keys.
 //
 // Keys are stored as encrypted JSON files according to the Web3 Secret Storage specification.
 // See https://github.com/tos/wiki/wiki/Web3-Secret-Storage-Definition for more information.
@@ -6,8 +6,10 @@ package keystore
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	crand "crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -30,7 +33,8 @@ var (
 
 	// ErrAccountAlreadyExists is returned if an account attempted to import is
 	// already present in the keystore.
-	ErrAccountAlreadyExists = errors.New("account already exists")
+	ErrAccountAlreadyExists  = errors.New("account already exists")
+	ErrUnsupportedSigningKey = errors.New("unsupported signing key for requested operation")
 )
 
 // KeyStoreType is the reflect type of a keystore backend.
@@ -226,7 +230,7 @@ func (ks *KeyStore) Delete(a accounts.Account, passphrase string) error {
 	// immediately afterwards.
 	a, key, err := ks.getDecryptedKey(a, passphrase)
 	if key != nil {
-		zeroKey(key.PrivateKey)
+		zeroKeyMaterial(key)
 	}
 	if err != nil {
 		return err
@@ -253,6 +257,9 @@ func (ks *KeyStore) SignHash(a accounts.Account, hash []byte) ([]byte, error) {
 	if !found {
 		return nil, ErrLocked
 	}
+	if unlockedKey.PrivateKey == nil {
+		return nil, ErrUnsupportedSigningKey
+	}
 	// Sign the hash using plain ECDSA operations
 	return crypto.Sign(hash, unlockedKey.PrivateKey)
 }
@@ -269,7 +276,7 @@ func (ks *KeyStore) SignTx(a accounts.Account, tx *types.Transaction, chainID *b
 	}
 	// With a configured chain ID, typed transaction signing is enabled.
 	signer := types.LatestSignerForChainID(chainID)
-	return types.SignTx(tx, signer, unlockedKey.PrivateKey)
+	return signTxWithKeyMaterial(tx, signer, unlockedKey.Key)
 }
 
 // SignHashWithPassphrase signs hash if the private key matching the given address
@@ -280,7 +287,10 @@ func (ks *KeyStore) SignHashWithPassphrase(a accounts.Account, passphrase string
 	if err != nil {
 		return nil, err
 	}
-	defer zeroKey(key.PrivateKey)
+	defer zeroKeyMaterial(key)
+	if key.PrivateKey == nil {
+		return nil, ErrUnsupportedSigningKey
+	}
 	return crypto.Sign(hash, key.PrivateKey)
 }
 
@@ -291,10 +301,10 @@ func (ks *KeyStore) SignTxWithPassphrase(a accounts.Account, passphrase string, 
 	if err != nil {
 		return nil, err
 	}
-	defer zeroKey(key.PrivateKey)
+	defer zeroKeyMaterial(key)
 	// Sign with replay protection for the configured chain ID.
 	signer := types.LatestSignerForChainID(chainID)
-	return types.SignTx(tx, signer, key.PrivateKey)
+	return signTxWithKeyMaterial(tx, signer, key)
 }
 
 // Unlock unlocks the given account indefinitely.
@@ -334,7 +344,7 @@ func (ks *KeyStore) TimedUnlock(a accounts.Account, passphrase string, timeout t
 		if u.abort == nil {
 			// The address was unlocked indefinitely, so unlocking
 			// it with a timeout would be confusing.
-			zeroKey(key.PrivateKey)
+			zeroKeyMaterial(key)
 			return nil
 		}
 		// Terminate the expire goroutine and replace it below.
@@ -381,7 +391,7 @@ func (ks *KeyStore) expire(addr common.Address, u *unlocked, timeout time.Durati
 		// because the map stores a new pointer every time the key is
 		// unlocked.
 		if ks.unlocked[addr] == u {
-			zeroKey(u.PrivateKey)
+			zeroKeyMaterial(u.Key)
 			delete(ks.unlocked, addr)
 		}
 		ks.mu.Unlock()
@@ -397,6 +407,17 @@ func (ks *KeyStore) NewAccount(passphrase string) (accounts.Account, error) {
 	}
 	// Add the account to the cache immediately rather
 	// than waiting for file system notifications to pick it up.
+	ks.cache.add(account)
+	ks.refreshWallets()
+	return account, nil
+}
+
+// NewEd25519Account generates a new native ed25519 key and stores it into the key directory.
+func (ks *KeyStore) NewEd25519Account(passphrase string) (accounts.Account, error) {
+	_, account, err := storeNewEd25519Key(ks.storage, crand.Reader, passphrase)
+	if err != nil {
+		return accounts.Account{}, err
+	}
 	ks.cache.add(account)
 	ks.refreshWallets()
 	return account, nil
@@ -420,8 +441,8 @@ func (ks *KeyStore) Export(a accounts.Account, passphrase, newPassphrase string)
 // Import stores the given encrypted JSON key into the key directory.
 func (ks *KeyStore) Import(keyJSON []byte, passphrase, newPassphrase string) (accounts.Account, error) {
 	key, err := DecryptKey(keyJSON, passphrase)
-	if key != nil && key.PrivateKey != nil {
-		defer zeroKey(key.PrivateKey)
+	if key != nil {
+		defer zeroKeyMaterial(key)
 	}
 	if err != nil {
 		return accounts.Account{}, err
@@ -451,6 +472,23 @@ func (ks *KeyStore) ImportECDSA(priv *ecdsa.PrivateKey, passphrase string) (acco
 	return ks.importKey(key, passphrase)
 }
 
+// ImportEd25519 stores the given native ed25519 key into the key directory, encrypting it with the passphrase.
+func (ks *KeyStore) ImportEd25519(priv ed25519.PrivateKey, passphrase string) (accounts.Account, error) {
+	ks.importMu.Lock()
+	defer ks.importMu.Unlock()
+
+	key, err := newKeyFromEd25519(priv)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if ks.cache.hasAddress(key.Address) {
+		return accounts.Account{
+			Address: key.Address,
+		}, ErrAccountAlreadyExists
+	}
+	return ks.importKey(key, passphrase)
+}
+
 func (ks *KeyStore) importKey(key *Key, passphrase string) (accounts.Account, error) {
 	a := accounts.Account{Address: key.Address, URL: accounts.URL{Scheme: KeyStoreScheme, Path: ks.storage.JoinPath(keyFileName(key.Address))}}
 	if err := ks.storage.StoreKey(a.URL.Path, key, passphrase); err != nil {
@@ -467,6 +505,7 @@ func (ks *KeyStore) Update(a accounts.Account, passphrase, newPassphrase string)
 	if err != nil {
 		return err
 	}
+	defer zeroKeyMaterial(key)
 	return ks.storage.StoreKey(a.URL.Path, key, newPassphrase)
 }
 
@@ -484,8 +523,64 @@ func (ks *KeyStore) ImportPreSaleKey(keyJSON []byte, passphrase string) (account
 
 // zeroKey zeroes a private key in memory.
 func zeroKey(k *ecdsa.PrivateKey) {
+	if k == nil || k.D == nil {
+		return
+	}
 	b := k.D.Bits()
 	for i := range b {
 		b[i] = 0
+	}
+}
+
+func zeroEd25519Key(k ed25519.PrivateKey) {
+	for i := range k {
+		k[i] = 0
+	}
+}
+
+func zeroKeyMaterial(k *Key) {
+	if k == nil {
+		return
+	}
+	zeroKey(k.PrivateKey)
+	zeroEd25519Key(k.Ed25519PrivateKey)
+}
+
+func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key) (*types.Transaction, error) {
+	if key == nil {
+		return nil, ErrUnsupportedSigningKey
+	}
+	signerType := canonicalSignerTypeOrDefault(key.SignerType)
+	switch signerType {
+	case accountsigner.SignerTypeSecp256k1:
+		if key.PrivateKey == nil {
+			return nil, ErrUnsupportedSigningKey
+		}
+		return types.SignTx(tx, signer, key.PrivateKey)
+	case accountsigner.SignerTypeEd25519:
+		if tx.Type() != types.SignerTxType {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		txSignerType, ok := tx.SignerType()
+		if !ok {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		normalizedTxSignerType, err := accountsigner.CanonicalSignerType(txSignerType)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedTxSignerType != accountsigner.SignerTypeEd25519 {
+			return nil, fmt.Errorf("%w: %s", types.ErrSignerTypeNotSupportedByLocalKey, normalizedTxSignerType)
+		}
+		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
+			return nil, ErrUnsupportedSigningKey
+		}
+		hash := signer.Hash(tx)
+		sig := ed25519.Sign(key.Ed25519PrivateKey, hash[:])
+		out := make([]byte, 65)
+		copy(out, sig)
+		return tx.WithSignature(signer, out)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedSigningKey, signerType)
 	}
 }

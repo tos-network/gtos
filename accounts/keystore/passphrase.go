@@ -12,6 +12,7 @@ package keystore
 import (
 	"bytes"
 	"crypto/aes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/crypto"
@@ -166,7 +168,10 @@ func EncryptDataV3(data, auth []byte, scryptN, scryptP int) (CryptoJSON, error) 
 // EncryptKey encrypts a key using the specified scrypt parameters into a json
 // blob that can be decrypted later on.
 func EncryptKey(key *Key, auth string, scryptN, scryptP int) ([]byte, error) {
-	keyBytes := math.PaddedBigBytes(key.PrivateKey.D, 32)
+	keyBytes, signerType, err := encryptablePrivateKeyBytes(key)
+	if err != nil {
+		return nil, err
+	}
 	cryptoStruct, err := EncryptDataV3(keyBytes, []byte(auth), scryptN, scryptP)
 	if err != nil {
 		return nil, err
@@ -174,6 +179,7 @@ func EncryptKey(key *Key, auth string, scryptN, scryptP int) ([]byte, error) {
 	encryptedKeyJSONV3 := encryptedKeyJSONV3{
 		hex.EncodeToString(key.Address[:]),
 		cryptoStruct,
+		signerType,
 		key.Id.String(),
 		version,
 	}
@@ -191,34 +197,48 @@ func DecryptKey(keyjson []byte, auth string) (*Key, error) {
 	var (
 		keyBytes, keyId []byte
 		err             error
+		signerType      string
+		storedAddrHex   string
 	)
 	if version, ok := m["version"].(string); ok && version == "1" {
 		k := new(encryptedKeyJSONV1)
 		if err := json.Unmarshal(keyjson, k); err != nil {
 			return nil, err
 		}
+		signerType = accountsigner.SignerTypeSecp256k1
 		keyBytes, keyId, err = decryptKeyV1(k, auth)
 	} else {
 		k := new(encryptedKeyJSONV3)
 		if err := json.Unmarshal(keyjson, k); err != nil {
 			return nil, err
 		}
+		signerType = canonicalSignerTypeOrDefault(k.SignerType)
+		storedAddrHex = k.Address
 		keyBytes, keyId, err = decryptKeyV3(k, auth)
 	}
 	// Handle any decryption errors and return the key
 	if err != nil {
 		return nil, err
 	}
-	key := crypto.ToECDSAUnsafe(keyBytes)
 	id, err := uuid.FromBytes(keyId)
 	if err != nil {
 		return nil, err
 	}
-	return &Key{
-		Id:         id,
-		Address:    crypto.PubkeyToAddress(key.PublicKey),
-		PrivateKey: key,
-	}, nil
+	key, err := keyFromBytes(id, signerType, keyBytes)
+	if err != nil {
+		return nil, err
+	}
+	if storedAddrHex != "" {
+		storedAddrBytes, decErr := hex.DecodeString(storedAddrHex)
+		if decErr != nil {
+			return nil, decErr
+		}
+		storedAddr := common.BytesToAddress(storedAddrBytes)
+		if storedAddr != key.Address {
+			return nil, fmt.Errorf("key content mismatch: have account %x, want %x", key.Address, storedAddr)
+		}
+	}
+	return key, nil
 }
 
 func DecryptDataV3(cryptoJson CryptoJSON, auth string) ([]byte, error) {
@@ -271,6 +291,64 @@ func decryptKeyV3(keyProtected *encryptedKeyJSONV3, auth string) (keyBytes []byt
 		return nil, nil, err
 	}
 	return plainText, keyId, err
+}
+
+func encryptablePrivateKeyBytes(key *Key) ([]byte, string, error) {
+	signerType := canonicalSignerTypeOrDefault(key.SignerType)
+	switch signerType {
+	case accountsigner.SignerTypeSecp256k1:
+		if key.PrivateKey == nil || key.PrivateKey.D == nil {
+			return nil, "", fmt.Errorf("missing ecdsa private key")
+		}
+		return math.PaddedBigBytes(key.PrivateKey.D, 32), signerType, nil
+	case accountsigner.SignerTypeEd25519:
+		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
+			return nil, "", fmt.Errorf("missing ed25519 private key")
+		}
+		return key.Ed25519PrivateKey.Seed(), signerType, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported signer type: %s", signerType)
+	}
+}
+
+func keyFromBytes(id uuid.UUID, signerType string, keyBytes []byte) (*Key, error) {
+	switch canonicalSignerTypeOrDefault(signerType) {
+	case accountsigner.SignerTypeSecp256k1:
+		key := crypto.ToECDSAUnsafe(keyBytes)
+		return &Key{
+			Id:         id,
+			Address:    crypto.PubkeyToAddress(key.PublicKey),
+			SignerType: accountsigner.SignerTypeSecp256k1,
+			PrivateKey: key,
+		}, nil
+	case accountsigner.SignerTypeEd25519:
+		if len(keyBytes) != ed25519.SeedSize && len(keyBytes) != ed25519.PrivateKeySize {
+			return nil, fmt.Errorf("invalid ed25519 key material size: %d", len(keyBytes))
+		}
+		var edPriv ed25519.PrivateKey
+		if len(keyBytes) == ed25519.SeedSize {
+			edPriv = ed25519.NewKeyFromSeed(keyBytes)
+		} else {
+			edPriv = ed25519.PrivateKey(append([]byte(nil), keyBytes...))
+		}
+		pub, ok := edPriv.Public().(ed25519.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("invalid ed25519 public key")
+		}
+		addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeEd25519, pub)
+		if err != nil {
+			return nil, err
+		}
+		return &Key{
+			Id:                id,
+			Address:           addr,
+			SignerType:        accountsigner.SignerTypeEd25519,
+			PrivateKey:        nil,
+			Ed25519PrivateKey: append(ed25519.PrivateKey(nil), edPriv...),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported signer type: %s", signerType)
+	}
 }
 
 func decryptKeyV1(keyProtected *encryptedKeyJSONV1, auth string) (keyBytes []byte, keyId []byte, err error) {

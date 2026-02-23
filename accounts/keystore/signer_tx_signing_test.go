@@ -30,14 +30,7 @@ func p256PubFromScalar(d *big.Int) []byte {
 	return elliptic.Marshal(elliptic.P256(), x, y)
 }
 
-func ed25519PubFromScalar(d *big.Int) []byte {
-	seed := make([]byte, ed25519.SeedSize)
-	db := d.Bytes()
-	if len(db) > ed25519.SeedSize {
-		db = db[len(db)-ed25519.SeedSize:]
-	}
-	copy(seed[ed25519.SeedSize-len(db):], db)
-	priv := ed25519.NewKeyFromSeed(seed)
+func ed25519PubFromKey(priv ed25519.PrivateKey) []byte {
 	return append([]byte(nil), priv.Public().(ed25519.PublicKey)...)
 }
 
@@ -104,7 +97,7 @@ func TestKeyStoreSignTxWithPassphraseSignerTxSecp256r1(t *testing.T) {
 func TestKeyStoreSignTxSignerTxEd25519(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
 	passphrase := "pass"
-	acc, err := ks.NewAccount(passphrase)
+	acc, err := ks.NewEd25519Account(passphrase)
 	if err != nil {
 		t.Fatalf("new account failed: %v", err)
 	}
@@ -119,7 +112,7 @@ func TestKeyStoreSignTxSignerTxEd25519(t *testing.T) {
 	ks.mu.RLock()
 	unlocked := ks.unlocked[acc.Address]
 	ks.mu.RUnlock()
-	pub := ed25519PubFromScalar(unlocked.PrivateKey.D)
+	pub := ed25519PubFromKey(unlocked.Ed25519PrivateKey)
 	signer := types.LatestSignerForChainID(big.NewInt(1))
 	v, r, s := signed.RawSignatureValues()
 	if v.Sign() != 0 {
@@ -133,7 +126,7 @@ func TestKeyStoreSignTxSignerTxEd25519(t *testing.T) {
 func TestKeyStoreSignTxWithPassphraseSignerTxEd25519(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
 	passphrase := "pass"
-	acc, err := ks.NewAccount(passphrase)
+	acc, err := ks.NewEd25519Account(passphrase)
 	if err != nil {
 		t.Fatalf("new account failed: %v", err)
 	}
@@ -150,7 +143,7 @@ func TestKeyStoreSignTxWithPassphraseSignerTxEd25519(t *testing.T) {
 	if a.Address != acc.Address {
 		t.Fatalf("resolved account mismatch: have=%s want=%s", a.Address.Hex(), acc.Address.Hex())
 	}
-	pub := ed25519PubFromScalar(key.PrivateKey.D)
+	pub := ed25519PubFromKey(key.Ed25519PrivateKey)
 	signer := types.LatestSignerForChainID(big.NewInt(1))
 	v, r, s := signed.RawSignatureValues()
 	if v.Sign() != 0 {

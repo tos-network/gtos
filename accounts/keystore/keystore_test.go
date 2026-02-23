@@ -1,6 +1,7 @@
 package keystore
 
 import (
+	"crypto/ed25519"
 	"math/rand"
 	"os"
 	"runtime"
@@ -336,6 +337,36 @@ func TestImportECDSA(t *testing.T) {
 	}
 }
 
+func TestImportEd25519(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	key := ed25519.NewKeyFromSeed(seed)
+	acc, err := ks.ImportEd25519(key, "old")
+	if err != nil {
+		t.Fatalf("importing failed: %v", err)
+	}
+	if _, err = ks.ImportEd25519(key, "old"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	if _, err = ks.ImportEd25519(key, "new"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt imported key: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != "ed25519" {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	if len(decrypted.Ed25519PrivateKey) != ed25519.PrivateKeySize {
+		t.Fatalf("unexpected ed25519 private key size: %d", len(decrypted.Ed25519PrivateKey))
+	}
+}
+
 // TestImportECDSA tests the import and export functionality of a keystore.
 func TestImportExport(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
@@ -360,6 +391,29 @@ func TestImportExport(t *testing.T) {
 	}
 	if _, err = ks2.Import(json, "new", "new"); err == nil {
 		t.Errorf("importing a key twice succeeded")
+	}
+}
+
+func TestImportExportEd25519(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewEd25519Account("old")
+	if err != nil {
+		t.Fatalf("failed to create ed25519 account: %v", acc)
+	}
+	json, err := ks.Export(acc, "old", "new")
+	if err != nil {
+		t.Fatalf("failed to export account: %v", acc)
+	}
+	_, ks2 := tmpKeyStore(t, true)
+	if _, err = ks2.Import(json, "old", "old"); err == nil {
+		t.Errorf("importing with invalid password succeeded")
+	}
+	acc2, err := ks2.Import(json, "new", "new")
+	if err != nil {
+		t.Errorf("importing failed: %v", err)
+	}
+	if acc.Address != acc2.Address {
+		t.Error("imported account does not match exported account")
 	}
 }
 
