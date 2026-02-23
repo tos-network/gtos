@@ -44,8 +44,8 @@ Read methods:
 - `tos_estimateSetCodeGas(code, ttl)`
 - `tos_getCode(address, block?)`
 - `tos_getCodeMeta(address, block?)`
-- `tos_getKV(namespace, key, block?)`
-- `tos_getKVMeta(namespace, key, block?)`
+- `tos_getKV(from, namespace, key, block?)`
+- `tos_getKVMeta(from, namespace, key, block?)`
 
 Write/tx-submission methods:
 
@@ -411,12 +411,16 @@ Result schema:
 
 Params:
 
-- `params[0]` namespace schema:
+- `params[0]` from schema:
+```json
+{"$ref":"gtos.rpc.common#/definitions/address"}
+```
+- `params[1]` namespace schema:
 ```json
 {"type":"string","minLength":1}
 ```
-- `params[1]` key schema: `{"$ref":"gtos.rpc.common#/definitions/hexData"}`
-- `params[2]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
+- `params[2]` key schema: `{"$ref":"gtos.rpc.common#/definitions/hexData"}`
+- `params[3]` optional block/tag schema: `{"$ref":"gtos.rpc.common#/definitions/blockTag"}`
 
 Result schema:
 
@@ -596,20 +600,22 @@ Error payload shape (`error.data`):
 
 ## 7. Rollout Stages
 
-Stage A (skeleton in code):
+Status snapshot date: `2026-02-23`.
+
+Stage A (skeleton in code) - Status: `DONE`
 
 - Add all `tos_*` extension method endpoints and typed request/response structs.
 - Return deterministic `not_implemented` for methods lacking execution backend.
 - Implement read-only profile/retention/account/signer methods first.
 
-Stage B (execution wiring):
+Stage B (execution wiring) - Status: `IN_PROGRESS`
 
 - Bind `tos_setSigner` to account signer state transition.
 - Bind code/KV TTL writes and reads to finalized state model (`tos_getCode` and `tos_getCodeMeta` for code).
 - Enforce code immutability and KV upsert/no-delete behavior in validation.
 - Add deterministic prune/expire behavior and errors.
 
-Stage C (deprecation enforcement):
+Stage C (deprecation enforcement) - Status: `PLANNED`
 
 - Gate or remove VM-era RPCs (`tos_call`, `tos_estimateGas`, etc.).
 - Move clients to extension methods with compatibility window.

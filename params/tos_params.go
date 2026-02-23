@@ -11,10 +11,15 @@ var (
 	// SystemActionAddress is the sentinel To-address for system action transactions.
 	// Transactions sent to this address carry a JSON-encoded SysAction in tx.Data
 	// and are executed outside the TVM by the state processor.
-	SystemActionAddress = common.HexToAddress("0x53595354454D5F414354494F4E5F43454E544552") // "SYSTEM_ACTION_CENTER"
+	SystemActionAddress = common.HexToAddress("0x0000000000000000000000000000000000000001")
+
+	// KVRouterAddress is the dedicated recipient for KV put transactions.
+	// Transactions sent to this address are parsed by core/state_transition.go
+	// as GTOS KV payloads and written directly to state storage.
+	KVRouterAddress = common.HexToAddress("0x0000000000000000000000000000000000000002")
 
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.
-	ValidatorRegistryAddress = common.HexToAddress("0x56414C494441544F525F535441544553544F5245") // "VALIDATOR_STATESTORE"
+	ValidatorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000003")
 )
 
 // DPoS validator stake and reward parameters.

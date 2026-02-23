@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	stdmath "math"
 	"math/big"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accounts/scwallet"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
@@ -20,11 +22,13 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/sysaction"
 	"github.com/tyler-smith/go-bip39"
 )
 
@@ -2134,15 +2138,24 @@ func (s *TOSAPI) GetAccount(ctx context.Context, address common.Address, blockNr
 	if state == nil || header == nil {
 		return nil, &rpcAPIError{code: rpcErrNotFound, message: "account state not found"}
 	}
+	signerType, signerValue, signerSet := accountsigner.Get(state, address)
+	signer := RPCSignerDescriptor{
+		Type:      "address",
+		Value:     address.Hex(),
+		Defaulted: true,
+	}
+	if signerSet {
+		signer = RPCSignerDescriptor{
+			Type:      signerType,
+			Value:     signerValue,
+			Defaulted: false,
+		}
+	}
 	return &RPCAccountProfile{
-		Address: address,
-		Nonce:   hexutil.Uint64(state.GetNonce(address)),
-		Balance: (*hexutil.Big)(new(big.Int).Set(state.GetBalance(address))),
-		Signer: RPCSignerDescriptor{
-			Type:      "address",
-			Value:     address.Hex(),
-			Defaulted: true,
-		},
+		Address:     address,
+		Nonce:       hexutil.Uint64(state.GetNonce(address)),
+		Balance:     (*hexutil.Big)(new(big.Int).Set(state.GetBalance(address))),
+		Signer:      signer,
 		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
 	}, nil
 }
@@ -2181,6 +2194,16 @@ func validateSetSignerArgs(args RPCSetSignerArgs) error {
 			},
 		}
 	}
+	if len([]byte(args.SignerType)) > accountsigner.MaxSignerTypeLen {
+		return &rpcAPIError{
+			code:    rpcErrInvalidSigner,
+			message: "invalid signer argument",
+			data: map[string]interface{}{
+				"field":  "signerType",
+				"reason": fmt.Sprintf("must be <= %d bytes", accountsigner.MaxSignerTypeLen),
+			},
+		}
+	}
 	if strings.TrimSpace(args.SignerValue) == "" {
 		return &rpcAPIError{
 			code:    rpcErrInvalidSigner,
@@ -2191,23 +2214,116 @@ func validateSetSignerArgs(args RPCSetSignerArgs) error {
 			},
 		}
 	}
+	if len([]byte(args.SignerValue)) > accountsigner.MaxSignerValueLen {
+		return &rpcAPIError{
+			code:    rpcErrInvalidSigner,
+			message: "invalid signer argument",
+			data: map[string]interface{}{
+				"field":  "signerValue",
+				"reason": fmt.Sprintf("must be <= %d bytes", accountsigner.MaxSignerValueLen),
+			},
+		}
+	}
 	return nil
 }
 
+func estimateSystemActionGas(payload []byte) (uint64, error) {
+	intrinsic, err := core.IntrinsicGas(payload, nil, false, true, true)
+	if err != nil {
+		return 0, err
+	}
+	if intrinsic > stdmath.MaxUint64-params.SysActionGas {
+		return 0, fmt.Errorf("system action gas overflows")
+	}
+	return intrinsic + params.SysActionGas, nil
+}
+
+func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
+		SignerType:  args.SignerType,
+		SignerValue: args.SignerValue,
+	})
+	if err != nil {
+		return nil, newRPCInvalidParamsError("signer", "failed to encode signer payload")
+	}
+	from := args.From
+	to := params.SystemActionAddress
+	input := hexutil.Bytes(payload)
+	zero := hexutil.Big{}
+	txArgs := &TransactionArgs{
+		From:     &from,
+		To:       &to,
+		Gas:      args.Gas,
+		GasPrice: args.GasPrice,
+		Value:    &zero,
+		Nonce:    args.Nonce,
+		Input:    &input,
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := estimateSystemActionGas(payload)
+		if gasErr != nil {
+			return nil, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
 func (s *TOSAPI) SetSigner(ctx context.Context, args RPCSetSignerArgs) (common.Hash, error) {
-	_ = ctx
 	if err := validateSetSignerArgs(args); err != nil {
 		return common.Hash{}, err
 	}
-	return common.Hash{}, newRPCNotImplementedError("tos_setSigner")
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_setSigner")
+	}
+	txArgs, err := s.buildSetSignerTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
 }
 
 func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*RPCBuildTxResult, error) {
-	_ = ctx
 	if err := validateSetSignerArgs(args); err != nil {
 		return nil, err
 	}
-	return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
+	}
+	txArgs, err := s.buildSetSignerTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	tx := txArgs.toTransaction()
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":     args.From,
+			"to":       params.SystemActionAddress,
+			"nonce":    hexutil.Uint64(tx.Nonce()),
+			"gas":      hexutil.Uint64(tx.Gas()),
+			"gasPrice": (*hexutil.Big)(new(big.Int).Set(tx.GasPrice())),
+			"value":    (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input":    hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
 }
 
 func (s *TOSAPI) EstimateSetCodeGas(code hexutil.Bytes, ttl hexutil.Uint64) (hexutil.Uint64, error) {
@@ -2299,7 +2415,6 @@ func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash,
 }
 
 func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, error) {
-	_ = ctx
 	if args.From == (common.Address{}) {
 		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
 	}
@@ -2309,25 +2424,108 @@ func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, err
 	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
 		return common.Hash{}, err
 	}
-	return common.Hash{}, newRPCNotImplementedError("tos_putKV")
+	// Keep validation-only behavior for tests or dry skeleton instances.
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_putKV")
+	}
+	payload, err := kvstore.EncodePutPayload(args.Namespace, args.Key, args.Value, uint64(args.TTL))
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("data", "invalid kv payload")
+	}
+	to := params.KVRouterAddress
+	input := hexutil.Bytes(payload)
+	from := args.From
+	zero := hexutil.Big{}
+	txArgs := TransactionArgs{
+		From:     &from,
+		To:       &to,
+		Gas:      args.Gas,
+		GasPrice: args.GasPrice,
+		Value:    &zero,
+		Nonce:    args.Nonce,
+		Input:    &input,
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := kvstore.EstimatePutPayloadGas(payload, uint64(args.TTL))
+		if gasErr != nil {
+			return common.Hash{}, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
 }
 
-func (s *TOSAPI) GetKV(ctx context.Context, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {
-	_ = ctx
+func (s *TOSAPI) GetKV(ctx context.Context, from common.Address, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {
+	if from == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("from", "must not be zero address")
+	}
 	if strings.TrimSpace(namespace) == "" {
 		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
 	}
-	_ = key
-	_ = blockNrOrHash
-	return nil, newRPCNotImplementedError("tos_getKV")
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_getKV")
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(blockNrOrHash))
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
+	}
+	value, meta, found := kvstore.Get(state, from, namespace, key)
+	if !found {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
+	}
+	if meta.ExpireAt != 0 && header.Number != nil && header.Number.Uint64() >= meta.ExpireAt {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
+	}
+	return &RPCKVResult{
+		Namespace: namespace,
+		Key:       key,
+		Value:     hexutil.Bytes(value),
+	}, nil
 }
 
-func (s *TOSAPI) GetKVMeta(ctx context.Context, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVMetaResult, error) {
-	_ = ctx
+func (s *TOSAPI) GetKVMeta(ctx context.Context, from common.Address, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVMetaResult, error) {
+	if from == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("from", "must not be zero address")
+	}
 	if strings.TrimSpace(namespace) == "" {
 		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
 	}
-	_ = key
-	_ = blockNrOrHash
-	return nil, newRPCNotImplementedError("tos_getKVMeta")
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_getKVMeta")
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(blockNrOrHash))
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
+	}
+	meta := kvstore.GetMeta(state, from, namespace, key)
+	if !meta.Exists {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
+	}
+	expired := meta.ExpireAt != 0 && header.Number != nil && header.Number.Uint64() >= meta.ExpireAt
+	return &RPCKVMetaResult{
+		Namespace: namespace,
+		Key:       key,
+		CreatedAt: hexutil.Uint64(meta.CreatedAt),
+		ExpireAt:  hexutil.Uint64(meta.ExpireAt),
+		Expired:   expired,
+	}, nil
 }

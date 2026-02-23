@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/tos-network/gtos/accounts"
+	_ "github.com/tos-network/gtos/accountsigner" // registers ACCOUNT_SET_SIGNER handler via init()
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"

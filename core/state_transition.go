@@ -9,6 +9,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -205,8 +206,9 @@ func (st *StateTransition) preCheck() error {
 // GTOS transaction rules:
 //  1. Contract creation branch (To == nil): reserved for setCode payload transaction.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
-//  3. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  4. Transactions with non-empty data to non-system addresses: rejected
+//  3. KV router address (params.KVRouterAddress): parse tx.Data and apply KV put directly
+//  4. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
+//  5. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
@@ -246,6 +248,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				st.gas = 0
 			}
 			vmerr = execErr
+		} else if toAddr == params.KVRouterAddress {
+			vmerr = st.applyKVPut(msg)
 		} else {
 			// Check sender has enough balance for value transfer
 			if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
@@ -325,6 +329,30 @@ func (st *StateTransition) applySetCode(msg Message) error {
 	st.state.SetCode(from, payload.Code)
 	st.state.SetState(from, SetCodeCreatedAtSlot, uint64ToStateWord(currentBlock))
 	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(currentBlock+payload.TTL))
+	return nil
+}
+
+func (st *StateTransition) applyKVPut(msg Message) error {
+	if msg.Value() != nil && msg.Value().Sign() != 0 {
+		return ErrContractNotSupported
+	}
+	payload, err := kvstore.DecodePutPayload(st.data)
+	if err != nil {
+		return ErrContractNotSupported
+	}
+	currentBlock := st.blockCtx.BlockNumber.Uint64()
+	if payload.TTL > math.MaxUint64-currentBlock {
+		return ErrContractNotSupported
+	}
+	ttlGas, err := kvstore.KVTTLGas(payload.TTL)
+	if err != nil {
+		return ErrContractNotSupported
+	}
+	if st.gas < ttlGas {
+		return ErrIntrinsicGas
+	}
+	st.gas -= ttlGas
+	kvstore.Put(st.state, msg.From(), payload.Namespace, payload.Key, payload.Value, currentBlock, currentBlock+payload.TTL)
 	return nil
 }
 

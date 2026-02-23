@@ -20,8 +20,8 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - `tos_putKV({...tx fields...})`
 - `tos_getCode(address, block?)`
 - `tos_getCodeMeta(address, block?)`
-- `tos_getKV(namespace, key, block?)`
-- `tos_getKVMeta(namespace, key, block?)`
+- `tos_getKV(from, namespace, key, block?)`
+- `tos_getKVMeta(from, namespace, key, block?)`
 
 ## `tos_setCode` Execution Model
 

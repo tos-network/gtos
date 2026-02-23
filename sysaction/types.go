@@ -15,6 +15,8 @@ const (
 	// Validator lifecycle (DPoS)
 	ActionValidatorRegister ActionKind = "VALIDATOR_REGISTER"
 	ActionValidatorWithdraw ActionKind = "VALIDATOR_WITHDRAW"
+	// Account signer metadata update.
+	ActionAccountSetSigner ActionKind = "ACCOUNT_SET_SIGNER"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

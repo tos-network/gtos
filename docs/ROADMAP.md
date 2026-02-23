@@ -5,7 +5,7 @@
 - `DONE`: completed and merged.
 - `IN_PROGRESS`: partially implemented or implemented as skeleton/validation only.
 - `PLANNED`: not implemented yet.
-- Status snapshot date: `2026-02-22`.
+- Status snapshot date: `2026-02-23`.
 
 ## Product Alignment
 
@@ -80,16 +80,16 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 
 ### Deliverables
 
-- `PLANNED` `code_put_ttl(code, ttl)` execution support.
-- `IN_PROGRESS` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
-- `PLANNED` Code immutability rules: active code objects cannot be updated or deleted.
-- `IN_PROGRESS` TTL validation rules and overflow protection.
-- `IN_PROGRESS` Code read/index APIs (payload/hash/metadata).
-- `PLANNED` Expiry and pruning behavior integrated with state maintenance.
+- `DONE` `code_put_ttl(code, ttl)` execution support.
+- `DONE` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
+- `DONE` Code immutability rules: active code objects cannot be updated or deleted.
+- `DONE` TTL validation rules and overflow protection.
+- `DONE` Code read/index APIs (payload/hash/metadata).
+- `IN_PROGRESS` Expiry and pruning behavior integrated with state maintenance.
 
 ### Definition of Done
 
-- `PLANNED` Code records expire deterministically across nodes.
+- `IN_PROGRESS` Code records expire deterministically across nodes.
 - `PLANNED` State root remains identical across nodes before/after prune cycles.
 
 ## Phase 3: KV Storage with TTL
@@ -102,16 +102,16 @@ Provide native TTL-based key-value storage with deterministic lifecycle.
 
 ### Deliverables
 
-- `PLANNED` `kv_put_ttl(key, value, ttl)` execution support.
-- `IN_PROGRESS` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
-- `PLANNED` Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
+- `DONE` `kv_put_ttl(key, value, ttl)` execution support.
+- `DONE` TTL semantics: `ttl` is block count; compute and persist `expire_block` at write time.
+- `DONE` Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
 - `DONE` Explicitly no `kv_delete` transaction path.
-- `IN_PROGRESS` Read semantics: active returns value, expired returns not-found.
-- `PLANNED` Maintenance pipeline for pruning expired KV entries.
+- `DONE` Read semantics: active returns value, expired returns not-found.
+- `IN_PROGRESS` Maintenance pipeline for pruning expired KV entries.
 
 ### Definition of Done
 
-- `PLANNED` TTL behavior is deterministic across nodes.
+- `IN_PROGRESS` TTL behavior is deterministic across nodes.
 - `PLANNED` Long-run pruning keeps storage bounded while preserving consensus correctness.
 
 ## Phase 4: Hardening and Production Readiness

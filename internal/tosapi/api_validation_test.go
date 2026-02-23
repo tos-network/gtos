@@ -2,8 +2,10 @@ package tosapi
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core"
@@ -40,6 +42,38 @@ func TestSetSignerValidation(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrNotImplemented {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotImplemented)
+	}
+
+	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		SignerType:      strings.Repeat("a", accountsigner.MaxSignerTypeLen+1),
+		SignerValue:     "z6Mki...",
+	})
+	if err == nil {
+		t.Fatalf("expected validation error for signerType length")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidSigner {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidSigner)
+	}
+
+	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		SignerType:      "ed25519",
+		SignerValue:     strings.Repeat("b", accountsigner.MaxSignerValueLen+1),
+	})
+	if err == nil {
+		t.Fatalf("expected validation error for signerValue length")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidSigner {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidSigner)
 	}
 }
 
@@ -257,10 +291,11 @@ func TestValidateAndComputeExpireBlock(t *testing.T) {
 func TestCodeAndKVReadValidation(t *testing.T) {
 	api := &TOSAPI{}
 	ctx := context.Background()
+	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
 
-	_, err := api.GetKV(ctx, "   ", hexutil.Bytes("k"), nil)
+	_, err := api.GetKV(ctx, common.Address{}, "ns", hexutil.Bytes("k"), nil)
 	if err == nil {
-		t.Fatalf("expected invalid params error for namespace")
+		t.Fatalf("expected invalid params error for from")
 	}
 	rpcErr, ok := err.(*rpcAPIError)
 	if !ok {
@@ -270,7 +305,31 @@ func TestCodeAndKVReadValidation(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
 	}
 
-	_, err = api.GetKVMeta(ctx, "", hexutil.Bytes("k"), nil)
+	_, err = api.GetKV(ctx, from, "   ", hexutil.Bytes("k"), nil)
+	if err == nil {
+		t.Fatalf("expected invalid params error for namespace")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	_, err = api.GetKVMeta(ctx, common.Address{}, "ns", hexutil.Bytes("k"), nil)
+	if err == nil {
+		t.Fatalf("expected invalid params error for from")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	_, err = api.GetKVMeta(ctx, from, "", hexutil.Bytes("k"), nil)
 	if err == nil {
 		t.Fatalf("expected invalid params error for namespace")
 	}
