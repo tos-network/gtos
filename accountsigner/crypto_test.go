@@ -2,8 +2,10 @@ package accountsigner
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -14,6 +16,14 @@ import (
 )
 
 func TestNormalizeSignerExtendedTypes(t *testing.T) {
+	blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate bls private key: %v", err)
+	}
+	blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
+	if err != nil {
+		t.Fatalf("failed to derive bls public key: %v", err)
+	}
 	tests := []struct {
 		name         string
 		signerType   string
@@ -24,23 +34,9 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 		{
 			name:         "bls12381 alias canonicalizes",
 			signerType:   "BLS12381",
-			signerValue:  "0x" + strings.Repeat("11", 48),
+			signerValue:  hexutil.Encode(blsPub),
 			wantType:     SignerTypeBLS12381,
 			wantValueLen: 48,
-		},
-		{
-			name:         "frost accepts opaque key material",
-			signerType:   SignerTypeFROST,
-			signerValue:  "0x" + strings.Repeat("22", 32),
-			wantType:     SignerTypeFROST,
-			wantValueLen: 32,
-		},
-		{
-			name:         "pqc accepts larger key material",
-			signerType:   SignerTypePQC,
-			signerValue:  "0x" + strings.Repeat("33", 128),
-			wantType:     SignerTypePQC,
-			wantValueLen: 128,
 		},
 	}
 
@@ -63,7 +59,7 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 	}
 }
 
-func TestNormalizeSignerRejectsInvalidExtendedLengths(t *testing.T) {
+func TestNormalizeSignerRejectsInvalidExtendedTypes(t *testing.T) {
 	tests := []struct {
 		name        string
 		signerType  string
@@ -75,14 +71,14 @@ func TestNormalizeSignerRejectsInvalidExtendedLengths(t *testing.T) {
 			signerValue: "0x" + strings.Repeat("11", 47),
 		},
 		{
-			name:        "frost too short",
-			signerType:  SignerTypeFROST,
-			signerValue: "0x" + strings.Repeat("22", 8),
+			name:        "frost removed",
+			signerType:  "frost",
+			signerValue: "0x" + strings.Repeat("22", 32),
 		},
 		{
-			name:        "pqc too short",
-			signerType:  SignerTypePQC,
-			signerValue: "0x" + strings.Repeat("33", 16),
+			name:        "pqc removed",
+			signerType:  "pqc",
+			signerValue: "0x" + strings.Repeat("33", 128),
 		},
 	}
 
@@ -106,14 +102,80 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	if !SupportsCurrentTxSignatureType(SignerTypeEd25519) {
 		t.Fatalf("expected ed25519 support")
 	}
-	if SupportsCurrentTxSignatureType(SignerTypeBLS12381) {
-		t.Fatalf("did not expect bls12-381 support in current tx signature format")
+	if !SupportsCurrentTxSignatureType(SignerTypeBLS12381) {
+		t.Fatalf("expected bls12-381 support")
 	}
-	if SupportsCurrentTxSignatureType(SignerTypeFROST) {
-		t.Fatalf("did not expect frost support in current tx signature format")
+}
+
+func TestSignAndVerifyBLS12381Hash(t *testing.T) {
+	priv, err := GenerateBLS12381PrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate bls private key: %v", err)
 	}
-	if SupportsCurrentTxSignatureType(SignerTypePQC) {
-		t.Fatalf("did not expect pqc support in current tx signature format")
+	pub, err := PublicKeyFromBLS12381Private(priv)
+	if err != nil {
+		t.Fatalf("failed to derive bls public key: %v", err)
+	}
+	msg := common.HexToHash("0x1234abcd")
+	sig, err := SignBLS12381Hash(priv, msg)
+	if err != nil {
+		t.Fatalf("failed to sign hash: %v", err)
+	}
+	r, s, err := SplitBLS12381Signature(sig)
+	if err != nil {
+		t.Fatalf("failed to split signature: %v", err)
+	}
+	if !VerifyRawSignature(SignerTypeBLS12381, pub, msg, r, s) {
+		t.Fatalf("bls12-381 signature verification failed")
+	}
+	joined, err := JoinBLS12381Signature(r, s)
+	if err != nil {
+		t.Fatalf("failed to join signature: %v", err)
+	}
+	if hexutil.Encode(joined) != hexutil.Encode(sig) {
+		t.Fatalf("joined signature mismatch")
+	}
+}
+
+func TestBLS12381FastAggregate(t *testing.T) {
+	msg := common.HexToHash("0x7777")
+	var (
+		pubs [][]byte
+		sigs [][]byte
+	)
+	for i := 0; i < 3; i++ {
+		priv, err := GenerateBLS12381PrivateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate bls private key: %v", err)
+		}
+		pub, err := PublicKeyFromBLS12381Private(priv)
+		if err != nil {
+			t.Fatalf("failed to derive bls public key: %v", err)
+		}
+		sig, err := SignBLS12381Hash(priv, msg)
+		if err != nil {
+			t.Fatalf("failed to sign hash: %v", err)
+		}
+		pubs = append(pubs, pub)
+		sigs = append(sigs, sig)
+	}
+	aggPub, err := AggregateBLS12381PublicKeys(pubs)
+	if err != nil {
+		t.Fatalf("failed to aggregate pubkeys: %v", err)
+	}
+	aggSig, err := AggregateBLS12381Signatures(sigs)
+	if err != nil {
+		t.Fatalf("failed to aggregate signatures: %v", err)
+	}
+	if !VerifyBLS12381FastAggregate(pubs, aggSig, msg) {
+		t.Fatalf("fast aggregate verification failed")
+	}
+	r, s, err := SplitBLS12381Signature(aggSig)
+	if err != nil {
+		t.Fatalf("failed to split aggregate signature: %v", err)
+	}
+	if !VerifyRawSignature(SignerTypeBLS12381, aggPub, msg, r, s) {
+		t.Fatalf("aggregate signature verify via tx-style RS failed")
 	}
 }
 
@@ -186,5 +248,87 @@ func TestSignSecp256r1HashRejectsNonP256Key(t *testing.T) {
 	_, err = SignSecp256r1Hash(key, common.HexToHash("0x01"))
 	if err == nil {
 		t.Fatalf("expected key validation error")
+	}
+}
+
+func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
+	secp256k1Key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate secp256k1 key: %v", err)
+	}
+	secp256r1Key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate secp256r1 key: %v", err)
+	}
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate bls private key: %v", err)
+	}
+	blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
+	if err != nil {
+		t.Fatalf("failed to derive bls public key: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		signerType string
+		pub        []byte
+	}{
+		{name: "secp256k1", signerType: SignerTypeSecp256k1, pub: crypto.FromECDSAPub(&secp256k1Key.PublicKey)},
+		{name: "secp256r1", signerType: SignerTypeSecp256r1, pub: elliptic.Marshal(elliptic.P256(), secp256r1Key.X, secp256r1Key.Y)},
+		{name: "ed25519", signerType: SignerTypeEd25519, pub: append([]byte(nil), edPub...)},
+		{name: "bls12-381", signerType: SignerTypeBLS12381, pub: append([]byte(nil), blsPub...)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			expectedType, expectedPub, _, err := NormalizeSigner(tc.signerType, hexutil.Encode(tc.pub))
+			if err != nil {
+				t.Fatalf("normalize input signer failed: %v", err)
+			}
+			meta, err := EncodeSignatureMeta(tc.signerType, tc.pub)
+			if err != nil {
+				t.Fatalf("encode signature meta failed: %v", err)
+			}
+			gotType, gotPub, ok, err := DecodeSignatureMeta(meta)
+			if err != nil {
+				t.Fatalf("decode signature meta failed: %v", err)
+			}
+			if !ok {
+				t.Fatalf("expected metadata decode to be active")
+			}
+			if gotType != expectedType {
+				t.Fatalf("signer type mismatch have=%q want=%q", gotType, expectedType)
+			}
+			if hexutil.Encode(gotPub) != hexutil.Encode(expectedPub) {
+				t.Fatalf("pubkey mismatch have=%s want=%s", hexutil.Encode(gotPub), hexutil.Encode(expectedPub))
+			}
+		})
+	}
+}
+
+func TestDecodeSignatureMetaRejectsUnknownAlg(t *testing.T) {
+	raw := append([]byte(nil), signatureMetaPrefix...)
+	raw = append(raw, 0xff)
+	raw = append(raw, []byte{0x01, 0x02, 0x03}...)
+	_, _, ok, err := DecodeSignatureMeta(new(big.Int).SetBytes(raw))
+	if ok {
+		t.Fatalf("expected metadata decode to be inactive on unknown alg")
+	}
+	if !errors.Is(err, ErrInvalidSignatureMeta) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDecodeSignatureMetaLegacyValue(t *testing.T) {
+	typ, pub, ok, err := DecodeSignatureMeta(big.NewInt(27))
+	if err != nil {
+		t.Fatalf("unexpected error for legacy value: %v", err)
+	}
+	if ok || typ != "" || pub != nil {
+		t.Fatalf("unexpected legacy decode result ok=%v type=%q pub=%x", ok, typ, pub)
 	}
 }
