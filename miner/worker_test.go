@@ -60,22 +60,27 @@ func init() {
 	*dposChainConfig = *params.TestChainConfig
 
 	signer := types.LatestSigner(params.TestChainConfig)
-	tx1 := types.MustSignNewTx(testBankKey, signer, &types.AccessListTx{
-		ChainID:  params.TestChainConfig.ChainID,
-		Nonce:    0,
-		To:       &testUserAddress,
-		Value:    big.NewInt(1000),
-		Gas:      params.TxGas,
-		GasPrice: big.NewInt(params.InitialBaseFee),
+	tx1 := types.MustSignNewTx(testBankKey, signer, &types.SignerTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      0,
+		To:         &testUserAddress,
+		Value:      big.NewInt(1000),
+		Gas:        params.TxGas,
+		GasPrice:   big.NewInt(params.InitialBaseFee),
+		From:       testBankAddress,
+		SignerType: "secp256k1",
 	})
 	pendingTxs = append(pendingTxs, tx1)
 
-	tx2 := types.MustSignNewTx(testBankKey, signer, &types.LegacyTx{
-		Nonce:    1,
-		To:       &testUserAddress,
-		Value:    big.NewInt(1000),
-		Gas:      params.TxGas,
-		GasPrice: big.NewInt(params.InitialBaseFee),
+	tx2 := types.MustSignNewTx(testBankKey, signer, &types.SignerTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      1,
+		To:         &testUserAddress,
+		Value:      big.NewInt(1000),
+		Gas:        params.TxGas,
+		GasPrice:   big.NewInt(params.InitialBaseFee),
+		From:       testBankAddress,
+		SignerType: "secp256k1",
 	})
 	newTxs = append(newTxs, tx2)
 
@@ -150,15 +155,28 @@ func (b *testWorkerBackend) newRandomUncle() *types.Block {
 }
 
 func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
-	var tx *types.Transaction
 	gasPrice := big.NewInt(10 * params.InitialBaseFee)
 	signer := types.LatestSigner(dposChainConfig)
+	to := testUserAddress
+	gasLimit := uint64(params.TxGas)
+	var data []byte
 	if creation {
-		tx, _ = types.SignTx(types.NewContractCreation(b.txPool.Nonce(testBankAddress), big.NewInt(0), testGas, gasPrice, common.FromHex(testCode)), signer, testBankKey)
-	} else {
-		tx, _ = types.SignTx(types.NewTransaction(b.txPool.Nonce(testBankAddress), testUserAddress, big.NewInt(1000), params.TxGas, gasPrice, nil), signer, testBankKey)
+		gasLimit = testGas
+		data = common.FromHex(testCode)
 	}
-	return tx
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    dposChainConfig.ChainID,
+		Nonce:      b.txPool.Nonce(testBankAddress),
+		To:         &to,
+		Value:      big.NewInt(1000),
+		Gas:        gasLimit,
+		GasPrice:   gasPrice,
+		Data:       data,
+		From:       testBankAddress,
+		SignerType: "secp256k1",
+	})
+	signed, _ := types.SignTx(tx, signer, testBankKey)
+	return signed
 }
 
 func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, blocks int) (*worker, *testWorkerBackend) {

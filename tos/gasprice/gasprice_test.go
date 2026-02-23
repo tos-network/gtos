@@ -116,26 +116,20 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBacke
 	blocks, _ := core.GenerateChain(gspec.Config, genesis, engine, db, testHead+1, func(i int, b *core.BlockGen) {
 		b.SetCoinbase(common.Address{1})
 
-		var txdata types.TxData
+		var gas uint64 = 21000
 		if londonBlock != nil && b.Number().Cmp(londonBlock) >= 0 {
-			txdata = &types.DynamicFeeTx{
-				ChainID:   gspec.Config.ChainID,
-				Nonce:     b.TxNonce(addr),
-				To:        &common.Address{},
-				Gas:       30000,
-				GasFeeCap: big.NewInt(100 * params.GWei),
-				GasTipCap: big.NewInt(int64(i+1) * params.GWei),
-				Data:      []byte{},
-			}
-		} else {
-			txdata = &types.LegacyTx{
-				Nonce:    b.TxNonce(addr),
-				To:       &common.Address{},
-				Gas:      21000,
-				GasPrice: big.NewInt(int64(i+1) * params.GWei),
-				Value:    big.NewInt(100),
-				Data:     []byte{},
-			}
+			gas = 30000
+		}
+		txdata := &types.SignerTx{
+			ChainID:    gspec.Config.ChainID,
+			Nonce:      b.TxNonce(addr),
+			To:         &common.Address{},
+			Gas:        gas,
+			GasPrice:   big.NewInt(int64(i+1) * params.GWei),
+			Value:      big.NewInt(100),
+			Data:       []byte{},
+			From:       addr,
+			SignerType: "secp256k1",
 		}
 		b.AddTx(types.MustSignNewTx(key, signer, txdata))
 	})

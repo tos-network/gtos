@@ -179,20 +179,26 @@ var genesis = &core.Genesis{
 	BaseFee:   big.NewInt(params.InitialBaseFee),
 }
 
-var testTx1 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &types.LegacyTx{
-	Nonce:    0,
-	Value:    big.NewInt(12),
-	GasPrice: big.NewInt(params.InitialBaseFee),
-	Gas:      params.TxGas,
-	To:       &common.Address{2},
+var testTx1 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &types.SignerTx{
+	ChainID:    genesis.Config.ChainID,
+	Nonce:      0,
+	Value:      big.NewInt(12),
+	GasPrice:   big.NewInt(params.InitialBaseFee),
+	Gas:        params.TxGas,
+	To:         &common.Address{2},
+	From:       testAddr,
+	SignerType: "secp256k1",
 })
 
-var testTx2 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &types.LegacyTx{
-	Nonce:    1,
-	Value:    big.NewInt(8),
-	GasPrice: big.NewInt(params.InitialBaseFee),
-	Gas:      params.TxGas,
-	To:       &common.Address{2},
+var testTx2 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &types.SignerTx{
+	ChainID:    genesis.Config.ChainID,
+	Nonce:      1,
+	Value:      big.NewInt(8),
+	GasPrice:   big.NewInt(params.InitialBaseFee),
+	Gas:        params.TxGas,
+	To:         &common.Address{2},
+	From:       testAddr,
+	SignerType: "secp256k1",
 })
 
 func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
@@ -682,12 +688,15 @@ func sendTransaction(ec *Client) error {
 	}
 
 	signer := types.LatestSignerForChainID(chainID)
-	tx, err := types.SignNewTx(testKey, signer, &types.LegacyTx{
-		Nonce:    nonce,
-		To:       &common.Address{2},
-		Value:    big.NewInt(1),
-		Gas:      22000,
-		GasPrice: big.NewInt(params.InitialBaseFee),
+	tx, err := types.SignNewTx(testKey, signer, &types.SignerTx{
+		ChainID:    chainID,
+		Nonce:      nonce,
+		To:         &common.Address{2},
+		Value:      big.NewInt(1),
+		Gas:        22000,
+		GasPrice:   big.NewInt(params.InitialBaseFee),
+		From:       testAddr,
+		SignerType: "secp256k1",
 	})
 	if err != nil {
 		return err

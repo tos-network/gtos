@@ -205,13 +205,17 @@ func testSubscribePendingTransactions(t *testing.T, client *rpc.Client) {
 		t.Fatal(err)
 	}
 	// Create transaction
-	tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 22000, big.NewInt(1), nil)
 	signer := types.LatestSignerForChainID(chainID)
-	signature, err := crypto.Sign(signer.Hash(tx).Bytes(), testKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signedTx, err := tx.WithSignature(signer, signature)
+	signedTx, err := types.SignNewTx(testKey, signer, &types.SignerTx{
+		ChainID:    chainID,
+		Nonce:      0,
+		To:         &common.Address{1},
+		Value:      big.NewInt(1),
+		Gas:        22000,
+		GasPrice:   big.NewInt(1),
+		From:       testAddr,
+		SignerType: "secp256k1",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

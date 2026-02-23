@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
 	"sync"
@@ -137,6 +138,27 @@ func (tc *testChain) copy(newlen int) *testChain {
 	return cpy
 }
 
+func newSignedTestTx(nonce uint64, to common.Address, value, gasPrice *big.Int, gas uint64, data []byte, key *ecdsa.PrivateKey) *types.Transaction {
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		To:         &to,
+		Value:      value,
+		GasPrice:   gasPrice,
+		Gas:        gas,
+		Data:       data,
+		From:       from,
+		SignerType: "secp256k1",
+	})
+	signer := types.LatestSigner(params.TestChainConfig)
+	signed, err := types.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+	return signed
+}
+
 // generate creates a chain of n blocks starting at and including parent.
 // the returned hash chain is ordered head->parent. In addition, every 22th block
 // contains a transaction and every 5th an uncle to allow testing correct block
@@ -150,11 +172,7 @@ func (tc *testChain) generate(n int, seed byte, parent *types.Block, heavy bool)
 		}
 		// Include transactions to the miner to make blocks more interesting.
 		if parent == tc.blocks[0] && i%22 == 0 {
-			signer := types.MakeSigner(params.TestChainConfig, block.Number())
-			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), params.TxGas, block.BaseFee(), nil), signer, testKey)
-			if err != nil {
-				panic(err)
-			}
+			tx := newSignedTestTx(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), block.BaseFee(), params.TxGas, nil, testKey)
 			block.AddTx(tx)
 		}
 		// if the block number is a multiple of 5, add a bonus uncle to the block

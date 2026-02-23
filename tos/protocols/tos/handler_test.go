@@ -1,6 +1,7 @@
 package tos
 
 import (
+	"crypto/ecdsa"
 	"math"
 	"math/big"
 	"math/rand"
@@ -26,6 +27,24 @@ var (
 	// testAddr is the TOS address of the tester account.
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 )
+
+func newSignedTransferTx(signer types.Signer, key *ecdsa.PrivateKey, from common.Address, nonce uint64, to common.Address, value, gasPrice *big.Int) *types.Transaction {
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		To:         &to,
+		Value:      value,
+		Gas:        params.TxGas,
+		GasPrice:   gasPrice,
+		From:       from,
+		SignerType: "secp256k1",
+	})
+	signed, err := types.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+	return signed
+}
 
 // testBackend is a mock implementation of the live TOS message handler. Its
 // purpose is to allow testing the request/reply workflows and wire serialization
@@ -376,13 +395,13 @@ func testGetNodeData(t *testing.T, protocol uint) {
 		switch i {
 		case 0:
 			// In block 1, the test bank sends account #1 some tos.
-			tx, _ := types.SignTx(types.NewTransaction(block.TxNonce(testAddr), acc1Addr, big.NewInt(10_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, testKey)
+			tx := newSignedTransferTx(signer, testKey, testAddr, block.TxNonce(testAddr), acc1Addr, big.NewInt(10_000_000_000_000_000), block.BaseFee())
 			block.AddTx(tx)
 		case 1:
 			// In block 2, the test bank sends some more tos to account #1.
 			// acc1Addr passes it on to account #2.
-			tx1, _ := types.SignTx(types.NewTransaction(block.TxNonce(testAddr), acc1Addr, big.NewInt(1_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, testKey)
-			tx2, _ := types.SignTx(types.NewTransaction(block.TxNonce(acc1Addr), acc2Addr, big.NewInt(1_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, acc1Key)
+			tx1 := newSignedTransferTx(signer, testKey, testAddr, block.TxNonce(testAddr), acc1Addr, big.NewInt(1_000_000_000_000_000), block.BaseFee())
+			tx2 := newSignedTransferTx(signer, acc1Key, acc1Addr, block.TxNonce(acc1Addr), acc2Addr, big.NewInt(1_000_000_000_000_000), block.BaseFee())
 			block.AddTx(tx1)
 			block.AddTx(tx2)
 		case 2:
@@ -485,13 +504,13 @@ func testGetBlockReceipts(t *testing.T, protocol uint) {
 		switch i {
 		case 0:
 			// In block 1, the test bank sends account #1 some tos.
-			tx, _ := types.SignTx(types.NewTransaction(block.TxNonce(testAddr), acc1Addr, big.NewInt(10_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, testKey)
+			tx := newSignedTransferTx(signer, testKey, testAddr, block.TxNonce(testAddr), acc1Addr, big.NewInt(10_000_000_000_000_000), block.BaseFee())
 			block.AddTx(tx)
 		case 1:
 			// In block 2, the test bank sends some more tos to account #1.
 			// acc1Addr passes it on to account #2.
-			tx1, _ := types.SignTx(types.NewTransaction(block.TxNonce(testAddr), acc1Addr, big.NewInt(1_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, testKey)
-			tx2, _ := types.SignTx(types.NewTransaction(block.TxNonce(acc1Addr), acc2Addr, big.NewInt(1_000_000_000_000_000), params.TxGas, block.BaseFee(), nil), signer, acc1Key)
+			tx1 := newSignedTransferTx(signer, testKey, testAddr, block.TxNonce(testAddr), acc1Addr, big.NewInt(1_000_000_000_000_000), block.BaseFee())
+			tx2 := newSignedTransferTx(signer, acc1Key, acc1Addr, block.TxNonce(acc1Addr), acc2Addr, big.NewInt(1_000_000_000_000_000), block.BaseFee())
 			block.AddTx(tx1)
 			block.AddTx(tx2)
 		case 2:

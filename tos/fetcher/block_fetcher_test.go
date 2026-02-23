@@ -41,8 +41,18 @@ func makeChain(n int, seed byte, parent *types.Block) ([]common.Hash, map[common
 
 		// If the block number is multiple of 3, send a bonus transaction to the miner
 		if parent == genesis && i%3 == 0 {
+			tx := types.NewTx(&types.SignerTx{
+				ChainID:    params.TestChainConfig.ChainID,
+				Nonce:      block.TxNonce(testAddress),
+				To:         &common.Address{seed},
+				Value:      big.NewInt(1000),
+				Gas:        params.TxGas,
+				GasPrice:   block.BaseFee(),
+				From:       testAddress,
+				SignerType: "secp256k1",
+			})
 			signer := types.MakeSigner(params.TestChainConfig, block.Number())
-			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), params.TxGas, block.BaseFee(), nil), signer, testKey)
+			tx, err := types.SignTx(tx, signer, testKey)
 			if err != nil {
 				panic(err)
 			}
