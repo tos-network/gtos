@@ -165,6 +165,59 @@ func TestResolveSenderEd25519(t *testing.T) {
 	}
 }
 
+func TestResolveSenderElgamal(t *testing.T) {
+	st := newSenderTestState(t)
+	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x00000000000000000000000000000000000000ba")
+
+	priv, err := accountsigner.GenerateElgamalPrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate elgamal key: %v", err)
+	}
+	pub, err := accountsigner.PublicKeyFromElgamalPrivate(priv)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal pubkey: %v", err)
+	}
+	_, normalizedPub, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeElgamal, hexutil.Encode(pub))
+	if err != nil {
+		t.Fatalf("normalize signer failed: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, normalizedPub)
+	if err != nil {
+		t.Fatalf("derive address failed: %v", err)
+	}
+	accountsigner.Set(st, from, accountsigner.SignerTypeElgamal, normalizedValue)
+
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeElgamal)
+	hash := chainSigner.Hash(unsigned)
+	sig, err := accountsigner.SignElgamalHash(priv, hash)
+	if err != nil {
+		t.Fatalf("failed to sign hash: %v", err)
+	}
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		GasPrice:   unsigned.GasPrice(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeElgamal,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(sig[:32]),
+		S:          new(big.Int).SetBytes(sig[32:]),
+	})
+
+	got, err := ResolveSender(tx, chainSigner, st)
+	if err != nil {
+		t.Fatalf("resolve sender failed: %v", err)
+	}
+	if got != from {
+		t.Fatalf("unexpected sender have=%s want=%s", got.Hex(), from.Hex())
+	}
+}
+
 func TestResolveSenderBLS12381(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))

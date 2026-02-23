@@ -13,6 +13,7 @@ func FuzzNormalizeSignerNoPanic(f *testing.F) {
 	f.Add("secp256r1", "0x04f5d4c3b2a1988776655443322110ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ff")
 	f.Add("ed25519", "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
 	f.Add("bls12-381", "0x8bb4b8f4f6c6dc9b5dbfb7d6e0be8f1a4f6b2af5f0f7eddb3f4ed2f7b8fd45f1458be9f6854a2b2f0d1a3cf4d6f9a251")
+	f.Add("elgamal", "0xe2f2ae0a6abc4e71a884a961c500515f58e30b6aa582dd8db6a65945e08d2d76")
 
 	f.Fuzz(func(t *testing.T, signerType, signerValue string) {
 		if len(signerType) > 128 || len(signerValue) > 4096 {
@@ -48,6 +49,7 @@ func FuzzDecodeSignatureMetaNoPanic(f *testing.F) {
 	f.Add([]byte{0x1b})
 	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgSecp256k1))
 	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgBLS12381))
+	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgElgamal))
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		if len(raw) > 1024 {
@@ -86,6 +88,12 @@ func FuzzVerifyRawSignatureNoPanic(f *testing.F) {
 	f.Add("secp256r1", []byte{0x04}, []byte{0x02}, []byte{0x01}, []byte{0x01})
 	f.Add("ed25519", make([]byte, 32), []byte{0x03}, []byte{0x01}, []byte{0x01})
 	f.Add("bls12-381", make([]byte, 48), []byte{0x04}, []byte{0x01}, []byte{0x01})
+	f.Add("elgamal", []byte{
+		0xe2, 0xf2, 0xae, 0x0a, 0x6a, 0xbc, 0x4e, 0x71,
+		0xa8, 0x84, 0xa9, 0x61, 0xc5, 0x00, 0x51, 0x5f,
+		0x58, 0xe3, 0x0b, 0x6a, 0xa5, 0x82, 0xdd, 0x8d,
+		0xb6, 0xa6, 0x59, 0x45, 0xe0, 0x8d, 0x2d, 0x76,
+	}, []byte{0x05}, []byte{0x01}, []byte{0x01})
 
 	f.Fuzz(func(t *testing.T, signerType string, pub []byte, hashBytes []byte, rBytes []byte, sBytes []byte) {
 		if len(signerType) > 64 || len(pub) > 512 || len(hashBytes) > 128 || len(rBytes) > 128 || len(sBytes) > 128 {

@@ -21,7 +21,7 @@ const (
 	// HashLength is the expected length of the hash
 	HashLength = 32
 	// AddressLength is the expected length of the address
-	AddressLength = 20
+	AddressLength = 32
 )
 
 var (
@@ -181,7 +181,7 @@ func (h UnprefixedHash) MarshalText() ([]byte, error) {
 
 /////////// Address
 
-// Address represents the 20 byte address of an TOS account.
+// Address represents the 32 byte address of an TOS account.
 type Address [AddressLength]byte
 
 // BytesToAddress returns Address with value b.
@@ -297,12 +297,28 @@ func (a Address) MarshalText() ([]byte, error) {
 
 // UnmarshalText parses a hash in hex syntax.
 func (a *Address) UnmarshalText(input []byte) error {
-	return hexutil.UnmarshalFixedText("Address", input, a[:])
+	decoded, err := hexutil.Decode(string(input))
+	if err != nil {
+		return err
+	}
+	if len(decoded) != AddressLength {
+		return fmt.Errorf("hex string has length %d, want %d for %s", len(decoded)*2, AddressLength*2, "Address")
+	}
+	a.SetBytes(decoded)
+	return nil
 }
 
 // UnmarshalJSON parses a hash in hex syntax.
 func (a *Address) UnmarshalJSON(input []byte) error {
-	return hexutil.UnmarshalFixedJSON(addressT, input, a[:])
+	var decoded hexutil.Bytes
+	if err := decoded.UnmarshalJSON(input); err != nil {
+		return err
+	}
+	if len(decoded) != AddressLength {
+		return fmt.Errorf("hex string has length %d, want %d for %s", len(decoded)*2, AddressLength*2, "Address")
+	}
+	a.SetBytes(decoded)
+	return nil
 }
 
 // Scan implements Scanner for database/sql.
@@ -314,7 +330,7 @@ func (a *Address) Scan(src interface{}) error {
 	if len(srcB) != AddressLength {
 		return fmt.Errorf("can't scan []byte of len %d into Address, want %d", len(srcB), AddressLength)
 	}
-	copy(a[:], srcB)
+	a.SetBytes(srcB)
 	return nil
 }
 
@@ -374,10 +390,13 @@ func NewMixedcaseAddressFromString(hexaddr string) (*MixedcaseAddress, error) {
 
 // UnmarshalJSON parses MixedcaseAddress
 func (ma *MixedcaseAddress) UnmarshalJSON(input []byte) error {
-	if err := hexutil.UnmarshalFixedJSON(addressT, input, ma.addr[:]); err != nil {
+	if err := json.Unmarshal(input, &ma.original); err != nil {
 		return err
 	}
-	return json.Unmarshal(input, &ma.original)
+	if err := ma.addr.UnmarshalText([]byte(ma.original)); err != nil {
+		return err
+	}
+	return nil
 }
 
 // MarshalJSON marshals the original value

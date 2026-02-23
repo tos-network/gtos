@@ -11,6 +11,7 @@ func FuzzDecodeSignerTxSignatureNoPanic(f *testing.F) {
 	f.Add("secp256r1", make([]byte, 64))
 	f.Add("ed25519", make([]byte, 64))
 	f.Add("bls12-381", make([]byte, 96))
+	f.Add("elgamal", make([]byte, 64))
 	f.Add("unknown", make([]byte, crypto.SignatureLength))
 
 	f.Fuzz(func(t *testing.T, signerType string, sig []byte) {
@@ -39,7 +40,7 @@ func FuzzDecodeSignerTxSignatureNoPanic(f *testing.F) {
 			if len(sig) != crypto.SignatureLength {
 				t.Fatalf("secp256k1 accepted unexpected signature len=%d", len(sig))
 			}
-		case "secp256r1", "ed25519":
+		case "secp256r1", "ed25519", "elgamal":
 			if len(sig) != 64 && len(sig) != crypto.SignatureLength {
 				t.Fatalf("%s accepted unexpected signature len=%d", canonical, len(sig))
 			}

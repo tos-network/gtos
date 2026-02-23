@@ -44,29 +44,29 @@ func TestDump(t *testing.T) {
 	// check that DumpToCollector contains the state objects that are in trie
 	got := string(s.state.Dump(nil))
 	want := `{
-    "root": "71edff0130dd2385947095001c73d9e28d862fc286fca2b922ca6f6f3cddfdd2",
+    "root": "66094cdb3c33314c945fd5bbb41b0df0eebc2730db468fc31c96ba79fd5ead9f",
     "accounts": {
-        "0x0000000000000000000000000000000000000001": {
+        "0x0000000000000000000000000000000000000000000000000000000000000001": {
             "balance": "22",
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "key": "0x1468288056310c82aa4c01a7e12a10f8111a0560e72b700555479031b86c357d"
+            "key": "0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6"
         },
-        "0x0000000000000000000000000000000000000002": {
+        "0x0000000000000000000000000000000000000000000000000000000000000002": {
             "balance": "44",
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-            "key": "0xd52688a8f926c816ca1e079067caba944f158e764817b83fc43594370ca9cf62"
+            "key": "0x405787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace"
         },
-        "0x0000000000000000000000000000000000000102": {
+        "0x0000000000000000000000000000000000000000000000000000000000000102": {
             "balance": "0",
             "nonce": 0,
             "root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
             "codeHash": "0x87874902497a5bb968da31a2998d8f22e949d1ef6214bcdedd8bae24cca4b9e3",
             "code": "0x03030303030303",
-            "key": "0xa17eacbc25cda025e81db9c5c62868822c73ce097cee2a63e33a2e41268358a1"
+            "key": "0x93bdaa6a4190909b7c3fbe8d42169ffe1cab19f51dfc8db24c71abf849eced4a"
         }
     }
 }`

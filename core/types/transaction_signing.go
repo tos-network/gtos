@@ -9,15 +9,24 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/params"
+	"golang.org/x/crypto/sha3"
 )
 
 var ErrInvalidChainId = errors.New("invalid chain id for signer")
 var ErrSignerTypeNotSupportedByLocalKey = errors.New("signer type not supported by local ecdsa key")
 var ErrInvalidSignerPrivateKey = errors.New("invalid signer private key")
+
+var (
+	elgamalSignerHOnce sync.Once
+	elgamalSignerH     *ristretto255.Element
+	elgamalSignerHErr  error
+)
 
 // sigCache is used to cache the derived sender and contains
 // the signer used to derive it.
@@ -106,6 +115,12 @@ func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error)
 			return nil, err
 		}
 		return signEd25519Hash(edKey, hash)
+	case "elgamal":
+		elgamalKey, err := asElgamalKey(prv)
+		if err != nil {
+			return nil, err
+		}
+		return signElgamalHash(elgamalKey, hash)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrSignerTypeNotSupportedByLocalKey, normalized)
 	}
@@ -166,6 +181,99 @@ func signEd25519Hash(priv ed25519.PrivateKey, txHash common.Hash) ([]byte, error
 	return ed25519.Sign(priv, txHash[:]), nil
 }
 
+func asElgamalKey(prv *ecdsa.PrivateKey) ([]byte, error) {
+	if prv == nil || prv.D == nil || prv.D.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	var wide [64]byte
+	d := prv.D.Bytes()
+	for i := 0; i < len(d) && i < len(wide); i++ {
+		// SetUniformBytes expects little-endian input. Convert big-endian bigint bytes.
+		wide[i] = d[len(d)-1-i]
+	}
+	scalar := ristretto255.NewScalar()
+	if _, err := scalar.SetUniformBytes(wide[:]); err != nil {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	if scalar.Equal(ristretto255.NewScalar()) == 1 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	return scalar.Bytes(), nil
+}
+
+func elgamalSignGeneratorH() (*ristretto255.Element, error) {
+	elgamalSignerHOnce.Do(func() {
+		base := ristretto255.NewGeneratorElement().Bytes()
+		digest := sha3.Sum512(base)
+		h := ristretto255.NewIdentityElement()
+		if _, err := h.SetUniformBytes(digest[:]); err != nil {
+			elgamalSignerHErr = err
+			return
+		}
+		elgamalSignerH = h
+	})
+	if elgamalSignerHErr != nil {
+		return nil, elgamalSignerHErr
+	}
+	return ristretto255.NewIdentityElement().Set(elgamalSignerH), nil
+}
+
+func elgamalSignHashAndPointToScalar(pub []byte, message []byte, point *ristretto255.Element) (*ristretto255.Scalar, error) {
+	hasher := sha3.New512()
+	hasher.Write(pub)
+	hasher.Write(message)
+	hasher.Write(point.Bytes())
+	digest := hasher.Sum(nil)
+	out := ristretto255.NewScalar()
+	if _, err := out.SetUniformBytes(digest); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func signElgamalHash(secretBytes []byte, txHash common.Hash) ([]byte, error) {
+	if len(secretBytes) != 32 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	secret := ristretto255.NewScalar()
+	if _, err := secret.SetCanonicalBytes(secretBytes); err != nil {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	if secret.Equal(ristretto255.NewScalar()) == 1 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	var kWide [64]byte
+	if _, err := rand.Read(kWide[:]); err != nil {
+		return nil, err
+	}
+	k := ristretto255.NewScalar()
+	if _, err := k.SetUniformBytes(kWide[:]); err != nil {
+		return nil, err
+	}
+	if k.Equal(ristretto255.NewScalar()) == 1 {
+		kWide[0] = 1
+		if _, err := k.SetUniformBytes(kWide[:]); err != nil {
+			return nil, err
+		}
+	}
+	h, err := elgamalSignGeneratorH()
+	if err != nil {
+		return nil, err
+	}
+	inv := ristretto255.NewScalar().Invert(secret)
+	pub := ristretto255.NewIdentityElement().ScalarMult(inv, h)
+	rPoint := ristretto255.NewIdentityElement().ScalarMult(k, h)
+	e, err := elgamalSignHashAndPointToScalar(pub.Bytes(), txHash[:], rPoint)
+	if err != nil {
+		return nil, err
+	}
+	s := ristretto255.NewScalar().Add(ristretto255.NewScalar().Multiply(inv, e), k)
+	out := make([]byte, 64)
+	copy(out[:32], s.Bytes())
+	copy(out[32:], e.Bytes())
+	return out, nil
+}
+
 func encodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {
 	if r == nil || s == nil || r.Sign() <= 0 || s.Sign() <= 0 {
 		return nil, ErrInvalidSignerPrivateKey
@@ -192,6 +300,8 @@ func canonicalSignerType(signerType string) (string, error) {
 		return "ed25519", nil
 	case "bls12-381", "bls12381":
 		return "bls12-381", nil
+	case "elgamal":
+		return "elgamal", nil
 	default:
 		return "", fmt.Errorf("unknown signerType: %s", strings.TrimSpace(signerType))
 	}
@@ -424,7 +534,7 @@ func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, e
 		s = new(big.Int).SetBytes(sig[48:96])
 		v = new(big.Int)
 		return r, s, v, nil
-	case "secp256r1", "ed25519":
+	case "secp256r1", "ed25519", "elgamal":
 		switch len(sig) {
 		case 64:
 			r = new(big.Int).SetBytes(sig[:32])
@@ -473,6 +583,6 @@ func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (commo
 		return common.Address{}, errors.New("invalid public key")
 	}
 	var addr common.Address
-	copy(addr[:], crypto.Keccak256(pub[1:])[12:])
+	copy(addr[:], crypto.Keccak256(pub[1:]))
 	return addr, nil
 }

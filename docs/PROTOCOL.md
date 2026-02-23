@@ -44,6 +44,8 @@ GTOS provides two native storage types, both with deterministic TTL lifecycle.
 ## Account and Signer Model
 
 - Account fields: `address`, `nonce`, `signer`, `balance`.
+- Account `address` is a fixed 32-byte value (`0x` + 64 hex chars).
+- RPC/JSON address inputs are strict 32-byte only (no 20-byte compatibility mode).
 - `signer` is the real signing identity, supporting multi-algorithm verification.
 - Backward-compatible default: if `signer` is not set, the account address is used as signer.
 - Signer algorithms supported: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.

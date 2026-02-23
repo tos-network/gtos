@@ -24,6 +24,14 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to derive bls public key: %v", err)
 	}
+	elgamalPriv, err := GenerateElgamalPrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate elgamal private key: %v", err)
+	}
+	elgamalPub, err := PublicKeyFromElgamalPrivate(elgamalPriv)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal public key: %v", err)
+	}
 	tests := []struct {
 		name         string
 		signerType   string
@@ -37,6 +45,13 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 			signerValue:  hexutil.Encode(blsPub),
 			wantType:     SignerTypeBLS12381,
 			wantValueLen: 48,
+		},
+		{
+			name:         "elgamal canonicalizes",
+			signerType:   " ELGAMAL ",
+			signerValue:  hexutil.Encode(elgamalPub),
+			wantType:     SignerTypeElgamal,
+			wantValueLen: 32,
 		},
 	}
 
@@ -104,6 +119,9 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	}
 	if !SupportsCurrentTxSignatureType(SignerTypeBLS12381) {
 		t.Fatalf("expected bls12-381 support")
+	}
+	if !SupportsCurrentTxSignatureType(SignerTypeElgamal) {
+		t.Fatalf("expected elgamal support")
 	}
 }
 
@@ -251,6 +269,36 @@ func TestSignSecp256r1HashRejectsNonP256Key(t *testing.T) {
 	}
 }
 
+func TestSignAndVerifyElgamalHash(t *testing.T) {
+	priv, err := GenerateElgamalPrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate elgamal private key: %v", err)
+	}
+	pub, err := PublicKeyFromElgamalPrivate(priv)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal public key: %v", err)
+	}
+	msg := common.HexToHash("0xa1b2c3d4")
+	sig, err := SignElgamalHash(priv, msg)
+	if err != nil {
+		t.Fatalf("failed to sign hash: %v", err)
+	}
+	if len(sig) != 64 {
+		t.Fatalf("unexpected signature length: %d", len(sig))
+	}
+	r := new(big.Int).SetBytes(sig[:32])
+	s := new(big.Int).SetBytes(sig[32:])
+	if !VerifyRawSignature(SignerTypeElgamal, pub, msg, r, s) {
+		t.Fatalf("elgamal signature verification failed")
+	}
+	sig[0] ^= 0x01
+	rBad := new(big.Int).SetBytes(sig[:32])
+	sBad := new(big.Int).SetBytes(sig[32:])
+	if VerifyRawSignature(SignerTypeElgamal, pub, msg, rBad, sBad) {
+		t.Fatalf("mutated elgamal signature unexpectedly verified")
+	}
+}
+
 func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 	secp256k1Key, err := crypto.GenerateKey()
 	if err != nil {
@@ -272,6 +320,14 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to derive bls public key: %v", err)
 	}
+	elgamalPriv, err := GenerateElgamalPrivateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate elgamal private key: %v", err)
+	}
+	elgamalPub, err := PublicKeyFromElgamalPrivate(elgamalPriv)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal public key: %v", err)
+	}
 
 	tests := []struct {
 		name       string
@@ -282,6 +338,7 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 		{name: "secp256r1", signerType: SignerTypeSecp256r1, pub: elliptic.Marshal(elliptic.P256(), secp256r1Key.X, secp256r1Key.Y)},
 		{name: "ed25519", signerType: SignerTypeEd25519, pub: append([]byte(nil), edPub...)},
 		{name: "bls12-381", signerType: SignerTypeBLS12381, pub: append([]byte(nil), blsPub...)},
+		{name: "elgamal", signerType: SignerTypeElgamal, pub: append([]byte(nil), elgamalPub...)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

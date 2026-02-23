@@ -6,9 +6,9 @@
 //
 // The Extra field format mirrors Clique:
 //
-//	Genesis (block 0):   [32B vanity][N×20B addrs]             (no seal)
+//	Genesis (block 0):   [32B vanity][N×AddressLength addrs]             (no seal)
 //	Normal block:        [32B vanity][65B seal]
-//	Epoch block (N>0):   [32B vanity][N×20B addrs][65B seal]
+//	Epoch block (N>0):   [32B vanity][N×AddressLength addrs][65B seal]
 package dpos
 
 import (
@@ -210,7 +210,7 @@ func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, er
 		return common.Address{}, err
 	}
 	var signer common.Address
-	copy(signer[:], crypto.Keccak256(pub[1:])[12:])
+	copy(signer[:], crypto.Keccak256(pub[1:]))
 	sigcache.Add(hash, signer)
 	return signer, nil
 }

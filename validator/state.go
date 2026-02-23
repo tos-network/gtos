@@ -22,10 +22,9 @@ func (a addressAscending) Less(i, j int) bool {
 	return bytes.Compare(a[i][:], a[j][:]) < 0
 }
 
-// validatorSlot hashes (addr[20B] || 0x00 || field) for a per-validator storage slot.
-// addr is always exactly 20 bytes — no length-extension ambiguity.
+// validatorSlot hashes (addr[AddressLength] || 0x00 || field) for a per-validator storage slot.
 func validatorSlot(addr common.Address, field string) common.Hash {
-	key := make([]byte, 0, 21+len(field))
+	key := make([]byte, 0, common.AddressLength+1+len(field))
 	key = append(key, addr.Bytes()...)
 	key = append(key, 0x00)
 	key = append(key, field...)
@@ -58,14 +57,14 @@ func writeValidatorCount(db vm.StateDB, n uint64) {
 
 func readValidatorAt(db vm.StateDB, i uint64) common.Address {
 	raw := db.GetState(params.ValidatorRegistryAddress, validatorListSlot(i))
-	return common.BytesToAddress(raw[12:]) // address is right-aligned
+	return common.BytesToAddress(raw[:])
 }
 
 func appendValidatorToList(db vm.StateDB, addr common.Address) {
 	n := readValidatorCount(db)
 	slot := validatorListSlot(n)
 	var val common.Hash
-	copy(val[12:], addr.Bytes())
+	copy(val[:], addr.Bytes())
 	db.SetState(params.ValidatorRegistryAddress, slot, val)
 	writeValidatorCount(db, n+1)
 }

@@ -184,7 +184,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 }
 
 // parseEpochValidators extracts the validator list from an epoch block's Extra.
-// Format: [32B vanity][N×20B addresses][65B seal]
+// Format: [32B vanity][N×AddressLength addresses][65B seal]
 func parseEpochValidators(extra []byte) ([]common.Address, error) {
 	if len(extra) < extraVanity+extraSeal {
 		return nil, errMissingSignature
@@ -202,7 +202,7 @@ func parseEpochValidators(extra []byte) ([]common.Address, error) {
 }
 
 // parseGenesisValidators extracts the validator list from block-0 Extra (no seal).
-// Format: [32B vanity][N×20B addresses]
+// Format: [32B vanity][N×AddressLength addresses]
 func parseGenesisValidators(extra []byte) ([]common.Address, error) {
 	if len(extra) < extraVanity {
 		return nil, errMissingVanity

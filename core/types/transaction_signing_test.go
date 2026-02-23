@@ -9,7 +9,9 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/rlp"
+	"golang.org/x/crypto/sha3"
 )
 
 func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
@@ -103,6 +105,36 @@ func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
 	}
 }
 
+func TestSignerTxElgamalSignatureEncoding64(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      5,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "elgamal",
+	})
+	sig := make([]byte, 64)
+	sig[31] = 0x77
+	sig[63] = 0x88
+
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("with signature failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("expected v=0 for 64-byte elgamal sig")
+	}
+	if r.Uint64() != 0x77 || s.Uint64() != 0x88 {
+		t.Fatalf("unexpected r/s values")
+	}
+}
+
 func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -177,6 +209,108 @@ func TestSignerTxSignTxEd25519WithLocalECDSAKey(t *testing.T) {
 	if !ed25519.Verify(edKey.Public().(ed25519.PublicKey), hash[:], sig) {
 		t.Fatal("ed25519 signature verification failed")
 	}
+}
+
+func TestSignerTxSignTxElgamalWithLocalECDSAKey(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      6,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "elgamal",
+	})
+	signed, err := SignTx(tx, signer, key)
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+
+	elgPriv, err := asElgamalKey(key)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal key: %v", err)
+	}
+	hash := signer.Hash(signed)
+	if !verifyElgamalSignatureForTest(elgPriv, hash, r, s) {
+		t.Fatal("elgamal signature verification failed")
+	}
+	wrongKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate wrong key: %v", err)
+	}
+	wrongElgPriv, err := asElgamalKey(wrongKey)
+	if err != nil {
+		t.Fatalf("failed to derive wrong elgamal key: %v", err)
+	}
+	if verifyElgamalSignatureForTest(wrongElgPriv, hash, r, s) {
+		t.Fatal("elgamal signature unexpectedly verified with wrong pubkey")
+	}
+}
+
+func verifyElgamalSignatureForTest(secretBytes []byte, hash common.Hash, r, s *big.Int) bool {
+	if len(secretBytes) != 32 {
+		return false
+	}
+	secret := ristretto255.NewScalar()
+	if _, err := secret.SetCanonicalBytes(secretBytes); err != nil {
+		return false
+	}
+	base := ristretto255.NewGeneratorElement().Bytes()
+	digest := sha3.Sum512(base)
+	h := ristretto255.NewIdentityElement()
+	if _, err := h.SetUniformBytes(digest[:]); err != nil {
+		return false
+	}
+	inv := ristretto255.NewScalar().Invert(secret)
+	pub := ristretto255.NewIdentityElement().ScalarMult(inv, h)
+
+	sSig := ristretto255.NewScalar()
+	if _, err := sSig.SetCanonicalBytes(bigToFixedBytes(r, 32)); err != nil {
+		return false
+	}
+	eSig := ristretto255.NewScalar()
+	if _, err := eSig.SetCanonicalBytes(bigToFixedBytes(s, 32)); err != nil {
+		return false
+	}
+	hs := ristretto255.NewIdentityElement().ScalarMult(sSig, h)
+	negE := ristretto255.NewScalar().Negate(eSig)
+	pubNegE := ristretto255.NewIdentityElement().ScalarMult(negE, pub)
+	rPoint := ristretto255.NewIdentityElement().Add(hs, pubNegE)
+
+	hasher := sha3.New512()
+	hasher.Write(pub.Bytes())
+	hasher.Write(hash[:])
+	hasher.Write(rPoint.Bytes())
+	eDigest := hasher.Sum(nil)
+	calculated := ristretto255.NewScalar()
+	if _, err := calculated.SetUniformBytes(eDigest); err != nil {
+		return false
+	}
+	return eSig.Equal(calculated) == 1
+}
+
+func bigToFixedBytes(v *big.Int, size int) []byte {
+	out := make([]byte, size)
+	if v == nil || v.Sign() < 0 {
+		return out
+	}
+	raw := v.Bytes()
+	if len(raw) > size {
+		raw = raw[len(raw)-size:]
+	}
+	copy(out[size-len(raw):], raw)
+	return out
 }
 
 func TestReplayProtectionSigning(t *testing.T) {

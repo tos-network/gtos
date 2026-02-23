@@ -13,7 +13,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 )
 
-var testAddrHex = "970e8128ab834e8eac17ab8e3812f010678cf791"
+var testAddrHex = "ed26c72eda802a78a419eae1970e8128ab834e8eac17ab8e3812f010678cf791"
 var testPrivHex = "289c2857d4598e37fb9647507e47a309d6133539bf21a8b9cb6df88fd5232032"
 
 // These tests are sanity checks.
@@ -124,9 +124,9 @@ func TestNewContractAddress(t *testing.T) {
 	caddr0 := CreateAddress(addr, 0)
 	caddr1 := CreateAddress(addr, 1)
 	caddr2 := CreateAddress(addr, 2)
-	checkAddr(t, common.HexToAddress("333c3310824b7c685133f2bedb2ca4b8b4df633d"), caddr0)
-	checkAddr(t, common.HexToAddress("8bda78331c916a08481428e4b07c96d3e916d165"), caddr1)
-	checkAddr(t, common.HexToAddress("c9ddedf451bc62ce88bf9292afb13df35b670699"), caddr2)
+	checkAddr(t, common.HexToAddress("fc98b500280643e62428562d1dae809bb3066cd7c2c0a06f01f00b4710922233"), caddr0)
+	checkAddr(t, common.HexToAddress("f26f661164a48a6404d85e6ae49ec1f3248f647311cccc68fdfb5a9a8c9919b5"), caddr1)
+	checkAddr(t, common.HexToAddress("69b44bd8142790074b1c7ecf836c68269ede337df224e93858302ec2789d0b38"), caddr2)
 }
 
 func TestLoadECDSA(t *testing.T) {

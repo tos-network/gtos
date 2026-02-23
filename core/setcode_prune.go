@@ -52,14 +52,14 @@ func writeUint64StateWord(db vm.StateDB, owner common.Address, slot common.Hash,
 
 func writeAddressStateWord(db vm.StateDB, owner common.Address, slot common.Hash, addr common.Address) {
 	var word common.Hash
-	copy(word[12:], addr[:])
+	copy(word[:], addr[:])
 	db.SetState(owner, slot, word)
 }
 
 func readAddressStateWord(db vm.StateDB, owner common.Address, slot common.Hash) common.Address {
 	var out common.Address
 	word := db.GetState(owner, slot)
-	copy(out[:], word[12:])
+	copy(out[:], word[:])
 	return out
 }
 

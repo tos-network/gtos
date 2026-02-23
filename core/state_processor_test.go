@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	crand "crypto/rand"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -38,6 +39,8 @@ func TestStateProcessorErrors(t *testing.T) {
 		signer  = types.LatestSigner(config)
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		key2, _ = crypto.HexToECDSA("0202020202020202020202020202020202020202020202020202002020202020")
+		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
+		addr2   = crypto.PubkeyToAddress(key2.PublicKey)
 	)
 	var makeTx = func(key *ecdsa.PrivateKey, nonce uint64, to common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) *types.Transaction {
 		tx, _ := signTestSignerTx(signer, key, nonce, to, amount, gasLimit, gasPrice, data)
@@ -67,11 +70,11 @@ func TestStateProcessorErrors(t *testing.T) {
 			gspec = &Genesis{
 				Config: config,
 				Alloc: GenesisAlloc{
-					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
+					addr1: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
 						Nonce:   0,
 					},
-					common.HexToAddress("0xfd0810DD14796680f72adf1a371963d0745BCc64"): GenesisAccount{
+					addr2: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
 						Nonce:   math.MaxUint64,
 					},
@@ -90,19 +93,19 @@ func TestStateProcessorErrors(t *testing.T) {
 					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(875000000), nil),
 					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: "nonce too low: address 0x71562b71999873DB5b286dF957af199Ec94617F7, tx: 0 state: 1",
+				want: fmt.Sprintf("nonce too low: address %s, tx: 0 state: 1", addr1.Hex()),
 			},
 			{ // ErrNonceTooHigh
 				txs: []*types.Transaction{
 					makeTx(key1, 100, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: "nonce too high: address 0x71562b71999873DB5b286dF957af199Ec94617F7, tx: 100 state: 0",
+				want: fmt.Sprintf("nonce too high: address %s, tx: 100 state: 0", addr1.Hex()),
 			},
 			{ // ErrNonceMax
 				txs: []*types.Transaction{
 					makeTx(key2, math.MaxUint64, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: "nonce has max value: address 0xfd0810DD14796680f72adf1a371963d0745BCc64, nonce: 18446744073709551615",
+				want: fmt.Sprintf("nonce has max value: address %s, nonce: 18446744073709551615", addr2.Hex()),
 			},
 			{ // ErrGasLimitReached
 				txs: []*types.Transaction{
@@ -114,13 +117,13 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(1000000000000000000), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: "insufficient funds for gas * price + value: address 0x71562b71999873DB5b286dF957af199Ec94617F7 have 1000000000000000000 want 1000002625000000000",
+				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000002625000000000", addr1.Hex()),
 			},
 			{ // ErrInsufficientFunds
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(900000000000000000), nil),
 				},
-				want: "insufficient funds for gas * price + value: address 0x71562b71999873DB5b286dF957af199Ec94617F7 have 1000000000000000000 want 2700000000000000000000",
+				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 2700000000000000000000", addr1.Hex()),
 			},
 			// ErrGasUintOverflow
 			// One missing 'core' error is ErrGasUintOverflow: "gas uint64 overflow",
@@ -159,7 +162,7 @@ func TestStateProcessorErrors(t *testing.T) {
 					ChainID: big.NewInt(1),
 				},
 				Alloc: GenesisAlloc{
-					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
+					addr1: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
 						Nonce:   0,
 					},
@@ -198,7 +201,7 @@ func TestStateProcessorErrors(t *testing.T) {
 			gspec = &Genesis{
 				Config: config,
 				Alloc: GenesisAlloc{
-					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
+					addr1: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
 						Nonce:   0,
 						Code:    common.FromHex("0xB0B0FACE"),
@@ -217,7 +220,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(1), nil),
 				},
-				want: "sender not an eoa: address 0x71562b71999873DB5b286dF957af199Ec94617F7, codehash: 0x9280914443471259d4570a8661015ae4a5b80186dbc619658fb494bebc3da3d1",
+				want: fmt.Sprintf("sender not an eoa: address %s, codehash: 0x9280914443471259d4570a8661015ae4a5b80186dbc619658fb494bebc3da3d1", addr1.Hex()),
 			},
 		} {
 			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)

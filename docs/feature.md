@@ -32,6 +32,8 @@ GTOS is a **DPoS, storage-first chain**:
 ## 2.2 Signer-Capable Account Model
 
 - Account signer registry supports: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Account address is fixed 32-byte (`0x` + 64 hex) across tx/state/RPC.
+- Address input validation is strict 32-byte (20-byte text form is not accepted by RPC/JSON decoding).
 - `tos_setSigner` is implemented as normal tx wrapper:
   - execution path uses `to = SystemActionAddress`
   - payload action: `ACCOUNT_SET_SIGNER`.

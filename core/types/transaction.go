@@ -179,7 +179,7 @@ func sanityCheckSignerTxSignature(signerType string, v *big.Int, r *big.Int, s *
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
 	case "secp256k1", "ethereum_secp256k1":
 		return sanityCheckSignature(v, r, s, false)
-	case "secp256r1", "ed25519":
+	case "secp256r1", "ed25519", "elgamal":
 		if v == nil || r == nil || s == nil {
 			return ErrInvalidSig
 		}
@@ -364,7 +364,7 @@ func (tx *Transaction) Size() common.StorageSize {
 
 // WithSignature returns a new transaction with the given signature.
 // Signatures are expected in [R || S || V] format. For SignerTx with signerType
-// secp256r1/ed25519, [R || S] is also accepted and V defaults to 0.
+// secp256r1/ed25519/elgamal, [R || S] is also accepted and V defaults to 0.
 func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, error) {
 	r, s, v, err := signer.SignatureValues(tx, sig)
 	if err != nil {
