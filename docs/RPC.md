@@ -8,6 +8,7 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - TTL lifecycle for code storage and KV storage.
 - Rolling history retention without archive nodes.
 - Retention/snapshot operational versioned spec: `docs/RETENTION_SNAPSHOT_SPEC.md` (`v1.0.0`).
+- Observability baseline for retention/prune signals: `docs/OBSERVABILITY_BASELINE.md`.
 
 ## 1. Design Rules
 

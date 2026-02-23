@@ -132,7 +132,8 @@ Status: `IN_PROGRESS`
 5. `DONE` Add long-run bounded-storage gate for KV/code expiry maintenance (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots`).
 6. `DONE` Start Phase 4 hardening baseline: retention-window enforcement automation and restart/recovery drill (`internal/tosapi/api_retention_test.go::TestRetentionWatermarkTracksHead` + `core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
 7. `DONE` Finalize retention/snapshot operational spec and version it (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
-8. `IN_PROGRESS` Expand Phase 4 hardening to observability + security fuzz/property baseline (`core/ttl_prune_metrics.go` + `internal/tosapi/metrics.go` + `core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go`).
+8. `IN_PROGRESS` Expand Phase 4 hardening to observability + security fuzz/property baseline (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `internal/tosapi/metrics.go` + `internal/tosapi/metrics_test.go` + `core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go`).
+9. `IN_PROGRESS` Start performance profiling baseline for TTL prune maintenance (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `chain/ttlprune/*_time` timers + first prune-loop micro-optimization in `kvstore/state.go`/`core/setcode_prune.go`).
 
 ## Phase 2: Code Storage with TTL
 
@@ -188,10 +189,10 @@ Harden the chain for sustained production load.
 
 ### Deliverables
 
-- `PLANNED` Performance profiling and bottleneck fixes.
+- `IN_PROGRESS` Performance profiling baseline and bottleneck entry-point capture (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `core/state_processor.go` timer metrics + prune-loop micro-optimizations).
 - `IN_PROGRESS` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
 - `IN_PROGRESS` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
-- `IN_PROGRESS` Observability baseline: TTL prune meters (`chain/ttlprune/code`, `chain/ttlprune/kv`) and RPC prune-rejection meter (`rpc/tos/history_pruned`) wired in execution/RPC paths (`core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go`).
+- `IN_PROGRESS` Observability baseline: metrics + structured logs for TTL prune and retention rejection (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go` + `internal/tosapi/metrics_test.go`).
 - `IN_PROGRESS` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary and retention boundary invariants (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go`).
 
 ### Definition of Done

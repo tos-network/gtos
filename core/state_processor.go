@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/tos-network/gtos/common"
 	cmath "github.com/tos-network/gtos/common/math"
@@ -11,6 +12,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/kvstore"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -68,11 +70,30 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 	}
 	// Deterministic TTL maintenance for KV records at current block height.
 	if header.Number != nil {
-		if pruned := pruneExpiredCodeAt(statedb, header.Number.Uint64()); pruned > 0 {
-			ttlCodePrunedMeter.Mark(int64(pruned))
+		codeStart := time.Now()
+		codePruned := pruneExpiredCodeAt(statedb, header.Number.Uint64())
+		codeElapsed := time.Since(codeStart)
+		ttlCodePruneTimer.Update(codeElapsed)
+
+		kvStart := time.Now()
+		kvPruned := kvstore.PruneExpiredAt(statedb, header.Number.Uint64())
+		kvElapsed := time.Since(kvStart)
+		ttlKVPruneTimer.Update(kvElapsed)
+
+		if codePruned > 0 {
+			ttlCodePrunedMeter.Mark(int64(codePruned))
 		}
-		if pruned := kvstore.PruneExpiredAt(statedb, header.Number.Uint64()); pruned > 0 {
-			ttlKVPrunedMeter.Mark(int64(pruned))
+		if kvPruned > 0 {
+			ttlKVPrunedMeter.Mark(int64(kvPruned))
+		}
+		if codePruned > 0 || kvPruned > 0 {
+			log.Debug("Applied TTL prune maintenance",
+				"block", header.Number.Uint64(),
+				"codePruned", codePruned,
+				"kvPruned", kvPruned,
+				"codePruneNs", codeElapsed.Nanoseconds(),
+				"kvPruneNs", kvElapsed.Nanoseconds(),
+			)
 		}
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)

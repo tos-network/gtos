@@ -12,6 +12,7 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - `ttl` is measured in blocks, not seconds.
 - `tos_setCode` gas includes ttl retention surcharge (`ttl * 1`).
 - Retention/snapshot operational contract is versioned in `docs/RETENTION_SNAPSHOT_SPEC.md` (`v1.0.0`).
+- Observability baseline (metrics/logging) is tracked in `docs/OBSERVABILITY_BASELINE.md`.
 
 ## Signer Algorithms
 

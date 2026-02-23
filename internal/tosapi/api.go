@@ -1962,14 +1962,16 @@ func oldestAvailableBlock(head, retain uint64) uint64 {
 }
 
 func newRPCHistoryPrunedError(head, retain, requested uint64) error {
+	oldest := oldestAvailableBlock(head, retain)
 	rpcHistoryPrunedMeter.Mark(1)
+	log.Debug("Rejected pruned history query", "requestedBlock", requested, "headBlock", head, "retainBlocks", retain, "oldestAvailableBlock", oldest)
 	return &rpcAPIError{
 		code:    rpcErrHistoryPruned,
 		message: "history pruned",
 		data: map[string]interface{}{
 			"reason":               "requested block is outside retention window",
 			"retainBlocks":         retain,
-			"oldestAvailableBlock": hexutil.Uint64(oldestAvailableBlock(head, retain)),
+			"oldestAvailableBlock": hexutil.Uint64(oldest),
 			"requestedBlock":       hexutil.Uint64(requested),
 			"headBlock":            hexutil.Uint64(head),
 		},
