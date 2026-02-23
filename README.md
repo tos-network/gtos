@@ -1,11 +1,6 @@
 # GTOS
 
-GTOS is an AI intermediate-state decentralized storage chain.
-
-GTOS is a DPoS-based blockchain focused on decentralized storage.
-
-- Code storage with TTL.
-- General key-value storage with TTL.
+GTOS is an infrastructure for AI-focused decentralized trustworthy on-chain storage.
 
 ## Product Goal
 
