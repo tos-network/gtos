@@ -662,12 +662,6 @@ var (
 		Usage:    "Comma separated list of JavaScript files to preload into the console",
 		Category: flags.APICategory,
 	}
-	AllowUnprotectedTxs = &cli.BoolFlag{
-		Name:     "rpc.allow-unprotected-txs",
-		Usage:    "Allow unprotected (non replay-protected) transactions to be submitted via RPC",
-		Category: flags.APICategory,
-	}
-
 	// Network Settings
 	MaxPeersFlag = &cli.IntFlag{
 		Name:     "maxpeers",
@@ -1048,9 +1042,6 @@ func setHTTP(ctx *cli.Context, cfg *node.Config) {
 
 	if ctx.IsSet(HTTPPathPrefixFlag.Name) {
 		cfg.HTTPPathPrefix = ctx.String(HTTPPathPrefixFlag.Name)
-	}
-	if ctx.IsSet(AllowUnprotectedTxs.Name) {
-		cfg.AllowUnprotectedTxs = ctx.Bool(AllowUnprotectedTxs.Name)
 	}
 }
 

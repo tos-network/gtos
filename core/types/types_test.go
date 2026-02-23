@@ -72,37 +72,17 @@ func benchRLP(b *testing.B, encode bool) {
 			},
 		},
 		{
-			"legacy-transaction",
+			"signer-transaction",
 			MustSignNewTx(key, signer,
-				&LegacyTx{
-					Nonce:    1,
-					GasPrice: big.NewInt(500),
-					Gas:      1000000,
-					To:       &to,
-					Value:    big.NewInt(1),
-				}),
-		},
-		{
-			"access-transaction",
-			MustSignNewTx(key, signer,
-				&AccessListTx{
-					Nonce:    1,
-					GasPrice: big.NewInt(500),
-					Gas:      1000000,
-					To:       &to,
-					Value:    big.NewInt(1),
-				}),
-		},
-		{
-			"1559-transaction",
-			MustSignNewTx(key, signer,
-				&DynamicFeeTx{
-					Nonce:     1,
-					Gas:       1000000,
-					To:        &to,
-					Value:     big.NewInt(1),
-					GasTipCap: big.NewInt(500),
-					GasFeeCap: big.NewInt(500),
+				&SignerTx{
+					ChainID:    big.NewInt(1337),
+					Nonce:      1,
+					GasPrice:   big.NewInt(500),
+					Gas:        1000000,
+					To:         &to,
+					Value:      big.NewInt(1),
+					From:       crypto.PubkeyToAddress(key.PublicKey),
+					SignerType: "secp256k1",
 				}),
 		},
 	} {

@@ -16,20 +16,16 @@ import (
 )
 
 var (
-	ErrInvalidSig           = errors.New("invalid transaction v, r, s values")
-	ErrUnexpectedProtection = errors.New("transaction type does not supported replay-protected protected signatures")
-	ErrInvalidTxType        = errors.New("transaction type not valid in this context")
-	ErrTxTypeNotSupported   = errors.New("transaction type not supported")
-	ErrGasFeeCapTooLow      = errors.New("fee cap less than base fee")
-	errShortTypedTx         = errors.New("typed transaction too short")
+	ErrInvalidSig         = errors.New("invalid transaction v, r, s values")
+	ErrInvalidTxType      = errors.New("transaction type not valid in this context")
+	ErrTxTypeNotSupported = errors.New("transaction type not supported")
+	ErrGasFeeCapTooLow    = errors.New("fee cap less than base fee")
+	errShortTypedTx       = errors.New("typed transaction too short")
 )
 
 // Transaction types.
 const (
-	LegacyTxType = iota
-	AccessListTxType
-	DynamicFeeTxType
-	SignerTxType
+	SignerTxType = iota
 )
 
 // Transaction is an TOS transaction.
@@ -52,7 +48,7 @@ func NewTx(inner TxData) *Transaction {
 
 // TxData is the underlying data of a transaction.
 //
-// This is implemented by DynamicFeeTx, LegacyTx and AccessListTx.
+// This is implemented by SignerTx.
 type TxData interface {
 	txType() byte // returns the type ID
 	copy() TxData // creates a deep copy and initializes all fields
@@ -74,10 +70,9 @@ type TxData interface {
 
 // EncodeRLP implements rlp.Encoder
 func (tx *Transaction) EncodeRLP(w io.Writer) error {
-	if tx.Type() == LegacyTxType {
-		return rlp.Encode(w, tx.inner)
+	if tx.Type() != SignerTxType {
+		return ErrTxTypeNotSupported
 	}
-	// It's an typed TX envelope.
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
 	defer encodeBufferPool.Put(buf)
 	buf.Reset()
@@ -94,11 +89,10 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 }
 
 // MarshalBinary returns the canonical encoding of the transaction.
-// For legacy transactions, it returns the RLP encoding. For typed
-// transactions, it returns the type and payload.
+// For SignerTx transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
-	if tx.Type() == LegacyTxType {
-		return rlp.EncodeToBytes(tx.inner)
+	if tx.Type() != SignerTxType {
+		return nil, ErrTxTypeNotSupported
 	}
 	var buf bytes.Buffer
 	err := tx.encodeTyped(&buf)
@@ -107,18 +101,12 @@ func (tx *Transaction) MarshalBinary() ([]byte, error) {
 
 // DecodeRLP implements rlp.Decoder
 func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
-	kind, size, err := s.Kind()
+	kind, _, err := s.Kind()
 	switch {
 	case err != nil:
 		return err
 	case kind == rlp.List:
-		// It's a legacy transaction.
-		var inner LegacyTx
-		err := s.Decode(&inner)
-		if err == nil {
-			tx.setDecoded(&inner, int(rlp.ListSize(size)))
-		}
-		return err
+		return ErrTxTypeNotSupported
 	default:
 		// It's an typed TX envelope.
 		var b []byte
@@ -134,17 +122,10 @@ func (tx *Transaction) DecodeRLP(s *rlp.Stream) error {
 }
 
 // UnmarshalBinary decodes the canonical encoding of transactions.
-// It supports legacy RLP transactions and typed transactions.
+// It supports SignerTx typed transactions only.
 func (tx *Transaction) UnmarshalBinary(b []byte) error {
 	if len(b) > 0 && b[0] > 0x7f {
-		// It's a legacy transaction.
-		var data LegacyTx
-		err := rlp.DecodeBytes(b, &data)
-		if err != nil {
-			return err
-		}
-		tx.setDecoded(&data, len(b))
-		return nil
+		return ErrTxTypeNotSupported
 	}
 	// It's an typed transaction envelope.
 	inner, err := tx.decodeTyped(b)
@@ -161,14 +142,6 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		return nil, errShortTypedTx
 	}
 	switch b[0] {
-	case AccessListTxType:
-		var inner AccessListTx
-		err := rlp.DecodeBytes(b[1:], &inner)
-		return &inner, err
-	case DynamicFeeTxType:
-		var inner DynamicFeeTx
-		err := rlp.DecodeBytes(b[1:], &inner)
-		return &inner, err
 	case SignerTxType:
 		var inner SignerTx
 		err := rlp.DecodeBytes(b[1:], &inner)
@@ -187,49 +160,23 @@ func (tx *Transaction) setDecoded(inner TxData, size int) {
 	}
 }
 
-func sanityCheckSignature(v *big.Int, r *big.Int, s *big.Int, maybeProtected bool) error {
-	if isProtectedV(v) && !maybeProtected {
-		return ErrUnexpectedProtection
+func sanityCheckSignature(v *big.Int, r *big.Int, s *big.Int, _ bool) error {
+	if v == nil || r == nil || s == nil {
+		return ErrInvalidSig
 	}
-
-	var plainV byte
-	if isProtectedV(v) {
-		chainID := deriveChainId(v).Uint64()
-		plainV = byte(v.Uint64() - 35 - 2*chainID)
-	} else if maybeProtected {
-		// Only replay-protected signatures can be optionally protected. Since
-		// we determined this v value is not protected, it must be a
-		// raw 27 or 28.
-		plainV = byte(v.Uint64() - 27)
-	} else {
-		// If the signature is not optionally protected, we assume it
-		// must already be equal to the recovery id.
-		plainV = byte(v.Uint64())
+	if v.BitLen() > 8 {
+		return ErrInvalidSig
 	}
+	plainV := byte(v.Uint64())
 	if !crypto.ValidateSignatureValues(plainV, r, s, false) {
 		return ErrInvalidSig
 	}
-
 	return nil
 }
 
-func isProtectedV(V *big.Int) bool {
-	if V.BitLen() <= 8 {
-		v := V.Uint64()
-		return v != 27 && v != 28 && v != 1 && v != 0
-	}
-	// anything not 27 or 28 is considered protected
-	return true
-}
-
-// Protected says whether the transaction is replay-protected.
+// Protected is always true for SignerTx.
 func (tx *Transaction) Protected() bool {
-	switch tx := tx.inner.(type) {
-	case *LegacyTx:
-		return tx.V != nil && isProtectedV(tx.V)
-	default:
-		return true
-	}
+	return tx.Type() == SignerTxType
 }
 
 // Type returns the transaction type.
@@ -237,9 +184,7 @@ func (tx *Transaction) Type() uint8 {
 	return tx.inner.txType()
 }
 
-// ChainId returns the replay-protected chain ID of the transaction. The return value will always be
-// non-nil. For legacy transactions which are not replay-protected, the return value is
-// zero.
+// ChainId returns the explicit chain ID of the transaction.
 func (tx *Transaction) ChainId() *big.Int {
 	return tx.inner.chainID()
 }
@@ -368,11 +313,7 @@ func (tx *Transaction) Hash() common.Hash {
 	}
 
 	var h common.Hash
-	if tx.Type() == LegacyTxType {
-		h = rlpHash(tx.inner)
-	} else {
-		h = prefixedRlpHash(tx.Type(), tx.inner)
-	}
+	h = prefixedRlpHash(tx.Type(), tx.inner)
 	tx.hash.Store(h)
 	return h
 }
@@ -413,11 +354,7 @@ func (s Transactions) Len() int { return len(s) }
 // constructed by decoding or via public API in this package.
 func (s Transactions) EncodeIndex(i int, w *bytes.Buffer) {
 	tx := s[i]
-	if tx.Type() == LegacyTxType {
-		rlp.Encode(w, tx.inner)
-	} else {
-		tx.encodeTyped(w)
-	}
+	tx.encodeTyped(w)
 }
 
 // TxDifference returns a new set which is the difference between a and b.

@@ -82,17 +82,9 @@ func pricedDataTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key
 }
 
 func dynamicFeeTx(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
-	tx, _ := types.SignNewTx(key, types.LatestSignerForChainID(params.TestChainConfig.ChainID), &types.DynamicFeeTx{
-		ChainID:    params.TestChainConfig.ChainID,
-		Nonce:      nonce,
-		GasTipCap:  tip,
-		GasFeeCap:  gasFee,
-		Gas:        gaslimit,
-		To:         &common.Address{},
-		Value:      big.NewInt(100),
-		Data:       nil,
-		AccessList: nil,
-	})
+	_ = tip
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	tx, _ := signTestSignerTx(signer, key, nonce, common.Address{}, big.NewInt(100), gaslimit, gasFee, nil)
 	return tx
 }
 
@@ -367,6 +359,7 @@ func TestTransactionNegativeValue(t *testing.T) {
 
 func TestTransactionTipAboveFeeCap(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS removed dynamic fee tx type")
 
 	pool, key := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()
@@ -380,6 +373,7 @@ func TestTransactionTipAboveFeeCap(t *testing.T) {
 
 func TestTransactionVeryHighValues(t *testing.T) {
 	t.Parallel()
+	t.Skip("GTOS removed dynamic fee tx type")
 
 	pool, key := setupTxPoolWithConfig(dynamicFeeConfig)
 	defer pool.Stop()

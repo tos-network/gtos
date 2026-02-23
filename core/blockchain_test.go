@@ -1282,18 +1282,21 @@ func TestReplayProtectionTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Unprotected legacy signatures are rejected by the active signer.
+	// Legacy tx envelopes are rejected by decode in SignerTx-only mode.
 	var unprotected types.Transaction
 	if err := unprotected.UnmarshalBinary(common.FromHex("f8498080808080011ca09b16de9d5bdee2cf56c28d16275a4da68cd30273e2525f3959f5d62557489921a0372ebd8fb3345f7db7b5a86d42e24d36e983e259b0664ceb8c227ec9af572f3d")); err != nil {
-		t.Fatal(err)
+		if have, want := err, types.ErrTxTypeNotSupported; !errors.Is(have, want) {
+			t.Fatalf("have %v, want %v", have, want)
+		}
+	} else {
+		_, err := types.Sender(types.MakeSigner(gspec.Config, big.NewInt(1)), &unprotected)
+		if have, want := err, types.ErrTxTypeNotSupported; !errors.Is(have, want) {
+			t.Fatalf("have %v, want %v", have, want)
+		}
 	}
-	_, err := types.Sender(types.MakeSigner(gspec.Config, big.NewInt(1)), &unprotected)
-	if have, want := err, types.ErrUnprotectedTx; !errors.Is(have, want) {
-		t.Fatalf("have %v, want %v", have, want)
-	}
-
 	// generate an invalid chain id transaction
 	config := &params.ChainConfig{ChainID: big.NewInt(2)}
+	var err error
 	blocks, _ = GenerateChain(config, blocks[len(blocks)-1], dpos.NewFaker(), db, 4, func(i int, block *BlockGen) {
 		var (
 			tx      *types.Transaction

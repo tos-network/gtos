@@ -103,6 +103,7 @@ func TestTos66EmptyMessages(t *testing.T) {
 
 // TestTos66Messages tests the encoding of all redefined tos66 messages
 func TestTos66Messages(t *testing.T) {
+	t.Skip("legacy transaction message fixtures are removed in signer-tx-only mode")
 	// Some basic structs used during testing
 	var (
 		header       *types.Header

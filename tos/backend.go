@@ -227,10 +227,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	tosNode.miner = miner.New(tosNode, &config.Miner, chainConfig, tosNode.EventMux(), tosNode.engine, tosNode.isLocalBlock)
 	tosNode.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 
-	tosNode.APIBackend = &TOSAPIBackend{stack.Config().ExtRPCEnabled(), stack.Config().AllowUnprotectedTxs, tosNode, nil}
-	if tosNode.APIBackend.allowUnprotectedTxs {
-		log.Info("Unprotected transactions allowed")
-	}
+	tosNode.APIBackend = &TOSAPIBackend{stack.Config().ExtRPCEnabled(), tosNode, nil}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
 		gpoParams.Default = config.Miner.GasPrice

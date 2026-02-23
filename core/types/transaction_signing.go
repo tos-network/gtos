@@ -15,7 +15,6 @@ import (
 )
 
 var ErrInvalidChainId = errors.New("invalid chain id for signer")
-var ErrUnprotectedTx = errors.New("unprotected transactions are not allowed")
 var ErrSignerTypeNotSupportedByLocalKey = errors.New("signer type not supported by local ecdsa key")
 var ErrInvalidSignerPrivateKey = errors.New("invalid signer private key")
 
@@ -236,27 +235,14 @@ type Signer interface {
 
 type londonSigner struct{ accessListSigner }
 
-// NewLondonSigner returns a signer that accepts
-// - dynamic-fee transactions
-// - access-list transactions,
-// - replay-protected transactions, and
-// - legacy transactions with replay protection.
+// NewLondonSigner returns the signer used by GTOS.
+// Only SignerTx transactions are supported.
 func NewLondonSigner(chainId *big.Int) Signer {
 	return londonSigner{accessListSigner{NewReplayProtectedSigner(chainId)}}
 }
 
 func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != DynamicFeeTxType {
-		return s.accessListSigner.Sender(tx)
-	}
-	V, R, S := tx.RawSignatureValues()
-	// DynamicFee txs are defined to use 0 and 1 as their recovery
-	// id, add 27 to become equivalent to legacy unprotected signatures.
-	V = new(big.Int).Add(V, big.NewInt(27))
-	if tx.ChainId().Cmp(s.chainId) != 0 {
-		return common.Address{}, ErrInvalidChainId
-	}
-	return recoverPlain(s.Hash(tx), R, S, V, true)
+	return s.accessListSigner.Sender(tx)
 }
 
 func (s londonSigner) Equal(s2 Signer) bool {
@@ -265,45 +251,19 @@ func (s londonSigner) Equal(s2 Signer) bool {
 }
 
 func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
-	txdata, ok := tx.inner.(*DynamicFeeTx)
-	if !ok {
-		return s.accessListSigner.SignatureValues(tx, sig)
-	}
-	// Check that chain ID of tx matches the signer. We also accept ID zero here,
-	// because it indicates that the chain ID was not specified in the tx.
-	if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
-		return nil, nil, nil, ErrInvalidChainId
-	}
-	R, S, _ = decodeSignature(sig)
-	V = big.NewInt(int64(sig[64]))
-	return R, S, V, nil
+	return s.accessListSigner.SignatureValues(tx, sig)
 }
 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s londonSigner) Hash(tx *Transaction) common.Hash {
-	if tx.Type() != DynamicFeeTxType {
-		return s.accessListSigner.Hash(tx)
-	}
-	return prefixedRlpHash(
-		tx.Type(),
-		[]interface{}{
-			s.chainId,
-			tx.Nonce(),
-			tx.GasTipCap(),
-			tx.GasFeeCap(),
-			tx.Gas(),
-			tx.To(),
-			tx.Value(),
-			tx.Data(),
-			tx.AccessList(),
-		})
+	return s.accessListSigner.Hash(tx)
 }
 
 type accessListSigner struct{ ReplayProtectedSigner }
 
-// New access-list signer constructor accepts access-list transactions,
-// replay-protected transactions, and replay-protected legacy transactions.
+// New access-list signer constructor.
+// In GTOS this is equivalent to the SignerTx signer and exists for compatibility.
 func NewAccessListSigner(chainId *big.Int) Signer {
 	return accessListSigner{NewReplayProtectedSigner(chainId)}
 }
@@ -318,27 +278,15 @@ func (s accessListSigner) Equal(s2 Signer) bool {
 }
 
 func (s accessListSigner) Sender(tx *Transaction) (common.Address, error) {
-	V, R, S := tx.RawSignatureValues()
-	switch tx.Type() {
-	case LegacyTxType:
-		if !tx.Protected() {
-			return common.Address{}, ErrUnprotectedTx
-		}
-		V = new(big.Int).Sub(V, s.chainIdMul)
-		V.Sub(V, big8)
-	case AccessListTxType:
-		// AL txs are defined to use 0 and 1 as their recovery
-		// id, add 27 to become equivalent to legacy unprotected signatures.
-		V = new(big.Int).Add(V, big.NewInt(27))
-	case SignerTxType:
-		signerType, ok := tx.SignerType()
-		if !ok || signerType != "secp256k1" {
-			return common.Address{}, ErrTxTypeNotSupported
-		}
-		V = new(big.Int).Add(V, big.NewInt(27))
-	default:
+	if tx.Type() != SignerTxType {
 		return common.Address{}, ErrTxTypeNotSupported
 	}
+	V, R, S := tx.RawSignatureValues()
+	signerType, ok := tx.SignerType()
+	if !ok || signerType != "secp256k1" {
+		return common.Address{}, ErrTxTypeNotSupported
+	}
+	V = new(big.Int).Add(V, big.NewInt(27))
 	if tx.ChainId().Cmp(s.chainId) != 0 {
 		return common.Address{}, ErrInvalidChainId
 	}
@@ -346,37 +294,28 @@ func (s accessListSigner) Sender(tx *Transaction) (common.Address, error) {
 	if err != nil {
 		return common.Address{}, err
 	}
-	if tx.Type() == SignerTxType {
-		explicitFrom, ok := tx.SignerFrom()
-		if !ok || explicitFrom != from {
-			return common.Address{}, ErrInvalidSig
-		}
+	explicitFrom, ok := tx.SignerFrom()
+	if !ok {
+		return common.Address{}, ErrInvalidSig
+	}
+	// Compatibility: zero explicit from is treated as "not set" and skips equality check.
+	if explicitFrom != (common.Address{}) && explicitFrom != from {
+		return common.Address{}, ErrInvalidSig
 	}
 	return from, nil
 }
 
 func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
-	switch txdata := tx.inner.(type) {
-	case *LegacyTx:
-		return s.ReplayProtectedSigner.SignatureValues(tx, sig)
-	case *AccessListTx:
-		// Check that chain ID of tx matches the signer. We also accept ID zero here,
-		// because it indicates that the chain ID was not specified in the tx.
-		if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
-			return nil, nil, nil, ErrInvalidChainId
-		}
-		R, S, _ = decodeSignature(sig)
-		V = big.NewInt(int64(sig[64]))
-	case *SignerTx:
-		if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
-			return nil, nil, nil, ErrInvalidChainId
-		}
-		R, S, V, err = decodeSignerTxSignature(txdata.SignerType, sig)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	default:
+	txdata, ok := tx.inner.(*SignerTx)
+	if !ok {
 		return nil, nil, nil, ErrTxTypeNotSupported
+	}
+	if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
+		return nil, nil, nil, ErrInvalidChainId
+	}
+	R, S, V, err = decodeSignerTxSignature(txdata.SignerType, sig)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	return R, S, V, nil
 }
@@ -384,64 +323,35 @@ func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s accessListSigner) Hash(tx *Transaction) common.Hash {
-	switch tx.Type() {
-	case LegacyTxType:
-		return rlpHash([]interface{}{
+	if tx.Type() != SignerTxType {
+		return common.Hash{}
+	}
+	from, ok := tx.SignerFrom()
+	if !ok {
+		return common.Hash{}
+	}
+	signerType, ok := tx.SignerType()
+	if !ok {
+		return common.Hash{}
+	}
+	return prefixedRlpHash(
+		tx.Type(),
+		[]interface{}{
+			s.chainId,
 			tx.Nonce(),
 			tx.GasPrice(),
 			tx.Gas(),
 			tx.To(),
 			tx.Value(),
 			tx.Data(),
-			s.chainId, uint(0), uint(0),
+			tx.AccessList(),
+			from,
+			signerType,
 		})
-	case AccessListTxType:
-		return prefixedRlpHash(
-			tx.Type(),
-			[]interface{}{
-				s.chainId,
-				tx.Nonce(),
-				tx.GasPrice(),
-				tx.Gas(),
-				tx.To(),
-				tx.Value(),
-				tx.Data(),
-				tx.AccessList(),
-			})
-	case SignerTxType:
-		from, ok := tx.SignerFrom()
-		if !ok {
-			return common.Hash{}
-		}
-		signerType, ok := tx.SignerType()
-		if !ok {
-			return common.Hash{}
-		}
-		return prefixedRlpHash(
-			tx.Type(),
-			[]interface{}{
-				s.chainId,
-				tx.Nonce(),
-				tx.GasPrice(),
-				tx.Gas(),
-				tx.To(),
-				tx.Value(),
-				tx.Data(),
-				tx.AccessList(),
-				from,
-				signerType,
-			})
-	default:
-		// This _should_ not happen, but in case someone sends in a bad
-		// json struct via RPC, it's probably more prudent to return an
-		// empty hash instead of killing the node with a panic
-		//panic("Unsupported transaction type: %d", tx.typ)
-		return common.Hash{}
-	}
 }
 
-// ReplayProtectedSigner implements Signer using the replay-protected rules. This accepts transactions which
-// are replay-protected.
+// ReplayProtectedSigner is kept for compatibility with older call sites.
+// In GTOS it behaves the same as the SignerTx signer.
 type ReplayProtectedSigner struct {
 	chainId, chainIdMul *big.Int
 }
@@ -465,58 +375,20 @@ func (s ReplayProtectedSigner) Equal(s2 Signer) bool {
 	return ok && replayProtection.chainId.Cmp(s.chainId) == 0
 }
 
-var big8 = big.NewInt(8)
-
 func (s ReplayProtectedSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != LegacyTxType {
-		return common.Address{}, ErrTxTypeNotSupported
-	}
-	if !tx.Protected() {
-		return common.Address{}, ErrUnprotectedTx
-	}
-	if tx.ChainId().Cmp(s.chainId) != 0 {
-		return common.Address{}, ErrInvalidChainId
-	}
-	V, R, S := tx.RawSignatureValues()
-	V = new(big.Int).Sub(V, s.chainIdMul)
-	V.Sub(V, big8)
-	return recoverPlain(s.Hash(tx), R, S, V, true)
+	return accessListSigner{s}.Sender(tx)
 }
 
 // SignatureValues returns signature values. This signature
 // needs to be in the [R || S || V] format where V is 0 or 1.
 func (s ReplayProtectedSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
-	if tx.Type() != LegacyTxType {
-		return nil, nil, nil, ErrTxTypeNotSupported
-	}
-	R, S, V = decodeSignature(sig)
-	V = big.NewInt(int64(sig[64] + 35))
-	V.Add(V, s.chainIdMul)
-	return R, S, V, nil
+	return accessListSigner{s}.SignatureValues(tx, sig)
 }
 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s ReplayProtectedSigner) Hash(tx *Transaction) common.Hash {
-	return rlpHash([]interface{}{
-		tx.Nonce(),
-		tx.GasPrice(),
-		tx.Gas(),
-		tx.To(),
-		tx.Value(),
-		tx.Data(),
-		s.chainId, uint(0), uint(0),
-	})
-}
-
-func decodeSignature(sig []byte) (r, s, v *big.Int) {
-	if len(sig) != crypto.SignatureLength {
-		panic(fmt.Sprintf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength))
-	}
-	r = new(big.Int).SetBytes(sig[:32])
-	s = new(big.Int).SetBytes(sig[32:64])
-	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
-	return r, s, v
+	return accessListSigner{s}.Hash(tx)
 }
 
 func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, err error) {
@@ -572,17 +444,4 @@ func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (commo
 	var addr common.Address
 	copy(addr[:], crypto.Keccak256(pub[1:])[12:])
 	return addr, nil
-}
-
-// deriveChainId derives the chain id from the given v parameter
-func deriveChainId(v *big.Int) *big.Int {
-	if v.BitLen() <= 64 {
-		v := v.Uint64()
-		if v == 27 || v == 28 {
-			return new(big.Int)
-		}
-		return new(big.Int).SetUint64((v - 35) / 2)
-	}
-	v = new(big.Int).Sub(v, big.NewInt(35))
-	return v.Div(v, big.NewInt(2))
 }

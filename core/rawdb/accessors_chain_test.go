@@ -335,6 +335,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 
 	// Create the two receipts to manage afterwards
 	receipt1 := &types.Receipt{
+		Type:              types.SignerTxType,
 		Status:            types.ReceiptStatusFailed,
 		CumulativeGasUsed: 1,
 		Logs: []*types.Log{
@@ -348,6 +349,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 	receipt1.Bloom = types.CreateBloom(types.Receipts{receipt1})
 
 	receipt2 := &types.Receipt{
+		Type:              types.SignerTxType,
 		PostState:         common.Hash{2}.Bytes(),
 		CumulativeGasUsed: 2,
 		Logs: []*types.Log{
@@ -384,7 +386,14 @@ func TestBlockReceiptStorage(t *testing.T) {
 		t.Fatalf("receipts returned when body was deleted: %v", rs)
 	}
 	// Ensure that receipts without metadata can be returned without the block body too
-	if err := checkReceiptsRLP(ReadRawReceipts(db, hash, 0), receipts); err != nil {
+	rawReceiptsWant := make(types.Receipts, len(receipts))
+	for i := range receipts {
+		cp := new(types.Receipt)
+		*cp = *receipts[i]
+		cp.Type = types.SignerTxType
+		rawReceiptsWant[i] = cp
+	}
+	if err := checkReceiptsRLP(ReadRawReceipts(db, hash, 0), rawReceiptsWant); err != nil {
 		t.Fatalf(err.Error())
 	}
 	// Sanity check that body alone without the receipt is a full purge
@@ -606,11 +615,15 @@ func makeTestBlocks(nblock int, txsPerBlock int) []*types.Block {
 	for i := 0; i < len(txs); i++ {
 		var err error
 		to := common.Address{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-		txs[i], err = types.SignNewTx(key, signer, &types.LegacyTx{
-			Nonce:    2,
-			GasPrice: big.NewInt(30000),
-			Gas:      0x45454545,
-			To:       &to,
+		txs[i], err = types.SignNewTx(key, signer, &types.SignerTx{
+			ChainID:    signer.ChainID(),
+			Nonce:      2,
+			GasPrice:   big.NewInt(30000),
+			Gas:        0x45454545,
+			To:         &to,
+			Value:      new(big.Int),
+			From:       crypto.PubkeyToAddress(key.PublicKey),
+			SignerType: "secp256k1",
 		})
 		if err != nil {
 			panic(err)
@@ -760,26 +773,9 @@ func TestDeriveLogFields(t *testing.T) {
 	to2 := common.HexToAddress("0x2")
 	to3 := common.HexToAddress("0x3")
 	txs := types.Transactions{
-		types.NewTx(&types.LegacyTx{
-			Nonce:    1,
-			Value:    big.NewInt(1),
-			Gas:      1,
-			GasPrice: big.NewInt(1),
-		}),
-		types.NewTx(&types.LegacyTx{
-			To:       &to2,
-			Nonce:    2,
-			Value:    big.NewInt(2),
-			Gas:      2,
-			GasPrice: big.NewInt(2),
-		}),
-		types.NewTx(&types.AccessListTx{
-			To:       &to3,
-			Nonce:    3,
-			Value:    big.NewInt(3),
-			Gas:      3,
-			GasPrice: big.NewInt(3),
-		}),
+		types.NewContractCreation(1, big.NewInt(1), 1, big.NewInt(1), nil),
+		types.NewTransaction(2, to2, big.NewInt(2), 2, big.NewInt(2), nil),
+		types.NewTransaction(3, to3, big.NewInt(3), 3, big.NewInt(3), nil),
 	}
 	// Create the corresponding receipts
 	receipts := []*receiptLogs{

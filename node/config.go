@@ -169,9 +169,6 @@ type Config struct {
 	trustedNodesWarning    bool
 	oldGTOSResourceWarning bool
 
-	// AllowUnprotectedTxs allows transactions without chain-id replay protection to be sent over RPC.
-	AllowUnprotectedTxs bool `toml:",omitempty"`
-
 	// JWTSecret is the hex-encoded jwt secret.
 	JWTSecret string `toml:",omitempty"`
 }

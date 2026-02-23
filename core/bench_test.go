@@ -72,13 +72,16 @@ func genValueTx(nbytes int) func(int, *BlockGen) {
 		if gen.header.BaseFee != nil {
 			gasPrice = gen.header.BaseFee
 		}
-		tx, _ := types.SignNewTx(benchRootKey, signer, &types.LegacyTx{
-			Nonce:    gen.TxNonce(benchRootAddr),
-			To:       &toaddr,
-			Value:    big.NewInt(1),
-			Gas:      gas,
-			Data:     data,
-			GasPrice: gasPrice,
+		tx, _ := types.SignNewTx(benchRootKey, signer, &types.SignerTx{
+			ChainID:    signer.ChainID(),
+			Nonce:      gen.TxNonce(benchRootAddr),
+			To:         &toaddr,
+			Value:      big.NewInt(1),
+			Gas:        gas,
+			Data:       data,
+			GasPrice:   gasPrice,
+			From:       benchRootAddr,
+			SignerType: "secp256k1",
 		})
 		gen.AddTx(tx)
 	}
@@ -125,12 +128,15 @@ func genTxRing(naccounts int) func(int, *BlockGen) {
 				panic("not enough funds")
 			}
 			tx, err := types.SignNewTx(ringKeys[from], signer,
-				&types.LegacyTx{
-					Nonce:    gen.TxNonce(ringAddrs[from]),
-					To:       &ringAddrs[to],
-					Value:    availableFunds,
-					Gas:      params.TxGas,
-					GasPrice: gasPrice,
+				&types.SignerTx{
+					ChainID:    signer.ChainID(),
+					Nonce:      gen.TxNonce(ringAddrs[from]),
+					To:         &ringAddrs[to],
+					Value:      availableFunds,
+					Gas:        params.TxGas,
+					GasPrice:   gasPrice,
+					From:       ringAddrs[from],
+					SignerType: "secp256k1",
 				})
 			if err != nil {
 				panic(err)

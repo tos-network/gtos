@@ -143,7 +143,6 @@ var (
 		utils.RPCGlobalGasCapFlag,
 		utils.RPCGlobalEVMTimeoutFlag,
 		utils.RPCGlobalTxFeeCapFlag,
-		utils.AllowUnprotectedTxs,
 	}
 
 	metricsFlags = []cli.Flag{

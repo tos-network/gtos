@@ -37,16 +37,23 @@ func TestStateProcessorErrors(t *testing.T) {
 		tx, _ := signTestSignerTx(signer, key, nonce, to, amount, gasLimit, gasPrice, data)
 		return tx
 	}
-	var mkDynamicTx = func(nonce uint64, to common.Address, gasLimit uint64, gasTipCap, gasFeeCap *big.Int) *types.Transaction {
-		tx, _ := types.SignTx(types.NewTx(&types.DynamicFeeTx{
-			Nonce:     nonce,
-			GasTipCap: gasTipCap,
-			GasFeeCap: gasFeeCap,
-			Gas:       gasLimit,
-			To:        &to,
-			Value:     big.NewInt(0),
-		}), signer, key1)
-		return tx
+	var mkUnsupportedSignerTypeTx = func(nonce uint64, to common.Address, gasLimit uint64, gasPrice *big.Int) *types.Transaction {
+		if gasPrice == nil {
+			gasPrice = big.NewInt(1)
+		}
+		return types.NewTx(&types.SignerTx{
+			ChainID:    signer.ChainID(),
+			Nonce:      nonce,
+			Gas:        gasLimit,
+			To:         &to,
+			Value:      big.NewInt(0),
+			GasPrice:   new(big.Int).Set(gasPrice),
+			From:       crypto.PubkeyToAddress(key1.PublicKey),
+			SignerType: "frost",
+			V:          new(big.Int),
+			R:          new(big.Int),
+			S:          new(big.Int),
+		})
 	}
 	{ // Tests against a 'recent' chain definition
 		var (
@@ -160,11 +167,11 @@ func TestStateProcessorErrors(t *testing.T) {
 			txs  []*types.Transaction
 			want string
 		}{
-			{ // ErrIntrinsicGas
+			{ // ErrUnsupportedAccountSignerType
 				txs: []*types.Transaction{
-					mkDynamicTx(0, common.Address{}, params.TxGas-1000, big.NewInt(0), big.NewInt(0)),
+					mkUnsupportedSignerTypeTx(0, common.Address{}, params.TxGas, big.NewInt(1)),
 				},
-				want: "transaction type not supported",
+				want: "account signer type is not supported",
 			},
 		} {
 			block := GenerateBadBlock(genesis, dpos.NewFaker(), tt.txs, gspec.Config)

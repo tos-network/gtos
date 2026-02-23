@@ -1201,35 +1201,12 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		result.TransactionIndex = (*hexutil.Uint64)(&index)
 	}
 	switch tx.Type() {
-	case types.LegacyTxType:
-		// if a legacy transaction has a replay-protected chain id, include it explicitly
-		if id := tx.ChainId(); id.Sign() != 0 {
-			result.ChainID = (*hexutil.Big)(id)
-		}
-	case types.AccessListTxType:
-		al := tx.AccessList()
-		result.Accesses = &al
-		result.ChainID = (*hexutil.Big)(tx.ChainId())
 	case types.SignerTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
 		if signerType, ok := tx.SignerType(); ok {
 			result.SignerType = signerType
-		}
-	case types.DynamicFeeTxType:
-		al := tx.AccessList()
-		result.Accesses = &al
-		result.ChainID = (*hexutil.Big)(tx.ChainId())
-		result.GasFeeCap = (*hexutil.Big)(tx.GasFeeCap())
-		result.GasTipCap = (*hexutil.Big)(tx.GasTipCap())
-		// if the transaction has been mined, compute the effective gas price
-		if baseFee != nil && blockHash != (common.Hash{}) {
-			// price = min(tip, gasFeeCap - baseFee) + baseFee
-			price := math.BigMin(new(big.Int).Add(tx.GasTipCap(), baseFee), tx.GasFeeCap())
-			result.GasPrice = (*hexutil.Big)(price)
-		} else {
-			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
 		}
 	}
 	return result
@@ -1518,10 +1495,6 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 	// fee of the given transaction is _reasonable_.
 	if err := checkTxFee(tx.GasPrice(), tx.Gas(), b.RPCTxFeeCap()); err != nil {
 		return common.Hash{}, err
-	}
-	if !b.UnprotectedAllowed() && !tx.Protected() {
-		// Ensure only replay-protected signed transactions are submitted if replayProtectionRequired is set.
-		return common.Hash{}, errors.New("only replay-protected (chain-id protected) transactions allowed over RPC")
 	}
 	if err := b.SendTx(ctx, tx); err != nil {
 		return common.Hash{}, err

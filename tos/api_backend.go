@@ -25,10 +25,9 @@ import (
 
 // TOSAPIBackend implements tosapi.Backend for full nodes
 type TOSAPIBackend struct {
-	extRPCEnabled       bool
-	allowUnprotectedTxs bool
-	tos                 *TOS
-	gpo                 *gasprice.Oracle
+	extRPCEnabled bool
+	tos           *TOS
+	gpo           *gasprice.Oracle
 }
 
 // ChainConfig returns the active chain configuration.
@@ -291,10 +290,6 @@ func (b *TOSAPIBackend) AccountManager() *accounts.Manager {
 
 func (b *TOSAPIBackend) ExtRPCEnabled() bool {
 	return b.extRPCEnabled
-}
-
-func (b *TOSAPIBackend) UnprotectedAllowed() bool {
-	return b.allowUnprotectedTxs
 }
 
 func (b *TOSAPIBackend) RPCGasCap() uint64 {
