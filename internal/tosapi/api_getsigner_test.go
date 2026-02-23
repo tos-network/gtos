@@ -82,3 +82,29 @@ func TestGetSignerFallbackToAddressWhenUnset(t *testing.T) {
 		t.Fatalf("unexpected fallback signer %+v", got.Signer)
 	}
 }
+
+func TestGetAccountHistoryPrunedByRetentionWindow(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	addr := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+
+	api := NewTOSAPI(&getSignerBackendMock{
+		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(900)},
+	})
+	block := rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(900))
+	_, err = api.GetAccount(context.Background(), addr, &block)
+	if err == nil {
+		t.Fatalf("expected history pruned error")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrHistoryPruned {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrHistoryPruned)
+	}
+}

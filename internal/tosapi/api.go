@@ -762,6 +762,9 @@ func (s *BlockChainAPI) GetUncleCountByBlockHash(ctx context.Context, blockHash 
 
 // GetCode returns the code stored at the given address in the state for the given block number.
 func (s *BlockChainAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	if err := enforceHistoryRetentionByBlockArg(s.b, blockNrOrHash); err != nil {
+		return nil, err
+	}
 	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if state == nil || header == nil || err != nil {
 		return nil, err
@@ -772,6 +775,31 @@ func (s *BlockChainAPI) GetCode(ctx context.Context, address common.Address, blo
 	}
 	code := state.GetCode(address)
 	return code, state.Error()
+}
+
+// GetCodeMeta returns code TTL metadata at the given address and block context.
+func (s *BlockChainAPI) GetCodeMeta(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*RPCCodeMetaResult, error) {
+	if err := enforceHistoryRetentionByBlockArg(s.b, blockNrOrHash); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || header == nil || err != nil {
+		return nil, err
+	}
+	createdAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeCreatedAtSlot).Bytes()).Uint64()
+	expireAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeExpireAtSlot).Bytes()).Uint64()
+	code := state.GetCode(address)
+	if len(code) == 0 && createdAt == 0 && expireAt == 0 {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "code not found"}
+	}
+	expired := expireAt != 0 && header.Number != nil && header.Number.Uint64() >= expireAt
+	return &RPCCodeMetaResult{
+		Address:   address,
+		CodeHash:  state.GetCodeHash(address),
+		CreatedAt: hexutil.Uint64(createdAt),
+		ExpireAt:  hexutil.Uint64(expireAt),
+		Expired:   expired,
+	}, state.Error()
 }
 
 // GetStorageAt returns the storage from the state at the given address, key and
@@ -879,7 +907,7 @@ func (diff *BlockOverrides) Apply(blockCtx *vm.BlockContext) {
 
 func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, error) {
 	// Smart contract execution is not supported in GTOS.
-	return nil, errors.New("tos_call not supported (legacy eth_call): smart contract execution removed in GTOS")
+	return nil, newRPCNotSupportedError("tos_call", "smart contract execution is removed in GTOS")
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {
@@ -926,123 +954,7 @@ func (s *BlockChainAPI) Call(ctx context.Context, args TransactionArgs, blockNrO
 }
 
 func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, gasCap uint64) (hexutil.Uint64, error) {
-	// Binary search the gas requirement, as it may be higher than the amount used
-	var (
-		lo  uint64 = params.TxGas - 1
-		hi  uint64
-		cap uint64
-	)
-	// Use zero address if sender unspecified.
-	if args.From == nil {
-		args.From = new(common.Address)
-	}
-	// Determine the highest gas limit can be used during the estimation.
-	if args.Gas != nil && uint64(*args.Gas) >= params.TxGas {
-		hi = uint64(*args.Gas)
-	} else {
-		// Retrieve the block to act as the gas ceiling
-		block, err := b.BlockByNumberOrHash(ctx, blockNrOrHash)
-		if err != nil {
-			return 0, err
-		}
-		if block == nil {
-			return 0, errors.New("block not found")
-		}
-		hi = block.GasLimit()
-	}
-	// Normalize the max fee per gas the call is willing to spend.
-	var feeCap *big.Int
-	if args.GasPrice != nil && (args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil) {
-		return 0, errors.New("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified")
-	} else if args.GasPrice != nil {
-		feeCap = args.GasPrice.ToInt()
-	} else if args.MaxFeePerGas != nil {
-		feeCap = args.MaxFeePerGas.ToInt()
-	} else {
-		feeCap = common.Big0
-	}
-	// Recap the highest gas limit with account's available balance.
-	if feeCap.BitLen() != 0 {
-		state, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-		if err != nil {
-			return 0, err
-		}
-		balance := state.GetBalance(*args.From) // from can't be nil
-		available := new(big.Int).Set(balance)
-		if args.Value != nil {
-			if args.Value.ToInt().Cmp(available) >= 0 {
-				return 0, errors.New("insufficient funds for transfer")
-			}
-			available.Sub(available, args.Value.ToInt())
-		}
-		allowance := new(big.Int).Div(available, feeCap)
-
-		// If the allowance is larger than maximum uint64, skip checking
-		if allowance.IsUint64() && hi > allowance.Uint64() {
-			transfer := args.Value
-			if transfer == nil {
-				transfer = new(hexutil.Big)
-			}
-			log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
-				"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
-			hi = allowance.Uint64()
-		}
-	}
-	// Recap the highest gas allowance with specified gascap.
-	if gasCap != 0 && hi > gasCap {
-		log.Warn("Caller gas above allowance, capping", "requested", hi, "cap", gasCap)
-		hi = gasCap
-	}
-	cap = hi
-
-	// Create a helper to check if a gas allowance results in an executable transaction
-	executable := func(gas uint64) (bool, *core.ExecutionResult, error) {
-		args.Gas = (*hexutil.Uint64)(&gas)
-
-		result, err := DoCall(ctx, b, args, blockNrOrHash, nil, 0, gasCap)
-		if err != nil {
-			if errors.Is(err, core.ErrIntrinsicGas) {
-				return true, nil, nil // Special case, raise gas limit
-			}
-			return true, nil, err // Bail out
-		}
-		return result.Failed(), result, nil
-	}
-	// Execute the binary search and hone in on an executable gas limit
-	for lo+1 < hi {
-		mid := (hi + lo) / 2
-		failed, _, err := executable(mid)
-
-		// If the error is not nil(consensus error), it means the provided message
-		// call or transaction will never be accepted no matter how much gas it is
-		// assigned. Return the error directly, don't struggle any more.
-		if err != nil {
-			return 0, err
-		}
-		if failed {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	// Reject the transaction as invalid if it still fails at the highest allowance
-	if hi == cap {
-		failed, result, err := executable(hi)
-		if err != nil {
-			return 0, err
-		}
-		if failed {
-			if result != nil && result.Err != vm.ErrOutOfGas {
-				if len(result.Revert()) > 0 {
-					return 0, newRevertError(result)
-				}
-				return 0, result.Err
-			}
-			// Otherwise, the specified gas cap is too low
-			return 0, fmt.Errorf("gas required exceeds allowance (%d)", cap)
-		}
-	}
-	return hexutil.Uint64(hi), nil
+	return 0, newRPCNotSupportedError("tos_estimateGas", "VM-style gas estimation is removed in GTOS")
 }
 
 // EstimateGas returns an estimate of the amount of gas needed to execute the
@@ -1283,7 +1195,7 @@ func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionAr
 
 // AccessList is not supported in GTOS (TVM and tracer removed).
 func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
-	return nil, 0, nil, errors.New("tos_createAccessList not supported (legacy eth_createAccessList): TVM removed in GTOS")
+	return nil, 0, nil, newRPCNotSupportedError("tos_createAccessList", "TVM/tracer-based access list generation is removed in GTOS")
 }
 
 // TransactionAPI exposes methods for reading and creating transaction data.
@@ -1378,6 +1290,9 @@ func (s *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	if tx != nil {
+		if err := enforceHistoryRetentionByBlockNumber(s.b, blockNumber); err != nil {
+			return nil, err
+		}
 		header, err := s.b.HeaderByHash(ctx, blockHash)
 		if err != nil {
 			return nil, err
@@ -1396,9 +1311,14 @@ func (s *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 // GetRawTransactionByHash returns the bytes of the transaction for the given hash.
 func (s *TransactionAPI) GetRawTransactionByHash(ctx context.Context, hash common.Hash) (hexutil.Bytes, error) {
 	// Retrieve a finalized transaction, or a pooled otherwise
-	tx, _, _, _, err := s.b.GetTransaction(ctx, hash)
+	tx, _, blockNumber, _, err := s.b.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
+	}
+	if tx != nil {
+		if err := enforceHistoryRetentionByBlockNumber(s.b, blockNumber); err != nil {
+			return nil, err
+		}
 	}
 	if tx == nil {
 		if tx = s.b.GetPoolTransaction(hash); tx == nil {
@@ -1417,6 +1337,11 @@ func (s *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		// When the transaction doesn't exist, the RPC method should return JSON null
 		// as per specification.
 		return nil, nil
+	}
+	if tx != nil {
+		if err := enforceHistoryRetentionByBlockNumber(s.b, blockNumber); err != nil {
+			return nil, err
+		}
 	}
 	receipts, err := s.b.GetReceipts(ctx, blockHash)
 	if err != nil {
@@ -1890,6 +1815,17 @@ func newRPCNotImplementedError(method string) error {
 	}
 }
 
+func newRPCNotSupportedError(method, reason string) error {
+	return &rpcAPIError{
+		code:    rpcErrNotSupported,
+		message: "not supported",
+		data: map[string]interface{}{
+			"method": method,
+			"reason": reason,
+		},
+	}
+}
+
 func newRPCInvalidParamsError(field, reason string) error {
 	return &rpcAPIError{
 		code:    rpcErrInvalidParams,
@@ -1966,6 +1902,14 @@ type RPCSetCodeArgs struct {
 	TTL  hexutil.Uint64 `json:"ttl"`
 }
 
+type RPCCodeMetaResult struct {
+	Address   common.Address `json:"address"`
+	CodeHash  common.Hash    `json:"codeHash"`
+	CreatedAt hexutil.Uint64 `json:"createdAt"`
+	ExpireAt  hexutil.Uint64 `json:"expireAt"`
+	Expired   bool           `json:"expired"`
+}
+
 type RPCPutKVArgs struct {
 	RPCTxCommonArgs
 	Namespace string         `json:"namespace"`
@@ -2015,6 +1959,43 @@ func oldestAvailableBlock(head, retain uint64) uint64 {
 		return 0
 	}
 	return head - retain + 1
+}
+
+func newRPCHistoryPrunedError(head, retain, requested uint64) error {
+	return &rpcAPIError{
+		code:    rpcErrHistoryPruned,
+		message: "history pruned",
+		data: map[string]interface{}{
+			"reason":               "requested block is outside retention window",
+			"retainBlocks":         retain,
+			"oldestAvailableBlock": hexutil.Uint64(oldestAvailableBlock(head, retain)),
+			"requestedBlock":       hexutil.Uint64(requested),
+			"headBlock":            hexutil.Uint64(head),
+		},
+	}
+}
+
+func enforceHistoryRetentionByBlockNumber(b Backend, requested uint64) error {
+	if b == nil {
+		return nil
+	}
+	head := uint64(0)
+	if header := b.CurrentHeader(); header != nil && header.Number != nil {
+		head = header.Number.Uint64()
+	}
+	retain := rpcDefaultRetainBlocks
+	if requested < oldestAvailableBlock(head, retain) {
+		return newRPCHistoryPrunedError(head, retain, requested)
+	}
+	return nil
+}
+
+func enforceHistoryRetentionByBlockArg(b Backend, blockNrOrHash rpc.BlockNumberOrHash) error {
+	number, ok := blockNrOrHash.Number()
+	if !ok || number < 0 {
+		return nil
+	}
+	return enforceHistoryRetentionByBlockNumber(b, uint64(number))
 }
 
 func resolveBlockArg(block *rpc.BlockNumberOrHash) rpc.BlockNumberOrHash {
@@ -2089,6 +2070,10 @@ func (s *TOSAPI) GetPruneWatermark() *RPCPruneWatermark {
 
 // GetAccount returns nonce/balance and signer view (fallback signer for now).
 func (s *TOSAPI) GetAccount(ctx context.Context, address common.Address, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCAccountProfile, error) {
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
 	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(blockNrOrHash))
 	if err != nil {
 		return nil, err
@@ -2430,7 +2415,11 @@ func (s *TOSAPI) GetKV(ctx context.Context, from common.Address, namespace strin
 	if s == nil || s.b == nil {
 		return nil, newRPCNotImplementedError("tos_getKV")
 	}
-	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(blockNrOrHash))
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -2461,7 +2450,11 @@ func (s *TOSAPI) GetKVMeta(ctx context.Context, from common.Address, namespace s
 	if s == nil || s.b == nil {
 		return nil, newRPCNotImplementedError("tos_getKVMeta")
 	}
-	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolveBlockArg(blockNrOrHash))
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
 	if err != nil {
 		return nil, err
 	}

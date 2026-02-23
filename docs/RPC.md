@@ -19,12 +19,13 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - `ttl` unit is block count (not seconds/milliseconds).
 - Expiry is computed by height: `expireBlock = currentBlock + ttl`.
 - State persistence stores computed expiry height (`expireBlock`), not raw `ttl`.
-- Typed signer transactions are the only accepted transaction envelope (`SignerTx`, `type=3`).
-- `LegacyTx` (`type=0`) and `AccessListTx` (`type=1`) are rejected for new submissions.
+- Typed signer transactions are the only accepted transaction envelope (`SignerTx`).
+- Legacy/access-list/dynamic-fee envelopes are rejected for new submissions.
 - `chainId` must be explicit in envelope fields; do not derive chain identity from signature field `V`.
-- Account signer RPC (`tos_setSigner`) accepts canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
-- Current tx `(R,S)` verification path directly supports: `secp256k1`, `secp256r1`, `ed25519`.
-- `bls12-381` / `frost` / `pqc` are registered signer types pending signer-envelope upgrade for transaction verification.
+- Account signer RPC (`tos_setSigner`) accepts canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx `(R,S)` verification path directly supports: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `bls12-381` signer verification/signing backend uses `blst` (`supranational`) in signer-account path.
+- `bls12-381` transaction signature encoding uses compressed G2 signature bytes (`96` bytes) and compressed G1 pubkeys (`48` bytes).
 
 ## 2. Public Namespaces
 
@@ -186,10 +187,10 @@ Result schema:
 
 Signer algorithm status:
 
-- Active in account-signer RPC/state path: `secp256k1`, `secp256r1`, `ed25519`.
-- Registered signer types: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
-- Current tx verification support: `secp256k1`, `secp256r1`, `ed25519`.
-- Roadmap scope: `bls12-381` (aggregation/consensus), `frost` (threshold authorization), `pqc` (migration/hybrid).
+- Active in account-signer RPC/state path: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Registered signer types: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx verification support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Roadmap scope: `bls12-381` (aggregation/consensus).
 
 ### `tos_getAccount`
 
@@ -214,7 +215,7 @@ Result schema:
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381", "frost", "pqc"]
+          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381"]
         },
         "value": {"type": "string"},
         "defaulted": {"type": "boolean"}
@@ -243,7 +244,7 @@ Result schema:
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381", "frost", "pqc"]
+          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381"]
         },
         "value": {"type": "string"},
         "defaulted": {"type": "boolean"}
@@ -262,8 +263,8 @@ Behavior:
 - RPC assembles a normal transfer transaction to `SystemActionAddress`.
 - Encoded `ACCOUNT_SET_SIGNER` payload is placed in `input`.
 - Transaction is signed/submitted through the regular transaction pipeline.
-- Canonical `signerType` values accepted by validation: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
-- Current tx signature verification is directly supported for `secp256k1`, `secp256r1`, `ed25519`.
+- Canonical `signerType` values accepted by validation: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx signature verification is directly supported for `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
 - Compatibility aliases may be accepted by implementation, but RPC outputs canonical names.
 
 Params schema (`params[0]`):
@@ -276,7 +277,7 @@ Params schema (`params[0]`):
     "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "signerType": {
       "type": "string",
-      "enum": ["secp256k1", "secp256r1", "ed25519", "bls12-381", "frost", "pqc"]
+      "enum": ["secp256k1", "secp256r1", "ed25519", "bls12-381"]
     },
     "signerValue": {"type": "string"},
     "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
@@ -631,9 +632,9 @@ Error payload shape (`error.data`):
 | `tos_sendRawTransaction` | constrained | Raw tx broadcast remains, but legacy envelope tx is rejected after signer-envelope cutover. |
 | `tos_getTransactionByHash` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
 | `tos_getTransactionReceipt` | unchanged (+pruning error) | Must return `history_pruned` when out of retention. |
-| `tos_call` | deprecated | No VM runtime execution target. |
-| `tos_estimateGas` | deprecated | VM-style estimation should be removed for storage-first APIs. |
-| `tos_createAccessList` | removed | Not applicable to no-VM execution path. |
+| `tos_call` | removed (gated) | Returns `not_supported` (`-38000`): no VM runtime execution target. |
+| `tos_estimateGas` | removed (gated) | Returns `not_supported` (`-38000`): VM-style estimation removed. |
+| `tos_createAccessList` | removed (gated) | Returns `not_supported` (`-38000`): no TVM/tracer path. |
 | `tos_getProof` | removed | Not a required public API in current roadmap. |
 | `tos_getUncle*` | removed | Not meaningful for current DPoS target. |
 
@@ -647,20 +648,20 @@ Stage A (skeleton in code) - Status: `DONE`
 - Return deterministic `not_implemented` for methods lacking execution backend.
 - Implement read-only profile/retention/account/signer methods first.
 
-Stage B (execution wiring) - Status: `IN_PROGRESS`
+Stage B (execution wiring) - Status: `DONE`
 
-- Bind `tos_setSigner` to account signer state transition.
-- Bind code/KV TTL writes and reads to finalized state model (`tos_getCode` and `tos_getCodeMeta` for code).
-- Enforce code immutability and KV upsert/no-delete behavior in validation.
-- Add deterministic prune/expire behavior and errors.
+- `DONE`: bind `tos_setSigner` to account signer state transition.
+- `DONE`: bind code/KV TTL writes and reads to finalized state model (`tos_getCode` and `tos_getCodeMeta` for code).
+- `DONE`: enforce code immutability and KV upsert/no-delete behavior in validation.
+- `DONE`: add deterministic prune/expire behavior and errors (`history_pruned` on out-of-window block reads).
 
-Stage C (deprecation enforcement) - Status: `PLANNED`
+Stage C (deprecation enforcement) - Status: `DONE`
 
-- Gate or remove VM-era RPCs (`tos_call`, `tos_estimateGas`, etc.).
+- `DONE`: gate VM-era RPCs (`tos_call`, `tos_estimateGas`, `tos_createAccessList`) with deterministic `not_supported` (`-38000`) errors.
 - Move clients to extension methods with compatibility window.
-- Reject `LegacyTx` envelope submissions on raw-transaction path after activation height.
+- `DONE`: reject non-`SignerTx` envelopes on raw-transaction path.
 
-Stage D (signer envelope cleanup) - Status: `PLANNED`
+Stage D (signer envelope cleanup) - Status: `DONE`
 
-- Introduce explicit tx envelope fields for signer routing (`chainId` + `from` + `signerType`).
-- Stop deriving sender/chain from `V`; `V` is signature-only.
+- `DONE`: explicit tx envelope fields for signer routing (`chainId` + `from` + `signerType`).
+- `DONE`: stop deriving sender/chain from `V`; `V` is signature-only.

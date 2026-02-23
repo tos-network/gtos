@@ -119,6 +119,46 @@ func TestGetKVMissingReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestGetKVHistoryPrunedByRetentionWindow(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	owner := common.HexToAddress("0x00000000000000000000000000000000000000dd")
+	kvstore.Put(st, owner, "ns", []byte("k"), []byte("value"), 100, 1000)
+
+	api := NewTOSAPI(&getKVBackendMock{
+		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(900)},
+	})
+	reqBlock := rpcBlockPtr(rpc.BlockNumber(900))
+
+	_, err = api.GetKV(context.Background(), owner, "ns", hexutil.Bytes("k"), reqBlock)
+	if err == nil {
+		t.Fatalf("expected history pruned error")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrHistoryPruned {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrHistoryPruned)
+	}
+
+	_, err = api.GetKVMeta(context.Background(), owner, "ns", hexutil.Bytes("k"), reqBlock)
+	if err == nil {
+		t.Fatalf("expected history pruned error for getKVMeta")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrHistoryPruned {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrHistoryPruned)
+	}
+}
+
 func rpcBlockPtr(number rpc.BlockNumber) *rpc.BlockNumberOrHash {
 	v := rpc.BlockNumberOrHashWithNumber(number)
 	return &v
