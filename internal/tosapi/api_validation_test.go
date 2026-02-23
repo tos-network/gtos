@@ -46,6 +46,22 @@ func TestSetSignerValidation(t *testing.T) {
 
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		SignerType:      accountsigner.SignerTypeBLS12381,
+		SignerValue:     "0x" + strings.Repeat("11", 48),
+	})
+	if err == nil {
+		t.Fatalf("expected not-implemented error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrNotImplemented {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotImplemented)
+	}
+
+	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		SignerType:      strings.Repeat("a", accountsigner.MaxSignerTypeLen+1),
 		SignerValue:     testAPIEd25519PubHex,
 	})

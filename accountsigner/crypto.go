@@ -19,16 +19,23 @@ const (
 	SignerTypeSecp256k1 = "secp256k1"
 	SignerTypeSecp256r1 = "secp256r1"
 	SignerTypeEd25519   = "ed25519"
+	SignerTypeBLS12381  = "bls12-381"
+	SignerTypeFROST     = "frost"
+	SignerTypePQC       = "pqc"
 )
 
 var (
 	ErrUnknownSignerType      = errors.New("accountsigner: unknown signer type")
 	ErrInvalidSignerValue     = errors.New("accountsigner: invalid signer value")
 	ErrInvalidSignatureMeta   = errors.New("accountsigner: invalid signature metadata")
+	ErrSignerNotSupportedByTx = errors.New("accountsigner: signer type not supported by current tx signature format")
 	signatureMetaPrefix       = []byte("GTOSSIG1")
 	signatureMetaAlgSecp256k1 = byte(1)
 	signatureMetaAlgSecp256r1 = byte(2)
 	signatureMetaAlgEd25519   = byte(3)
+	signatureMetaAlgBLS12381  = byte(4)
+	signatureMetaAlgFROST     = byte(5)
+	signatureMetaAlgPQC       = byte(6)
 )
 
 func normalizeSignerType(signerType string) (string, error) {
@@ -39,8 +46,23 @@ func normalizeSignerType(signerType string) (string, error) {
 		return SignerTypeSecp256r1, nil
 	case SignerTypeEd25519:
 		return SignerTypeEd25519, nil
+	case SignerTypeBLS12381, "bls12381":
+		return SignerTypeBLS12381, nil
+	case SignerTypeFROST:
+		return SignerTypeFROST, nil
+	case SignerTypePQC:
+		return SignerTypePQC, nil
 	default:
 		return "", ErrUnknownSignerType
+	}
+}
+
+func SupportsCurrentTxSignatureType(signerType string) bool {
+	switch signerType {
+	case SignerTypeSecp256k1, SignerTypeSecp256r1, SignerTypeEd25519:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -95,6 +117,9 @@ func NormalizeSigner(signerType, signerValue string) (string, []byte, string, er
 	if err != nil {
 		return "", nil, "", ErrInvalidSignerValue
 	}
+	if len(raw) == 0 || len(raw) > MaxSignerValueLen {
+		return "", nil, "", ErrInvalidSignerValue
+	}
 	var normalizedPub []byte
 	switch normalizedType {
 	case SignerTypeSecp256k1:
@@ -103,6 +128,27 @@ func NormalizeSigner(signerType, signerValue string) (string, []byte, string, er
 		normalizedPub, err = normalizeSecp256r1Pubkey(raw)
 	case SignerTypeEd25519:
 		if len(raw) != ed25519.PublicKeySize {
+			err = ErrInvalidSignerValue
+		} else {
+			normalizedPub = append([]byte(nil), raw...)
+		}
+	case SignerTypeBLS12381:
+		// BLS12-381 public key is expected in compressed G1 form.
+		if len(raw) != 48 {
+			err = ErrInvalidSignerValue
+		} else {
+			normalizedPub = append([]byte(nil), raw...)
+		}
+	case SignerTypeFROST:
+		// FROST group key format depends on the underlying curve; keep as opaque key material.
+		if len(raw) < 16 || len(raw) > 128 {
+			err = ErrInvalidSignerValue
+		} else {
+			normalizedPub = append([]byte(nil), raw...)
+		}
+	case SignerTypePQC:
+		// PQC key sizes vary by algorithm family; allow opaque bytes within configured bounds.
+		if len(raw) < 64 {
 			err = ErrInvalidSignerValue
 		} else {
 			normalizedPub = append([]byte(nil), raw...)
@@ -135,6 +181,11 @@ func AddressFromSigner(signerType string, signerPub []byte) (common.Address, err
 		return common.BytesToAddress(crypto.Keccak256(signerPub[1:])[12:]), nil
 	case SignerTypeEd25519:
 		if len(signerPub) != ed25519.PublicKeySize {
+			return common.Address{}, ErrInvalidSignerValue
+		}
+		return common.BytesToAddress(crypto.Keccak256(signerPub)[12:]), nil
+	case SignerTypeBLS12381, SignerTypeFROST, SignerTypePQC:
+		if len(signerPub) == 0 {
 			return common.Address{}, ErrInvalidSignerValue
 		}
 		return common.BytesToAddress(crypto.Keccak256(signerPub)[12:]), nil
@@ -181,6 +232,9 @@ func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash,
 			return false
 		}
 		return ed25519.Verify(ed25519.PublicKey(signerPub), txHash[:], sig)
+	case SignerTypeBLS12381, SignerTypeFROST, SignerTypePQC:
+		// These algorithms are tracked as signer types, but not representable via current tx (R,S) signature fields.
+		return false
 	default:
 		return false
 	}
@@ -194,6 +248,12 @@ func signatureMetaAlgToType(alg byte) (string, error) {
 		return SignerTypeSecp256r1, nil
 	case signatureMetaAlgEd25519:
 		return SignerTypeEd25519, nil
+	case signatureMetaAlgBLS12381:
+		return SignerTypeBLS12381, nil
+	case signatureMetaAlgFROST:
+		return SignerTypeFROST, nil
+	case signatureMetaAlgPQC:
+		return SignerTypePQC, nil
 	default:
 		return "", ErrInvalidSignatureMeta
 	}
@@ -207,6 +267,12 @@ func signatureTypeToMetaAlg(signerType string) (byte, error) {
 		return signatureMetaAlgSecp256r1, nil
 	case SignerTypeEd25519:
 		return signatureMetaAlgEd25519, nil
+	case SignerTypeBLS12381:
+		return signatureMetaAlgBLS12381, nil
+	case SignerTypeFROST:
+		return signatureMetaAlgFROST, nil
+	case SignerTypePQC:
+		return signatureMetaAlgPQC, nil
 	default:
 		return 0, ErrUnknownSignerType
 	}

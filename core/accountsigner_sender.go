@@ -16,6 +16,7 @@ var (
 	ErrInvalidAccountSignerSignature = errors.New("invalid account signer signature")
 	ErrAccountSignerMismatch         = errors.New("account signer metadata mismatch")
 	ErrAccountSignerRequiredMeta     = errors.New("account signer metadata in tx signature is required")
+	ErrUnsupportedAccountSignerType  = errors.New("account signer type is not supported by current tx signature format")
 )
 
 func txRawSig(tx *types.Transaction) (*big.Int, *big.Int, *big.Int) {
@@ -24,6 +25,9 @@ func txRawSig(tx *types.Transaction) (*big.Int, *big.Int, *big.Int) {
 }
 
 func resolveSenderWithMeta(tx *types.Transaction, chainSigner types.Signer, statedb vm.StateDB, signerType string, signerPub []byte) (common.Address, error) {
+	if !accountsigner.SupportsCurrentTxSignatureType(signerType) {
+		return common.Address{}, ErrUnsupportedAccountSignerType
+	}
 	hash := chainSigner.Hash(tx)
 	_, r, s := txRawSig(tx)
 	if !accountsigner.VerifyRawSignature(signerType, signerPub, hash, r, s) {
@@ -87,7 +91,9 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 			return common.Address{}, fmt.Errorf("%w: expected %s got %s", ErrAccountSignerMismatch, addrFromSigner.Hex(), from.Hex())
 		}
 		return from, nil
-	default:
+	case accountsigner.SignerTypeSecp256r1, accountsigner.SignerTypeEd25519:
 		return common.Address{}, ErrAccountSignerRequiredMeta
+	default:
+		return common.Address{}, ErrUnsupportedAccountSignerType
 	}
 }

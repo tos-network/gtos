@@ -209,3 +209,26 @@ func TestResolveSenderRejectsMetaMismatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestResolveSenderRejectsUnsupportedSignerType(t *testing.T) {
+	st := newSenderTestState(t)
+	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	to := common.HexToAddress("0x00000000000000000000000000000000000000ae")
+	unsigned := newLegacyUnsignedTx(0, to)
+	signed, err := types.SignTx(unsigned, chainSigner, key)
+	if err != nil {
+		t.Fatalf("failed to sign tx: %v", err)
+	}
+	// BLS key material is accepted as signer metadata, but current tx signature format does not support BLS verification.
+	accountsigner.Set(st, from, accountsigner.SignerTypeBLS12381, "0x"+strings.Repeat("44", 48))
+
+	_, err = ResolveSender(signed, chainSigner, st)
+	if !errors.Is(err, ErrUnsupportedAccountSignerType) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

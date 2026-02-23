@@ -12,6 +12,19 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - `ttl` is measured in blocks, not seconds.
 - `tos_setCode` gas includes ttl retention surcharge (`ttl * 1`).
 
+## Signer Algorithms
+
+- Current account/wallet signer support: `secp256k1`, `secp256r1`, `ed25519`.
+- `tos_setSigner` accepted canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
+- Current tx signature verification format supports direct validation for: `secp256k1`, `secp256r1`, `ed25519`.
+- `bls12-381`, `frost`, and `pqc` are tracked signer types; transaction verification support depends on signer-envelope upgrade.
+
+## Transaction Envelope Direction
+
+- Target direction: remove legacy transaction envelope acceptance.
+- Signer-aware transaction envelope should carry explicit `chainId`, `from`, and `signerType`.
+- `V` should remain signature-only and must not carry signer metadata.
+
 ## Main Methods
 
 - `tos_setSigner({...tx fields...})`

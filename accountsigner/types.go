@@ -6,7 +6,7 @@ const (
 	// MaxSignerTypeLen caps signerType bytes accepted by account_set_signer.
 	MaxSignerTypeLen = 64
 	// MaxSignerValueLen caps signerValue bytes accepted by account_set_signer.
-	MaxSignerValueLen = 1024
+	MaxSignerValueLen = 4096
 )
 
 // SetSignerPayload is the system-action payload for ACCOUNT_SET_SIGNER.
