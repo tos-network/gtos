@@ -18,16 +18,9 @@ var ShowDeprecated = &cli.Command{
 
 var DeprecatedFlags = []cli.Flag{
 	LegacyMinerGasTargetFlag,
-	NoUSBFlag,
 }
 
 var (
-	// (Deprecated May 2020, shown in aliased flags section)
-	NoUSBFlag = &cli.BoolFlag{
-		Name:     "nousb",
-		Usage:    "Disables monitoring for and managing USB hardware wallets (deprecated)",
-		Category: flags.DeprecatedCategory,
-	}
 	// (Deprecated July 2021, shown in aliased flags section)
 	LegacyMinerGasTargetFlag = &cli.Uint64Flag{
 		Name:     "miner.gastarget",

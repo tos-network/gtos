@@ -12,7 +12,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
-	"github.com/tos-network/gtos/accounts/scwallet"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
@@ -29,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/sysaction"
-	"github.com/tyler-smith/go-bip39"
 )
 
 // TOSAPI provides an API to access TOS related information.
@@ -303,10 +301,7 @@ func (s *PersonalAccountAPI) ListWallets() []rawWallet {
 	return wallets
 }
 
-// OpenWallet initiates a hardware wallet opening procedure, establishing a USB
-// connection and attempting to authenticate via the provided passphrase. Note,
-// the method may return an extra challenge requiring a second open (e.g. the
-// hardware-wallet PIN challenge).
+// OpenWallet opens a wallet and attempts to authenticate via the provided passphrase.
 func (s *PersonalAccountAPI) OpenWallet(url string, passphrase *string) error {
 	wallet, err := s.am.Wallet(url)
 	if err != nil {
@@ -544,44 +539,16 @@ func (s *PersonalAccountAPI) EcRecover(ctx context.Context, data, sig hexutil.By
 
 // InitializeWallet initializes a new wallet at the provided URL, by generating and returning a new private key.
 func (s *PersonalAccountAPI) InitializeWallet(ctx context.Context, url string) (string, error) {
-	wallet, err := s.am.Wallet(url)
-	if err != nil {
-		return "", err
-	}
-
-	entropy, err := bip39.NewEntropy(256)
-	if err != nil {
-		return "", err
-	}
-
-	mnemonic, err := bip39.NewMnemonic(entropy)
-	if err != nil {
-		return "", err
-	}
-
-	seed := bip39.NewSeed(mnemonic, "")
-
-	switch wallet := wallet.(type) {
-	case *scwallet.Wallet:
-		return mnemonic, wallet.Initialize(seed)
-	default:
-		return "", fmt.Errorf("specified wallet does not support initialization")
-	}
+	_ = ctx
+	_ = url
+	return "", fmt.Errorf("wallet initialization is not supported")
 }
 
 // Unpair deletes a pairing between wallet and gtos.
 func (s *PersonalAccountAPI) Unpair(ctx context.Context, url string, pin string) error {
-	wallet, err := s.am.Wallet(url)
-	if err != nil {
-		return err
-	}
-
-	switch wallet := wallet.(type) {
-	case *scwallet.Wallet:
-		return wallet.Unpair([]byte(pin))
-	default:
-		return fmt.Errorf("specified wallet does not support pairing")
-	}
+	_ = url
+	_ = pin
+	return fmt.Errorf("wallet unpair is not supported")
 }
 
 // BlockChainAPI provides an API to access TOS blockchain data.

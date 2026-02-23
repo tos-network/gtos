@@ -12,8 +12,6 @@ import (
 
 	"github.com/naoina/toml"
 	"github.com/tos-network/gtos/accounts/keystore"
-	"github.com/tos-network/gtos/accounts/scwallet"
-	"github.com/tos-network/gtos/accounts/usbwallet"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/internal/flags"
@@ -280,22 +278,6 @@ func setAccountManagerBackends(stack *node.Node) error {
 
 	// Assemble the supported backends
 	am.AddBackend(keystore.NewKeyStore(keydir, scryptN, scryptP))
-	if conf.USB {
-		// Start a USB hub for Ledger hardware wallets
-		if ledgerhub, err := usbwallet.NewLedgerHub(); err != nil {
-			log.Warn(fmt.Sprintf("Failed to start Ledger hub, disabling: %v", err))
-		} else {
-			am.AddBackend(ledgerhub)
-		}
-	}
-	if len(conf.SmartCardDaemonPath) > 0 {
-		// Start a smart card hub
-		if schub, err := scwallet.NewHub(conf.SmartCardDaemonPath, scwallet.Scheme, keydir); err != nil {
-			log.Warn(fmt.Sprintf("Failed to start smart card hub, disabling: %v", err))
-		} else {
-			am.AddBackend(schub)
-		}
-	}
 
 	return nil
 }

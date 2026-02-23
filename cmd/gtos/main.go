@@ -47,9 +47,6 @@ var (
 		utils.BootnodesFlag,
 		utils.MinFreeDiskSpaceFlag,
 		utils.KeyStoreDirFlag,
-		utils.NoUSBFlag,
-		utils.USBFlag,
-		utils.SmartCardDaemonPathFlag,
 		utils.OverrideTerminalTotalDifficulty,
 		utils.OverrideTerminalTotalDifficultyPassed,
 		utils.TxPoolLocalsFlag,
@@ -330,11 +327,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 				status, _ := event.Wallet.Status()
 				log.Info("New wallet appeared", "url", event.Wallet.URL(), "status", status)
 
-				var derivationPaths []accounts.DerivationPath
-				if event.Wallet.URL().Scheme == "ledger" {
-					derivationPaths = append(derivationPaths, accounts.LegacyLedgerBaseDerivationPath)
-				}
-				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath)
+				derivationPaths := []accounts.DerivationPath{accounts.DefaultBaseDerivationPath}
 
 				event.Wallet.SelfDerive(derivationPaths, tosClient)
 
