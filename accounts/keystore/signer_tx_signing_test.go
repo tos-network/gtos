@@ -153,3 +153,69 @@ func TestKeyStoreSignTxWithPassphraseSignerTxEd25519(t *testing.T) {
 		t.Fatal("signature verification failed")
 	}
 }
+
+func TestKeyStoreSignTxSignerTxBLS12381(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewBLS12381Account(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeBLS12381)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	pub, err := accountsigner.PublicKeyFromBLS12381Private(unlocked.BLS12381PrivateKey)
+	if err != nil {
+		t.Fatalf("derive bls public key failed: %v", err)
+	}
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeBLS12381, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxWithPassphraseSignerTxBLS12381(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewBLS12381Account(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeBLS12381)
+	signed, err := ks.SignTxWithPassphrase(acc, passphrase, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx with passphrase failed: %v", err)
+	}
+	a, key, err := ks.getDecryptedKey(acc, passphrase)
+	if err != nil {
+		t.Fatalf("decrypt key failed: %v", err)
+	}
+	defer zeroKeyMaterial(key)
+	if a.Address != acc.Address {
+		t.Fatalf("resolved account mismatch: have=%s want=%s", a.Address.Hex(), acc.Address.Hex())
+	}
+	pub, err := accountsigner.PublicKeyFromBLS12381Private(key.BLS12381PrivateKey)
+	if err != nil {
+		t.Fatalf("derive bls public key failed: %v", err)
+	}
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeBLS12381, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}

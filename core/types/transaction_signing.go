@@ -192,10 +192,6 @@ func canonicalSignerType(signerType string) (string, error) {
 		return "ed25519", nil
 	case "bls12-381", "bls12381":
 		return "bls12-381", nil
-	case "frost":
-		return "frost", nil
-	case "pqc":
-		return "pqc", nil
 	default:
 		return "", fmt.Errorf("unknown signerType: %s", strings.TrimSpace(signerType))
 	}
@@ -420,6 +416,14 @@ func (s ReplayProtectedSigner) Hash(tx *Transaction) common.Hash {
 
 func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, err error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
+	case "bls12-381", "bls12381":
+		if len(sig) != 96 {
+			return nil, nil, nil, ErrInvalidSig
+		}
+		r = new(big.Int).SetBytes(sig[:48])
+		s = new(big.Int).SetBytes(sig[48:96])
+		v = new(big.Int)
+		return r, s, v, nil
 	case "secp256r1", "ed25519":
 		switch len(sig) {
 		case 64:

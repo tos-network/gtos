@@ -306,6 +306,11 @@ func encryptablePrivateKeyBytes(key *Key) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("missing ed25519 private key")
 		}
 		return key.Ed25519PrivateKey.Seed(), signerType, nil
+	case accountsigner.SignerTypeBLS12381:
+		if _, err := accountsigner.PublicKeyFromBLS12381Private(key.BLS12381PrivateKey); err != nil {
+			return nil, "", fmt.Errorf("missing bls12-381 private key")
+		}
+		return append([]byte(nil), key.BLS12381PrivateKey...), signerType, nil
 	default:
 		return nil, "", fmt.Errorf("unsupported signer type: %s", signerType)
 	}
@@ -345,6 +350,23 @@ func keyFromBytes(id uuid.UUID, signerType string, keyBytes []byte) (*Key, error
 			SignerType:        accountsigner.SignerTypeEd25519,
 			PrivateKey:        nil,
 			Ed25519PrivateKey: append(ed25519.PrivateKey(nil), edPriv...),
+		}, nil
+	case accountsigner.SignerTypeBLS12381:
+		pub, err := accountsigner.PublicKeyFromBLS12381Private(keyBytes)
+		if err != nil {
+			return nil, err
+		}
+		addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeBLS12381, pub)
+		if err != nil {
+			return nil, err
+		}
+		return &Key{
+			Id:                 id,
+			Address:            addr,
+			SignerType:         accountsigner.SignerTypeBLS12381,
+			PrivateKey:         nil,
+			Ed25519PrivateKey:  nil,
+			BLS12381PrivateKey: append([]byte(nil), keyBytes...),
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported signer type: %s", signerType)

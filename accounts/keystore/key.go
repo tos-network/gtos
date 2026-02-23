@@ -36,6 +36,8 @@ type Key struct {
 	PrivateKey *ecdsa.PrivateKey
 	// Native ed25519 private key (64-byte expanded form). Nil for non-ed25519 accounts.
 	Ed25519PrivateKey ed25519.PrivateKey
+	// Native bls12-381 private key (32-byte scalar serialization).
+	BLS12381PrivateKey []byte
 }
 
 type keyStore interface {
@@ -126,6 +128,7 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		}
 		k.PrivateKey = privkey
 		k.Ed25519PrivateKey = nil
+		k.BLS12381PrivateKey = nil
 	case accountsigner.SignerTypeEd25519:
 		edPriv, decErr := decodeEd25519PrivateKeyHex(keyJSON.PrivateKey)
 		if decErr != nil {
@@ -133,6 +136,15 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		}
 		k.PrivateKey = nil
 		k.Ed25519PrivateKey = edPriv
+		k.BLS12381PrivateKey = nil
+	case accountsigner.SignerTypeBLS12381:
+		blsPriv, decErr := decodeBLS12381PrivateKeyHex(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = nil
+		k.Ed25519PrivateKey = nil
+		k.BLS12381PrivateKey = blsPriv
 	default:
 		return fmt.Errorf("unsupported signer type in keystore key json: %s", signerType)
 	}
@@ -183,6 +195,29 @@ func newKeyFromEd25519(privateKeyED25519 ed25519.PrivateKey) (*Key, error) {
 	return key, nil
 }
 
+func newKeyFromBLS12381(privateKeyBLS []byte) (*Key, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("could not create random uuid: %w", err)
+	}
+	pub, err := accountsigner.PublicKeyFromBLS12381Private(privateKeyBLS)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeBLS12381, pub)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{
+		Id:                 id,
+		Address:            addr,
+		SignerType:         accountsigner.SignerTypeBLS12381,
+		PrivateKey:         nil,
+		Ed25519PrivateKey:  nil,
+		BLS12381PrivateKey: append([]byte(nil), privateKeyBLS...),
+	}, nil
+}
+
 // NewKeyForDirectICAP generates a key whose address fits into < 155 bits so it can fit
 // into the Direct ICAP spec. for simplicity and easier compatibility with other libs, we
 // retry until the first byte is 0.
@@ -220,6 +255,14 @@ func newEd25519Key(rand io.Reader) (*Key, error) {
 	return newKeyFromEd25519(ed25519.NewKeyFromSeed(seed))
 }
 
+func newBLS12381Key(rand io.Reader) (*Key, error) {
+	priv, err := accountsigner.GenerateBLS12381PrivateKey(rand)
+	if err != nil {
+		return nil, err
+	}
+	return newKeyFromBLS12381(priv)
+}
+
 func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
 	key, err := newKey(rand)
 	if err != nil {
@@ -238,6 +281,22 @@ func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Accou
 
 func storeNewEd25519Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
 	key, err := newEd25519Key(rand)
+	if err != nil {
+		return nil, accounts.Account{}, err
+	}
+	a := accounts.Account{
+		Address: key.Address,
+		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
+	}
+	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
+		zeroKeyMaterial(key)
+		return nil, a, err
+	}
+	return key, a, err
+}
+
+func storeNewBLS12381Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
+	key, err := newBLS12381Key(rand)
 	if err != nil {
 		return nil, accounts.Account{}, err
 	}
@@ -278,6 +337,17 @@ func decodeEd25519PrivateKeyHex(privHex string) (ed25519.PrivateKey, error) {
 	}
 }
 
+func decodeBLS12381PrivateKeyHex(privHex string) ([]byte, error) {
+	raw, err := hex.DecodeString(privHex)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := accountsigner.PublicKeyFromBLS12381Private(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 func (k *Key) privateKeyHex() (string, error) {
 	switch canonicalSignerTypeOrDefault(k.SignerType) {
 	case accountsigner.SignerTypeSecp256k1:
@@ -290,6 +360,11 @@ func (k *Key) privateKeyHex() (string, error) {
 			return "", fmt.Errorf("missing ed25519 private key")
 		}
 		return hex.EncodeToString(k.Ed25519PrivateKey.Seed()), nil
+	case accountsigner.SignerTypeBLS12381:
+		if _, err := accountsigner.PublicKeyFromBLS12381Private(k.BLS12381PrivateKey); err != nil {
+			return "", fmt.Errorf("missing bls12-381 private key")
+		}
+		return hex.EncodeToString(k.BLS12381PrivateKey), nil
 	default:
 		return "", fmt.Errorf("unsupported signer type: %s", k.SignerType)
 	}

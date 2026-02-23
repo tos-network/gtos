@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -172,6 +173,37 @@ func sanityCheckSignature(v *big.Int, r *big.Int, s *big.Int, _ bool) error {
 		return ErrInvalidSig
 	}
 	return nil
+}
+
+func sanityCheckSignerTxSignature(signerType string, v *big.Int, r *big.Int, s *big.Int) error {
+	switch strings.ToLower(strings.TrimSpace(signerType)) {
+	case "secp256k1", "ethereum_secp256k1":
+		return sanityCheckSignature(v, r, s, false)
+	case "secp256r1", "ed25519":
+		if v == nil || r == nil || s == nil {
+			return ErrInvalidSig
+		}
+		if v.BitLen() > 8 {
+			return ErrInvalidSig
+		}
+		if r.Sign() < 0 || s.Sign() < 0 || r.BitLen() > 256 || s.BitLen() > 256 {
+			return ErrInvalidSig
+		}
+		return nil
+	case "bls12-381", "bls12381":
+		if v == nil || r == nil || s == nil {
+			return ErrInvalidSig
+		}
+		if v.Sign() != 0 || v.BitLen() > 8 {
+			return ErrInvalidSig
+		}
+		if r.Sign() < 0 || s.Sign() < 0 || r.BitLen() > 384 || s.BitLen() > 384 {
+			return ErrInvalidSig
+		}
+		return nil
+	default:
+		return ErrInvalidSig
+	}
 }
 
 // Protected is always true for SignerTx.

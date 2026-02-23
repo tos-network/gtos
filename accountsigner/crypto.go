@@ -9,9 +9,11 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 
+	blst "github.com/supranational/blst/bindings/go"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/crypto"
@@ -22,8 +24,10 @@ const (
 	SignerTypeSecp256r1 = "secp256r1"
 	SignerTypeEd25519   = "ed25519"
 	SignerTypeBLS12381  = "bls12-381"
-	SignerTypeFROST     = "frost"
-	SignerTypePQC       = "pqc"
+
+	bls12381PrivateKeyLen = 32
+	bls12381PubkeyLen     = 48
+	bls12381SignatureLen  = 96
 )
 
 var (
@@ -37,9 +41,9 @@ var (
 	signatureMetaAlgSecp256r1 = byte(2)
 	signatureMetaAlgEd25519   = byte(3)
 	signatureMetaAlgBLS12381  = byte(4)
-	signatureMetaAlgFROST     = byte(5)
-	signatureMetaAlgPQC       = byte(6)
 )
+
+var bls12381SignDst = []byte("GTOS_BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_")
 
 func normalizeSignerType(signerType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
@@ -51,10 +55,6 @@ func normalizeSignerType(signerType string) (string, error) {
 		return SignerTypeEd25519, nil
 	case SignerTypeBLS12381, "bls12381":
 		return SignerTypeBLS12381, nil
-	case SignerTypeFROST:
-		return SignerTypeFROST, nil
-	case SignerTypePQC:
-		return SignerTypePQC, nil
 	default:
 		return "", ErrUnknownSignerType
 	}
@@ -67,7 +67,7 @@ func CanonicalSignerType(signerType string) (string, error) {
 
 func SupportsCurrentTxSignatureType(signerType string) bool {
 	switch signerType {
-	case SignerTypeSecp256k1, SignerTypeSecp256r1, SignerTypeEd25519:
+	case SignerTypeSecp256k1, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381:
 		return true
 	default:
 		return false
@@ -115,6 +115,17 @@ func normalizeSecp256r1Pubkey(raw []byte) ([]byte, error) {
 	return pub, nil
 }
 
+func normalizeBLS12381Pubkey(raw []byte) ([]byte, error) {
+	if len(raw) != bls12381PubkeyLen {
+		return nil, ErrInvalidSignerValue
+	}
+	pk := new(blst.P1Affine).Uncompress(raw)
+	if pk == nil || !pk.KeyValidate() {
+		return nil, ErrInvalidSignerValue
+	}
+	return pk.Compress(), nil
+}
+
 // NormalizeSigner validates signerType/signerValue and returns canonical type, canonical pubkey bytes and canonical value.
 func NormalizeSigner(signerType, signerValue string) (string, []byte, string, error) {
 	normalizedType, err := normalizeSignerType(signerType)
@@ -141,26 +152,7 @@ func NormalizeSigner(signerType, signerValue string) (string, []byte, string, er
 			normalizedPub = append([]byte(nil), raw...)
 		}
 	case SignerTypeBLS12381:
-		// BLS12-381 public key is expected in compressed G1 form.
-		if len(raw) != 48 {
-			err = ErrInvalidSignerValue
-		} else {
-			normalizedPub = append([]byte(nil), raw...)
-		}
-	case SignerTypeFROST:
-		// FROST group key format depends on the underlying curve; keep as opaque key material.
-		if len(raw) < 16 || len(raw) > 128 {
-			err = ErrInvalidSignerValue
-		} else {
-			normalizedPub = append([]byte(nil), raw...)
-		}
-	case SignerTypePQC:
-		// PQC key sizes vary by algorithm family; allow opaque bytes within configured bounds.
-		if len(raw) < 64 {
-			err = ErrInvalidSignerValue
-		} else {
-			normalizedPub = append([]byte(nil), raw...)
-		}
+		normalizedPub, err = normalizeBLS12381Pubkey(raw)
 	default:
 		err = ErrUnknownSignerType
 	}
@@ -192,7 +184,7 @@ func AddressFromSigner(signerType string, signerPub []byte) (common.Address, err
 			return common.Address{}, ErrInvalidSignerValue
 		}
 		return common.BytesToAddress(crypto.Keccak256(signerPub)[12:]), nil
-	case SignerTypeBLS12381, SignerTypeFROST, SignerTypePQC:
+	case SignerTypeBLS12381:
 		if len(signerPub) == 0 {
 			return common.Address{}, ErrInvalidSignerValue
 		}
@@ -215,6 +207,131 @@ func rsSignatureBytes(r, s *big.Int) ([]byte, error) {
 	copy(sig[32-len(rb):32], rb)
 	copy(sig[64-len(sb):], sb)
 	return sig, nil
+}
+
+func bls12381SignatureFromRS(r, s *big.Int) ([]byte, error) {
+	if r == nil || s == nil || r.Sign() < 0 || s.Sign() < 0 {
+		return nil, ErrInvalidSignerValue
+	}
+	if r.BitLen() > bls12381PubkeyLen*8 || s.BitLen() > bls12381PubkeyLen*8 {
+		return nil, ErrInvalidSignerValue
+	}
+	out := make([]byte, bls12381SignatureLen)
+	rb := r.Bytes()
+	sb := s.Bytes()
+	copy(out[bls12381PubkeyLen-len(rb):bls12381PubkeyLen], rb)
+	copy(out[bls12381SignatureLen-len(sb):], sb)
+	return out, nil
+}
+
+func bls12381SignatureToRS(sig []byte) (*big.Int, *big.Int, error) {
+	if len(sig) != bls12381SignatureLen {
+		return nil, nil, ErrInvalidSignerValue
+	}
+	return new(big.Int).SetBytes(sig[:bls12381PubkeyLen]), new(big.Int).SetBytes(sig[bls12381PubkeyLen:]), nil
+}
+
+func bls12381SecretKeyFromBytes(priv []byte) (*blst.SecretKey, error) {
+	if len(priv) != bls12381PrivateKeyLen {
+		return nil, ErrInvalidSignerKey
+	}
+	sk := new(blst.SecretKey).Deserialize(priv)
+	if sk == nil || !sk.Valid() {
+		return nil, ErrInvalidSignerKey
+	}
+	return sk, nil
+}
+
+func verifyBLS12381Signature(pub, sig []byte, txHash common.Hash) bool {
+	if len(pub) != bls12381PubkeyLen || len(sig) != bls12381SignatureLen {
+		return false
+	}
+	var dummy blst.P2Affine
+	return dummy.VerifyCompressed(sig, true, pub, true, txHash[:], bls12381SignDst)
+}
+
+// GenerateBLS12381PrivateKey creates a new BLS12-381 secret key compatible with blst.
+func GenerateBLS12381PrivateKey(r io.Reader) ([]byte, error) {
+	ikm := make([]byte, bls12381PrivateKeyLen)
+	if _, err := io.ReadFull(r, ikm); err != nil {
+		return nil, err
+	}
+	sk := blst.KeyGen(ikm)
+	if sk == nil {
+		return nil, ErrInvalidSignerKey
+	}
+	out := append([]byte(nil), sk.Serialize()...)
+	sk.Zeroize()
+	return out, nil
+}
+
+// PublicKeyFromBLS12381Private derives compressed G1 public key bytes from a BLS12-381 secret key.
+func PublicKeyFromBLS12381Private(priv []byte) ([]byte, error) {
+	sk, err := bls12381SecretKeyFromBytes(priv)
+	if err != nil {
+		return nil, err
+	}
+	return new(blst.P1Affine).From(sk).Compress(), nil
+}
+
+// SignBLS12381Hash signs tx hash with BLS12-381 and returns compressed G2 signature bytes.
+func SignBLS12381Hash(priv []byte, txHash common.Hash) ([]byte, error) {
+	sk, err := bls12381SecretKeyFromBytes(priv)
+	if err != nil {
+		return nil, err
+	}
+	return new(blst.P2Affine).Sign(sk, txHash[:], bls12381SignDst).Compress(), nil
+}
+
+// AggregateBLS12381PublicKeys aggregates compressed BLS12-381 public keys into one compressed public key.
+func AggregateBLS12381PublicKeys(pubkeys [][]byte) ([]byte, error) {
+	if len(pubkeys) == 0 {
+		return nil, ErrInvalidSignerValue
+	}
+	agg := new(blst.P1Aggregate)
+	if !agg.AggregateCompressed(pubkeys, true) {
+		return nil, ErrInvalidSignerValue
+	}
+	out := agg.ToAffine()
+	if out == nil || !out.KeyValidate() {
+		return nil, ErrInvalidSignerValue
+	}
+	return out.Compress(), nil
+}
+
+// AggregateBLS12381Signatures aggregates compressed BLS12-381 signatures into one compressed signature.
+func AggregateBLS12381Signatures(signatures [][]byte) ([]byte, error) {
+	if len(signatures) == 0 {
+		return nil, ErrInvalidSignerValue
+	}
+	agg := new(blst.P2Aggregate)
+	if !agg.AggregateCompressed(signatures, true) {
+		return nil, ErrInvalidSignerValue
+	}
+	out := agg.ToAffine()
+	if out == nil || !out.SigValidate(false) {
+		return nil, ErrInvalidSignerValue
+	}
+	return out.Compress(), nil
+}
+
+// SplitBLS12381Signature splits compressed BLS12-381 signature bytes into tx R/S bigint components.
+func SplitBLS12381Signature(sig []byte) (*big.Int, *big.Int, error) {
+	return bls12381SignatureToRS(sig)
+}
+
+// JoinBLS12381Signature rebuilds compressed BLS12-381 signature bytes from tx R/S bigint components.
+func JoinBLS12381Signature(r, s *big.Int) ([]byte, error) {
+	return bls12381SignatureFromRS(r, s)
+}
+
+// VerifyBLS12381FastAggregate verifies an aggregated BLS signature against a list of signers for one message.
+func VerifyBLS12381FastAggregate(pubkeys [][]byte, signature []byte, txHash common.Hash) bool {
+	aggPub, err := AggregateBLS12381PublicKeys(pubkeys)
+	if err != nil {
+		return false
+	}
+	return verifyBLS12381Signature(aggPub, signature, txHash)
 }
 
 type ecdsaASN1Signature struct {
@@ -267,12 +384,12 @@ func SignSecp256r1Hash(priv *ecdsa.PrivateKey, txHash common.Hash) ([]byte, erro
 
 // VerifyRawSignature verifies (R,S)-style tx signature against the signer public key and hash.
 func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash, r, s *big.Int) bool {
-	sig, err := rsSignatureBytes(r, s)
-	if err != nil {
-		return false
-	}
 	switch signerType {
 	case SignerTypeSecp256k1:
+		sig, err := rsSignatureBytes(r, s)
+		if err != nil {
+			return false
+		}
 		return crypto.VerifySignature(signerPub, txHash[:], sig)
 	case SignerTypeSecp256r1:
 		if len(signerPub) != 65 || signerPub[0] != 0x04 {
@@ -284,13 +401,20 @@ func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash,
 		}
 		return ecdsa.Verify(&ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, txHash[:], r, s)
 	case SignerTypeEd25519:
+		sig, err := rsSignatureBytes(r, s)
+		if err != nil {
+			return false
+		}
 		if len(signerPub) != ed25519.PublicKeySize {
 			return false
 		}
 		return ed25519.Verify(ed25519.PublicKey(signerPub), txHash[:], sig)
-	case SignerTypeBLS12381, SignerTypeFROST, SignerTypePQC:
-		// These algorithms are tracked as signer types, but not representable via current tx (R,S) signature fields.
-		return false
+	case SignerTypeBLS12381:
+		sig, err := bls12381SignatureFromRS(r, s)
+		if err != nil {
+			return false
+		}
+		return verifyBLS12381Signature(signerPub, sig, txHash)
 	default:
 		return false
 	}
@@ -306,10 +430,6 @@ func signatureMetaAlgToType(alg byte) (string, error) {
 		return SignerTypeEd25519, nil
 	case signatureMetaAlgBLS12381:
 		return SignerTypeBLS12381, nil
-	case signatureMetaAlgFROST:
-		return SignerTypeFROST, nil
-	case signatureMetaAlgPQC:
-		return SignerTypePQC, nil
 	default:
 		return "", ErrInvalidSignatureMeta
 	}
@@ -325,10 +445,6 @@ func signatureTypeToMetaAlg(signerType string) (byte, error) {
 		return signatureMetaAlgEd25519, nil
 	case SignerTypeBLS12381:
 		return signatureMetaAlgBLS12381, nil
-	case SignerTypeFROST:
-		return signatureMetaAlgFROST, nil
-	case SignerTypePQC:
-		return signatureMetaAlgPQC, nil
 	default:
 		return 0, ErrUnknownSignerType
 	}

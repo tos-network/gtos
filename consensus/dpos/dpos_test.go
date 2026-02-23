@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core/types"
@@ -301,6 +302,52 @@ func TestAllowedFutureBlock(t *testing.T) {
 	}
 	if err := d.verifyHeader(chain, h6, nil); err != consensus.ErrFutureBlock {
 		t.Errorf("6s ahead should be rejected as ErrFutureBlock, got %v", err)
+	}
+}
+
+// ── vote signing helpers ─────────────────────────────────────────────────────
+
+func TestVoteSigningLifecycle(t *testing.T) {
+	d := NewFaker()
+	if d.CanSignVotes() {
+		t.Fatal("unexpected vote signer readiness before Authorize")
+	}
+
+	digest := crypto.Keccak256Hash([]byte("dpos-vote-digest"))
+	if _, err := d.SignVote(digest); err == nil {
+		t.Fatal("expected SignVote to fail when signer is not configured")
+	}
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	var gotMime string
+
+	d.Authorize(addr, func(_ accounts.Account, mime string, hash []byte) ([]byte, error) {
+		gotMime = mime
+		return crypto.Sign(hash, key)
+	})
+
+	if !d.CanSignVotes() {
+		t.Fatal("expected vote signer readiness after Authorize")
+	}
+
+	sig, err := d.SignVote(digest)
+	if err != nil {
+		t.Fatalf("SignVote: %v", err)
+	}
+	if gotMime != accounts.MimetypeDPoS {
+		t.Fatalf("unexpected MIME type: have %q want %q", gotMime, accounts.MimetypeDPoS)
+	}
+
+	pub, err := crypto.SigToPub(digest.Bytes(), sig)
+	if err != nil {
+		t.Fatalf("SigToPub: %v", err)
+	}
+	if recovered := crypto.PubkeyToAddress(*pub); recovered != addr {
+		t.Fatalf("vote signature signer mismatch: have %s want %s", recovered.Hex(), addr.Hex())
 	}
 }
 

@@ -30,6 +30,9 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 	if tx.Type() != types.SignerTxType {
 		return common.Address{}, types.ErrTxTypeNotSupported
 	}
+	if tx.ChainId().Cmp(chainSigner.ChainID()) != 0 {
+		return common.Address{}, types.ErrInvalidChainId
+	}
 	from, ok := tx.SignerFrom()
 	if !ok {
 		return common.Address{}, ErrUnsupportedAccountSignerType

@@ -9,6 +9,7 @@ import (
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tosdb"
 )
@@ -219,6 +220,11 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		// Execute any user modifications to the block
 		if gen != nil {
 			gen(i, b)
+		}
+		// Mirror runtime state processor maintenance path for deterministic roots.
+		if b.header.Number != nil {
+			pruneExpiredCodeAt(statedb, b.header.Number.Uint64())
+			kvstore.PruneExpiredAt(statedb, b.header.Number.Uint64())
 		}
 		if b.engine != nil {
 			// Finalize and seal the block

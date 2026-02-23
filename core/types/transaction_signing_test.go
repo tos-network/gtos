@@ -73,6 +73,36 @@ func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 	}
 }
 
+func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      2,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "bls12-381",
+	})
+	sig := make([]byte, 96)
+	sig[47] = 0x55
+	sig[95] = 0x66
+
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("with signature failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if r.Uint64() != 0x55 || s.Uint64() != 0x66 {
+		t.Fatalf("unexpected r/s values")
+	}
+}
+
 func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	if err != nil {

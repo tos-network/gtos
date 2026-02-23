@@ -423,6 +423,17 @@ func (ks *KeyStore) NewEd25519Account(passphrase string) (accounts.Account, erro
 	return account, nil
 }
 
+// NewBLS12381Account generates a new native bls12-381 key and stores it into the key directory.
+func (ks *KeyStore) NewBLS12381Account(passphrase string) (accounts.Account, error) {
+	_, account, err := storeNewBLS12381Key(ks.storage, crand.Reader, passphrase)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	ks.cache.add(account)
+	ks.refreshWallets()
+	return account, nil
+}
+
 // Export exports as a JSON key, encrypted with newPassphrase.
 func (ks *KeyStore) Export(a accounts.Account, passphrase, newPassphrase string) (keyJSON []byte, err error) {
 	_, key, err := ks.getDecryptedKey(a, passphrase)
@@ -489,6 +500,23 @@ func (ks *KeyStore) ImportEd25519(priv ed25519.PrivateKey, passphrase string) (a
 	return ks.importKey(key, passphrase)
 }
 
+// ImportBLS12381 stores the given native bls12-381 key into the key directory, encrypting it with the passphrase.
+func (ks *KeyStore) ImportBLS12381(priv []byte, passphrase string) (accounts.Account, error) {
+	ks.importMu.Lock()
+	defer ks.importMu.Unlock()
+
+	key, err := newKeyFromBLS12381(priv)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if ks.cache.hasAddress(key.Address) {
+		return accounts.Account{
+			Address: key.Address,
+		}, ErrAccountAlreadyExists
+	}
+	return ks.importKey(key, passphrase)
+}
+
 func (ks *KeyStore) importKey(key *Key, passphrase string) (accounts.Account, error) {
 	a := accounts.Account{Address: key.Address, URL: accounts.URL{Scheme: KeyStoreScheme, Path: ks.storage.JoinPath(keyFileName(key.Address))}}
 	if err := ks.storage.StoreKey(a.URL.Path, key, passphrase); err != nil {
@@ -544,6 +572,9 @@ func zeroKeyMaterial(k *Key) {
 	}
 	zeroKey(k.PrivateKey)
 	zeroEd25519Key(k.Ed25519PrivateKey)
+	for i := range k.BLS12381PrivateKey {
+		k.BLS12381PrivateKey[i] = 0
+	}
 }
 
 func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key) (*types.Transaction, error) {
@@ -580,6 +611,27 @@ func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key)
 		out := make([]byte, 65)
 		copy(out, sig)
 		return tx.WithSignature(signer, out)
+	case accountsigner.SignerTypeBLS12381:
+		if tx.Type() != types.SignerTxType {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		txSignerType, ok := tx.SignerType()
+		if !ok {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		normalizedTxSignerType, err := accountsigner.CanonicalSignerType(txSignerType)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedTxSignerType != accountsigner.SignerTypeBLS12381 {
+			return nil, fmt.Errorf("%w: %s", types.ErrSignerTypeNotSupportedByLocalKey, normalizedTxSignerType)
+		}
+		hash := signer.Hash(tx)
+		sig, err := accountsigner.SignBLS12381Hash(key.BLS12381PrivateKey, hash)
+		if err != nil {
+			return nil, err
+		}
+		return tx.WithSignature(signer, sig)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedSigningKey, signerType)
 	}

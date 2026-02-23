@@ -2,6 +2,7 @@ package tosapi
 
 import (
 	"context"
+	crand "crypto/rand"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rpc"
 )
 
 func TestSetSignerValidation(t *testing.T) {
@@ -47,7 +49,17 @@ func TestSetSignerValidation(t *testing.T) {
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		SignerType:      accountsigner.SignerTypeBLS12381,
-		SignerValue:     "0x" + strings.Repeat("11", 48),
+		SignerValue: func() string {
+			priv, genErr := accountsigner.GenerateBLS12381PrivateKey(crand.Reader)
+			if genErr != nil {
+				t.Fatalf("failed to generate bls private key: %v", genErr)
+			}
+			pub, pubErr := accountsigner.PublicKeyFromBLS12381Private(priv)
+			if pubErr != nil {
+				t.Fatalf("failed to derive bls public key: %v", pubErr)
+			}
+			return hexutil.Encode(pub)
+		}(),
 	})
 	if err == nil {
 		t.Fatalf("expected not-implemented error")
@@ -355,5 +367,40 @@ func TestCodeAndKVReadValidation(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrInvalidParams {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+}
+
+func TestVMEraRPCDeprecationErrors(t *testing.T) {
+	ctx := context.Background()
+	blockArg := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+
+	_, err := DoCall(ctx, nil, TransactionArgs{}, blockArg, nil, 0, 0)
+	assertNotSupportedMethod(t, err, "tos_call")
+
+	_, err = DoEstimateGas(ctx, nil, TransactionArgs{}, blockArg, 0)
+	assertNotSupportedMethod(t, err, "tos_estimateGas")
+
+	_, _, _, err = AccessList(ctx, nil, blockArg, TransactionArgs{})
+	assertNotSupportedMethod(t, err, "tos_createAccessList")
+}
+
+func assertNotSupportedMethod(t *testing.T, err error, wantMethod string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected not-supported error for %s", wantMethod)
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrNotSupported {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotSupported)
+	}
+	data, ok := rpcErr.data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected error data type %T", rpcErr.data)
+	}
+	if got, _ := data["method"].(string); got != wantMethod {
+		t.Fatalf("unexpected method in error data: have %q want %q", got, wantMethod)
 	}
 }

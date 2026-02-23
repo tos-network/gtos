@@ -84,6 +84,18 @@ type environment struct {
 	uncles   map[common.Hash]*types.Header
 }
 
+// txSenderHint returns a sender hint for non-consensus contexts.
+// It prefers cryptographic recovery and falls back to explicit SignerTx.from.
+func txSenderHint(signer types.Signer, tx *types.Transaction) common.Address {
+	if from, err := types.Sender(signer, tx); err == nil {
+		return from
+	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		return explicitFrom
+	}
+	return common.Address{}
+}
+
 // copy creates a deep copy of environment.
 func (env *environment) copy() *environment {
 	cpy := &environment{
@@ -579,7 +591,7 @@ func (w *worker) mainLoop() {
 				}
 				txs := make(map[common.Address]types.Transactions)
 				for _, tx := range ev.Txs {
-					acc, _ := types.Sender(w.current.signer, tx)
+					acc := txSenderHint(w.current.signer, tx)
 					txs[acc] = append(txs[acc], tx)
 				}
 				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee)
@@ -859,7 +871,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		// during transaction acceptance in the transaction pool.
 		//
 		// Chain-id replay protection is always active in GTOS.
-		from, _ := types.Sender(env.signer, tx)
+		from := txSenderHint(env.signer, tx)
 		// Start executing the transaction
 		env.state.Prepare(tx.Hash(), env.tcount)
 

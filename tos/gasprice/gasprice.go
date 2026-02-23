@@ -234,6 +234,18 @@ func (s *txSorter) Less(i, j int) bool {
 	return tip1.Cmp(tip2) < 0
 }
 
+// txSenderHint returns a sender hint for non-consensus contexts.
+// It prefers cryptographic recovery and falls back to explicit SignerTx.from.
+func txSenderHint(signer types.Signer, tx *types.Transaction) common.Address {
+	if sender, err := types.Sender(signer, tx); err == nil {
+		return sender
+	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		return explicitFrom
+	}
+	return common.Address{}
+}
+
 // getBlockPrices calculates the lowest transaction gas price in a given block
 // and sends it to the result channel. If the block is empty or all transactions
 // are sent by the miner itself(it doesn't make any sense to include this kind of
@@ -259,8 +271,8 @@ func (oracle *Oracle) getBlockValues(ctx context.Context, signer types.Signer, b
 		if ignoreUnder != nil && tip.Cmp(ignoreUnder) == -1 {
 			continue
 		}
-		sender, err := types.Sender(signer, tx)
-		if err == nil && sender != block.Coinbase() {
+		sender := txSenderHint(signer, tx)
+		if sender != (common.Address{}) && sender != block.Coinbase() {
 			prices = append(prices, tip)
 			if len(prices) >= limit {
 				break

@@ -11,9 +11,11 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
+	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
-	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/params"
 )
 
 // TransactionArgs represents the arguments to construct a new transaction
@@ -103,9 +105,9 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
+			allowSetCodeCreation: args.allowSetCodeCreation,
 		}
-		pendingBlockNr := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
-		estimated, err := DoEstimateGas(ctx, b, callArgs, pendingBlockNr, b.RPCGasCap())
+		estimated, err := estimateStorageFirstGas(callArgs)
 		if err != nil {
 			return err
 		}
@@ -133,6 +135,56 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		args.SignerType = &defaultSignerType
 	}
 	return nil
+}
+
+func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
+	data := args.data()
+
+	var accessList types.AccessList
+	if args.AccessList != nil {
+		accessList = *args.AccessList
+	}
+	if args.To == nil {
+		if !args.allowSetCodeCreation {
+			return 0, newRPCInvalidParamsError("to", "to=nil is reserved for tos_setCode")
+		}
+		payload, err := core.DecodeSetCodePayload(data)
+		if err != nil {
+			return 0, newRPCInvalidParamsError("input", "invalid setCode payload")
+		}
+		gas, err := core.EstimateSetCodePayloadGas(data, payload.TTL)
+		if err != nil {
+			return 0, err
+		}
+		return hexutil.Uint64(gas), nil
+	}
+	to := *args.To
+	if to == params.SystemActionAddress {
+		gas, err := estimateSystemActionGas(data)
+		if err != nil {
+			return 0, err
+		}
+		return hexutil.Uint64(gas), nil
+	}
+	if to == params.KVRouterAddress {
+		payload, err := kvstore.DecodePutPayload(data)
+		if err != nil {
+			return 0, newRPCInvalidParamsError("input", "invalid kv payload")
+		}
+		gas, err := kvstore.EstimatePutPayloadGas(data, payload.TTL)
+		if err != nil {
+			return 0, err
+		}
+		return hexutil.Uint64(gas), nil
+	}
+	if len(data) > 0 {
+		return 0, newRPCInvalidParamsError("gas", "cannot auto-estimate gas for calldata to non-system address; specify gas explicitly")
+	}
+	gas, err := core.IntrinsicGas(nil, accessList, false, true, true)
+	if err != nil {
+		return 0, err
+	}
+	return hexutil.Uint64(gas), nil
 }
 
 // setFeeDefaults fills in default fee values for unspecified tx fields.

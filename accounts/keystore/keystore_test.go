@@ -2,6 +2,7 @@ package keystore
 
 import (
 	"crypto/ed25519"
+	crand "crypto/rand"
 	"math/rand"
 	"os"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/event"
@@ -367,6 +369,35 @@ func TestImportEd25519(t *testing.T) {
 	}
 }
 
+func TestImportBLS12381(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	key, err := accountsigner.GenerateBLS12381PrivateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate bls key: %v", err)
+	}
+	acc, err := ks.ImportBLS12381(key, "old")
+	if err != nil {
+		t.Fatalf("importing failed: %v", err)
+	}
+	if _, err = ks.ImportBLS12381(key, "old"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	if _, err = ks.ImportBLS12381(key, "new"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt imported key: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeBLS12381 {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	if len(decrypted.BLS12381PrivateKey) != 32 {
+		t.Fatalf("unexpected bls private key size: %d", len(decrypted.BLS12381PrivateKey))
+	}
+}
+
 // TestImportECDSA tests the import and export functionality of a keystore.
 func TestImportExport(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
@@ -399,6 +430,29 @@ func TestImportExportEd25519(t *testing.T) {
 	acc, err := ks.NewEd25519Account("old")
 	if err != nil {
 		t.Fatalf("failed to create ed25519 account: %v", acc)
+	}
+	json, err := ks.Export(acc, "old", "new")
+	if err != nil {
+		t.Fatalf("failed to export account: %v", acc)
+	}
+	_, ks2 := tmpKeyStore(t, true)
+	if _, err = ks2.Import(json, "old", "old"); err == nil {
+		t.Errorf("importing with invalid password succeeded")
+	}
+	acc2, err := ks2.Import(json, "new", "new")
+	if err != nil {
+		t.Errorf("importing failed: %v", err)
+	}
+	if acc.Address != acc2.Address {
+		t.Error("imported account does not match exported account")
+	}
+}
+
+func TestImportExportBLS12381(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewBLS12381Account("old")
+	if err != nil {
+		t.Fatalf("failed to create bls account: %v", acc)
 	}
 	json, err := ks.Export(acc, "old", "new")
 	if err != nil {

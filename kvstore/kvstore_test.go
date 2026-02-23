@@ -108,3 +108,35 @@ func TestPutOverwriteTruncatesPreviousValue(t *testing.T) {
 		t.Fatalf("unexpected overwritten meta: %+v", meta)
 	}
 }
+
+func TestPruneExpiredAtClearsOnlyMatchingRecords(t *testing.T) {
+	st := newTestState(t)
+	owner := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+
+	// key1 first expires at 50, then is overwritten to expire at 60.
+	Put(st, owner, "ns", []byte("k1"), []byte("v1"), 10, 50)
+	Put(st, owner, "ns", []byte("k1"), []byte("v2"), 20, 60)
+	// key2 expires at 50 and should be pruned there.
+	Put(st, owner, "ns", []byte("k2"), []byte("v3"), 11, 50)
+
+	if pruned := PruneExpiredAt(st, 50); pruned != 1 {
+		t.Fatalf("unexpected pruned count at block 50: have %d want 1", pruned)
+	}
+	// Stale bucket entry for key1@50 must not delete current record (expireAt=60).
+	if got, meta, ok := Get(st, owner, "ns", []byte("k1")); !ok || !bytes.Equal(got, []byte("v2")) || meta.ExpireAt != 60 {
+		t.Fatalf("unexpected key1 after block-50 prune: ok=%v value=%x meta=%+v", ok, got, meta)
+	}
+	if _, _, ok := Get(st, owner, "ns", []byte("k2")); ok {
+		t.Fatalf("key2 should be pruned at block 50")
+	}
+
+	if pruned := PruneExpiredAt(st, 50); pruned != 0 {
+		t.Fatalf("expected idempotent prune at block 50, have %d", pruned)
+	}
+	if pruned := PruneExpiredAt(st, 60); pruned != 1 {
+		t.Fatalf("unexpected pruned count at block 60: have %d want 1", pruned)
+	}
+	if _, _, ok := Get(st, owner, "ns", []byte("k1")); ok {
+		t.Fatalf("key1 should be pruned at block 60")
+	}
+}

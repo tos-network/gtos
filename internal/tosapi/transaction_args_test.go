@@ -18,6 +18,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/tosdb"
@@ -110,6 +111,101 @@ func TestSetFeeDefaults(t *testing.T) {
 		if !reflect.DeepEqual(got, test.want) {
 			t.Fatalf("test %d (%s): did not fill defaults as expected: (got: %v, want: %v)", i, test.name, got, test.want)
 		}
+	}
+}
+
+func TestEstimateStorageFirstGas(t *testing.T) {
+	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
+
+	toTransfer := common.HexToAddress("0x0000000000000000000000000000000000000003")
+	transferGas, err := estimateStorageFirstGas(TransactionArgs{
+		From: &from,
+		To:   &toTransfer,
+	})
+	if err != nil {
+		t.Fatalf("transfer gas estimate failed: %v", err)
+	}
+	if uint64(transferGas) != params.TxGas {
+		t.Fatalf("unexpected transfer gas: have %d want %d", transferGas, params.TxGas)
+	}
+
+	systemPayload := hexutil.Bytes{0x01, 0x02}
+	toSystem := params.SystemActionAddress
+	systemGas, err := estimateStorageFirstGas(TransactionArgs{
+		From:  &from,
+		To:    &toSystem,
+		Input: &systemPayload,
+	})
+	if err != nil {
+		t.Fatalf("system action gas estimate failed: %v", err)
+	}
+	wantSystem, err := estimateSystemActionGas(systemPayload)
+	if err != nil {
+		t.Fatalf("system action intrinsic helper failed: %v", err)
+	}
+	if uint64(systemGas) != wantSystem {
+		t.Fatalf("unexpected system action gas: have %d want %d", systemGas, wantSystem)
+	}
+
+	kvPayloadBytes, err := kvstore.EncodePutPayload("app", []byte("k"), []byte("v"), 7)
+	if err != nil {
+		t.Fatalf("encode kv payload: %v", err)
+	}
+	kvPayload := hexutil.Bytes(kvPayloadBytes)
+	toKV := params.KVRouterAddress
+	kvGas, err := estimateStorageFirstGas(TransactionArgs{
+		From:  &from,
+		To:    &toKV,
+		Input: &kvPayload,
+	})
+	if err != nil {
+		t.Fatalf("kv gas estimate failed: %v", err)
+	}
+	wantKV, err := kvstore.EstimatePutPayloadGas(kvPayloadBytes, 7)
+	if err != nil {
+		t.Fatalf("kv intrinsic helper failed: %v", err)
+	}
+	if uint64(kvGas) != wantKV {
+		t.Fatalf("unexpected kv gas: have %d want %d", kvGas, wantKV)
+	}
+
+	callData := hexutil.Bytes{0x60, 0x00}
+	_, err = estimateStorageFirstGas(TransactionArgs{
+		From:  &from,
+		To:    &toTransfer,
+		Input: &callData,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for unsupported calldata auto-estimation")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	}
+
+	setCodePayloadBytes, err := core.EncodeSetCodePayload(3, []byte{0x60, 0x00})
+	if err != nil {
+		t.Fatalf("encode setCode payload: %v", err)
+	}
+	setCodePayload := hexutil.Bytes(setCodePayloadBytes)
+	setCodeGas, err := estimateStorageFirstGas(TransactionArgs{
+		From:                 &from,
+		To:                   nil,
+		Input:                &setCodePayload,
+		allowSetCodeCreation: true,
+	})
+	if err != nil {
+		t.Fatalf("setCode gas estimate failed: %v", err)
+	}
+	wantSetCode, err := core.EstimateSetCodePayloadGas(setCodePayloadBytes, 3)
+	if err != nil {
+		t.Fatalf("setCode intrinsic helper failed: %v", err)
+	}
+	if uint64(setCodeGas) != wantSetCode {
+		t.Fatalf("unexpected setCode gas: have %d want %d", setCodeGas, wantSetCode)
 	}
 }
 
