@@ -10,6 +10,8 @@ Available commands are:
 
 	install    [ -arch architecture ] [ -cc compiler ] [ packages... ]                          -- builds packages and executables
 	test       [ -coverage ] [ packages... ]                                                    -- runs the tests
+	bench-ttlprune [ -benchtime value ] [ -count n ]                                            -- runs TTL prune benchmark smoke suite
+	soak-dpos  [ -duration value ] [ -maxruns n ] [ -testtimeout value ]                        -- runs DPoS stability soak loop
 	lint                                                                                        -- runs certain pre-selected linters
 	archive    [ -arch architecture ] [ -type zip|tar ] [ -signer key-envvar ] [ -signify key-envvar ] [ -upload dest ] -- archives build artifacts
 	importkeys                                                                                  -- imports signing keys from env
@@ -138,6 +140,10 @@ func main() {
 		doInstall(os.Args[2:])
 	case "test":
 		doTest(os.Args[2:])
+	case "bench-ttlprune":
+		doBenchTTLPrune(os.Args[2:])
+	case "soak-dpos":
+		doSoakDPoS(os.Args[2:])
 	case "lint":
 		doLint(os.Args[2:])
 	case "archive":
@@ -288,6 +294,102 @@ func doTest(cmdline []string) {
 	}
 	gotest.Args = append(gotest.Args, packages...)
 	build.MustRun(gotest)
+}
+
+func doBenchTTLPrune(cmdline []string) {
+	var (
+		dlgo      = flag.Bool("dlgo", false, "Download Go and build with it")
+		arch      = flag.String("arch", "", "Run benchmarks for given architecture")
+		cc        = flag.String("cc", "", "Sets C compiler binary")
+		benchtime = flag.String("benchtime", "1x", "Go benchmark benchtime value")
+		count     = flag.Int("count", 1, "Benchmark run count")
+		verbose   = flag.Bool("v", false, "Whether to log verbosely")
+	)
+	flag.CommandLine.Parse(cmdline)
+
+	tc := build.GoToolchain{GOARCH: *arch, CC: *cc}
+	if *dlgo {
+		csdb := build.MustLoadChecksums("build/checksums.txt")
+		tc.Root = build.DownloadGo(csdb, dlgoVersion)
+	}
+	gotest := tc.Go("test")
+	if *verbose {
+		gotest.Args = append(gotest.Args, "-v")
+	}
+	gotest.Args = append(gotest.Args,
+		"./core",
+		"-run", "^$",
+		"-bench", "BenchmarkPruneExpired(Code|KV)At",
+		"-benchmem",
+		"-benchtime", *benchtime,
+		"-count", strconv.Itoa(*count),
+	)
+	build.MustRun(gotest)
+}
+
+func doSoakDPoS(cmdline []string) {
+	var (
+		dlgo        = flag.Bool("dlgo", false, "Download Go and build with it")
+		arch        = flag.String("arch", "", "Run tests for given architecture")
+		cc          = flag.String("cc", "", "Sets C compiler binary")
+		duration    = flag.String("duration", "24h", "Total soak duration")
+		maxRuns     = flag.Int("maxruns", 0, "Maximum number of runs (0 means no cap)")
+		testTimeout = flag.String("testtimeout", "20m", "Per-run go test timeout")
+		testRun     = flag.String("run", "^TestDPoSThreeValidatorStabilityGate$", "go test -run regex")
+		packagePath = flag.String("pkg", "./consensus/dpos", "package path for soak test")
+		verbose     = flag.Bool("v", false, "Whether to log verbosely")
+	)
+	flag.CommandLine.Parse(cmdline)
+
+	totalDuration, err := time.ParseDuration(*duration)
+	if err != nil || totalDuration <= 0 {
+		log.Fatalf("invalid -duration value %q", *duration)
+	}
+	if _, err := time.ParseDuration(*testTimeout); err != nil {
+		log.Fatalf("invalid -testtimeout value %q", *testTimeout)
+	}
+	if *maxRuns < 0 {
+		log.Fatalf("invalid -maxruns value %d", *maxRuns)
+	}
+
+	tc := build.GoToolchain{GOARCH: *arch, CC: *cc}
+	if *dlgo {
+		csdb := build.MustLoadChecksums("build/checksums.txt")
+		tc.Root = build.DownloadGo(csdb, dlgoVersion)
+	}
+
+	start := time.Now()
+	deadline := start.Add(totalDuration)
+	runs := 0
+	log.Printf("starting DPoS soak: duration=%s deadline=%s run=%q pkg=%s maxruns=%d testtimeout=%s",
+		totalDuration, deadline.UTC().Format(time.RFC3339), *testRun, *packagePath, *maxRuns, *testTimeout)
+
+	for {
+		now := time.Now()
+		if runs > 0 && now.After(deadline) {
+			break
+		}
+		if *maxRuns > 0 && runs >= *maxRuns {
+			break
+		}
+		runs++
+		log.Printf("soak iteration %d started at %s", runs, now.UTC().Format(time.RFC3339))
+
+		gotest := tc.Go("test")
+		if *verbose {
+			gotest.Args = append(gotest.Args, "-v")
+		}
+		gotest.Args = append(gotest.Args,
+			*packagePath,
+			"-run", *testRun,
+			"-count", "1",
+			"-timeout", *testTimeout,
+		)
+		build.MustRun(gotest)
+	}
+
+	elapsed := time.Since(start)
+	log.Printf("completed DPoS soak: runs=%d elapsed=%s", runs, elapsed)
 }
 
 // doLint runs golangci-lint on requested packages.

@@ -2,12 +2,13 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos all test clean tps lint devtools
+.PHONY: gtos all test clean tps ttl-prune-bench ttl-prune-bench-ci dpos-soak dpos-soak-ci lint devtools
 
 GOBIN = ./build/bin
 GO ?= latest
 NCPU = $(shell expr $$(nproc) / 2)
 GORUN = env GO111MODULE=on GOMAXPROCS=$(NCPU) go run
+SOAK_ARGS ?= -duration 24h
 
 gtos:
 	$(GORUN) build/ci.go install ./cmd/gtos
@@ -29,6 +30,18 @@ clean:
 
 tps: gtos
 	bash ./scripts/tps_bench.sh
+
+ttl-prune-bench:
+	bash ./scripts/ttl_prune_bench_smoke.sh
+
+ttl-prune-bench-ci:
+	$(GORUN) build/ci.go bench-ttlprune
+
+dpos-soak:
+	bash ./scripts/dpos_stability_soak.sh
+
+dpos-soak-ci:
+	$(GORUN) build/ci.go soak-dpos $(SOAK_ARGS)
 
 # The devtools target installs tools required for 'go generate'.
 # You need to put $GOBIN (or $GOPATH/bin) in your PATH to use 'go generate'.

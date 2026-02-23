@@ -132,8 +132,10 @@ Status: `IN_PROGRESS`
 5. `DONE` Add long-run bounded-storage gate for KV/code expiry maintenance (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots`).
 6. `DONE` Start Phase 4 hardening baseline: retention-window enforcement automation and restart/recovery drill (`internal/tosapi/api_retention_test.go::TestRetentionWatermarkTracksHead` + `core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
 7. `DONE` Finalize retention/snapshot operational spec and version it (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
-8. `IN_PROGRESS` Expand Phase 4 hardening to observability + security fuzz/property baseline (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `internal/tosapi/metrics.go` + `internal/tosapi/metrics_test.go` + `core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
-9. `IN_PROGRESS` Start performance profiling baseline for TTL prune maintenance (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `chain/ttlprune/*_time` timers + first prune-loop micro-optimization in `kvstore/state.go`/`core/setcode_prune.go`).
+8. `DONE` Expand Phase 4 hardening to observability + security fuzz/property baseline (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `internal/tosapi/metrics.go` + `internal/tosapi/metrics_test.go` + `core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
+9. `DONE` Start performance profiling baseline for TTL prune maintenance (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `chain/ttlprune/*_time` timers + first prune-loop micro-optimization in `kvstore/state.go`/`core/setcode_prune.go` + `scripts/ttl_prune_bench_smoke.sh` + `Makefile::ttl-prune-bench`).
+10. `IN_PROGRESS` Start 24h DPoS stability soak automation (`build/ci.go::soak-dpos` + `scripts/dpos_stability_soak.sh` + `Makefile::dpos-soak` + `Makefile::dpos-soak-ci`) and collect full-window non-halt evidence.
+11. `DONE` Add cross-node retention-window determinism gate (same head/retain policy yields identical oldest-available boundary and prune rejection behavior across nodes in `internal/tosapi/api_retention_crossnode_test.go::TestRetentionBoundaryDeterministicAcrossNodes`).
 
 ## Phase 2: Code Storage with TTL
 
@@ -189,17 +191,19 @@ Harden the chain for sustained production load.
 
 ### Deliverables
 
-- `IN_PROGRESS` Performance profiling baseline and bottleneck entry-point capture (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `core/state_processor.go` timer metrics + prune-loop micro-optimizations).
-- `IN_PROGRESS` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
-- `IN_PROGRESS` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
-- `IN_PROGRESS` Observability baseline: metrics + structured logs for TTL prune and retention rejection (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go` + `internal/tosapi/metrics_test.go`).
-- `IN_PROGRESS` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary, multi-signer sender-resolution robustness (`secp256k1`/`secp256r1`/`ed25519`), retention boundary invariants, and account-signer normalization/signature-meta robustness (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
+- `DONE` Performance profiling baseline and bottleneck entry-point capture (`docs/PERFORMANCE_BASELINE.md` + `core/ttl_prune_bench_test.go` + `core/state_processor.go` timer metrics + prune-loop micro-optimizations + `scripts/ttl_prune_bench_smoke.sh` + `Makefile::ttl-prune-bench` + `build/ci.go::bench-ttlprune` + `Makefile::ttl-prune-bench-ci`).
+- `DONE` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
+- `DONE` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
+- `DONE` Observability baseline: metrics + structured logs for TTL prune and retention rejection (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go` + `internal/tosapi/metrics_test.go`).
+- `DONE` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary, multi-signer sender-resolution robustness (`secp256k1`/`secp256r1`/`ed25519`), retention boundary invariants, and account-signer normalization/signature-meta robustness (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
+- `IN_PROGRESS` Long-window DPoS soak automation and evidence capture path (`docs/STABILITY_SOAK.md` + `build/ci.go::soak-dpos` + `scripts/dpos_stability_soak.sh` + `Makefile::dpos-soak-ci`).
+- `DONE` Cross-node retention-window determinism gate (`internal/tosapi/api_retention_crossnode_test.go::TestRetentionBoundaryDeterministicAcrossNodes`).
 
 ### Definition of Done
 
-- `PLANNED` 24h stability run without consensus halt.
+- `IN_PROGRESS` 24h stability run automation is available (`go run build/ci.go soak-dpos -duration 24h` / `make dpos-soak-ci`); full 24h non-halt evidence capture remains pending.
 - `DONE` Restart/recovery drills succeed at latest finalized height (`core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
-- `PLANNED` Retention window remains deterministic and bounded across nodes.
+- `DONE` Retention window remains deterministic and bounded across nodes (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots` + `internal/tosapi/api_retention_crossnode_test.go::TestRetentionBoundaryDeterministicAcrossNodes`).
 
 ## Milestone Priorities
 

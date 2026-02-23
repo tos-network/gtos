@@ -1,0 +1,149 @@
+{
+  "valid": [
+    {
+      "name": "secp256k1_basic",
+      "tx": {
+        "chainId": "0x539",
+        "nonce": 42,
+        "gasPrice": "0x3b9aca00",
+        "gas": 50000,
+        "to": "0x1111111111111111111111111111111111111111",
+        "value": "0x3039",
+        "data": "0x11223344aabb",
+        "from": "0x4eDDA98BFa922fa96C691A582d809996703679F2",
+        "signerType": "secp256k1"
+      },
+      "signHash": "0x4ebe0f0daeaa1d00db0cc6c1a6b6743b746e93c518969274d209048f3388f98e",
+      "pubKey": "0x04abfcc371eb9fbc2034a33862fc0c71a127b431d6582beeac3868411447d0a0ff545581047674e77398889545c89732bc969766dab37bd66a57412d6cdbcbdd19",
+      "signature": "0x29f90a71c711e3855f0e37ec588d2e978f5b5920f49fc325f76fc6fe453976ce3a1ceb9a9a578b7a66a54dbe34bcd1fad4da5db4d82281b310042f253aa9356601",
+      "v": "0x1",
+      "r": "0x29f90a71c711e3855f0e37ec588d2e978f5b5920f49fc325f76fc6fe453976ce",
+      "s": "0x3a1ceb9a9a578b7a66a54dbe34bcd1fad4da5db4d82281b310042f253aa93566",
+      "txHash": "0xb5753f6dd45ef6cbd4477ca8bd29e57bb1c5176243151098df12b77be494c104",
+      "rawTx": "0x00f88e8205392a843b9aca0082c3509411111111111111111111111111111111111111118230398611223344aabbc0944edda98bfa922fa96c691a582d809996703679f289736563703235366b3101a029f90a71c711e3855f0e37ec588d2e978f5b5920f49fc325f76fc6fe453976cea03a1ceb9a9a578b7a66a54dbe34bcd1fad4da5db4d82281b310042f253aa93566"
+    },
+    {
+      "name": "secp256r1_basic",
+      "tx": {
+        "chainId": "0x539",
+        "nonce": 42,
+        "gasPrice": "0x3b9aca00",
+        "gas": 50000,
+        "to": "0x1111111111111111111111111111111111111111",
+        "value": "0x3039",
+        "data": "0x11223344aabb",
+        "from": "0x6Af593EE9d3fC2670D21B674148b69Dac6DF8dE5",
+        "signerType": "secp256r1"
+      },
+      "signHash": "0x784e20ff9101c58fcd3e79a579c411c80dfd0912be039c2590e9479a91aac480",
+      "pubKey": "0x0446ca21a041bf32c6682e9c13e5aea904a5481e7bc77e21c7911291ff3d867b468568c4fa3c1e69b847cb6b5433855e9dfd3356929b6c8cb289b69f28ab3070a2",
+      "signature": "0x5f24146ac2aeef4cd92b70b6e9067ee03e7edec183ee7e88e3a450748e3be6e9b7de3b708fedbe79be1a2704f3f5e26c871494eb53d5bd8773022751ff92a97d",
+      "v": "0x0",
+      "r": "0x5f24146ac2aeef4cd92b70b6e9067ee03e7edec183ee7e88e3a450748e3be6e9",
+      "s": "0xb7de3b708fedbe79be1a2704f3f5e26c871494eb53d5bd8773022751ff92a97d",
+      "txHash": "0x2e815a2187e672f37a94d435cfe42ff55a2edf5a6a860f17fe654a8462181621",
+      "rawTx": "0x00f88e8205392a843b9aca0082c3509411111111111111111111111111111111111111118230398611223344aabbc0946af593ee9d3fc2670d21b674148b69dac6df8de58973656370323536723180a05f24146ac2aeef4cd92b70b6e9067ee03e7edec183ee7e88e3a450748e3be6e9a0b7de3b708fedbe79be1a2704f3f5e26c871494eb53d5bd8773022751ff92a97d"
+    },
+    {
+      "name": "ed25519_basic",
+      "tx": {
+        "chainId": "0x539",
+        "nonce": 42,
+        "gasPrice": "0x3b9aca00",
+        "gas": 50000,
+        "to": "0x1111111111111111111111111111111111111111",
+        "value": "0x3039",
+        "data": "0x11223344aabb",
+        "from": "0xf61bA0AC7d81f0c0B65682E0dBf28ca5F75a0315",
+        "signerType": "ed25519"
+      },
+      "signHash": "0xdb84ed14d31a069b07fe2f4c46048d0aff3fc4a3f6cd4f503bbdd31b345f6ae1",
+      "pubKey": "0x292090c1e6913c017d25a03c2371c3e675b8e30973da3d5d8c03249c336c41d7",
+      "signature": "0x2b368617174d3d47909eaf20745b478bac7df2376e0de16935da7d33e5e07a83b37280d51608e6821208ae264865d4a125568ad6884716a3ef8fb00d60eea60d",
+      "v": "0x0",
+      "r": "0x2b368617174d3d47909eaf20745b478bac7df2376e0de16935da7d33e5e07a83",
+      "s": "0xb37280d51608e6821208ae264865d4a125568ad6884716a3ef8fb00d60eea60d",
+      "txHash": "0xfaeaa96e1e83722ff1242a99409a8d15304a82edaa18204d8ccab91cdd60e850",
+      "rawTx": "0x00f88c8205392a843b9aca0082c3509411111111111111111111111111111111111111118230398611223344aabbc094f61ba0ac7d81f0c0b65682e0dbf28ca5f75a0315876564323535313980a02b368617174d3d47909eaf20745b478bac7df2376e0de16935da7d33e5e07a83a0b37280d51608e6821208ae264865d4a125568ad6884716a3ef8fb00d60eea60d"
+    },
+    {
+      "name": "bls12381_basic",
+      "tx": {
+        "chainId": "0x539",
+        "nonce": 42,
+        "gasPrice": "0x3b9aca00",
+        "gas": 50000,
+        "to": "0x1111111111111111111111111111111111111111",
+        "value": "0x3039",
+        "data": "0x11223344aabb",
+        "from": "0xFdABaaf9ABF37844d4d724CaE52ee2B5e6efBE60",
+        "signerType": "bls12-381"
+      },
+      "signHash": "0x9c28864d3a0c57400608b6cdbb2870ec2ad9afb8ad36fbaa47b619a6bd6afed3",
+      "pubKey": "0x9472fb76e01448553f05d4bb6091c4689669427df226a998564fb12f22088bf74b9213ec2673f3a108884d576e402edc",
+      "signature": "0xb0f487e661a0e04d2256b8e8b1a5fc2ef3e51fcf0d5693f48d2574656bc1a6c80b9238b5da5275dbed24ebca6ce4035206de62b74467e54f1cb58399e5331ec36af55e46958d71abfd218a38fd91d446437e1b3f89ec59f2cf0b9bf119ce2de3",
+      "v": "0x0",
+      "r": "0xb0f487e661a0e04d2256b8e8b1a5fc2ef3e51fcf0d5693f48d2574656bc1a6c80b9238b5da5275dbed24ebca6ce40352",
+      "s": "0x6de62b74467e54f1cb58399e5331ec36af55e46958d71abfd218a38fd91d446437e1b3f89ec59f2cf0b9bf119ce2de3",
+      "txHash": "0x743cf8548e1b7f5bd43119f9a4304fee8a5741ddf52cfaa76a38006893c8a96c",
+      "rawTx": "0x00f8ae8205392a843b9aca0082c3509411111111111111111111111111111111111111118230398611223344aabbc094fdabaaf9abf37844d4d724cae52ee2b5e6efbe6089626c7331322d33383180b0b0f487e661a0e04d2256b8e8b1a5fc2ef3e51fcf0d5693f48d2574656bc1a6c80b9238b5da5275dbed24ebca6ce40352b006de62b74467e54f1cb58399e5331ec36af55e46958d71abfd218a38fd91d446437e1b3f89ec59f2cf0b9bf119ce2de3"
+    }
+  ],
+  "invalidDecode": [
+    {
+      "name": "k1_short_sig",
+      "signerType": "secp256k1",
+      "signature": "0x29f90a71c711e3855f0e37ec588d2e978f5b5920f49fc325f76fc6fe453976ce3a1ceb9a9a578b7a66a54dbe34bcd1fad4da5db4d82281b310042f253aa93566",
+      "kind": "decode_error"
+    },
+    {
+      "name": "r1_short_sig",
+      "signerType": "secp256r1",
+      "signature": "0x5f24146ac2aeef4cd92b70b6e9067ee03e7edec183ee7e88e3a450748e3be6e9b7de3b708fedbe79be1a2704f3f5e26c871494eb53d5bd8773022751ff92a9",
+      "kind": "decode_error"
+    },
+    {
+      "name": "ed_short_sig",
+      "signerType": "ed25519",
+      "signature": "0x2b368617174d3d47909eaf20745b478bac7df2376e0de16935da7d33e5e07a83b37280d51608e6821208ae264865d4a125568ad6884716a3ef8fb00d60eea6",
+      "kind": "decode_error"
+    },
+    {
+      "name": "bls_short_sig",
+      "signerType": "bls12-381",
+      "signature": "0xb0f487e661a0e04d2256b8e8b1a5fc2ef3e51fcf0d5693f48d2574656bc1a6c80b9238b5da5275dbed24ebca6ce4035206de62b74467e54f1cb58399e5331ec36af55e46958d71abfd218a38fd91d446437e1b3f89ec59f2cf0b9bf119ce2d",
+      "kind": "decode_error"
+    }
+  ],
+  "canonicalization": [
+    {
+      "input": "secp256k1",
+      "canonical": "secp256k1",
+      "valid": true
+    },
+    {
+      "input": " ethereum_secp256k1 ",
+      "canonical": "secp256k1",
+      "valid": true
+    },
+    {
+      "input": " SECP256R1 ",
+      "canonical": "secp256r1",
+      "valid": true
+    },
+    {
+      "input": "Ed25519",
+      "canonical": "ed25519",
+      "valid": true
+    },
+    {
+      "input": "BLS12381",
+      "canonical": "bls12-381",
+      "valid": true
+    },
+    {
+      "input": "frost",
+      "valid": false
+    }
+  ]
+}

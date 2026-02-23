@@ -1,6 +1,6 @@
 # GTOS Performance Baseline (Phase 4)
 
-Status: `IN_PROGRESS`
+Status: `DONE` (baseline established)
 Last Updated: `2026-02-23`
 
 This document records the current profiling baseline for TTL prune maintenance so later optimizations can be measured against stable references.
@@ -56,6 +56,23 @@ Suggested run command:
 go test ./core -run ^$ -bench 'BenchmarkPruneExpired(Code|KV)At' -benchmem
 ```
 
+Automation helper:
+
+```bash
+make ttl-prune-bench
+```
+
+- Script: `scripts/ttl_prune_bench_smoke.sh`
+- Defaults: `-benchtime=1x`, `-count=1`
+- Optional output capture: `scripts/ttl_prune_bench_smoke.sh --out /tmp/ttl_prune_bench.txt`
+
+CI entry points:
+
+```bash
+go run build/ci.go bench-ttlprune
+make ttl-prune-bench-ci
+```
+
 ## Latest Smoke Snapshot (`2026-02-23`, `-benchtime=1x`)
 
 Environment:
@@ -65,12 +82,12 @@ Environment:
 
 Results:
 
-- `BenchmarkPruneExpiredCodeAt/records_128`: `2.74ms`, `1.23MB`, `8460 allocs`
-- `BenchmarkPruneExpiredCodeAt/records_1024`: `23.71ms`, `8.86MB`, `59730 allocs`
-- `BenchmarkPruneExpiredCodeAt/records_4096`: `94.84ms`, `35.54MB`, `235356 allocs`
-- `BenchmarkPruneExpiredKVAt/records_128`: `5.24ms`, `2.31MB`, `12295 allocs`
-- `BenchmarkPruneExpiredKVAt/records_1024`: `47.53ms`, `17.56MB`, `89805 allocs`
-- `BenchmarkPruneExpiredKVAt/records_4096`: `155.95ms`, `70.20MB`, `355366 allocs`
+- `BenchmarkPruneExpiredCodeAt/records_128`: `4.19ms`, `1.23MB`, `8462 allocs`
+- `BenchmarkPruneExpiredCodeAt/records_1024`: `26.59ms`, `8.88MB`, `59753 allocs`
+- `BenchmarkPruneExpiredCodeAt/records_4096`: `99.98ms`, `35.58MB`, `235368 allocs`
+- `BenchmarkPruneExpiredKVAt/records_128`: `4.62ms`, `2.31MB`, `12294 allocs`
+- `BenchmarkPruneExpiredKVAt/records_1024`: `50.80ms`, `17.60MB`, `89794 allocs`
+- `BenchmarkPruneExpiredKVAt/records_4096`: `180.38ms`, `70.26MB`, `355387 allocs`
 
 Note:
 
@@ -80,4 +97,4 @@ Note:
 
 1. Reduce per-record hash/slot recomputation in prune loops.
 2. Explore bucket compaction strategy for high-cardinality expiry heights.
-3. Add periodic benchmark capture in CI for regression detection.
+3. `DONE` Wire TTL prune benchmark smoke into CI entry (`build/ci.go bench-ttlprune` + `make ttl-prune-bench-ci`).

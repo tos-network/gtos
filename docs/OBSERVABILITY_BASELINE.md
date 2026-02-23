@@ -1,6 +1,6 @@
 # GTOS Observability Baseline (Phase 4)
 
-Status: `IN_PROGRESS`
+Status: `DONE` (baseline established)
 Last Updated: `2026-02-23`
 
 This document defines the minimum observability baseline currently implemented for GTOS hardening work.

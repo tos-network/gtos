@@ -80,4 +80,5 @@ Validated baseline:
 - `internal/tosapi/api.go` (window math, watermark APIs, `history_pruned` guard/error contract)
 - `internal/tosapi/api_tx_history_test.go` (tx/receipt prune guard)
 - `internal/tosapi/api_retention_test.go` (watermark progression)
+- `internal/tosapi/api_retention_crossnode_test.go` (cross-node boundary determinism)
 - `core/restart_recovery_test.go` (restart/recovery continuity drill)
