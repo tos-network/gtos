@@ -39,7 +39,7 @@ Freeze the minimum protocol and state rules before feature expansion.
 - `DONE` State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
 - `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
-- `IN_PROGRESS` Signer spec: multi-algorithm verification and fallback rule (`signer` unset -> `account address`), pending tx-envelope cleanup.
+- `IN_PROGRESS` Signer spec: multi-algorithm registry in place (`secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`); current tx verification path supports `secp256k1`/`secp256r1`/`ed25519`.
 - `IN_PROGRESS` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
 - `IN_PROGRESS` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`, and signer-aware tx envelope rules.
 
@@ -61,10 +61,10 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 - `IN_PROGRESS` Validator lifecycle: register, activate, epoch rotation.
 - `IN_PROGRESS` Proposal/vote/finality flow and safety checks.
-- `IN_PROGRESS` Signature verification pipeline with signer resolution and fallback.
+- `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`secp256r1`/`ed25519`).
 - `DONE` `tos_setSigner` RPC wrapper and execution path through normal transfer (`to = SystemActionAddress`, `data = ACCOUNT_SET_SIGNER payload`).
 - `DONE` Account signer validator support: `secp256k1`, `secp256r1`, `ed25519`.
-- `IN_PROGRESS` Sender resolution currently supports non-`secp256k1` via tx `V` metadata encoding (temporary compatibility path).
+- `DONE` Sender resolution is `SignerTx`-only and uses explicit `from` + `signerType`; no signer metadata is derived from `V`.
 - `IN_PROGRESS` Deterministic nonce/state transition checks.
 
 ### Definition of Done
@@ -75,7 +75,7 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 ## Signer Tx Envelope Refactor (Design Update)
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 ### Goal
 
@@ -83,25 +83,25 @@ Stop overloading signature field `V` with chain/signer metadata, and make signer
 
 ### Current Code Reality
 
-- `IN_PROGRESS` `chainId` is explicit only for typed tx; legacy tx derives chain identity from `V`.
-- `IN_PROGRESS` non-`secp256k1` signer metadata is encoded/decoded from `V` for verification routing.
+- `DONE` Active transaction path (`SignerTx`) carries explicit `chainId`.
+- `DONE` Active transaction path routes verifier by explicit `signerType`, not `V` metadata.
 - `DONE` account signer registry state is available (`signerType`, `signerValue`) and can be used by the verifier.
 
 ### Target Design
 
-- `PLANNED` Remove `LegacyTx` from accepted transaction set; signer-aware transactions use typed envelope only.
-- `PLANNED` Transaction envelope contains explicit `chainId`; no chain identity is derived from `V`.
-- `PLANNED` Transaction envelope contains explicit `signerType` enum (initial set: `secp256k1`, `secp256r1`, `ed25519`).
-- `PLANNED` Transaction envelope adds explicit `from` for signer-aware validation routing (especially non-recoverable signatures).
-- `PLANNED` `V` returns to signature-only semantics (recovery id / algorithm-specific signature component), not metadata carrier.
-- `PLANNED` Validation pipeline uses explicit `(from, signerType)` to select verifier and validate against account signer state.
+- `DONE` `LegacyTx`/`AccessListTx` are rejected in transaction admission path; signer-aware transactions use typed envelope only.
+- `DONE` Transaction envelope contains explicit `chainId`; chain identity is not derived from `V`.
+- `DONE` Transaction envelope contains explicit `signerType`.
+- `DONE` Transaction envelope contains explicit `from` for signer-aware validation routing.
+- `DONE` `V` is treated as signature component only; signer metadata is not carried in `V` on the active path.
+- `DONE` Validation pipeline uses explicit `(from, signerType)` to select verifier and validate against account signer state.
 
 ### Migration Plan
 
-- `PLANNED` Add signer-aware typed tx encoding with explicit fields (`chainId`, `from`, `signerType`) and RPC marshalling support.
-- `PLANNED` Reject `LegacyTx` and reject sender/chain derivation from `V` in txpool/state transition after cutover.
-- `PLANNED` Add cutover policy (height/epoch gated) for deterministic activation on all nodes.
-- `PLANNED` Add golden vectors for post-cutover typed tx only (legacy vectors kept as historical fixtures).
+- `DONE` Signer-aware typed tx encoding with explicit fields (`chainId`, `from`, `signerType`) and RPC marshalling support is active.
+- `DONE` `LegacyTx`/`AccessListTx` are rejected for new submissions; sender/chain derivation from `V` is removed from the active verification path.
+- `DONE` No migration/cutover gate needed in current dev-stage GTOS network (fresh-state policy, no backward compatibility requirement).
+- `PLANNED` Add golden vectors for typed signer tx (`SignerTx`) validation.
 
 ## AI Agent Crypto Capability Targets
 
@@ -113,18 +113,18 @@ Status: `IN_PROGRESS`
 - `PLANNED` (B) Large-scale aggregated proofs / consensus voting: `bls12-381`.
 - `PLANNED` (C) Multi-agent treasury/account authorization: `frost` threshold signatures.
 - `PLANNED` (D) Long-term confidential communication / future migration: switchable `pqc` options (`kyber`, `dilithium`, ...).
-- `DONE` (E) AA wallet signing support baseline: `secp256k1`, `secp256r1`; plus `IN_PROGRESS` `ed25519` tx-envelope cleanup.
+- `DONE` (E) AA wallet signing support baseline: `secp256k1`, `secp256r1`, `ed25519`.
 
 ### Layer Mapping
 
-- `IN_PROGRESS` Transaction/account signer layer: `secp256k1`, `secp256r1`, `ed25519`.
+- `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `secp256r1`, `ed25519`.
 - `PLANNED` Consensus vote signature layer: add native `bls12-381` verification path and aggregation checks.
 - `PLANNED` Account policy layer: threshold authorization policy for `frost`-backed accounts.
 - `PLANNED` Crypto-agility layer: algorithm registry/versioning to enable `pqc` rollout without hard-forking account semantics each time.
 
 ### Staged Execution
 
-- `PLANNED` Stage 1: finish explicit tx `chainId + signerType + from` envelope and remove `LegacyTx` acceptance.
+- `DONE` Stage 1: explicit tx `chainId + signerType + from` envelope and `LegacyTx` rejection for submissions.
 - `PLANNED` Stage 2: introduce consensus-side `bls12-381` key lifecycle, vote objects, and aggregate verification.
 - `PLANNED` Stage 3: introduce threshold account model (`frost` group pubkey + policy state + nonce/replay rules).
 - `PLANNED` Stage 4: introduce hybrid/PQC mode (`classic + pqc`) for signatures and key migration policy.

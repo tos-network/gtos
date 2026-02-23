@@ -57,6 +57,11 @@ func normalizeSignerType(signerType string) (string, error) {
 	}
 }
 
+// CanonicalSignerType normalizes signer type alias to canonical lowercase name.
+func CanonicalSignerType(signerType string) (string, error) {
+	return normalizeSignerType(signerType)
+}
+
 func SupportsCurrentTxSignatureType(signerType string) bool {
 	switch signerType {
 	case SignerTypeSecp256k1, SignerTypeSecp256r1, SignerTypeEd25519:

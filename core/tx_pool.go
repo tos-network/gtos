@@ -565,11 +565,8 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	switch tx.Type() {
-	case types.LegacyTxType, types.AccessListTxType:
-		// typed envelopes are always enabled.
-	case types.DynamicFeeTxType:
-		// Dynamic-fee transactions are not supported in GTOS.
-		return ErrTxTypeNotSupported
+	case types.SignerTxType:
+		// SignerTx is the only accepted tx envelope in GTOS.
 	default:
 		return ErrTxTypeNotSupported
 	}
@@ -1583,6 +1580,9 @@ func (as *accountSet) containsTx(tx *types.Transaction) bool {
 	if addr, err := types.Sender(as.signer, tx); err == nil {
 		return as.contains(addr)
 	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		return as.contains(explicitFrom)
+	}
 	return false
 }
 
@@ -1596,6 +1596,10 @@ func (as *accountSet) add(addr common.Address) {
 func (as *accountSet) addTx(tx *types.Transaction) {
 	if addr, err := types.Sender(as.signer, tx); err == nil {
 		as.add(addr)
+		return
+	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		as.add(explicitFrom)
 	}
 }
 

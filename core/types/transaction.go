@@ -29,6 +29,7 @@ const (
 	LegacyTxType = iota
 	AccessListTxType
 	DynamicFeeTxType
+	SignerTxType
 )
 
 // Transaction is an TOS transaction.
@@ -168,6 +169,10 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		var inner DynamicFeeTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
+	case SignerTxType:
+		var inner SignerTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -237,6 +242,22 @@ func (tx *Transaction) Type() uint8 {
 // zero.
 func (tx *Transaction) ChainId() *big.Int {
 	return tx.inner.chainID()
+}
+
+// SignerFrom returns the explicit signer address if the transaction type carries one.
+func (tx *Transaction) SignerFrom() (common.Address, bool) {
+	if stx, ok := tx.inner.(*SignerTx); ok {
+		return stx.From, true
+	}
+	return common.Address{}, false
+}
+
+// SignerType returns the explicit signer type if the transaction type carries one.
+func (tx *Transaction) SignerType() (string, bool) {
+	if stx, ok := tx.inner.(*SignerTx); ok {
+		return stx.SignerType, true
+	}
+	return "", false
 }
 
 // Data returns the input data of the transaction.

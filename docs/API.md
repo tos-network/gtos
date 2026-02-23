@@ -19,11 +19,11 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - Current tx signature verification format supports direct validation for: `secp256k1`, `secp256r1`, `ed25519`.
 - `bls12-381`, `frost`, and `pqc` are tracked signer types; transaction verification support depends on signer-envelope upgrade.
 
-## Transaction Envelope Direction
+## Transaction Envelope Policy
 
-- Target direction: remove legacy transaction envelope acceptance.
-- Signer-aware transaction envelope should carry explicit `chainId`, `from`, and `signerType`.
-- `V` should remain signature-only and must not carry signer metadata.
+- Legacy envelopes are not accepted for new submissions.
+- `SignerTx` is the active envelope and carries explicit `chainId`, `from`, and `signerType`.
+- `V` is signature-only and does not carry signer metadata.
 
 ## Main Methods
 

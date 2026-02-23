@@ -29,13 +29,16 @@ func newSenderTestState(t *testing.T) *state.StateDB {
 	return st
 }
 
-func newLegacyUnsignedTx(nonce uint64, to common.Address) *types.Transaction {
-	return types.NewTx(&types.LegacyTx{
-		Nonce:    nonce,
-		To:       &to,
-		Value:    big.NewInt(0),
-		Gas:      params.TxGas,
-		GasPrice: big.NewInt(1),
+func newSignerUnsignedTx(nonce uint64, from, to common.Address, signerType string) *types.Transaction {
+	return types.NewTx(&types.SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      nonce,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        params.TxGas,
+		GasPrice:   big.NewInt(1),
+		From:       from,
+		SignerType: signerType,
 	})
 }
 
@@ -48,7 +51,7 @@ func TestResolveSenderSecp256k1FromAccountSigner(t *testing.T) {
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	to := common.HexToAddress("0x00000000000000000000000000000000000000aa")
-	unsigned := newLegacyUnsignedTx(0, to)
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, chainSigner, key)
 	if err != nil {
 		t.Fatalf("failed to sign tx: %v", err)
@@ -68,42 +71,41 @@ func TestResolveSenderSecp256r1(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	to := common.HexToAddress("0x00000000000000000000000000000000000000ab")
-	unsigned := newLegacyUnsignedTx(0, to)
-	hash := chainSigner.Hash(unsigned)
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate p256 key: %v", err)
 	}
 	pub := elliptic.Marshal(elliptic.P256(), key.X, key.Y)
-	_, normalizedPub, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeSecp256r1, hexutil.Encode(pub))
+	_, _, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeSecp256r1, hexutil.Encode(pub))
 	if err != nil {
 		t.Fatalf("normalize signer failed: %v", err)
 	}
-	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSecp256r1, normalizedPub)
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSecp256r1, pub)
 	if err != nil {
 		t.Fatalf("derive address failed: %v", err)
 	}
 	accountsigner.Set(st, from, accountsigner.SignerTypeSecp256r1, normalizedValue)
 
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256r1)
+	hash := chainSigner.Hash(unsigned)
 	r, s, err := ecdsa.Sign(rand.Reader, key, hash[:])
 	if err != nil {
 		t.Fatalf("failed to sign hash: %v", err)
 	}
-	v, err := accountsigner.EncodeSignatureMeta(accountsigner.SignerTypeSecp256r1, normalizedPub)
-	if err != nil {
-		t.Fatalf("failed to encode signature meta: %v", err)
-	}
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    unsigned.Nonce(),
-		To:       unsigned.To(),
-		Value:    unsigned.Value(),
-		Gas:      unsigned.Gas(),
-		GasPrice: unsigned.GasPrice(),
-		Data:     unsigned.Data(),
-		V:        v,
-		R:        r,
-		S:        s,
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		GasPrice:   unsigned.GasPrice(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeSecp256r1,
+		V:          big.NewInt(0),
+		R:          r,
+		S:          s,
 	})
 
 	got, err := ResolveSender(tx, chainSigner, st)
@@ -119,8 +121,6 @@ func TestResolveSenderEd25519(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	to := common.HexToAddress("0x00000000000000000000000000000000000000ac")
-	unsigned := newLegacyUnsignedTx(0, to)
-	hash := chainSigner.Hash(unsigned)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -136,23 +136,24 @@ func TestResolveSenderEd25519(t *testing.T) {
 	}
 	accountsigner.Set(st, from, accountsigner.SignerTypeEd25519, normalizedValue)
 
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeEd25519)
+	hash := chainSigner.Hash(unsigned)
 	sig := ed25519.Sign(priv, hash[:])
 	r := new(big.Int).SetBytes(sig[:32])
 	s := new(big.Int).SetBytes(sig[32:])
-	v, err := accountsigner.EncodeSignatureMeta(accountsigner.SignerTypeEd25519, normalizedPub)
-	if err != nil {
-		t.Fatalf("failed to encode signature meta: %v", err)
-	}
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    unsigned.Nonce(),
-		To:       unsigned.To(),
-		Value:    unsigned.Value(),
-		Gas:      unsigned.Gas(),
-		GasPrice: unsigned.GasPrice(),
-		Data:     unsigned.Data(),
-		V:        v,
-		R:        r,
-		S:        s,
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		GasPrice:   unsigned.GasPrice(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          r,
+		S:          s,
 	})
 
 	got, err := ResolveSender(tx, chainSigner, st)
@@ -168,8 +169,6 @@ func TestResolveSenderRejectsMetaMismatch(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	to := common.HexToAddress("0x00000000000000000000000000000000000000ad")
-	unsigned := newLegacyUnsignedTx(0, to)
-	hash := chainSigner.Hash(unsigned)
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -183,29 +182,29 @@ func TestResolveSenderRejectsMetaMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("derive address failed: %v", err)
 	}
-	// Configure a different signer in state.
 	accountsigner.Set(st, from, accountsigner.SignerTypeEd25519, "0x"+strings.Repeat("11", 32))
 
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeEd25519)
+	hash := chainSigner.Hash(unsigned)
 	sig := ed25519.Sign(priv, hash[:])
 	r := new(big.Int).SetBytes(sig[:32])
 	s := new(big.Int).SetBytes(sig[32:])
-	v, err := accountsigner.EncodeSignatureMeta(accountsigner.SignerTypeEd25519, normalizedPub)
-	if err != nil {
-		t.Fatalf("failed to encode signature meta: %v", err)
-	}
-	tx := types.NewTx(&types.LegacyTx{
-		Nonce:    unsigned.Nonce(),
-		To:       unsigned.To(),
-		Value:    unsigned.Value(),
-		Gas:      unsigned.Gas(),
-		GasPrice: unsigned.GasPrice(),
-		Data:     unsigned.Data(),
-		V:        v,
-		R:        r,
-		S:        s,
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		GasPrice:   unsigned.GasPrice(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          r,
+		S:          s,
 	})
 	_, err = ResolveSender(tx, chainSigner, st)
-	if !errors.Is(err, ErrAccountSignerMismatch) {
+	if !errors.Is(err, ErrInvalidAccountSignerSignature) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -219,7 +218,7 @@ func TestResolveSenderRejectsUnsupportedSignerType(t *testing.T) {
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	to := common.HexToAddress("0x00000000000000000000000000000000000000ae")
-	unsigned := newLegacyUnsignedTx(0, to)
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, chainSigner, key)
 	if err != nil {
 		t.Fatalf("failed to sign tx: %v", err)
@@ -227,7 +226,24 @@ func TestResolveSenderRejectsUnsupportedSignerType(t *testing.T) {
 	// BLS key material is accepted as signer metadata, but current tx signature format does not support BLS verification.
 	accountsigner.Set(st, from, accountsigner.SignerTypeBLS12381, "0x"+strings.Repeat("44", 48))
 
-	_, err = ResolveSender(signed, chainSigner, st)
+	// Build tx using explicit unsupported signerType.
+	v, r, s := signed.RawSignatureValues()
+	unsupported := types.NewTx(&types.SignerTx{
+		ChainID:    signed.ChainId(),
+		Nonce:      signed.Nonce(),
+		To:         signed.To(),
+		Value:      signed.Value(),
+		Gas:        signed.Gas(),
+		GasPrice:   signed.GasPrice(),
+		Data:       signed.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeBLS12381,
+		V:          new(big.Int).Set(v),
+		R:          new(big.Int).Set(r),
+		S:          new(big.Int).Set(s),
+	})
+
+	_, err = ResolveSender(unsupported, chainSigner, st)
 	if !errors.Is(err, ErrUnsupportedAccountSignerType) {
 		t.Fatalf("unexpected error: %v", err)
 	}

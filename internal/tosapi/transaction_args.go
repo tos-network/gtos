@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
@@ -36,6 +37,7 @@ type TransactionArgs struct {
 	// Legacy compatibility fields from typed transactions.
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
+	SignerType *string           `json:"signerType,omitempty"`
 
 	// Internal control flag (not exposed via JSON-RPC):
 	// allow to=nil only for tos_setCode-owned construction path.
@@ -120,6 +122,16 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	} else {
 		args.ChainID = (*hexutil.Big)(want)
 	}
+	if args.SignerType != nil {
+		normalized, err := accountsigner.CanonicalSignerType(*args.SignerType)
+		if err != nil {
+			return fmt.Errorf("invalid signerType: %w", err)
+		}
+		args.SignerType = &normalized
+	} else {
+		defaultSignerType := accountsigner.SignerTypeSecp256k1
+		args.SignerType = &defaultSignerType
+	}
 	return nil
 }
 
@@ -183,27 +195,21 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 // toTransaction converts the arguments to a transaction.
 // This assumes that setDefaults has been called.
 func (args *TransactionArgs) toTransaction() *types.Transaction {
-	var data types.TxData
+	var accessList types.AccessList
 	if args.AccessList != nil {
-		data = &types.AccessListTx{
-			To:         args.To,
-			ChainID:    (*big.Int)(args.ChainID),
-			Nonce:      uint64(*args.Nonce),
-			Gas:        uint64(*args.Gas),
-			GasPrice:   (*big.Int)(args.GasPrice),
-			Value:      (*big.Int)(args.Value),
-			Data:       args.data(),
-			AccessList: *args.AccessList,
-		}
-	} else {
-		data = &types.LegacyTx{
-			To:       args.To,
-			Nonce:    uint64(*args.Nonce),
-			Gas:      uint64(*args.Gas),
-			GasPrice: (*big.Int)(args.GasPrice),
-			Value:    (*big.Int)(args.Value),
-			Data:     args.data(),
-		}
+		accessList = *args.AccessList
+	}
+	data := &types.SignerTx{
+		To:         args.To,
+		ChainID:    (*big.Int)(args.ChainID),
+		Nonce:      uint64(*args.Nonce),
+		Gas:        uint64(*args.Gas),
+		GasPrice:   (*big.Int)(args.GasPrice),
+		Value:      (*big.Int)(args.Value),
+		Data:       args.data(),
+		AccessList: accessList,
+		From:       args.from(),
+		SignerType: *args.SignerType,
 	}
 	return types.NewTx(data)
 }

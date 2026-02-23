@@ -19,8 +19,8 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - `ttl` unit is block count (not seconds/milliseconds).
 - Expiry is computed by height: `expireBlock = currentBlock + ttl`.
 - State persistence stores computed expiry height (`expireBlock`), not raw `ttl`.
-- Typed transactions are the only accepted transaction envelope for signer-aware paths.
-- `LegacyTx` (`type=0` legacy RLP format) is a deprecation target and must be rejected after envelope cutover.
+- Typed signer transactions are the only accepted transaction envelope (`SignerTx`, `type=3`).
+- `LegacyTx` (`type=0`) and `AccessListTx` (`type=1`) are rejected for new submissions.
 - `chainId` must be explicit in envelope fields; do not derive chain identity from signature field `V`.
 - Account signer RPC (`tos_setSigner`) accepts canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
 - Current tx `(R,S)` verification path directly supports: `secp256k1`, `secp256r1`, `ed25519`.
@@ -91,7 +91,7 @@ Write/tx-submission methods:
 - Signer-aware transactions use explicit envelope fields: `chainId`, `from`, `signerType`.
 - `from` is part of the signed payload and is used for signer-state lookup/routing.
 - `V` is signature component only and must not carry signer metadata.
-- `tos_sendRawTransaction` rejects legacy envelope transactions after cutover activation.
+- `tos_sendRawTransaction` accepts only `SignerTx` envelopes.
 
 ## 4. JSON Schema
 

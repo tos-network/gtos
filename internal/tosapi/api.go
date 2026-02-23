@@ -1197,11 +1197,21 @@ type RPCTransaction struct {
 	S                *hexutil.Big      `json:"s"`
 }
 
+func rpcTxFrom(signer types.Signer, tx *types.Transaction) common.Address {
+	if from, err := types.Sender(signer, tx); err == nil {
+		return from
+	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		return explicitFrom
+	}
+	return common.Address{}
+}
+
 // newRPCTransaction returns a transaction that will serialize to the RPC
 // representation, with the given location metadata set (if available).
 func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, baseFee *big.Int, config *params.ChainConfig) *RPCTransaction {
 	signer := types.MakeSigner(config, new(big.Int).SetUint64(blockNumber))
-	from, _ := types.Sender(signer, tx)
+	from := rpcTxFrom(signer, tx)
 	v, r, s := tx.RawSignatureValues()
 	result := &RPCTransaction{
 		Type:     hexutil.Uint64(tx.Type()),
@@ -1229,6 +1239,10 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.ChainID = (*hexutil.Big)(id)
 		}
 	case types.AccessListTxType:
+		al := tx.AccessList()
+		result.Accesses = &al
+		result.ChainID = (*hexutil.Big)(tx.ChainId())
+	case types.SignerTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1468,7 +1482,7 @@ func (s *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	// Derive the sender.
 	bigblock := new(big.Int).SetUint64(blockNumber)
 	signer := types.MakeSigner(s.b.ChainConfig(), bigblock)
-	from, _ := types.Sender(signer, tx)
+	from := rpcTxFrom(signer, tx)
 
 	fields := map[string]interface{}{
 		"blockHash":         blockHash,
@@ -1526,6 +1540,9 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
+	if tx.Type() != types.SignerTxType {
+		return common.Hash{}, fmt.Errorf("unsupported tx type %d: only SignerTx (type=%d) is accepted", tx.Type(), types.SignerTxType)
+	}
 	// If the transaction fee cap is already specified, ensure the
 	// fee of the given transaction is _reasonable_.
 	if err := checkTxFee(tx.GasPrice(), tx.Gas(), b.RPCTxFeeCap()); err != nil {
@@ -1540,10 +1557,7 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 	}
 	// Print a log with full tx details for manual investigations and interventions
 	signer := types.MakeSigner(b.ChainConfig(), b.CurrentBlock().Number())
-	from, err := types.Sender(signer, tx)
-	if err != nil {
-		return common.Hash{}, err
-	}
+	from := rpcTxFrom(signer, tx)
 
 	if tx.To() == nil {
 		log.Info("Submitted setCode transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "value", tx.Value())
@@ -1691,7 +1705,7 @@ func (s *TransactionAPI) PendingTransactions() ([]*RPCTransaction, error) {
 	curHeader := s.b.CurrentHeader()
 	transactions := make([]*RPCTransaction, 0, len(pending))
 	for _, tx := range pending {
-		from, _ := types.Sender(s.signer, tx)
+		from := rpcTxFrom(s.signer, tx)
 		if _, exists := accounts[from]; exists {
 			transactions = append(transactions, newRPCPendingTransaction(tx, curHeader, s.b.ChainConfig()))
 		}
@@ -1729,8 +1743,8 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 	}
 	for _, p := range pending {
 		wantSigHash := s.signer.Hash(matchTx)
-		pFrom, err := types.Sender(s.signer, p)
-		if err == nil && pFrom == sendArgs.from() && s.signer.Hash(p) == wantSigHash {
+		pFrom := rpcTxFrom(s.signer, p)
+		if pFrom == sendArgs.from() && s.signer.Hash(p) == wantSigHash {
 			// Match. Re-sign and send the transaction.
 			if gasPrice != nil && (*big.Int)(gasPrice).Sign() != 0 {
 				sendArgs.GasPrice = gasPrice

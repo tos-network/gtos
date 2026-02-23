@@ -39,8 +39,8 @@ func getBlock(transactions int, uncles int, dataSize int) *types.Block {
 				// Add transactions and stuff on the last block
 				signer := types.LatestSigner(params.TestChainConfig)
 				for i := 0; i < transactions; i++ {
-					tx, _ := types.SignTx(types.NewTransaction(uint64(i), aa,
-						big.NewInt(0), 50000, b.header.BaseFee, make([]byte, dataSize)), signer, key)
+					tx, _ := signTestSignerTx(signer, key, uint64(i), aa,
+						big.NewInt(0), 50000, b.header.BaseFee, make([]byte, dataSize))
 					b.AddTx(tx)
 				}
 				for i := 0; i < uncles; i++ {
@@ -97,7 +97,21 @@ func testRlpIterator(t *testing.T, txs, uncles, datasize int) {
 	var gotHashes []common.Hash
 	var expHashes []common.Hash
 	for txIt.Next() {
-		gotHashes = append(gotHashes, crypto.Keccak256Hash(txIt.Value()))
+		raw := txIt.Value()
+		var tx types.Transaction
+		if err := tx.UnmarshalBinary(raw); err == nil {
+			gotHashes = append(gotHashes, tx.Hash())
+			continue
+		}
+		// Typed txs are encoded as RLP bytestrings inside the tx list.
+		var payload []byte
+		if err := rlp.DecodeBytes(raw, &payload); err != nil {
+			t.Fatalf("failed to decode tx payload: %v", err)
+		}
+		if err := tx.UnmarshalBinary(payload); err != nil {
+			t.Fatalf("failed to unmarshal tx payload: %v", err)
+		}
+		gotHashes = append(gotHashes, tx.Hash())
 	}
 
 	var expBody types.Body
