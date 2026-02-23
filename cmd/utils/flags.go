@@ -480,12 +480,6 @@ var (
 		TakesFile: true,
 		Category:  flags.AccountCategory,
 	}
-	ExternalSignerFlag = &cli.StringFlag{
-		Name:     "signer",
-		Usage:    "External signer (url or path to ipc file)",
-		Value:    "",
-		Category: flags.AccountCategory,
-	}
 	InsecureUnlockAllowedFlag = &cli.BoolFlag{
 		Name:     "allow-insecure-unlock",
 		Usage:    "Allow insecure account unlocking when account-related RPCs are exposed by http",
@@ -1342,10 +1336,6 @@ func SetNodeConfig(ctx *cli.Context, cfg *node.Config) {
 		cfg.JWTSecret = ctx.String(JWTSecretFlag.Name)
 	}
 
-	if ctx.IsSet(ExternalSignerFlag.Name) {
-		cfg.ExternalSigner = ctx.String(ExternalSignerFlag.Name)
-	}
-
 	if ctx.IsSet(KeyStoreDirFlag.Name) {
 		cfg.KeyStoreDir = ctx.String(KeyStoreDirFlag.Name)
 	}
@@ -1557,7 +1547,6 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	// Avoid conflicting network flags
 	CheckExclusive(ctx, MainnetFlag, DeveloperFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
-	CheckExclusive(ctx, DeveloperFlag, ExternalSignerFlag) // Can't use both ephemeral unlocked and external signer
 	if ctx.String(GCModeFlag.Name) == "archive" && ctx.Uint64(TxLookupLimitFlag.Name) != 0 {
 		ctx.Set(TxLookupLimitFlag.Name, "0")
 		log.Warn("Disable transaction unindexing for archive node")

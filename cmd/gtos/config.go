@@ -11,7 +11,6 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/naoina/toml"
-	"github.com/tos-network/gtos/accounts/external"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accounts/scwallet"
 	"github.com/tos-network/gtos/accounts/usbwallet"
@@ -280,20 +279,6 @@ func setAccountManagerBackends(stack *node.Node) error {
 	}
 
 	// Assemble the supported backends
-	if len(conf.ExternalSigner) > 0 {
-		log.Info("Using external signer", "url", conf.ExternalSigner)
-		if extapi, err := external.NewExternalBackend(conf.ExternalSigner); err == nil {
-			am.AddBackend(extapi)
-			return nil
-		} else {
-			return fmt.Errorf("error connecting to external signer: %v", err)
-		}
-	}
-
-	// For now, we're using EITHER external signer OR local signers.
-	// If/when we implement some form of lockfile for USB and keystore wallets,
-	// we can have both, but it's very confusing for the user to see the same
-	// accounts in both externally and locally, plus very racey.
 	am.AddBackend(keystore.NewKeyStore(keydir, scryptN, scryptP))
 	if conf.USB {
 		// Start a USB hub for Ledger hardware wallets

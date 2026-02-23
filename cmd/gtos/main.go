@@ -47,7 +47,6 @@ var (
 		utils.BootnodesFlag,
 		utils.MinFreeDiskSpaceFlag,
 		utils.KeyStoreDirFlag,
-		utils.ExternalSignerFlag,
 		utils.NoUSBFlag,
 		utils.USBFlag,
 		utils.SmartCardDaemonPathFlag,
