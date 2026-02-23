@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -64,6 +65,15 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
+	}
+	// Deterministic TTL maintenance for KV records at current block height.
+	if header.Number != nil {
+		if pruned := pruneExpiredCodeAt(statedb, header.Number.Uint64()); pruned > 0 {
+			ttlCodePrunedMeter.Mark(int64(pruned))
+		}
+		if pruned := kvstore.PruneExpiredAt(statedb, header.Number.Uint64()); pruned > 0 {
+			ttlKVPrunedMeter.Mark(int64(pruned))
+		}
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())

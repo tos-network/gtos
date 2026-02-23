@@ -132,7 +132,7 @@ Status: `IN_PROGRESS`
 5. `DONE` Add long-run bounded-storage gate for KV/code expiry maintenance (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots`).
 6. `DONE` Start Phase 4 hardening baseline: retention-window enforcement automation and restart/recovery drill (`internal/tosapi/api_retention_test.go::TestRetentionWatermarkTracksHead` + `core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
 7. `DONE` Finalize retention/snapshot operational spec and version it (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
-8. `PLANNED` Expand Phase 4 hardening to observability + security fuzz/property baseline.
+8. `IN_PROGRESS` Expand Phase 4 hardening to observability + security fuzz/property baseline (`core/ttl_prune_metrics.go` + `internal/tosapi/metrics.go` + `core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go`).
 
 ## Phase 2: Code Storage with TTL
 
@@ -191,8 +191,8 @@ Harden the chain for sustained production load.
 - `PLANNED` Performance profiling and bottleneck fixes.
 - `IN_PROGRESS` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
 - `IN_PROGRESS` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
-- `PLANNED` Observability: metrics, structured logs, consensus/storage health dashboards.
-- `PLANNED` Security hardening: validation limits, DoS protections, fuzz/property tests.
+- `IN_PROGRESS` Observability baseline: TTL prune meters (`chain/ttlprune/code`, `chain/ttlprune/kv`) and RPC prune-rejection meter (`rpc/tos/history_pruned`) wired in execution/RPC paths (`core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go`).
+- `IN_PROGRESS` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary and retention boundary invariants (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go`).
 
 ### Definition of Done
 

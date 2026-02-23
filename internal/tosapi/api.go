@@ -1955,13 +1955,14 @@ func (s *TOSAPI) currentHead() uint64 {
 }
 
 func oldestAvailableBlock(head, retain uint64) uint64 {
-	if retain == 0 || head+1 <= retain {
+	if retain == 0 || head < retain {
 		return 0
 	}
 	return head - retain + 1
 }
 
 func newRPCHistoryPrunedError(head, retain, requested uint64) error {
+	rpcHistoryPrunedMeter.Mark(1)
 	return &rpcAPIError{
 		code:    rpcErrHistoryPruned,
 		message: "history pruned",
