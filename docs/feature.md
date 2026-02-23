@@ -1,38 +1,111 @@
-# GTOS Storage Feature Modes
+# GTOS Feature Profile (Current)
 
-This document captures six differentiated product modes for GTOS decentralized storage.
+Status snapshot date: `2026-02-23`
 
-## 1. Data-as-Lease
+This document describes what GTOS can do **today**, and clearly separates current capabilities from future product modes.
 
-- Treat `ttl` as a storage lease period.
-- Expiry means automatic invalidation, renew by submitting a new tx.
-- Best for logs, caches, temp artifacts, and AI intermediate outputs.
+## 1. Product Positioning
 
-## 2. Proof of Expiry
+GTOS is a **DPoS, storage-first chain**:
 
-- Provide verifiable proof that a key/code expired at block `N`.
-- Make expiry auditable for compliance, legal, and operational checks.
+- Consensus: DPoS (`secp256k1` header seal path).
+- Primary value: decentralized storage with deterministic TTL lifecycle.
+- Scope focus: account/signer + code/KV storage + retention/pruning operations.
+- Non-goal: general-purpose contract VM compatibility.
 
-## 3. Namespace Leasing Market
+## 2. Current Core Capabilities
 
-- Lease namespaces by block window (fixed rent or auction).
-- On expiry, namespace ownership is released automatically.
-- Turns storage namespace into a tradable on-chain resource.
+## 2.1 TTL-Native Storage Primitives
 
-## 4. Release Channel Model (Code + KV Streams)
+- `tos_setCode(code, ttl)`:
+  - writes account code with TTL metadata.
+  - active code is immutable (no update/delete while active).
+  - `to=nil` path is reserved for this flow only.
+- `tos_putKV(namespace, key, value, ttl)`:
+  - TTL KV upsert by `(namespace, key)`.
+  - overwrite is allowed; explicit delete is not supported.
+- TTL semantics:
+  - unit is block count.
+  - `expireBlock = currentBlock + ttl`.
+  - chain persists absolute `createdAt`/`expireAt`.
 
-- Keep one active version per channel/account.
-- New publishes move forward; old versions age out by TTL.
-- Fits plugin distribution, policy rollout, and config delivery.
+## 2.2 Signer-Capable Account Model
 
-## 5. Retention-Window Friendly Retrieval
+- Account signer registry supports: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `tos_setSigner` is implemented as normal tx wrapper:
+  - execution path uses `to = SystemActionAddress`
+  - payload action: `ACCOUNT_SET_SIGNER`.
+- Active transaction envelope policy:
+  - only `SignerTx` accepted for new submissions.
+  - explicit `chainId`, `from`, `signerType`.
+  - `V` is signature component only (not metadata carrier).
 
-- Keep chain nodes lightweight (short history retention).
-- Add off-chain indexers for long-range search with on-chain verifiable anchors.
-- Balance low node cost with query usability.
+## 2.3 Retention and Node Cost Control
 
-## 6. Storage SLA Tiers
+- Non-archive deployment profile:
+  - rolling history window: `retain_blocks = 200`.
+  - snapshot policy metadata: `snapshot_interval = 1000`.
+- Old history requests outside window return deterministic:
+  - error code `-38005`
+  - reason `history_pruned`.
+- Determinism coverage includes:
+  - retention boundary/property tests
+  - cross-node retention-window behavior consistency
+  - long-run bounded TTL pruning tests.
 
-- Offer multiple storage classes (e.g., standard / high-availability).
-- Same `put_ttl` semantics, different replication/price/reliability profile.
-- Enables clear ToB packaging and monetization.
+## 2.4 Operations and Hardening Baseline
+
+- Metrics/logging baseline for prune and retention rejection is active.
+- TTL prune performance baseline and CI smoke entry are available.
+- DPoS long-window soak automation exists (`soak-dpos`), evidence collection in progress.
+
+## 3. Explicit Boundaries (Current)
+
+- No general-purpose contract execution runtime.
+- No archive-node historical query guarantee.
+- No `kv_delete` transaction path.
+- No consensus-side BLS vote object / aggregation import.
+- Storage classes/SLA tiers are not implemented as protocol-level classes.
+
+## 4. Feature Mode Map (Current vs Future)
+
+Status legend:
+
+- `DONE`: available in current GTOS path.
+- `IN_PROGRESS`: partially available, or tooling exists but evidence/closure pending.
+- `PLANNED`: product concept, not implemented in protocol/runtime yet.
+
+## 4.1 Data-as-Lease (`DONE`)
+
+- Native fit for logs/caches/temp artifacts/AI intermediate outputs.
+- TTL write + deterministic expiry/prune are already implemented.
+
+## 4.2 Proof of Expiry (`IN_PROGRESS`)
+
+- Current chain stores deterministic `createdAt/expireAt` and enforces expiry behavior.
+- Operationally auditable through block history/metadata while in retention scope.
+- Dedicated standalone expiry-proof artifact/protocol is not yet a separate feature.
+
+## 4.3 Namespace Leasing Market (`PLANNED`)
+
+- No namespace auction/rent market exists in current protocol.
+- `namespace` is currently a logical KV partition key, not a leased asset.
+
+## 4.4 Release Channel Model (Code + KV Streams) (`IN_PROGRESS`)
+
+- Technically feasible now via app-level conventions (`namespace`, account-scoped code, TTL roll-forward).
+- Protocol does not yet enforce channel/version policy as a first-class primitive.
+
+## 4.5 Retention-Window Friendly Retrieval (`DONE` for node-side policy, `PLANNED` for indexer productization)
+
+- Node-side rolling retention and deterministic `history_pruned` behavior are implemented.
+- Off-chain long-range index/search integration is outside current on-chain runtime scope.
+
+## 4.6 Storage SLA Tiers (`PLANNED`)
+
+- No built-in storage class differentiation (standard/HA/etc.) at protocol level.
+- Future ToB packaging can build on existing TTL primitives, pricing, and replication policies.
+
+## 5. Practical GTOS Identity (One-Line)
+
+GTOS today is a **deterministic TTL storage chain on DPoS**: signer-aware transactions, bounded node history cost, and storage lifecycle primitives are production-focused; market-layer and SLA-layer features remain roadmap-level.

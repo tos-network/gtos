@@ -1,5 +1,7 @@
 # GTOS
 
+GTOS is an AI intermediate-state decentralized storage chain.
+
 GTOS is a DPoS-based blockchain focused on decentralized storage.
 
 - Code storage with TTL.
@@ -13,6 +15,17 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 2. Native decentralized storage as the primary capability.
 3. TTL-based lifecycle for all stored data, including code storage.
 4. Predictable pruning and low storage pressure without archive nodes.
+
+## Core Differentiators
+
+Compared with Filecoin / Arweave / Sia / Storj / Swarm, GTOS currently focuses on a different core profile:
+
+- Data model: chain-native state storage (`code` + `kv`) with deterministic TTL, not large-file object storage network first.
+- Lifecycle: explicit block-based expiry (`expireBlock = currentBlock + ttl`) and deterministic prune behavior.
+- Cost profile: non-archive node operation with bounded history window (for example `retain_blocks=200`) plus retention guards.
+- Transaction/control plane: signer-aware typed transaction path (`SignerTx`) and system-action based account signer updates.
+- Consensus boundary: DPoS block production path remains `secp256k1` seal; no consensus-side BLS vote aggregation requirement.
+- Product fit: state/config/policy/AI intermediate outputs requiring deterministic on-chain lifecycle and verifiable state transitions.
 
 ## Core Features
 
@@ -41,7 +54,20 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 - `signer` is the real signing identity and supports multi-algorithm verification (IPFS-style extensible signer type).
 - Backward-compatible default: if `signer` is not set, use `account address` as signer.
 
-## State Model (MVP)
+### 4. Cryptography and Signature Algorithms
+
+- Account/transaction signer algorithms currently supported:
+  - `secp256k1`
+  - `secp256r1`
+  - `ed25519`
+  - `bls12-381`
+- Active typed transaction path (`SignerTx`) supports verification for:
+  - `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`
+- DPoS consensus block sealing path currently uses:
+  - `secp256k1` header seal
+- Consensus-side BLS vote aggregation is not enabled in the current GTOS design.
+
+## State Model
 
 - `Accounts`: nonce, signer, and account metadata.
 - `CodeStore`: code hash/object -> payload + created_block + expire_block.
@@ -49,7 +75,7 @@ Build GTOS as a production-oriented chain for storage-first workloads:
 
 All state transitions are consensus-verified and auditable on-chain.
 
-## Transaction Types (MVP)
+## Transaction Types
 
 - `account_set_signer`
 - `code_put_ttl`
@@ -67,14 +93,6 @@ GTOS runs without archive nodes in current target deployment.
 Tradeoff:
 
 - Old transactions outside the retention window are not queryable from normal nodes.
-
-## Repository Direction
-
-The repository should now prioritize this target directly:
-
-- Keep only modules required for DPoS + decentralized storage.
-- Remove legacy paths that do not serve the core product direction.
-- Implement protocol rules in small, testable milestones.
 
 ## Roadmap
 
