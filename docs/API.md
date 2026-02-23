@@ -11,17 +11,19 @@ This document is a concise overview of public APIs. Detailed schemas are in `doc
 - Code can be set again only after TTL expiry clears active state.
 - `ttl` is measured in blocks, not seconds.
 - `tos_setCode` gas includes ttl retention surcharge (`ttl * 1`).
+- Retention/snapshot operational contract is versioned in `docs/RETENTION_SNAPSHOT_SPEC.md` (`v1.0.0`).
 
 ## Signer Algorithms
 
-- Current account/wallet signer support: `secp256k1`, `secp256r1`, `ed25519`.
-- `tos_setSigner` accepted canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`.
-- Current tx signature verification format supports direct validation for: `secp256k1`, `secp256r1`, `ed25519`.
-- `bls12-381`, `frost`, and `pqc` are tracked signer types; transaction verification support depends on signer-envelope upgrade.
+- Current account/wallet signer support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `tos_setSigner` accepted canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx signature verification format supports direct validation for: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `bls12-381` verification/signing backend uses `blst` (`supranational`) for signer-account path.
+- `bls12-381` tx signature bytes use compressed G2 format (`96` bytes); pubkeys use compressed G1 format (`48` bytes).
 
 ## Transaction Envelope Policy
 
-- Legacy envelopes are not accepted for new submissions.
+- Only `SignerTx` envelopes are accepted for new submissions.
 - `SignerTx` is the active envelope and carries explicit `chainId`, `from`, and `signerType`.
 - `V` is signature-only and does not carry signer metadata.
 

@@ -26,7 +26,7 @@ This roadmap is aligned with `README.md` and defines GTOS as a storage-first cha
 
 ## Phase 0: Protocol Freeze
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 ### Goal
 
@@ -40,18 +40,18 @@ Freeze the minimum protocol and state rules before feature expansion.
 - `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
 - `DONE` Signer spec: multi-algorithm registry and current tx verification path support `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`.
-- `IN_PROGRESS` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
+- `DONE` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
 - `DONE` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`, and signer-aware tx envelope rules.
 
 ### Definition of Done
 
-- `IN_PROGRESS` Specs reviewed and versioned.
+- `DONE` Specs reviewed and versioned.
 - `DONE` Golden vectors for active typed signer transaction (`SignerTx`) across `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`, including invalid decode/canonicalization cases.
 - `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
 
 ## Phase 1: DPoS + Account/Signer Foundation
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 ### Goal
 
@@ -59,19 +59,19 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 ### Deliverables
 
-- `IN_PROGRESS` Validator lifecycle: register, activate, epoch rotation.
-- `IN_PROGRESS` Proposal/vote/finality flow and safety checks.
+- `DONE` Validator lifecycle: register, activate, epoch rotation (`validator/validator_test.go` + `consensus/dpos/integration_test.go::TestDPoSEpochRotationUsesValidatorRegistrySet`).
+- `DONE` Proposal/vote/finality flow and safety checks (`consensus/dpos/dpos_test.go::TestVoteSigningLifecycle` + `consensus/dpos/integration_test.go::TestDPoSProposalSafetyChecks`).
 - `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`).
 - `DONE` `tos_setSigner` RPC wrapper and execution path through normal transfer (`to = SystemActionAddress`, `data = ACCOUNT_SET_SIGNER payload`).
 - `DONE` Account signer validator support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
 - `DONE` Sender resolution is `SignerTx`-only and uses explicit `from` + `signerType`; no signer metadata is derived from `V`.
-- `IN_PROGRESS` Deterministic nonce/state transition checks.
+- `DONE` Deterministic nonce/state transition checks (including signer switch + replay rejection consistency in `core/state_processor_test.go::TestDeterministicNonceStateTransitionAndReplayRejection`).
 
 ### Definition of Done
 
-- `PLANNED` 3-validator network runs continuously.
-- `PLANNED` 1000+ sequential finalized blocks without divergence.
-- `PLANNED` Replay rejection and signer compatibility tests pass.
+- `DONE` 3-validator network stability gate runs in CI-style integration test.
+- `DONE` 1000+ sequential finalized blocks without divergence (1024-block deterministic gate).
+- `DONE` Replay rejection and signer compatibility tests pass (chain-id mismatch rejection + account-signer type compatibility coverage in `core/accountsigner_sender_test.go`).
 
 ## Signer Tx Envelope Refactor (Design Update)
 
@@ -126,12 +126,17 @@ Status: `IN_PROGRESS`
 ## Next Tasks (Execution Order)
 
 1. `DONE` Complete deterministic prune validation for code/KV TTL: cross-node state-root equality before/after prune windows (`core/ttl_prune_determinism_test.go`).
-2. `PLANNED` Finish Stage C RPC deprecation enforcement (`tos_call`, `tos_estimateGas`, and other VM-era surfaces).
-3. `PLANNED` Run DPoS stability gates: continuous 3-validator run and 1000+ finalized blocks without divergence.
+2. `DONE` Finish Stage C RPC deprecation enforcement (`tos_call`, `tos_estimateGas`, and `tos_createAccessList` now return deterministic `not_supported`).
+3. `DONE` Run DPoS stability gates: deterministic 3-validator/3-node 1024-block insertion gate with per-height hash/root agreement (`consensus/dpos/integration_test.go::TestDPoSThreeValidatorStabilityGate`).
+4. `DONE` Finalize retention/snapshot spec details: prune trigger policy and snapshot/recovery operational flow (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
+5. `DONE` Add long-run bounded-storage gate for KV/code expiry maintenance (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots`).
+6. `DONE` Start Phase 4 hardening baseline: retention-window enforcement automation and restart/recovery drill (`internal/tosapi/api_retention_test.go::TestRetentionWatermarkTracksHead` + `core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
+7. `DONE` Finalize retention/snapshot operational spec and version it (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
+8. `PLANNED` Expand Phase 4 hardening to observability + security fuzz/property baseline.
 
 ## Phase 2: Code Storage with TTL
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 ### Goal
 
@@ -144,7 +149,7 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 - `DONE` Code immutability rules: active code objects cannot be updated or deleted.
 - `DONE` TTL validation rules and overflow protection.
 - `DONE` Code read/index APIs (payload/hash/metadata).
-- `IN_PROGRESS` Expiry and pruning behavior integrated with state maintenance.
+- `DONE` Expiry and pruning behavior integrated with state maintenance (`core/state_processor.go` + `core/chain_makers.go` + `core/state_processor_test.go::TestStateProcessorPrunesExpiredCodeAtBlockBoundary`).
 
 ### Definition of Done
 
@@ -153,7 +158,7 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 
 ## Phase 3: KV Storage with TTL
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 ### Goal
 
@@ -166,16 +171,16 @@ Provide native TTL-based key-value storage with deterministic lifecycle.
 - `DONE` Upsert semantics for `kv_put_ttl` (same key writes a new value/version).
 - `DONE` Explicitly no `kv_delete` transaction path.
 - `DONE` Read semantics: active returns value, expired returns not-found.
-- `IN_PROGRESS` Maintenance pipeline for pruning expired KV entries.
+- `DONE` Maintenance pipeline for pruning expired KV entries (`kvstore/kvstore_test.go::TestPruneExpiredAtClearsOnlyMatchingRecords` + `core/state_processor_test.go::TestStateProcessorPrunesExpiredKVAtBlockBoundary`).
 
 ### Definition of Done
 
 - `DONE` TTL behavior is deterministic across nodes.
-- `PLANNED` Long-run pruning keeps storage bounded while preserving consensus correctness.
+- `DONE` Long-run pruning keeps storage bounded while preserving consensus correctness (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots`).
 
 ## Phase 4: Hardening and Production Readiness
 
-Status: `PLANNED`
+Status: `IN_PROGRESS`
 
 ### Goal
 
@@ -184,15 +189,15 @@ Harden the chain for sustained production load.
 ### Deliverables
 
 - `PLANNED` Performance profiling and bottleneck fixes.
-- `PLANNED` Snapshot/state-sync bootstrap and recovery drills.
-- `PLANNED` Automated retention-window pruning enforcement.
+- `IN_PROGRESS` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
+- `IN_PROGRESS` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
 - `PLANNED` Observability: metrics, structured logs, consensus/storage health dashboards.
 - `PLANNED` Security hardening: validation limits, DoS protections, fuzz/property tests.
 
 ### Definition of Done
 
 - `PLANNED` 24h stability run without consensus halt.
-- `PLANNED` Restart/recovery drills succeed at latest finalized height.
+- `DONE` Restart/recovery drills succeed at latest finalized height (`core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
 - `PLANNED` Retention window remains deterministic and bounded across nodes.
 
 ## Milestone Priorities

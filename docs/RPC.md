@@ -7,6 +7,7 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 - Storage-first chain capabilities.
 - TTL lifecycle for code storage and KV storage.
 - Rolling history retention without archive nodes.
+- Retention/snapshot operational versioned spec: `docs/RETENTION_SNAPSHOT_SPEC.md` (`v1.0.0`).
 
 ## 1. Design Rules
 
