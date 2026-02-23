@@ -39,14 +39,14 @@ Freeze the minimum protocol and state rules before feature expansion.
 - `DONE` State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
 - `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
-- `IN_PROGRESS` Signer spec: multi-algorithm registry in place (`secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `frost`, `pqc`); current tx verification path supports `secp256k1`/`secp256r1`/`ed25519`.
+- `DONE` Signer spec: multi-algorithm registry and current tx verification path support `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`.
 - `IN_PROGRESS` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow.
-- `IN_PROGRESS` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`, and signer-aware tx envelope rules.
+- `DONE` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`, and signer-aware tx envelope rules.
 
 ### Definition of Done
 
 - `IN_PROGRESS` Specs reviewed and versioned.
-- `PLANNED` Golden vectors for each transaction type.
+- `DONE` Golden vectors for active typed signer transaction (`SignerTx`) across `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`, including invalid decode/canonicalization cases.
 - `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
 
 ## Phase 1: DPoS + Account/Signer Foundation
@@ -61,9 +61,9 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 - `IN_PROGRESS` Validator lifecycle: register, activate, epoch rotation.
 - `IN_PROGRESS` Proposal/vote/finality flow and safety checks.
-- `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`secp256r1`/`ed25519`).
+- `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`).
 - `DONE` `tos_setSigner` RPC wrapper and execution path through normal transfer (`to = SystemActionAddress`, `data = ACCOUNT_SET_SIGNER payload`).
-- `DONE` Account signer validator support: `secp256k1`, `secp256r1`, `ed25519`.
+- `DONE` Account signer validator support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
 - `DONE` Sender resolution is `SignerTx`-only and uses explicit `from` + `signerType`; no signer metadata is derived from `V`.
 - `IN_PROGRESS` Deterministic nonce/state transition checks.
 
@@ -101,7 +101,7 @@ Stop overloading signature field `V` with chain/signer metadata, and make signer
 - `DONE` Signer-aware typed tx encoding with explicit fields (`chainId`, `from`, `signerType`) and RPC marshalling support is active.
 - `DONE` `LegacyTx`/`AccessListTx` are rejected for new submissions; sender/chain derivation from `V` is removed from the active verification path.
 - `DONE` No migration/cutover gate needed in current dev-stage GTOS network (fresh-state policy, no backward compatibility requirement).
-- `PLANNED` Add golden vectors for typed signer tx (`SignerTx`) validation.
+- `DONE` Golden vectors for typed signer tx (`SignerTx`) validation.
 
 ## AI Agent Crypto Capability Targets
 
@@ -109,25 +109,25 @@ Status: `IN_PROGRESS`
 
 ### Target Set
 
-- `IN_PROGRESS` (A) Daily identity/transaction signing: `ed25519`.
-- `PLANNED` (B) Large-scale aggregated proofs / consensus voting: `bls12-381`.
-- `PLANNED` (C) Multi-agent treasury/account authorization: `frost` threshold signatures.
-- `PLANNED` (D) Long-term confidential communication / future migration: switchable `pqc` options (`kyber`, `dilithium`, ...).
-- `DONE` (E) AA wallet signing support baseline: `secp256k1`, `secp256r1`, `ed25519`.
+- `DONE` (A) Daily identity/transaction signing: `ed25519` (native keystore + tx signing/verification path).
+- `IN_PROGRESS` (B) Large-scale aggregated proofs (non-consensus path): `bls12-381` (tx verify/sign path and aggregate helpers on `blst` backend are wired).
+- `DONE` (C) AA wallet signing support baseline: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
 
 ### Layer Mapping
 
-- `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `secp256r1`, `ed25519`.
-- `PLANNED` Consensus vote signature layer: add native `bls12-381` verification path and aggregation checks.
-- `PLANNED` Account policy layer: threshold authorization policy for `frost`-backed accounts.
-- `PLANNED` Crypto-agility layer: algorithm registry/versioning to enable `pqc` rollout without hard-forking account semantics each time.
+- `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `DONE` DPoS consensus sealing/verification remains header `secp256k1` seal + `extra` validation; no consensus-side `bls12-381` import.
 
 ### Staged Execution
 
 - `DONE` Stage 1: explicit tx `chainId + signerType + from` envelope and `LegacyTx` rejection for submissions.
-- `PLANNED` Stage 2: introduce consensus-side `bls12-381` key lifecycle, vote objects, and aggregate verification.
-- `PLANNED` Stage 3: introduce threshold account model (`frost` group pubkey + policy state + nonce/replay rules).
-- `PLANNED` Stage 4: introduce hybrid/PQC mode (`classic + pqc`) for signatures and key migration policy.
+- `DONE` Stage 2 decision: keep consensus path on DPoS header seal (`secp256k1`) and do not add BLS vote objects/aggregation to consensus.
+
+## Next Tasks (Execution Order)
+
+1. `DONE` Complete deterministic prune validation for code/KV TTL: cross-node state-root equality before/after prune windows (`core/ttl_prune_determinism_test.go`).
+2. `PLANNED` Finish Stage C RPC deprecation enforcement (`tos_call`, `tos_estimateGas`, and other VM-era surfaces).
+3. `PLANNED` Run DPoS stability gates: continuous 3-validator run and 1000+ finalized blocks without divergence.
 
 ## Phase 2: Code Storage with TTL
 
@@ -148,8 +148,8 @@ Store code objects with TTL and provide deterministic read/expiry behavior.
 
 ### Definition of Done
 
-- `IN_PROGRESS` Code records expire deterministically across nodes.
-- `PLANNED` State root remains identical across nodes before/after prune cycles.
+- `DONE` Code records expire deterministically across nodes.
+- `DONE` State root remains identical across nodes before/after prune cycles.
 
 ## Phase 3: KV Storage with TTL
 
@@ -170,7 +170,7 @@ Provide native TTL-based key-value storage with deterministic lifecycle.
 
 ### Definition of Done
 
-- `IN_PROGRESS` TTL behavior is deterministic across nodes.
+- `DONE` TTL behavior is deterministic across nodes.
 - `PLANNED` Long-run pruning keeps storage bounded while preserving consensus correctness.
 
 ## Phase 4: Hardening and Production Readiness
@@ -198,9 +198,9 @@ Harden the chain for sustained production load.
 ## Milestone Priorities
 
 1. Consensus safety and deterministic finality.
-2. Signer tx envelope refactor (remove `LegacyTx`; explicit `chainId` + `from` + `signerType`).
-3. Code storage TTL correctness.
-4. KV storage TTL correctness and pruning determinism.
+2. Code/KV TTL pruning determinism (cross-node state-root checks).
+3. RPC surface convergence for storage-first profile (deprecate VM-era calls).
+4. DPoS long-run stability and recovery drills.
 5. Operability and production hardening.
 
 ## Out of Scope
