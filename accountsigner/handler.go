@@ -1,8 +1,6 @@
 package accountsigner
 
 import (
-	"strings"
-
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -24,12 +22,10 @@ func (h *handler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error 
 	if err := sysaction.DecodePayload(sa, &payload); err != nil {
 		return ErrInvalidPayload
 	}
-	if strings.TrimSpace(payload.SignerType) == "" || strings.TrimSpace(payload.SignerValue) == "" {
+	normalizedType, _, normalizedValue, err := NormalizeSigner(payload.SignerType, payload.SignerValue)
+	if err != nil {
 		return ErrInvalidPayload
 	}
-	if len([]byte(payload.SignerType)) > MaxSignerTypeLen || len([]byte(payload.SignerValue)) > MaxSignerValueLen {
-		return ErrInvalidPayload
-	}
-	Set(ctx.StateDB, ctx.From, payload.SignerType, payload.SignerValue)
+	Set(ctx.StateDB, ctx.From, normalizedType, normalizedValue)
 	return nil
 }

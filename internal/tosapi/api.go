@@ -2194,16 +2194,6 @@ func validateSetSignerArgs(args RPCSetSignerArgs) error {
 			},
 		}
 	}
-	if len([]byte(args.SignerType)) > accountsigner.MaxSignerTypeLen {
-		return &rpcAPIError{
-			code:    rpcErrInvalidSigner,
-			message: "invalid signer argument",
-			data: map[string]interface{}{
-				"field":  "signerType",
-				"reason": fmt.Sprintf("must be <= %d bytes", accountsigner.MaxSignerTypeLen),
-			},
-		}
-	}
 	if strings.TrimSpace(args.SignerValue) == "" {
 		return &rpcAPIError{
 			code:    rpcErrInvalidSigner,
@@ -2214,13 +2204,13 @@ func validateSetSignerArgs(args RPCSetSignerArgs) error {
 			},
 		}
 	}
-	if len([]byte(args.SignerValue)) > accountsigner.MaxSignerValueLen {
+	if _, _, _, err := accountsigner.NormalizeSigner(args.SignerType, args.SignerValue); err != nil {
 		return &rpcAPIError{
 			code:    rpcErrInvalidSigner,
 			message: "invalid signer argument",
 			data: map[string]interface{}{
-				"field":  "signerValue",
-				"reason": fmt.Sprintf("must be <= %d bytes", accountsigner.MaxSignerValueLen),
+				"field":  "signer",
+				"reason": err.Error(),
 			},
 		}
 	}
@@ -2239,9 +2229,13 @@ func estimateSystemActionGas(payload []byte) (uint64, error) {
 }
 
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
+	normalizedType, _, normalizedValue, err := accountsigner.NormalizeSigner(args.SignerType, args.SignerValue)
+	if err != nil {
+		return nil, newRPCInvalidParamsError("signer", err.Error())
+	}
 	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
-		SignerType:  args.SignerType,
-		SignerValue: args.SignerValue,
+		SignerType:  normalizedType,
+		SignerValue: normalizedValue,
 	})
 	if err != nil {
 		return nil, newRPCInvalidParamsError("signer", "failed to encode signer payload")

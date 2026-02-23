@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
+	cmath "github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
@@ -49,9 +50,10 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		gp          = new(GasPool).AddGas(block.GasLimit())
 	)
 	blockCtx := NewTVMBlockContext(header, p.bc, nil)
+	signer := types.MakeSigner(p.config, header.Number)
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
-		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number), header.BaseFee)
+		msg, err := txAsMessageWithAccountSigner(tx, signer, header.BaseFee, statedb)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
@@ -106,10 +108,36 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, blockCtx vm
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64) (*types.Receipt, error) {
-	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number), header.BaseFee)
+	msg, err := txAsMessageWithAccountSigner(tx, types.MakeSigner(config, header.Number), header.BaseFee, statedb)
 	if err != nil {
 		return nil, err
 	}
 	blockCtx := NewTVMBlockContext(header, bc, author)
 	return applyTransaction(msg, config, blockCtx, gp, statedb, header.Number, header.Hash(), tx, usedGas)
+}
+
+func txAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, baseFee *big.Int, statedb *state.StateDB) (types.Message, error) {
+	gasPrice := new(big.Int).Set(tx.GasPrice())
+	gasFeeCap := new(big.Int).Set(tx.GasFeeCap())
+	gasTipCap := new(big.Int).Set(tx.GasTipCap())
+	if baseFee != nil {
+		gasPrice = cmath.BigMin(new(big.Int).Add(gasTipCap, baseFee), gasFeeCap)
+	}
+	from, err := ResolveSender(tx, signer, statedb)
+	if err != nil {
+		return types.Message{}, err
+	}
+	return types.NewMessage(
+		from,
+		tx.To(),
+		tx.Nonce(),
+		tx.Value(),
+		tx.Gas(),
+		gasPrice,
+		gasFeeCap,
+		gasTipCap,
+		tx.Data(),
+		tx.AccessList(),
+		false,
+	), nil
 }

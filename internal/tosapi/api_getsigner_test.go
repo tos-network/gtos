@@ -29,7 +29,7 @@ func TestGetSignerReadsStoredSignerMetadata(t *testing.T) {
 		t.Fatalf("failed to create state db: %v", err)
 	}
 	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
-	accountsigner.Set(st, addr, "ed25519", "z6MkiSigner")
+	accountsigner.Set(st, addr, "ed25519", testAPIEd25519PubHex)
 
 	api := NewTOSAPI(&getSignerBackendMock{
 		backendMock: newBackendMock(),
@@ -43,7 +43,7 @@ func TestGetSignerReadsStoredSignerMetadata(t *testing.T) {
 	if got.Signer.Defaulted {
 		t.Fatalf("expected defaulted=false")
 	}
-	if got.Signer.Type != "ed25519" || got.Signer.Value != "z6MkiSigner" {
+	if got.Signer.Type != "ed25519" || got.Signer.Value != testAPIEd25519PubHex {
 		t.Fatalf("unexpected signer %+v", got.Signer)
 	}
 
@@ -54,7 +54,7 @@ func TestGetSignerReadsStoredSignerMetadata(t *testing.T) {
 	if acc.Signer.Defaulted {
 		t.Fatalf("expected account signer defaulted=false")
 	}
-	if acc.Signer.Type != "ed25519" || acc.Signer.Value != "z6MkiSigner" {
+	if acc.Signer.Type != "ed25519" || acc.Signer.Value != testAPIEd25519PubHex {
 		t.Fatalf("unexpected account signer %+v", acc.Signer)
 	}
 }

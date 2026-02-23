@@ -30,13 +30,13 @@ func TestGetMissing(t *testing.T) {
 func TestSetGetRoundTrip(t *testing.T) {
 	st := newTestState(t)
 	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
-	Set(st, addr, "ed25519", "z6MkiSignerValue")
+	Set(st, addr, "ed25519", testEd25519PubHex)
 
 	signerType, signerValue, ok := Get(st, addr)
 	if !ok {
 		t.Fatalf("expected signer metadata")
 	}
-	if signerType != "ed25519" || signerValue != "z6MkiSignerValue" {
+	if signerType != "ed25519" || signerValue != testEd25519PubHex {
 		t.Fatalf("unexpected signer metadata type=%q value=%q", signerType, signerValue)
 	}
 }

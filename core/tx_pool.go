@@ -598,7 +598,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrTipAboveFeeCap
 	}
 	// Make sure the transaction is signed properly.
-	from, err := types.Sender(pool.signer, tx)
+	from, err := ResolveSender(tx, pool.signer, pool.currentState)
 	if err != nil {
 		return ErrInvalidSender
 	}
@@ -643,7 +643,12 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.
-	isLocal := local || pool.locals.containsTx(tx)
+	isLocal := local
+	if !isLocal {
+		if from, fromErr := ResolveSender(tx, pool.signer, pool.currentState); fromErr == nil && pool.locals.contains(from) {
+			isLocal = true
+		}
+	}
 
 	// If the transaction fails basic validation, discard it
 	if err := pool.validateTx(tx, isLocal); err != nil {
@@ -689,7 +694,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		}
 	}
 	// Try to replace an existing transaction in the pending pool
-	from, _ := types.Sender(pool.signer, tx) // already validated
+	from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
 	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.config.PriceBump)
@@ -738,7 +743,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 // Note, this method assumes the pool lock is held!
 func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local bool, addAll bool) (bool, error) {
 	// Try to insert the transaction into the future queue
-	from, _ := types.Sender(pool.signer, tx) // already validated
+	from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
 	if pool.queue[from] == nil {
 		pool.queue[from] = newTxList(false)
 	}
@@ -880,15 +885,6 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 			knownTxMeter.Mark(1)
 			continue
 		}
-		// Exclude transactions with invalid signatures as soon as
-		// possible and cache senders in transactions before
-		// obtaining lock
-		_, err := types.Sender(pool.signer, tx)
-		if err != nil {
-			errs[i] = ErrInvalidSender
-			invalidTxMeter.Mark(1)
-			continue
-		}
 		// Accumulate all unknown transactions for deeper processing
 		news = append(news, tx)
 	}
@@ -926,7 +922,9 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 		replaced, err := pool.add(tx, local)
 		errs[i] = err
 		if err == nil && !replaced {
-			dirty.addTx(tx)
+			if from, fromErr := ResolveSender(tx, pool.signer, pool.currentState); fromErr == nil {
+				dirty.add(from)
+			}
 		}
 	}
 	validTxMeter.Mark(int64(len(dirty.accounts)))
@@ -942,7 +940,7 @@ func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 		if tx == nil {
 			continue
 		}
-		from, _ := types.Sender(pool.signer, tx) // already validated
+		from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
 		pool.mu.RLock()
 		if txList := pool.pending[from]; txList != nil && txList.txs.items[tx.Nonce()] != nil {
 			status[i] = TxStatusPending
@@ -975,7 +973,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 	if tx == nil {
 		return
 	}
-	addr, _ := types.Sender(pool.signer, tx) // already validated during insertion
+	addr, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated during insertion
 
 	// Remove it from the list of known transactions
 	pool.all.Remove(hash)
@@ -1099,7 +1097,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 		case tx := <-pool.queueTxEventCh:
 			// Queue up the event, but don't schedule a reorg. It's up to the caller to
 			// request one later if they want the events sent.
-			addr, _ := types.Sender(pool.signer, tx)
+			addr, _ := ResolveSender(tx, pool.signer, pool.currentState)
 			if _, ok := queuedEvents[addr]; !ok {
 				queuedEvents[addr] = newTxSortedMap()
 			}
@@ -1181,7 +1179,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 
 	// Notify subsystems for newly added transactions
 	for _, tx := range promoted {
-		addr, _ := types.Sender(pool.signer, tx)
+		addr, _ := ResolveSender(tx, pool.signer, pool.currentState)
 		if _, ok := events[addr]; !ok {
 			events[addr] = newTxSortedMap()
 		}

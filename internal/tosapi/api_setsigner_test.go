@@ -13,13 +13,15 @@ import (
 	"github.com/tos-network/gtos/sysaction"
 )
 
+const testAPIEd25519PubHex = "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
 func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	api := NewTOSAPI(newBackendMock())
 	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
 	res, err := api.BuildSetSignerTx(context.Background(), RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: from},
 		SignerType:      "ed25519",
-		SignerValue:     "z6MkiSignerValue",
+		SignerValue:     testAPIEd25519PubHex,
 	})
 	if err != nil {
 		t.Fatalf("unexpected build error: %v", err)
@@ -58,7 +60,7 @@ func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	if err := sysaction.DecodePayload(sa, &payload); err != nil {
 		t.Fatalf("failed to decode payload: %v", err)
 	}
-	if payload.SignerType != "ed25519" || payload.SignerValue != "z6MkiSignerValue" {
+	if payload.SignerType != "ed25519" || payload.SignerValue != testAPIEd25519PubHex {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if to, ok := res.Tx["to"].(common.Address); !ok || to != params.SystemActionAddress {
@@ -73,7 +75,7 @@ func TestBuildSetSignerTxHonorsExplicitGas(t *testing.T) {
 	res, err := api.BuildSetSignerTx(context.Background(), RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: from, Gas: &gas},
 		SignerType:      "ed25519",
-		SignerValue:     "z6MkiSignerValue",
+		SignerValue:     testAPIEd25519PubHex,
 	})
 	if err != nil {
 		t.Fatalf("unexpected build error: %v", err)

@@ -31,7 +31,7 @@ func TestSetSignerValidation(t *testing.T) {
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		SignerType:      "ed25519",
-		SignerValue:     "z6Mki...",
+		SignerValue:     testAPIEd25519PubHex,
 	})
 	if err == nil {
 		t.Fatalf("expected not-implemented error")
@@ -47,7 +47,7 @@ func TestSetSignerValidation(t *testing.T) {
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		SignerType:      strings.Repeat("a", accountsigner.MaxSignerTypeLen+1),
-		SignerValue:     "z6Mki...",
+		SignerValue:     testAPIEd25519PubHex,
 	})
 	if err == nil {
 		t.Fatalf("expected validation error for signerType length")
@@ -63,7 +63,7 @@ func TestSetSignerValidation(t *testing.T) {
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
 		SignerType:      "ed25519",
-		SignerValue:     strings.Repeat("b", accountsigner.MaxSignerValueLen+1),
+		SignerValue:     "0x" + strings.Repeat("11", accountsigner.MaxSignerValueLen+1),
 	})
 	if err == nil {
 		t.Fatalf("expected validation error for signerValue length")
