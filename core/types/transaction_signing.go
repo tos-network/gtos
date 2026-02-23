@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
@@ -99,6 +100,12 @@ func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error)
 			return nil, err
 		}
 		return signSecp256r1Hash(p256Key, hash)
+	case "ed25519":
+		edKey, err := asEd25519Key(prv)
+		if err != nil {
+			return nil, err
+		}
+		return signEd25519Hash(edKey, hash)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrSignerTypeNotSupportedByLocalKey, normalized)
 	}
@@ -137,6 +144,26 @@ func signSecp256r1Hash(priv *ecdsa.PrivateKey, txHash common.Hash) ([]byte, erro
 		return nil, err
 	}
 	return encodeSecp256r1Signature(r, s)
+}
+
+func asEd25519Key(prv *ecdsa.PrivateKey) (ed25519.PrivateKey, error) {
+	if prv == nil || prv.D == nil || prv.D.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	seed := make([]byte, ed25519.SeedSize)
+	d := prv.D.Bytes()
+	if len(d) > ed25519.SeedSize {
+		d = d[len(d)-ed25519.SeedSize:]
+	}
+	copy(seed[ed25519.SeedSize-len(d):], d)
+	return ed25519.NewKeyFromSeed(seed), nil
+}
+
+func signEd25519Hash(priv ed25519.PrivateKey, txHash common.Hash) ([]byte, error) {
+	if len(priv) != ed25519.PrivateKeySize {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	return ed25519.Sign(priv, txHash[:]), nil
 }
 
 func encodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {

@@ -1,6 +1,7 @@
 package keystore
 
 import (
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"math/big"
 	"testing"
@@ -27,6 +28,17 @@ func newSignerTxForWallet(from common.Address, signerType string) *types.Transac
 func p256PubFromScalar(d *big.Int) []byte {
 	x, y := elliptic.P256().ScalarBaseMult(d.Bytes())
 	return elliptic.Marshal(elliptic.P256(), x, y)
+}
+
+func ed25519PubFromScalar(d *big.Int) []byte {
+	seed := make([]byte, ed25519.SeedSize)
+	db := d.Bytes()
+	if len(db) > ed25519.SeedSize {
+		db = db[len(db)-ed25519.SeedSize:]
+	}
+	copy(seed[ed25519.SeedSize-len(db):], db)
+	priv := ed25519.NewKeyFromSeed(seed)
+	return append([]byte(nil), priv.Public().(ed25519.PublicKey)...)
 }
 
 func TestKeyStoreSignTxSignerTxSecp256r1(t *testing.T) {
@@ -85,6 +97,66 @@ func TestKeyStoreSignTxWithPassphraseSignerTxSecp256r1(t *testing.T) {
 		t.Fatalf("unexpected v: %d", v.Uint64())
 	}
 	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSecp256r1, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxEd25519(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeEd25519)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	pub := ed25519PubFromScalar(unlocked.PrivateKey.D)
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeEd25519, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxWithPassphraseSignerTxEd25519(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeEd25519)
+	signed, err := ks.SignTxWithPassphrase(acc, passphrase, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx with passphrase failed: %v", err)
+	}
+	a, key, err := ks.getDecryptedKey(acc, passphrase)
+	if err != nil {
+		t.Fatalf("decrypt key failed: %v", err)
+	}
+	defer zeroKey(key.PrivateKey)
+	if a.Address != acc.Address {
+		t.Fatalf("resolved account mismatch: have=%s want=%s", a.Address.Hex(), acc.Address.Hex())
+	}
+	pub := ed25519PubFromScalar(key.PrivateKey.D)
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeEd25519, pub, signer.Hash(signed), r, s) {
 		t.Fatal("signature verification failed")
 	}
 }

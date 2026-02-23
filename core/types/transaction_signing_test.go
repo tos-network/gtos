@@ -2,8 +2,8 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
-	"errors"
 	"math/big"
 	"testing"
 
@@ -110,7 +110,7 @@ func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 	}
 }
 
-func TestSignerTxSignTxEd25519UnsupportedWithLocalECDSAKey(t *testing.T) {
+func TestSignerTxSignTxEd25519WithLocalECDSAKey(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatalf("failed to generate key: %v", err)
@@ -127,9 +127,25 @@ func TestSignerTxSignTxEd25519UnsupportedWithLocalECDSAKey(t *testing.T) {
 		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
 		SignerType: "ed25519",
 	})
-	_, err = SignTx(tx, signer, key)
-	if !errors.Is(err, ErrSignerTypeNotSupportedByLocalKey) {
-		t.Fatalf("expected ErrSignerTypeNotSupportedByLocalKey, got %v", err)
+	signed, err := SignTx(tx, signer, key)
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	edKey, err := asEd25519Key(key)
+	if err != nil {
+		t.Fatalf("failed to derive ed25519 key: %v", err)
+	}
+	sig := make([]byte, ed25519.SignatureSize)
+	rb, sb := r.Bytes(), s.Bytes()
+	copy(sig[32-len(rb):32], rb)
+	copy(sig[64-len(sb):], sb)
+	hash := signer.Hash(signed)
+	if !ed25519.Verify(edKey.Public().(ed25519.PublicKey), hash[:], sig) {
+		t.Fatal("ed25519 signature verification failed")
 	}
 }
 
