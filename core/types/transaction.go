@@ -390,7 +390,8 @@ func (tx *Transaction) Size() common.StorageSize {
 }
 
 // WithSignature returns a new transaction with the given signature.
-// This signature needs to be in the [R || S || V] format where V is 0 or 1.
+// Signatures are expected in [R || S || V] format. For SignerTx with signerType
+// secp256r1/ed25519, [R || S] is also accepted and V defaults to 0.
 func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, error) {
 	r, s, v, err := signer.SignatureValues(tx, sig)
 	if err != nil {

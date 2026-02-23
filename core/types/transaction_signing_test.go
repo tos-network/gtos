@@ -1,6 +1,9 @@
 package types
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -8,6 +11,127 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/rlp"
 )
+
+func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      1,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "secp256r1",
+	})
+	sig := make([]byte, 64)
+	sig[31] = 0x11
+	sig[63] = 0x22
+
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("with signature failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("expected v=0 for 64-byte secp256r1 sig")
+	}
+	if r.Uint64() != 0x11 || s.Uint64() != 0x22 {
+		t.Fatalf("unexpected r/s values")
+	}
+}
+
+func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      2,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "secp256r1",
+	})
+	sig := make([]byte, 65)
+	sig[31] = 0x33
+	sig[63] = 0x44
+	sig[64] = 0x01
+
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("with signature failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Uint64() != 1 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if r.Uint64() != 0x33 || s.Uint64() != 0x44 {
+		t.Fatalf("unexpected r/s values")
+	}
+}
+
+func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	curve := elliptic.P256()
+	x, y := curve.ScalarBaseMult(key.D.Bytes())
+	pub := elliptic.Marshal(curve, x, y)
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      3,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "secp256r1",
+	})
+	signed, err := SignTx(tx, signer, key)
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	hash := signer.Hash(signed)
+	if !ecdsa.Verify(&ecdsa.PublicKey{Curve: curve, X: x, Y: y}, hash[:], r, s) {
+		t.Fatal("signature verification failed")
+	}
+	if len(pub) != 65 {
+		t.Fatalf("unexpected pub size: %d", len(pub))
+	}
+}
+
+func TestSignerTxSignTxEd25519UnsupportedWithLocalECDSAKey(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      4,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		GasPrice:   big.NewInt(1),
+		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		SignerType: "ed25519",
+	})
+	_, err = SignTx(tx, signer, key)
+	if !errors.Is(err, ErrSignerTypeNotSupportedByLocalKey) {
+		t.Fatalf("expected ErrSignerTypeNotSupportedByLocalKey, got %v", err)
+	}
+}
 
 func TestReplayProtectionSigning(t *testing.T) {
 	key, _ := crypto.GenerateKey()

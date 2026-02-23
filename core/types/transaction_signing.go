@@ -2,9 +2,12 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
@@ -13,6 +16,8 @@ import (
 
 var ErrInvalidChainId = errors.New("invalid chain id for signer")
 var ErrUnprotectedTx = errors.New("unprotected transactions are not allowed")
+var ErrSignerTypeNotSupportedByLocalKey = errors.New("signer type not supported by local ecdsa key")
+var ErrInvalidSignerPrivateKey = errors.New("invalid signer private key")
 
 // sigCache is used to cache the derived sender and contains
 // the signer used to derive it.
@@ -56,8 +61,7 @@ func normalizeChainID(chainID *big.Int) *big.Int {
 
 // SignTx signs the transaction using the given signer and private key.
 func SignTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) (*Transaction, error) {
-	h := s.Hash(tx)
-	sig, err := crypto.Sign(h[:], prv)
+	sig, err := signForTx(tx, s, prv)
 	if err != nil {
 		return nil, err
 	}
@@ -67,12 +71,108 @@ func SignTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) (*Transaction, err
 // SignNewTx creates a transaction and signs it.
 func SignNewTx(prv *ecdsa.PrivateKey, s Signer, txdata TxData) (*Transaction, error) {
 	tx := NewTx(txdata)
-	h := s.Hash(tx)
-	sig, err := crypto.Sign(h[:], prv)
+	sig, err := signForTx(tx, s, prv)
 	if err != nil {
 		return nil, err
 	}
 	return tx.WithSignature(s, sig)
+}
+
+func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error) {
+	hash := s.Hash(tx)
+	if tx.Type() != SignerTxType {
+		return crypto.Sign(hash[:], prv)
+	}
+	signerType, ok := tx.SignerType()
+	if !ok {
+		return nil, ErrTxTypeNotSupported
+	}
+	normalized, err := canonicalSignerType(signerType)
+	if err != nil {
+		return nil, err
+	}
+	switch normalized {
+	case "secp256k1":
+		return crypto.Sign(hash[:], prv)
+	case "secp256r1":
+		p256Key, err := asSecp256r1Key(prv)
+		if err != nil {
+			return nil, err
+		}
+		return signSecp256r1Hash(p256Key, hash)
+	default:
+		return nil, fmt.Errorf("%w: %s", ErrSignerTypeNotSupportedByLocalKey, normalized)
+	}
+}
+
+func asSecp256r1Key(prv *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error) {
+	if prv == nil || prv.D == nil || prv.D.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	if prv.Curve == elliptic.P256() {
+		return prv, nil
+	}
+	curve := elliptic.P256()
+	d := new(big.Int).Set(prv.D)
+	d.Mod(d, curve.Params().N)
+	if d.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	key := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{Curve: curve},
+		D:         d,
+	}
+	key.PublicKey.X, key.PublicKey.Y = curve.ScalarBaseMult(d.Bytes())
+	if key.PublicKey.X == nil || key.PublicKey.Y == nil {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	return key, nil
+}
+
+func signSecp256r1Hash(priv *ecdsa.PrivateKey, txHash common.Hash) ([]byte, error) {
+	if priv == nil || priv.Curve == nil || priv.Curve != elliptic.P256() {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, priv, txHash[:])
+	if err != nil {
+		return nil, err
+	}
+	return encodeSecp256r1Signature(r, s)
+}
+
+func encodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {
+	if r == nil || s == nil || r.Sign() <= 0 || s.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	if r.BitLen() > 256 || s.BitLen() > 256 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	out := make([]byte, crypto.SignatureLength)
+	rb := r.Bytes()
+	sb := s.Bytes()
+	copy(out[32-len(rb):32], rb)
+	copy(out[64-len(sb):64], sb)
+	out[64] = 0
+	return out, nil
+}
+
+func canonicalSignerType(signerType string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(signerType)) {
+	case "secp256k1", "ethereum_secp256k1":
+		return "secp256k1", nil
+	case "secp256r1":
+		return "secp256r1", nil
+	case "ed25519":
+		return "ed25519", nil
+	case "bls12-381", "bls12381":
+		return "bls12-381", nil
+	case "frost":
+		return "frost", nil
+	case "pqc":
+		return "pqc", nil
+	default:
+		return "", fmt.Errorf("unknown signerType: %s", strings.TrimSpace(signerType))
+	}
 }
 
 // MustSignNewTx creates a transaction and signs it.
@@ -271,8 +371,10 @@ func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V 
 		if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
 			return nil, nil, nil, ErrInvalidChainId
 		}
-		R, S, _ = decodeSignature(sig)
-		V = big.NewInt(int64(sig[64]))
+		R, S, V, err = decodeSignerTxSignature(txdata.SignerType, sig)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	default:
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
@@ -415,6 +517,34 @@ func decodeSignature(sig []byte) (r, s, v *big.Int) {
 	s = new(big.Int).SetBytes(sig[32:64])
 	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
 	return r, s, v
+}
+
+func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, err error) {
+	switch strings.ToLower(strings.TrimSpace(signerType)) {
+	case "secp256r1", "ed25519":
+		switch len(sig) {
+		case 64:
+			r = new(big.Int).SetBytes(sig[:32])
+			s = new(big.Int).SetBytes(sig[32:64])
+			v = new(big.Int)
+			return r, s, v, nil
+		case crypto.SignatureLength:
+			r = new(big.Int).SetBytes(sig[:32])
+			s = new(big.Int).SetBytes(sig[32:64])
+			v = new(big.Int).SetUint64(uint64(sig[64]))
+			return r, s, v, nil
+		default:
+			return nil, nil, nil, ErrInvalidSig
+		}
+	default:
+		if len(sig) != crypto.SignatureLength {
+			return nil, nil, nil, ErrInvalidSig
+		}
+		r = new(big.Int).SetBytes(sig[:32])
+		s = new(big.Int).SetBytes(sig[32:64])
+		v = new(big.Int).SetUint64(uint64(sig[64]))
+		return r, s, v, nil
+	}
 }
 
 func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (common.Address, error) {

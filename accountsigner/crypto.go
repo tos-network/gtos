@@ -5,6 +5,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/asn1"
 	"errors"
 	"fmt"
 	"math/big"
@@ -29,6 +31,7 @@ var (
 	ErrInvalidSignerValue     = errors.New("accountsigner: invalid signer value")
 	ErrInvalidSignatureMeta   = errors.New("accountsigner: invalid signature metadata")
 	ErrSignerNotSupportedByTx = errors.New("accountsigner: signer type not supported by current tx signature format")
+	ErrInvalidSignerKey       = errors.New("accountsigner: invalid signer private key")
 	signatureMetaPrefix       = []byte("GTOSSIG1")
 	signatureMetaAlgSecp256k1 = byte(1)
 	signatureMetaAlgSecp256r1 = byte(2)
@@ -212,6 +215,54 @@ func rsSignatureBytes(r, s *big.Int) ([]byte, error) {
 	copy(sig[32-len(rb):32], rb)
 	copy(sig[64-len(sb):], sb)
 	return sig, nil
+}
+
+type ecdsaASN1Signature struct {
+	R, S *big.Int
+}
+
+// EncodeSecp256r1Signature encodes r/s values into signer-tx signature bytes [R || S || V].
+// For secp256r1, V is always 0 because no recovery id is used.
+func EncodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {
+	if r == nil || s == nil {
+		return nil, ErrInvalidSignerValue
+	}
+	if r.Sign() <= 0 || s.Sign() <= 0 {
+		return nil, ErrInvalidSignerValue
+	}
+	if r.BitLen() > 256 || s.BitLen() > 256 {
+		return nil, ErrInvalidSignerValue
+	}
+	out := make([]byte, crypto.SignatureLength)
+	rb := r.Bytes()
+	sb := s.Bytes()
+	copy(out[32-len(rb):32], rb)
+	copy(out[64-len(sb):64], sb)
+	out[64] = 0
+	return out, nil
+}
+
+// EncodeSecp256r1ASN1Signature converts ASN.1 DER ECDSA signature bytes into [R || S || V].
+// This is useful when signatures come from standard secp256r1 signers that emit DER format.
+func EncodeSecp256r1ASN1Signature(sigDER []byte) ([]byte, error) {
+	var parsed ecdsaASN1Signature
+	rest, err := asn1.Unmarshal(sigDER, &parsed)
+	if err != nil || len(rest) != 0 {
+		return nil, ErrInvalidSignerValue
+	}
+	return EncodeSecp256r1Signature(parsed.R, parsed.S)
+}
+
+// SignSecp256r1Hash signs tx hash with a P-256 private key and encodes it as [R || S || V].
+func SignSecp256r1Hash(priv *ecdsa.PrivateKey, txHash common.Hash) ([]byte, error) {
+	if priv == nil || priv.Curve == nil || priv.Curve != elliptic.P256() {
+		return nil, ErrInvalidSignerKey
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, priv, txHash[:])
+	if err != nil {
+		return nil, err
+	}
+	return EncodeSecp256r1Signature(r, s)
 }
 
 // VerifyRawSignature verifies (R,S)-style tx signature against the signer public key and hash.
