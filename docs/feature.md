@@ -59,6 +59,35 @@ GTOS is a **DPoS, storage-first chain**:
 - TTL prune performance baseline and CI smoke entry are available.
 - DPoS long-window soak automation exists (`soak-dpos`), evidence collection in progress.
 
+## 2.5 Agent Skills: What GTOS Storage Gives AI Agents
+
+GTOS native storage unlocks three core capabilities for AI agents running on-chain:
+
+### Trusted Memory
+
+Agent memory is not a single-node database — it is chain-native state with consensus-verified writes and auditable history.
+Every memory write is a signed transaction. Every read is verifiable against a known state root.
+Agents can prove what they knew, when they knew it, and that the record was not tampered with.
+
+### Controlled Forgetting
+
+TTL-based expiry gives agents the ability to declare memory as intentionally finite.
+Expired entries are ignored by reads and pruned by maintenance logic — old rules, stale context, and intermediate outputs do not accumulate indefinitely.
+Agents avoid "stale memory pollution" without requiring a trusted third party to clean up.
+
+### Multi-Agent Shared State
+
+All agents reading the same chain share a single consistent memory layer.
+KV namespaces and code entries are accessible to any agent that knows the address and key.
+Teams of agents can coordinate on shared context, policy, and state without out-of-band synchronization.
+
+### Agent-Native Capabilities Enabled
+
+With these three storage primitives, agents on GTOS can implement:
+
+- **Self-payment**: agents hold TOS balances, sign their own transactions, and pay for storage writes autonomously — no human approval required per action.
+- **Self-executing contracts**: agents encode policy and logic as on-chain code entries (via `code_put_ttl`), read and enforce them independently, and let TTL expiry govern policy lifecycle — a lightweight alternative to a general-purpose smart contract VM.
+
 ## 3. Explicit Boundaries (Current)
 
 - No general-purpose contract execution runtime.
