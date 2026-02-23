@@ -2004,21 +2004,6 @@ type RPCSetCodeArgs struct {
 	TTL  hexutil.Uint64 `json:"ttl"`
 }
 
-type RPCCodeObject struct {
-	CodeHash  common.Hash    `json:"codeHash"`
-	Code      hexutil.Bytes  `json:"code"`
-	CreatedAt hexutil.Uint64 `json:"createdAt"`
-	ExpireAt  hexutil.Uint64 `json:"expireAt"`
-	Expired   bool           `json:"expired"`
-}
-
-type RPCCodeObjectMeta struct {
-	CodeHash  common.Hash    `json:"codeHash"`
-	CreatedAt hexutil.Uint64 `json:"createdAt"`
-	ExpireAt  hexutil.Uint64 `json:"expireAt"`
-	Expired   bool           `json:"expired"`
-}
-
 type RPCPutKVArgs struct {
 	RPCTxCommonArgs
 	Namespace string         `json:"namespace"`
@@ -2311,24 +2296,6 @@ func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash,
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, signed)
-}
-
-func (s *TOSAPI) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCCodeObject, error) {
-	_ = ctx
-	if codeHash == (common.Hash{}) {
-		return nil, newRPCInvalidParamsError("codeHash", "must not be zero hash")
-	}
-	_ = blockNrOrHash
-	return nil, newRPCNotImplementedError("tos_getCodeObject")
-}
-
-func (s *TOSAPI) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCCodeObjectMeta, error) {
-	_ = ctx
-	if codeHash == (common.Hash{}) {
-		return nil, newRPCInvalidParamsError("codeHash", "must not be zero hash")
-	}
-	_ = blockNrOrHash
-	return nil, newRPCNotImplementedError("tos_getCodeObjectMeta")
 }
 
 func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, error) {

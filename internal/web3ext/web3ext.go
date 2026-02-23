@@ -565,18 +565,6 @@ web3._extend({
 			outputFormatter: web3._extend.utils.toDecimal
 		}),
 		new web3._extend.Method({
-			name: 'getCodeObject',
-			call: 'tos_getCodeObject',
-			params: 2,
-			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
-			name: 'getCodeObjectMeta',
-			call: 'tos_getCodeObjectMeta',
-			params: 2,
-			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
 			name: 'putKV',
 			call: 'tos_putKV',
 			params: 1

@@ -258,35 +258,11 @@ func TestCodeAndKVReadValidation(t *testing.T) {
 	api := &TOSAPI{}
 	ctx := context.Background()
 
-	_, err := api.GetCodeObject(ctx, common.Hash{}, nil)
-	if err == nil {
-		t.Fatalf("expected invalid params error for codeHash")
-	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	_, err = api.GetCodeObjectMeta(ctx, common.Hash{}, nil)
-	if err == nil {
-		t.Fatalf("expected invalid params error for codeHash")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	_, err = api.GetKV(ctx, "   ", hexutil.Bytes("k"), nil)
+	_, err := api.GetKV(ctx, "   ", hexutil.Bytes("k"), nil)
 	if err == nil {
 		t.Fatalf("expected invalid params error for namespace")
 	}
-	rpcErr, ok = err.(*rpcAPIError)
+	rpcErr, ok := err.(*rpcAPIError)
 	if !ok {
 		t.Fatalf("unexpected error type %T", err)
 	}
