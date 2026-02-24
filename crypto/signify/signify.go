@@ -21,10 +21,10 @@ package signify
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"os"
 	"strings"
 	"time"

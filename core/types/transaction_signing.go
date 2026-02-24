@@ -18,11 +18,11 @@ package types
 
 import (
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"math/big"
 	"strings"
 	"sync"

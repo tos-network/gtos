@@ -17,9 +17,9 @@ package dpos
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"math/big"
 	"math/rand"

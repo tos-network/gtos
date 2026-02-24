@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos all test clean tps ttl-prune-bench ttl-prune-bench-ci dpos-soak dpos-soak-ci lint devtools
+.PHONY: gtos gtos-ed25519c gtos-ed25519native all test clean tps ttl-prune-bench ttl-prune-bench-ci dpos-soak dpos-soak-ci lint devtools
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -13,6 +13,16 @@ SOAK_ARGS ?= -duration 24h
 gtos:
 	$(GORUN) build/ci.go install ./cmd/gtos
 	@echo "Done building."
+	@echo "Run \"$(GOBIN)/gtos\" to launch gtos."
+
+gtos-ed25519c:
+	CGO_ENABLED=1 $(GORUN) build/ci.go install -tags "ed25519c" ./cmd/gtos
+	@echo "Done building (ed25519 C backend)."
+	@echo "Run \"$(GOBIN)/gtos\" to launch gtos."
+
+gtos-ed25519native:
+	CGO_ENABLED=1 $(GORUN) build/ci.go install -tags "ed25519c ed25519native" ./cmd/gtos
+	@echo "Done building (ed25519 native accel backend)."
 	@echo "Run \"$(GOBIN)/gtos\" to launch gtos."
 
 all:

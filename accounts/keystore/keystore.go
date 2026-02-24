@@ -22,10 +22,10 @@ package keystore
 
 import (
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"math/big"
 	"os"
 	"path/filepath"

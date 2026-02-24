@@ -3,12 +3,12 @@ package accountsigner
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"math/big"
 	"strings"

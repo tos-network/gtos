@@ -24,7 +24,7 @@ Usage: go run build/ci.go <command> <command flags/arguments>
 
 Available commands are:
 
-	install    [ -arch architecture ] [ -cc compiler ] [ packages... ]                          -- builds packages and executables
+	install    [ -arch architecture ] [ -cc compiler ] [ -tags "tag1 tag2" ] [ packages... ]    -- builds packages and executables
 	test       [ -coverage ] [ packages... ]                                                    -- runs the tests
 	bench-ttlprune [ -benchtime value ] [ -count n ]                                            -- runs TTL prune benchmark smoke suite
 	soak-dpos  [ -duration value ] [ -maxruns n ] [ -testtimeout value ]                        -- runs DPoS stability soak loop
@@ -189,6 +189,7 @@ func doInstall(cmdline []string) {
 		arch       = flag.String("arch", "", "Architecture to cross build for")
 		cc         = flag.String("cc", "", "C compiler to cross build with")
 		staticlink = flag.Bool("static", false, "Create statically-linked executable")
+		extraTags  = flag.String("tags", "", "Additional Go build tags (space or comma separated)")
 	)
 	flag.CommandLine.Parse(cmdline)
 
@@ -201,6 +202,13 @@ func doInstall(cmdline []string) {
 
 	// Disable CLI markdown doc generation in release builds.
 	buildTags := []string{"urfave_cli_no_docs"}
+	if strings.TrimSpace(*extraTags) != "" {
+		for _, tag := range strings.Fields(strings.ReplaceAll(*extraTags, ",", " ")) {
+			if tag != "" {
+				buildTags = append(buildTags, tag)
+			}
+		}
+	}
 
 	// Configure the build.
 	env := build.Env()

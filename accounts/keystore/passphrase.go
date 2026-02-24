@@ -28,12 +28,12 @@ package keystore
 import (
 	"bytes"
 	"crypto/aes"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"os"
 	"path/filepath"

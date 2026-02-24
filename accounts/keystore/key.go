@@ -19,10 +19,10 @@ package keystore
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"os"
 	"path/filepath"

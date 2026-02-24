@@ -28,6 +28,40 @@ TOS is a **verifiable shared memory + coordination + settlement layer** for mult
 - Account/tx signer support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 - Consensus block seal: configurable via `config.dpos.sealSignerType` (`ed25519` default, `secp256k1` supported)
 
+## ed25519 Hardware Acceleration
+
+TOS supports three ed25519 build modes:
+
+- Default build (no tag): Go stdlib-compatible path (`nocgo` fallback)
+- `ed25519c`: C backend enabled (portable/reference path)
+- `ed25519c + ed25519native`: C backend + native CPU flags (`-march=native -mtune=native`), auto-activates AVX2 / AVX-512 / IFMA paths when available
+
+Examples:
+
+```bash
+# Portable C backend
+CGO_ENABLED=1 go build -tags ed25519c ./cmd/gtos
+
+# Host-optimized build (recommended on fixed hardware fleets)
+CGO_ENABLED=1 go build -tags "ed25519c ed25519native" ./cmd/gtos
+```
+
+Make targets (recommended for team/CI consistency):
+
+```bash
+# Portable ed25519 C backend
+make gtos-ed25519c
+
+# Host-optimized ed25519 backend (AVX2/AVX-512/IFMA when available)
+make gtos-ed25519native
+```
+
+Operational recommendation:
+
+- Use `ed25519c` for portable release artifacts.
+- Use `ed25519native` only when validator hardware is controlled and homogeneous.
+- Build optimized binaries on target-class machines and do not mix across older CPUs.
+
 ## Why TOS
 
 Most agent stacks can call tools, but they still fail on shared truth:
