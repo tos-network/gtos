@@ -6,7 +6,7 @@ code derived from go-ethereum (The go-ethereum Authors).
 
 License summary:
 - Primary project license: GNU Lesser General Public License v3.0 (LGPL-3.0),
-  see LICENSE and COPYING.LESSER.
+  see LICENSE.
 - CLI/application components under cmd/ include GPL-3.0-governed material,
   see COPYING and LICENSES.md.
 - Additional third-party components carry their own licenses in subdirectories

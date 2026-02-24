@@ -74,7 +74,7 @@ func version(ctx *cli.Context) error {
 func license(_ *cli.Context) error {
 	fmt.Println(`GTOS licensing summary
 
-- Default repository license: GNU LGPL-3.0 (see LICENSE, COPYING.LESSER)
+- Default repository license: GNU LGPL-3.0 (see LICENSE)
 - cmd/ command applications include GPL-3.0-governed components (see COPYING)
 - Some embedded third-party subdirectories carry their own license files
 

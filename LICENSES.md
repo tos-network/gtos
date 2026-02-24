@@ -6,7 +6,7 @@ This repository is a mixed-license codebase.
 
 - Unless otherwise stated by a file header or a local license file,
   source code is distributed under **LGPL-3.0**.
-- See: `LICENSE` and `COPYING.LESSER`.
+- See: `LICENSE`.
 
 ## Directory-level declarations
 
