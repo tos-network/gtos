@@ -6,15 +6,19 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/google/uuid"
 	"github.com/tos-network/gtos/accounts/keystore"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/urfave/cli/v2"
 )
 
 type outputGenerate struct {
-	Address string
+	Address    string
+	SignerType string
 }
 
 var (
@@ -25,6 +29,10 @@ var (
 	lightKDFFlag = &cli.BoolFlag{
 		Name:  "lightkdf",
 		Usage: "use less secure scrypt parameters",
+	}
+	signerTypeFlag = &cli.StringFlag{
+		Name:  "signer",
+		Usage: "Signer algorithm for generated key (`secp256k1` default, `schnorr` supported)",
 	}
 )
 
@@ -43,6 +51,7 @@ If you want to encrypt an existing private key, it can be specified by setting
 		jsonFlag,
 		privateKeyFlag,
 		lightKDFFlag,
+		signerTypeFlag,
 	},
 	Action: func(ctx *cli.Context) error {
 		// Check if keyfile path given and make sure it doesn't already exist.
@@ -77,9 +86,32 @@ If you want to encrypt an existing private key, it can be specified by setting
 		if err != nil {
 			utils.Fatalf("Failed to generate random uuid: %v", err)
 		}
+		requestedSignerType := ctx.String(signerTypeFlag.Name)
+		if requestedSignerType == "" {
+			requestedSignerType = accountsigner.SignerTypeSecp256k1
+		}
+		signerType, err := accountsigner.CanonicalSignerType(requestedSignerType)
+		if err != nil {
+			utils.Fatalf("Unsupported signer type %q", requestedSignerType)
+		}
+		if signerType != accountsigner.SignerTypeSecp256k1 && signerType != accountsigner.SignerTypeSchnorr {
+			utils.Fatalf("Signer type %q is not supported by toskey generate", signerType)
+		}
+
+		address := crypto.PubkeyToAddress(privateKey.PublicKey)
+		if signerType == accountsigner.SignerTypeSchnorr {
+			schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(privateKey))
+			schnorrPub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
+			addr, addrErr := accountsigner.AddressFromSigner(accountsigner.SignerTypeSchnorr, schnorrPub)
+			if addrErr != nil {
+				utils.Fatalf("Failed to derive schnorr address: %v", addrErr)
+			}
+			address = addr
+		}
 		key := &keystore.Key{
 			Id:         UUID,
-			Address:    crypto.PubkeyToAddress(privateKey.PublicKey),
+			Address:    address,
+			SignerType: signerType,
 			PrivateKey: privateKey,
 		}
 
@@ -104,12 +136,14 @@ If you want to encrypt an existing private key, it can be specified by setting
 
 		// Output some information.
 		out := outputGenerate{
-			Address: key.Address.Hex(),
+			Address:    key.Address.Hex(),
+			SignerType: signerType,
 		}
 		if ctx.Bool(jsonFlag.Name) {
 			mustPrintJSON(out)
 		} else {
 			fmt.Println("Address:", out.Address)
+			fmt.Println("Signer type:", out.SignerType)
 		}
 		return nil
 	},

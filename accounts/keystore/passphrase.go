@@ -317,6 +317,11 @@ func encryptablePrivateKeyBytes(key *Key) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("missing ecdsa private key")
 		}
 		return math.PaddedBigBytes(key.PrivateKey.D, 32), signerType, nil
+	case accountsigner.SignerTypeSchnorr:
+		if key.PrivateKey == nil || key.PrivateKey.D == nil {
+			return nil, "", fmt.Errorf("missing schnorr private key")
+		}
+		return math.PaddedBigBytes(key.PrivateKey.D, 32), signerType, nil
 	case accountsigner.SignerTypeEd25519:
 		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
 			return nil, "", fmt.Errorf("missing ed25519 private key")
@@ -342,6 +347,9 @@ func keyFromBytes(id uuid.UUID, signerType string, keyBytes []byte) (*Key, error
 			SignerType: accountsigner.SignerTypeSecp256k1,
 			PrivateKey: key,
 		}, nil
+	case accountsigner.SignerTypeSchnorr:
+		key := crypto.ToECDSAUnsafe(keyBytes)
+		return newSchnorrKeyWithID(id, key)
 	case accountsigner.SignerTypeEd25519:
 		if len(keyBytes) != ed25519.SeedSize && len(keyBytes) != ed25519.PrivateKeySize {
 			return nil, fmt.Errorf("invalid ed25519 key material size: %d", len(keyBytes))

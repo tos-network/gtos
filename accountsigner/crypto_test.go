@@ -10,12 +10,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/crypto"
 )
 
 func TestNormalizeSignerExtendedTypes(t *testing.T) {
+	secpKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate secp256k1 key: %v", err)
+	}
+	btcecPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(secpKey))
+	schnorrPub := btcschnorr.SerializePubKey(btcecPriv.PubKey())
+	secpCompressed := crypto.CompressPubkey(&secpKey.PublicKey)
+
 	blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate bls private key: %v", err)
@@ -38,7 +48,16 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 		signerValue  string
 		wantType     string
 		wantValueLen int
+		wantValue    string
 	}{
+		{
+			name:         "schnorr canonicalizes",
+			signerType:   " schnorr ",
+			signerValue:  hexutil.Encode(secpCompressed),
+			wantType:     SignerTypeSchnorr,
+			wantValueLen: btcschnorr.PubKeyBytesLen,
+			wantValue:    hexutil.Encode(schnorrPub),
+		},
 		{
 			name:         "bls12381 alias canonicalizes",
 			signerType:   "BLS12381",
@@ -67,8 +86,12 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 			if len(gotPub) != tc.wantValueLen {
 				t.Fatalf("unexpected pubkey len have=%d want=%d", len(gotPub), tc.wantValueLen)
 			}
-			if gotValue != hexutil.Encode(gotPub) {
-				t.Fatalf("unexpected canonical signer value have=%q want=%q", gotValue, hexutil.Encode(gotPub))
+			wantValue := hexutil.Encode(gotPub)
+			if tc.wantValue != "" {
+				wantValue = tc.wantValue
+			}
+			if gotValue != wantValue {
+				t.Fatalf("unexpected canonical signer value have=%q want=%q", gotValue, wantValue)
 			}
 		})
 	}
@@ -111,6 +134,9 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	if !SupportsCurrentTxSignatureType(SignerTypeSecp256k1) {
 		t.Fatalf("expected secp256k1 support")
 	}
+	if !SupportsCurrentTxSignatureType(SignerTypeSchnorr) {
+		t.Fatalf("expected schnorr support")
+	}
 	if !SupportsCurrentTxSignatureType(SignerTypeSecp256r1) {
 		t.Fatalf("expected secp256r1 support")
 	}
@@ -122,6 +148,34 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	}
 	if !SupportsCurrentTxSignatureType(SignerTypeElgamal) {
 		t.Fatalf("expected elgamal support")
+	}
+}
+
+func TestSignAndVerifySchnorrHash(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate secp256k1 key: %v", err)
+	}
+	priv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(key))
+	pub := btcschnorr.SerializePubKey(priv.PubKey())
+	msg := common.HexToHash("0x1234567890")
+
+	sig, err := btcschnorr.Sign(priv, msg[:])
+	if err != nil {
+		t.Fatalf("failed to sign schnorr hash: %v", err)
+	}
+	sigBytes := sig.Serialize()
+	r := new(big.Int).SetBytes(sigBytes[:32])
+	s := new(big.Int).SetBytes(sigBytes[32:])
+	if !VerifyRawSignature(SignerTypeSchnorr, pub, msg, r, s) {
+		t.Fatalf("schnorr signature verification failed")
+	}
+
+	sigBytes[0] ^= 0x01
+	rBad := new(big.Int).SetBytes(sigBytes[:32])
+	sBad := new(big.Int).SetBytes(sigBytes[32:])
+	if VerifyRawSignature(SignerTypeSchnorr, pub, msg, rBad, sBad) {
+		t.Fatalf("mutated schnorr signature unexpectedly verified")
 	}
 }
 
@@ -304,6 +358,8 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate secp256k1 key: %v", err)
 	}
+	schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(secp256k1Key))
+	schnorrPub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
 	secp256r1Key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate secp256r1 key: %v", err)
@@ -335,6 +391,7 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 		pub        []byte
 	}{
 		{name: "secp256k1", signerType: SignerTypeSecp256k1, pub: crypto.FromECDSAPub(&secp256k1Key.PublicKey)},
+		{name: "schnorr", signerType: SignerTypeSchnorr, pub: append([]byte(nil), schnorrPub...)},
 		{name: "secp256r1", signerType: SignerTypeSecp256r1, pub: elliptic.Marshal(elliptic.P256(), secp256r1Key.X, secp256r1Key.Y)},
 		{name: "ed25519", signerType: SignerTypeEd25519, pub: append([]byte(nil), edPub...)},
 		{name: "bls12-381", signerType: SignerTypeBLS12381, pub: append([]byte(nil), blsPub...)},

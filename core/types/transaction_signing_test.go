@@ -23,6 +23,7 @@ import (
 	"math/big"
 	"testing"
 
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/crypto/ristretto255"
@@ -85,6 +86,35 @@ func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 		t.Fatalf("unexpected v: %d", v.Uint64())
 	}
 	if r.Uint64() != 0x33 || s.Uint64() != 0x44 {
+		t.Fatalf("unexpected r/s values")
+	}
+}
+
+func TestSignerTxSchnorrSignatureEncoding64(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      2,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
+		SignerType: "schnorr",
+	})
+	sig := make([]byte, 64)
+	sig[31] = 0x55
+	sig[63] = 0x66
+
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("with signature failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("expected v=0 for 64-byte schnorr sig")
+	}
+	if r.Uint64() != 0x55 || s.Uint64() != 0x66 {
 		t.Fatalf("unexpected r/s values")
 	}
 }
@@ -264,6 +294,49 @@ func TestSignerTxSignTxElgamalWithLocalECDSAKey(t *testing.T) {
 	}
 	if verifyElgamalSignatureForTest(wrongElgPriv, hash, r, s) {
 		t.Fatal("elgamal signature unexpectedly verified with wrong pubkey")
+	}
+}
+
+func TestSignerTxSignTxSchnorrWithLocalECDSAKey(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      7,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        21000,
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
+		SignerType: "schnorr",
+	})
+
+	signed, err := SignTx(tx, signer, key)
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	sigBytes := make([]byte, 64)
+	rb, sb := r.Bytes(), s.Bytes()
+	copy(sigBytes[32-len(rb):32], rb)
+	copy(sigBytes[64-len(sb):], sb)
+	sig, err := btcschnorr.ParseSignature(sigBytes)
+	if err != nil {
+		t.Fatalf("parse schnorr signature failed: %v", err)
+	}
+	schnorrKey, err := asSchnorrKey(key)
+	if err != nil {
+		t.Fatalf("derive schnorr key failed: %v", err)
+	}
+	hash := signer.Hash(signed)
+	if !sig.Verify(hash[:], schnorrKey.PubKey()) {
+		t.Fatal("schnorr signature verification failed")
 	}
 }
 

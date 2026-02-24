@@ -18,11 +18,12 @@ Detailed method schemas and error codes are in `docs/RPC.md`.
 
 ## Agent Identity and Signing
 
-Agents hold their own on-chain address and signing key. GTOS supports four signing algorithms across all API paths:
+Agents hold their own on-chain address and signing key. GTOS supports five signing algorithms across all API paths:
 
 | Algorithm | Use case |
 |---|---|
 | `secp256k1` | Default; EVM-compatible key infrastructure |
+| `schnorr` | secp256k1 x-only (BIP340) signatures with 32-byte public keys |
 | `secp256r1` | Hardware security modules, mobile secure enclaves |
 | `ed25519` | High-throughput agent identity and daily transaction signing |
 | `bls12-381` | Aggregated proof paths; `blst` backend; G2 sig (96 bytes), G1 pubkey (48 bytes) |

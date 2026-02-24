@@ -28,8 +28,8 @@ Any agent (ChatGPT, Claude, Gemini, Codex, or custom) that speaks JSON-RPC can c
 - Typed signer transactions are the only accepted transaction envelope (`SignerTx`).
 - Legacy/access-list/dynamic-fee envelopes are rejected for new submissions.
 - `chainId` must be explicit in envelope fields; do not derive chain identity from signature field `V`.
-- Account signer RPC (`tos_setSigner`) accepts canonical `signerType` values: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
-- Current tx `(R,S)` verification path directly supports: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Account signer RPC (`tos_setSigner`) accepts canonical `signerType` values: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx `(R,S)` verification path directly supports: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - `bls12-381` signer verification/signing backend uses `blst` (`supranational`) in signer-account path.
 - `bls12-381` transaction signature encoding uses compressed G2 signature bytes (`96` bytes) and compressed G1 pubkeys (`48` bytes).
 
@@ -210,9 +210,9 @@ Result schema:
 
 Signer algorithm status:
 
-- Active in account-signer RPC/state path: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
-- Registered signer types: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
-- Current tx verification support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Active in account-signer RPC/state path: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
+- Registered signer types: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx verification support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - Roadmap scope: `bls12-381` (aggregation/consensus).
 
 ### `tos_getAccount`
@@ -238,7 +238,7 @@ Result schema:
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381"]
+          "enum": ["address", "secp256k1", "schnorr", "secp256r1", "ed25519", "bls12-381"]
         },
         "value": {"type": "string"},
         "defaulted": {"type": "boolean"}
@@ -267,7 +267,7 @@ Result schema:
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["address", "secp256k1", "secp256r1", "ed25519", "bls12-381"]
+          "enum": ["address", "secp256k1", "schnorr", "secp256r1", "ed25519", "bls12-381"]
         },
         "value": {"type": "string"},
         "defaulted": {"type": "boolean"}
@@ -286,8 +286,8 @@ Behavior:
 - RPC assembles a normal transfer transaction to `SystemActionAddress`.
 - Encoded `ACCOUNT_SET_SIGNER` payload is placed in `input`.
 - Transaction is signed/submitted through the regular transaction pipeline.
-- Canonical `signerType` values accepted by validation: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
-- Current tx signature verification is directly supported for `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Canonical `signerType` values accepted by validation: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
+- Current tx signature verification is directly supported for `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - Compatibility aliases may be accepted by implementation, but RPC outputs canonical names.
 
 Params schema (`params[0]`):
@@ -300,7 +300,7 @@ Params schema (`params[0]`):
     "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "signerType": {
       "type": "string",
-      "enum": ["secp256k1", "secp256r1", "ed25519", "bls12-381"]
+      "enum": ["secp256k1", "schnorr", "secp256r1", "ed25519", "bls12-381"]
     },
     "signerValue": {"type": "string"},
     "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},

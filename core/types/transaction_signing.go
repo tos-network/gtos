@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/crypto/ristretto255"
@@ -119,6 +121,12 @@ func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error)
 	switch normalized {
 	case "secp256k1":
 		return crypto.Sign(hash[:], prv)
+	case "schnorr":
+		schnorrKey, err := asSchnorrKey(prv)
+		if err != nil {
+			return nil, err
+		}
+		return signSchnorrHash(schnorrKey, hash)
 	case "secp256r1":
 		p256Key, err := asSecp256r1Key(prv)
 		if err != nil {
@@ -140,6 +148,36 @@ func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrSignerTypeNotSupportedByLocalKey, normalized)
 	}
+}
+
+func asSchnorrKey(prv *ecdsa.PrivateKey) (*btcec.PrivateKey, error) {
+	if prv == nil || prv.D == nil || prv.D.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	d := new(big.Int).Set(prv.D)
+	d.Mod(d, btcec.S256().N)
+	if d.Sign() <= 0 {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	scalar := make([]byte, 32)
+	db := d.Bytes()
+	copy(scalar[len(scalar)-len(db):], db)
+	key, _ := btcec.PrivKeyFromBytes(scalar)
+	if key == nil {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	return key, nil
+}
+
+func signSchnorrHash(priv *btcec.PrivateKey, txHash common.Hash) ([]byte, error) {
+	if priv == nil {
+		return nil, ErrInvalidSignerPrivateKey
+	}
+	sig, err := btcschnorr.Sign(priv, txHash[:])
+	if err != nil {
+		return nil, err
+	}
+	return sig.Serialize(), nil
 }
 
 func asSecp256r1Key(prv *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error) {
@@ -310,6 +348,8 @@ func canonicalSignerType(signerType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
 	case "secp256k1", "ethereum_secp256k1":
 		return "secp256k1", nil
+	case "schnorr":
+		return "schnorr", nil
 	case "secp256r1":
 		return "secp256r1", nil
 	case "ed25519":
@@ -549,7 +589,7 @@ func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, e
 		s = new(big.Int).SetBytes(sig[48:96])
 		v = new(big.Int)
 		return r, s, v, nil
-	case "secp256r1", "ed25519", "elgamal":
+	case "schnorr", "secp256r1", "ed25519", "elgamal":
 		switch len(sig) {
 		case 64:
 			r = new(big.Int).SetBytes(sig[:32])

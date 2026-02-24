@@ -41,14 +41,14 @@ Freeze the minimum protocol and state rules before feature expansion.
 - `DONE` State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
 - `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
-- `DONE` Signer spec: multi-algorithm registry and current tx verification path support `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`.
+- `DONE` Signer spec: multi-algorithm registry and current tx verification path support `secp256k1`/`schnorr`/`secp256r1`/`ed25519`/`bls12-381`.
 - `DONE` Retention/snapshot spec: retention boundary, prune trigger, snapshot/recovery flow (`docs/RETENTION_SNAPSHOT_SPEC.md` `v1.0.0`).
 - `DONE` Transaction spec: `account_set_signer`, `code_put_ttl`, `kv_put_ttl`, and signer-aware tx envelope rules.
 
 ### Definition of Done
 
 - `DONE` Specs reviewed and versioned.
-- `DONE` Golden vectors for active typed signer transaction (`SignerTx`) across `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`, including invalid decode/canonicalization cases.
+- `DONE` Golden vectors for active typed signer transaction (`SignerTx`) across `secp256k1`/`schnorr`/`secp256r1`/`ed25519`/`bls12-381`, including invalid decode/canonicalization cases.
 - `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
 
 ## Phase 1: DPoS + Account/Signer Foundation
@@ -63,9 +63,9 @@ Run a stable DPoS network with deterministic account and signer processing.
 
 - `DONE` Validator lifecycle: register, activate, epoch rotation (`validator/validator_test.go` + `consensus/dpos/integration_test.go::TestDPoSEpochRotationUsesValidatorRegistrySet`).
 - `DONE` Proposal/vote/finality flow and safety checks (`consensus/dpos/dpos_test.go::TestVoteSigningLifecycle` + `consensus/dpos/integration_test.go::TestDPoSProposalSafetyChecks`).
-- `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`secp256r1`/`ed25519`/`bls12-381`).
+- `DONE` Signature verification pipeline wired to account signer (`signerType`-based verifier routing for `secp256k1`/`schnorr`/`secp256r1`/`ed25519`/`bls12-381`).
 - `DONE` `tos_setSigner` RPC wrapper and execution path through normal transfer (`to = SystemActionAddress`, `data = ACCOUNT_SET_SIGNER payload`).
-- `DONE` Account signer validator support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `DONE` Account signer validator support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - `DONE` Sender resolution is `SignerTx`-only and uses explicit `from` + `signerType`; no signer metadata is derived from `V`.
 - `DONE` Deterministic nonce/state transition checks (including signer switch + replay rejection consistency in `core/state_processor_test.go::TestDeterministicNonceStateTransitionAndReplayRejection`).
 
@@ -113,11 +113,11 @@ Status: `IN_PROGRESS`
 
 - `DONE` (A) Daily identity/transaction signing: `ed25519` (native keystore + tx signing/verification path).
 - `IN_PROGRESS` (B) Large-scale aggregated proofs (non-consensus path): `bls12-381` (tx verify/sign path and aggregate helpers on `blst` backend are wired).
-- `DONE` (C) AA wallet signing support baseline: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `DONE` (C) AA wallet signing support baseline: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 
 ### Layer Mapping
 
-- `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - `DONE` DPoS consensus sealing/verification supports configurable header seal (`ed25519` default, `secp256k1` supported) + deterministic `extra` validation; no consensus-side `bls12-381` import.
 
 ### Staged Execution
@@ -197,7 +197,7 @@ Harden the chain for sustained production load.
 - `DONE` Snapshot/state-sync bootstrap and recovery drills (baseline restart/finalized recovery gate in `core/restart_recovery_test.go`).
 - `DONE` Automated retention-window pruning enforcement (watermark progression/retention guard baseline in `internal/tosapi/api_retention_test.go` + `history_pruned` guards).
 - `DONE` Observability baseline: metrics + structured logs for TTL prune and retention rejection (`docs/OBSERVABILITY_BASELINE.md` + `core/ttl_prune_metrics.go` + `core/state_processor.go` + `internal/tosapi/metrics.go` + `internal/tosapi/api.go` + `internal/tosapi/metrics_test.go`).
-- `DONE` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary, multi-signer sender-resolution robustness (`secp256k1`/`secp256r1`/`ed25519`), retention boundary invariants, and account-signer normalization/signature-meta robustness (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
+- `DONE` Security baseline: fuzz/property tests for signer-tx decode/JSON/binary, multi-signer sender-resolution robustness (`secp256k1`/`schnorr`/`secp256r1`/`ed25519`), retention boundary invariants, and account-signer normalization/signature-meta robustness (`core/types/signer_tx_fuzz_test.go` + `core/types/transaction_unmarshal_fuzz_test.go` + `core/accountsigner_sender_fuzz_test.go` + `internal/tosapi/api_retention_property_test.go` + `accountsigner/crypto_fuzz_test.go` + `accountsigner/crypto_test.go`).
 - `IN_PROGRESS` Long-window DPoS soak automation and evidence capture path (`docs/STABILITY_SOAK.md` + `build/ci.go::soak-dpos` + `scripts/dpos_stability_soak.sh` + `Makefile::dpos-soak-ci`).
 - `DONE` Cross-node retention-window determinism gate (`internal/tosapi/api_retention_crossnode_test.go::TestRetentionBoundaryDeterministicAcrossNodes`).
 

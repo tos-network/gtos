@@ -29,6 +29,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/google/uuid"
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accountsigner"
@@ -145,6 +147,14 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		k.PrivateKey = privkey
 		k.Ed25519PrivateKey = nil
 		k.BLS12381PrivateKey = nil
+	case accountsigner.SignerTypeSchnorr:
+		privkey, decErr := crypto.HexToECDSA(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = privkey
+		k.Ed25519PrivateKey = nil
+		k.BLS12381PrivateKey = nil
 	case accountsigner.SignerTypeEd25519:
 		edPriv, decErr := decodeEd25519PrivateKeyHex(keyJSON.PrivateKey)
 		if decErr != nil {
@@ -183,6 +193,39 @@ func newKeyFromECDSA(privateKeyECDSA *ecdsa.PrivateKey) *Key {
 		PrivateKey: privateKeyECDSA,
 	}
 	return key
+}
+
+func schnorrPubkeyFromECDSA(privateKeyECDSA *ecdsa.PrivateKey) ([]byte, error) {
+	if privateKeyECDSA == nil || privateKeyECDSA.D == nil {
+		return nil, fmt.Errorf("missing ecdsa private key")
+	}
+	priv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(privateKeyECDSA))
+	return btcschnorr.SerializePubKey(priv.PubKey()), nil
+}
+
+func newSchnorrKeyWithID(id uuid.UUID, privateKeyECDSA *ecdsa.PrivateKey) (*Key, error) {
+	pub, err := schnorrPubkeyFromECDSA(privateKeyECDSA)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSchnorr, pub)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{
+		Id:         id,
+		Address:    addr,
+		SignerType: accountsigner.SignerTypeSchnorr,
+		PrivateKey: privateKeyECDSA,
+	}, nil
+}
+
+func newKeyFromSchnorrECDSA(privateKeyECDSA *ecdsa.PrivateKey) (*Key, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("could not create random uuid: %w", err)
+	}
+	return newSchnorrKeyWithID(id, privateKeyECDSA)
 }
 
 func newKeyFromEd25519(privateKeyED25519 ed25519.PrivateKey) (*Key, error) {
@@ -271,6 +314,14 @@ func newEd25519Key(rand io.Reader) (*Key, error) {
 	return newKeyFromEd25519(ed25519.NewKeyFromSeed(seed))
 }
 
+func newSchnorrKey(rand io.Reader) (*Key, error) {
+	privateKeyECDSA, err := ecdsa.GenerateKey(crypto.S256(), rand)
+	if err != nil {
+		return nil, err
+	}
+	return newKeyFromSchnorrECDSA(privateKeyECDSA)
+}
+
 func newBLS12381Key(rand io.Reader) (*Key, error) {
 	priv, err := accountsigner.GenerateBLS12381PrivateKey(rand)
 	if err != nil {
@@ -297,6 +348,22 @@ func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Accou
 
 func storeNewEd25519Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
 	key, err := newEd25519Key(rand)
+	if err != nil {
+		return nil, accounts.Account{}, err
+	}
+	a := accounts.Account{
+		Address: key.Address,
+		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
+	}
+	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
+		zeroKeyMaterial(key)
+		return nil, a, err
+	}
+	return key, a, err
+}
+
+func storeNewSchnorrKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
+	key, err := newSchnorrKey(rand)
 	if err != nil {
 		return nil, accounts.Account{}, err
 	}
@@ -369,6 +436,11 @@ func (k *Key) privateKeyHex() (string, error) {
 	case accountsigner.SignerTypeSecp256k1:
 		if k.PrivateKey == nil {
 			return "", fmt.Errorf("missing ecdsa private key")
+		}
+		return hex.EncodeToString(crypto.FromECDSA(k.PrivateKey)), nil
+	case accountsigner.SignerTypeSchnorr:
+		if k.PrivateKey == nil {
+			return "", fmt.Errorf("missing schnorr private key")
 		}
 		return hex.EncodeToString(crypto.FromECDSA(k.PrivateKey)), nil
 	case accountsigner.SignerTypeEd25519:

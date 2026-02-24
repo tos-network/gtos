@@ -12,6 +12,7 @@ Generate a new keyfile.
 If you want to use an existing private key to use in the keyfile, it can be 
 specified by setting `--privatekey` with the location of the file containing the 
 private key.
+Use `--signer schnorr` to generate a schnorr account keyfile (default is `secp256k1`).
 
 
 ### `toskey inspect <keyfile>`

@@ -6,9 +6,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 )
 
 func newSignerTxForWallet(from common.Address, signerType string) *types.Transaction {
@@ -89,6 +92,114 @@ func TestKeyStoreSignTxWithPassphraseSignerTxSecp256r1(t *testing.T) {
 		t.Fatalf("unexpected v: %d", v.Uint64())
 	}
 	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSecp256r1, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxSchnorr(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeSchnorr)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(unlocked.PrivateKey))
+	pub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSchnorr, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxSchnorrWithSchnorrKey(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewSchnorrAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeSchnorr)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(unlocked.PrivateKey))
+	pub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSchnorr, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxSecp256k1WithSchnorrKeyRejected(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewSchnorrAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeSecp256k1)
+	if _, err := ks.SignTx(acc, tx, big.NewInt(1)); err == nil {
+		t.Fatal("expected signer type mismatch error")
+	}
+}
+
+func TestKeyStoreSignTxWithPassphraseSignerTxSchnorr(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeSchnorr)
+	signed, err := ks.SignTxWithPassphrase(acc, passphrase, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx with passphrase failed: %v", err)
+	}
+	a, key, err := ks.getDecryptedKey(acc, passphrase)
+	if err != nil {
+		t.Fatalf("decrypt key failed: %v", err)
+	}
+	defer zeroKey(key.PrivateKey)
+	if a.Address != acc.Address {
+		t.Fatalf("resolved account mismatch: have=%s want=%s", a.Address.Hex(), acc.Address.Hex())
+	}
+	schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(key.PrivateKey))
+	pub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSchnorr, pub, signer.Hash(signed), r, s) {
 		t.Fatal("signature verification failed")
 	}
 }

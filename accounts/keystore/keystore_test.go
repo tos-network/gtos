@@ -414,6 +414,33 @@ func TestImportBLS12381(t *testing.T) {
 	}
 }
 
+func TestNewSchnorrAccount(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewSchnorrAccount("old")
+	if err != nil {
+		t.Fatalf("failed to create schnorr account: %v", err)
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt schnorr account: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeSchnorr {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	pub, err := schnorrPubkeyFromECDSA(decrypted.PrivateKey)
+	if err != nil {
+		t.Fatalf("failed to derive schnorr pubkey: %v", err)
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSchnorr, pub)
+	if err != nil {
+		t.Fatalf("failed to derive schnorr address: %v", err)
+	}
+	if addr != acc.Address {
+		t.Fatalf("schnorr address mismatch: have=%s want=%s", acc.Address.Hex(), addr.Hex())
+	}
+}
+
 // TestImportECDSA tests the import and export functionality of a keystore.
 func TestImportExport(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
@@ -469,6 +496,29 @@ func TestImportExportBLS12381(t *testing.T) {
 	acc, err := ks.NewBLS12381Account("old")
 	if err != nil {
 		t.Fatalf("failed to create bls account: %v", acc)
+	}
+	json, err := ks.Export(acc, "old", "new")
+	if err != nil {
+		t.Fatalf("failed to export account: %v", acc)
+	}
+	_, ks2 := tmpKeyStore(t, true)
+	if _, err = ks2.Import(json, "old", "old"); err == nil {
+		t.Errorf("importing with invalid password succeeded")
+	}
+	acc2, err := ks2.Import(json, "new", "new")
+	if err != nil {
+		t.Errorf("importing failed: %v", err)
+	}
+	if acc.Address != acc2.Address {
+		t.Error("imported account does not match exported account")
+	}
+}
+
+func TestImportExportSchnorr(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewSchnorrAccount("old")
+	if err != nil {
+		t.Fatalf("failed to create schnorr account: %v", acc)
 	}
 	json, err := ks.Export(acc, "old", "new")
 	if err != nil {

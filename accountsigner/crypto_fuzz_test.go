@@ -10,6 +10,7 @@ import (
 
 func FuzzNormalizeSignerNoPanic(f *testing.F) {
 	f.Add("secp256k1", "0x04d7f5f4f3e9f4dc6f4a4d8ff4d2df5d4ad5dc9b145f95be2da233c6f0ca6c584b43870bc5f5ca22d7082ec9f3bd26f6dfd1d5cdbf15f4bbac7d66169f4f7de0d7")
+	f.Add("schnorr", "0x3f6c9f1ac0b7e4d2f3a9e5b1c8d4a7e2f1b3c6d8e9a0b1c2d3e4f5a6b7c8d9e0")
 	f.Add("secp256r1", "0x04f5d4c3b2a1988776655443322110ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ff")
 	f.Add("ed25519", "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
 	f.Add("bls12-381", "0x8bb4b8f4f6c6dc9b5dbfb7d6e0be8f1a4f6b2af5f0f7eddb3f4ed2f7b8fd45f1458be9f6854a2b2f0d1a3cf4d6f9a251")
@@ -48,6 +49,7 @@ func FuzzNormalizeSignerNoPanic(f *testing.F) {
 func FuzzDecodeSignatureMetaNoPanic(f *testing.F) {
 	f.Add([]byte{0x1b})
 	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgSecp256k1))
+	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgSchnorr))
 	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgBLS12381))
 	f.Add(append(append([]byte(nil), signatureMetaPrefix...), signatureMetaAlgElgamal))
 
@@ -85,6 +87,7 @@ func FuzzDecodeSignatureMetaNoPanic(f *testing.F) {
 
 func FuzzVerifyRawSignatureNoPanic(f *testing.F) {
 	f.Add("secp256k1", []byte{0x04}, []byte{0x01}, []byte{0x01}, []byte{0x01})
+	f.Add("schnorr", make([]byte, 32), []byte{0x01}, []byte{0x01}, []byte{0x01})
 	f.Add("secp256r1", []byte{0x04}, []byte{0x02}, []byte{0x01}, []byte{0x01})
 	f.Add("ed25519", make([]byte, 32), []byte{0x03}, []byte{0x01}, []byte{0x01})
 	f.Add("bls12-381", make([]byte, 48), []byte{0x04}, []byte{0x01}, []byte{0x01})

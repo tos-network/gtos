@@ -18,7 +18,7 @@ func TestMessageSignVerify(t *testing.T) {
 Password: {{.InputLine "foobar"}}
 Repeat password: {{.InputLine "foobar"}}
 `)
-	_, matches := generate.ExpectRegexp(`Address: (0x[0-9a-fA-F]{64})\n`)
+	_, matches := generate.ExpectRegexp(`Address: (0x[0-9a-fA-F]{64})\nSigner type: secp256k1\n`)
 	address := matches[1]
 	generate.ExpectExit()
 
@@ -45,4 +45,18 @@ Recovered address: (0x[0-9a-fA-F]{64})
 	if recovered != address {
 		t.Error("recovered address doesn't match generated key")
 	}
+}
+
+func TestGenerateSchnorr(t *testing.T) {
+	tmpdir := t.TempDir()
+	keyfile := filepath.Join(tmpdir, "the-schnorr-keyfile")
+
+	generate := runTOSkey(t, "generate", "--lightkdf", "--signer", "schnorr", keyfile)
+	generate.Expect(`
+!! Unsupported terminal, password will be echoed.
+Password: {{.InputLine "foobar"}}
+Repeat password: {{.InputLine "foobar"}}
+`)
+	generate.ExpectRegexp(`Address: 0x[0-9a-fA-F]{64}\nSigner type: schnorr\n`)
+	generate.ExpectExit()
 }

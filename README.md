@@ -25,7 +25,7 @@ TOS is a **verifiable shared memory + coordination + settlement layer** for mult
 - No VM: agents execute off-chain, chain stores commitments/state
 - Rolling history window: `200` finalized blocks
 - State snapshot interval: every `1000` blocks
-- Account/tx signer support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
+- Account/tx signer support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 - Consensus block seal: configurable via `config.dpos.sealSignerType` (`ed25519` default, `secp256k1` supported)
 
 ## Why TOS

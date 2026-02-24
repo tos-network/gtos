@@ -492,6 +492,18 @@ func (ks *KeyStore) NewEd25519Account(passphrase string) (accounts.Account, erro
 	return account, nil
 }
 
+// NewSchnorrAccount generates a new secp256k1 private key, derives a schnorr signer identity,
+// and stores it into the key directory.
+func (ks *KeyStore) NewSchnorrAccount(passphrase string) (accounts.Account, error) {
+	_, account, err := storeNewSchnorrKey(ks.storage, crand.Reader, passphrase)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	ks.cache.add(account)
+	ks.refreshWallets()
+	return account, nil
+}
+
 // NewBLS12381Account generates a new native bls12-381 key and stores it into the key directory.
 func (ks *KeyStore) NewBLS12381Account(passphrase string) (accounts.Account, error) {
 	_, account, err := storeNewBLS12381Key(ks.storage, crand.Reader, passphrase)
@@ -653,6 +665,25 @@ func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key)
 	signerType := canonicalSignerTypeOrDefault(key.SignerType)
 	switch signerType {
 	case accountsigner.SignerTypeSecp256k1:
+		if key.PrivateKey == nil {
+			return nil, ErrUnsupportedSigningKey
+		}
+		return types.SignTx(tx, signer, key.PrivateKey)
+	case accountsigner.SignerTypeSchnorr:
+		if tx.Type() != types.SignerTxType {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		txSignerType, ok := tx.SignerType()
+		if !ok {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		normalizedTxSignerType, err := accountsigner.CanonicalSignerType(txSignerType)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedTxSignerType != accountsigner.SignerTypeSchnorr {
+			return nil, fmt.Errorf("%w: %s", types.ErrSignerTypeNotSupportedByLocalKey, normalizedTxSignerType)
+		}
 		if key.PrivateKey == nil {
 			return nil, ErrUnsupportedSigningKey
 		}

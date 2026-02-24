@@ -59,7 +59,7 @@ Agents use this as their shared structured database. Agent frameworks typically 
 - RPC/JSON address inputs are strict 32-byte only (no 20-byte compatibility mode).
 - `signer` is the real signing identity, supporting multi-algorithm verification.
 - Backward-compatible default: if `signer` is not set, the account address is used as signer.
-- Signer algorithms supported: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Signer algorithms supported: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`.
 - Agents hold their own address and signing key; they sign their own transactions and pay their own fees.
 
 ## Transaction Types
@@ -88,6 +88,7 @@ Account and transaction signer algorithms:
 | Algorithm | Typical agent use |
 |---|---|
 | `secp256k1` | Default; EVM-compatible key infrastructure |
+| `schnorr` | secp256k1 x-only (BIP340) signatures with 32-byte public keys |
 | `secp256r1` | Hardware security modules, mobile secure enclaves |
 | `ed25519` | High-throughput agent identity and daily transaction signing |
 | `bls12-381` | Aggregated proof paths; `blst` backend; G2 sig (96 bytes), G1 pubkey (48 bytes) |

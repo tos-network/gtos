@@ -6,6 +6,7 @@ import (
 
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
@@ -13,6 +14,11 @@ import (
 )
 
 var (
+	accountNewSignerFlag = &cli.StringFlag{
+		Name:  "signer",
+		Usage: "Signer algorithm for new account key (`secp256k1` default, supports `schnorr`, `ed25519`, `bls12-381`)",
+	}
+
 	walletCommand = &cli.Command{
 		Name:      "wallet",
 		Usage:     "Manage TOS presale wallets",
@@ -90,6 +96,7 @@ Print a short summary of all accounts`,
 					utils.KeyStoreDirFlag,
 					utils.PasswordFileFlag,
 					utils.LightKDFFlag,
+					accountNewSignerFlag,
 				},
 				Description: `
     gtos account new
@@ -99,6 +106,8 @@ Creates a new account and prints the address.
 The account is saved in encrypted format, you are prompted for a password.
 
 You must remember this password to unlock your account in the future.
+
+Use --signer to select account signer algorithm (secp256k1 default).
 
 For non-interactive use the password can be specified with the --password flag:
 
@@ -242,33 +251,37 @@ func ambiguousAddrRecovery(ks *keystore.KeyStore, err *keystore.AmbiguousAddrErr
 
 // accountCreate creates a new account into the keystore defined by the CLI flags.
 func accountCreate(ctx *cli.Context) error {
-	cfg := gtosConfig{Node: defaultNodeConfig()}
-	// Load config file.
-	if file := ctx.String(configFileFlag.Name); file != "" {
-		if err := loadConfig(file, &cfg); err != nil {
-			utils.Fatalf("%v", err)
-		}
-	}
-	utils.SetNodeConfig(ctx, &cfg.Node)
-	keydir, err := cfg.Node.KeyDirConfig()
-	if err != nil {
-		utils.Fatalf("Failed to read configuration: %v", err)
-	}
-	scryptN := keystore.StandardScryptN
-	scryptP := keystore.StandardScryptP
-	if cfg.Node.UseLightweightKDF {
-		scryptN = keystore.LightScryptN
-		scryptP = keystore.LightScryptP
-	}
-
+	stack, _ := makeConfigNode(ctx)
+	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
 	password := utils.GetPassPhraseWithList("Your new account is locked with a password. Please give a password. Do not forget this password.", true, 0, utils.MakePasswordList(ctx))
+	requestedSignerType := ctx.String(accountNewSignerFlag.Name)
+	if requestedSignerType == "" {
+		requestedSignerType = accountsigner.SignerTypeSecp256k1
+	}
+	signerType, err := accountsigner.CanonicalSignerType(requestedSignerType)
+	if err != nil {
+		utils.Fatalf("Unsupported signer type %q", requestedSignerType)
+	}
 
-	account, err := keystore.StoreKey(keydir, password, scryptN, scryptP)
+	var account accounts.Account
+	switch signerType {
+	case accountsigner.SignerTypeSecp256k1:
+		account, err = ks.NewAccount(password)
+	case accountsigner.SignerTypeSchnorr:
+		account, err = ks.NewSchnorrAccount(password)
+	case accountsigner.SignerTypeEd25519:
+		account, err = ks.NewEd25519Account(password)
+	case accountsigner.SignerTypeBLS12381:
+		account, err = ks.NewBLS12381Account(password)
+	default:
+		utils.Fatalf("Signer type %q is not supported by local account creation", signerType)
+	}
 
 	if err != nil {
 		utils.Fatalf("Failed to create account: %v", err)
 	}
 	fmt.Printf("\nYour new key was generated\n\n")
+	fmt.Printf("Signer type of the key:      %s\n", signerType)
 	fmt.Printf("Public address of the key:   %s\n", account.Address.Hex())
 	fmt.Printf("Path of the secret key file: %s\n\n", account.URL.Path)
 	fmt.Printf("- You can share your public address with anyone. Others need it to interact with you.\n")

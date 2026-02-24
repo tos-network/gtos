@@ -76,8 +76,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.1.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.1.1 // indirect
 	github.com/aws/smithy-go v1.1.0 // indirect
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/deepmap/oapi-codegen v1.8.2 // indirect
 	github.com/dlclark/regexp2 v1.4.1-0.20201116162257-a2a8dda75c91 // indirect

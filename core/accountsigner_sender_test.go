@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
@@ -104,6 +106,57 @@ func TestResolveSenderSecp256r1(t *testing.T) {
 		V:          big.NewInt(0),
 		R:          r,
 		S:          s,
+	})
+
+	got, err := ResolveSender(tx, chainSigner, st)
+	if err != nil {
+		t.Fatalf("resolve sender failed: %v", err)
+	}
+	if got != from {
+		t.Fatalf("unexpected sender have=%s want=%s", got.Hex(), from.Hex())
+	}
+}
+
+func TestResolveSenderSchnorr(t *testing.T) {
+	st := newSenderTestState(t)
+	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x48bfa510e8a662ddc490746edb2430b4e9ac14be6554d3942822be74811a1af9")
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate secp256k1 key: %v", err)
+	}
+	schnorrPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(key))
+	pub := btcschnorr.SerializePubKey(schnorrPriv.PubKey())
+	_, normalizedPub, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeSchnorr, hexutil.Encode(pub))
+	if err != nil {
+		t.Fatalf("normalize signer failed: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSchnorr, normalizedPub)
+	if err != nil {
+		t.Fatalf("derive address failed: %v", err)
+	}
+	accountsigner.Set(st, from, accountsigner.SignerTypeSchnorr, normalizedValue)
+
+	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSchnorr)
+	hash := chainSigner.Hash(unsigned)
+	sig, err := btcschnorr.Sign(schnorrPriv, hash[:])
+	if err != nil {
+		t.Fatalf("failed to sign hash: %v", err)
+	}
+	sigBytes := sig.Serialize()
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeSchnorr,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(sigBytes[:32]),
+		S:          new(big.Int).SetBytes(sigBytes[32:]),
 	})
 
 	got, err := ResolveSender(tx, chainSigner, st)

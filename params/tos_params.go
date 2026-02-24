@@ -24,8 +24,8 @@ var (
 
 // DPoS validator stake and reward parameters.
 var (
-	DPoSMinValidatorStake = new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18)) // 1,000,000 TOS
-	DPoSBlockReward       = new(big.Int).Mul(big.NewInt(2), big.NewInt(1e18))      // 2 TOS/block
+	DPoSMinValidatorStake = new(big.Int).Mul(big.NewInt(10_000_000), big.NewInt(1e18)) // 10,000,000 TOS
+	DPoSBlockReward       = new(big.Int).Mul(big.NewInt(2), big.NewInt(1e18))          // 2 TOS/block
 )
 
 // SysActionGas is the fixed gas cost charged for any system action transaction,

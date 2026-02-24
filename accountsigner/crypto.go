@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
 	blst "github.com/supranational/blst/bindings/go"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
@@ -24,11 +26,13 @@ import (
 
 const (
 	SignerTypeSecp256k1 = "secp256k1"
+	SignerTypeSchnorr   = "schnorr"
 	SignerTypeSecp256r1 = "secp256r1"
 	SignerTypeEd25519   = "ed25519"
 	SignerTypeBLS12381  = "bls12-381"
 	SignerTypeElgamal   = "elgamal"
 
+	schnorrPubkeyLen      = btcschnorr.PubKeyBytesLen
 	bls12381PrivateKeyLen = 32
 	bls12381PubkeyLen     = 48
 	bls12381SignatureLen  = 96
@@ -48,6 +52,7 @@ var (
 	signatureMetaAlgEd25519   = byte(3)
 	signatureMetaAlgBLS12381  = byte(4)
 	signatureMetaAlgElgamal   = byte(5)
+	signatureMetaAlgSchnorr   = byte(6)
 )
 
 var bls12381SignDst = []byte("GTOS_BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_")
@@ -62,6 +67,8 @@ func normalizeSignerType(signerType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
 	case SignerTypeSecp256k1, "ethereum_secp256k1":
 		return SignerTypeSecp256k1, nil
+	case SignerTypeSchnorr:
+		return SignerTypeSchnorr, nil
 	case SignerTypeSecp256r1:
 		return SignerTypeSecp256r1, nil
 	case SignerTypeEd25519:
@@ -82,7 +89,7 @@ func CanonicalSignerType(signerType string) (string, error) {
 
 func SupportsCurrentTxSignatureType(signerType string) bool {
 	switch signerType {
-	case SignerTypeSecp256k1, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381, SignerTypeElgamal:
+	case SignerTypeSecp256k1, SignerTypeSchnorr, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381, SignerTypeElgamal:
 		return true
 	default:
 		return false
@@ -130,6 +137,25 @@ func normalizeSecp256r1Pubkey(raw []byte) ([]byte, error) {
 	return pub, nil
 }
 
+func normalizeSchnorrPubkey(raw []byte) ([]byte, error) {
+	switch len(raw) {
+	case schnorrPubkeyLen:
+		pub, err := btcschnorr.ParsePubKey(raw)
+		if err != nil {
+			return nil, ErrInvalidSignerValue
+		}
+		return btcschnorr.SerializePubKey(pub), nil
+	case 33, 65:
+		pub, err := btcec.ParsePubKey(raw)
+		if err != nil {
+			return nil, ErrInvalidSignerValue
+		}
+		return btcschnorr.SerializePubKey(pub), nil
+	default:
+		return nil, ErrInvalidSignerValue
+	}
+}
+
 func normalizeBLS12381Pubkey(raw []byte) ([]byte, error) {
 	if len(raw) != bls12381PubkeyLen {
 		return nil, ErrInvalidSignerValue
@@ -169,6 +195,8 @@ func NormalizeSigner(signerType, signerValue string) (string, []byte, string, er
 	switch normalizedType {
 	case SignerTypeSecp256k1:
 		normalizedPub, err = normalizeSecp256k1Pubkey(raw)
+	case SignerTypeSchnorr:
+		normalizedPub, err = normalizeSchnorrPubkey(raw)
 	case SignerTypeSecp256r1:
 		normalizedPub, err = normalizeSecp256r1Pubkey(raw)
 	case SignerTypeEd25519:
@@ -202,6 +230,12 @@ func AddressFromSigner(signerType string, signerPub []byte) (common.Address, err
 			return common.Address{}, ErrInvalidSignerValue
 		}
 		return crypto.PubkeyToAddress(*pub), nil
+	case SignerTypeSchnorr:
+		normalized, err := normalizeSchnorrPubkey(signerPub)
+		if err != nil {
+			return common.Address{}, err
+		}
+		return common.BytesToAddress(crypto.Keccak256(normalized)), nil
 	case SignerTypeSecp256r1:
 		if len(signerPub) != 65 || signerPub[0] != 0x04 {
 			return common.Address{}, ErrInvalidSignerValue
@@ -580,6 +614,24 @@ func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash,
 			return false
 		}
 		return crypto.VerifySignature(signerPub, txHash[:], sig)
+	case SignerTypeSchnorr:
+		normalizedPub, err := normalizeSchnorrPubkey(signerPub)
+		if err != nil {
+			return false
+		}
+		pub, err := btcschnorr.ParsePubKey(normalizedPub)
+		if err != nil {
+			return false
+		}
+		sigBytes, err := rsSignatureBytes(r, s)
+		if err != nil {
+			return false
+		}
+		sig, err := btcschnorr.ParseSignature(sigBytes)
+		if err != nil {
+			return false
+		}
+		return sig.Verify(txHash[:], pub)
 	case SignerTypeSecp256r1:
 		if len(signerPub) != 65 || signerPub[0] != 0x04 {
 			return false
@@ -619,6 +671,8 @@ func signatureMetaAlgToType(alg byte) (string, error) {
 	switch alg {
 	case signatureMetaAlgSecp256k1:
 		return SignerTypeSecp256k1, nil
+	case signatureMetaAlgSchnorr:
+		return SignerTypeSchnorr, nil
 	case signatureMetaAlgSecp256r1:
 		return SignerTypeSecp256r1, nil
 	case signatureMetaAlgEd25519:
@@ -636,6 +690,8 @@ func signatureTypeToMetaAlg(signerType string) (byte, error) {
 	switch signerType {
 	case SignerTypeSecp256k1:
 		return signatureMetaAlgSecp256k1, nil
+	case SignerTypeSchnorr:
+		return signatureMetaAlgSchnorr, nil
 	case SignerTypeSecp256r1:
 		return signatureMetaAlgSecp256r1, nil
 	case SignerTypeEd25519:
