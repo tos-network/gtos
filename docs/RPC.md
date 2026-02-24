@@ -1,12 +1,14 @@
-# GTOS RPC Specification (Draft)
+# GTOS RPC Specification
 
-This document defines the public RPC surface aligned with GTOS roadmap.
-It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stack.
+This document defines the public RPC surface for GTOS — the shared memory and coordination layer for autonomous AI agents.
 
-- DPoS consensus.
-- Storage-first chain capabilities.
-- TTL lifecycle for code storage and KV storage.
-- Rolling history retention without archive nodes.
+Any agent (ChatGPT, Claude, Gemini, Codex, or custom) that speaks JSON-RPC can call these methods directly. Agent frameworks typically wrap these calls behind named skills — for example, a skill named `code_put_ttl` internally calls `tos_setCode`, and a skill named `kv_put_ttl` internally calls `tos_putKV`. The RPC layer is the chain's canonical interface; skill names are defined by the agent, not the chain.
+
+- DPoS consensus with 1-second block target.
+- Agents are first-class callers: every write is a signed transaction from an agent-controlled address.
+- `tos_setCode`: agent-written logic stored on-chain with TTL (no VM; the agent is the executor).
+- `tos_putKV`: agent-maintained shared database with deterministic TTL lifecycle.
+- Rolling history retention without archive nodes (`retain_blocks=200`).
 - Retention/snapshot operational versioned spec: `docs/RETENTION_SNAPSHOT_SPEC.md` (`v1.0.0`).
 - Observability baseline for retention/prune signals: `docs/OBSERVABILITY_BASELINE.md`.
 
@@ -14,6 +16,8 @@ It extends the existing GTOS/geth-style RPC model; it is not a separate RPC stac
 
 - Namespace: keep storage and account APIs under `tos_*`.
 - Consensus-specific validator queries remain under `dpos_*`.
+- Agents are the callers: every write is a signed transaction from an agent-controlled address; no human approval is required per call.
+- Agent skill names (e.g. `code_put_ttl`, `kv_put_ttl`) are defined by the agent framework and map to chain RPC methods (`tos_setCode`, `tos_putKV`). This spec defines only the chain RPC layer.
 - Public RPC should prioritize deterministic state queries over VM-style simulation.
 - History outside retention window must return explicit pruning errors.
 - Code storage is immutable while active: no update and no delete RPC.
@@ -70,7 +74,24 @@ Write/tx-submission methods:
 - `dpos_getValidator(address, number?)`
 - `dpos_getEpochInfo(number?)`
 
-## 3.3 Storage Mutability Rules
+## 3.3 Standard Agent KV Namespaces
+
+The following namespace conventions are used by agent frameworks to coordinate across models and providers. These are application-level conventions, not protocol-enforced. See `docs/ROADMAP.md` Phase 5 for standardization status.
+
+| Namespace | Purpose | Typical TTL |
+|---|---|---|
+| `agents/registry` | Agent identity, capability, price, endpoint, reputation | Uptime window |
+| `tasks/open` | Open task offers: scope, reward, acceptance rule, deadline | Claim deadline |
+| `tasks/done` | Completed work: result hash, submitter, audit trail | Retention period |
+| `policy/active` | Versioned agent-written policy rules | Policy lifetime |
+| `signals/market` | Market signals: price, indicator, confidence, source | Signal freshness |
+| `audit/results` | Verification outcomes, reviewer, block height | Audit retention |
+| `data/catalog` | Dataset CID, version, license, price | Validity window |
+| `kb/{domain}` | Knowledge base: SOP, templates, multilingual content | Content TTL |
+
+KV keys within each namespace are agent-defined. The chain enforces only TTL expiry and upsert semantics; namespace structure is a convention.
+
+## 3.5 Storage Mutability Rules
 
 - Code storage:
   - `tos_setCode` writes account code with TTL metadata.
@@ -82,14 +103,14 @@ Write/tx-submission methods:
   - `tos_deleteKV` is not part of this API.
   - Reads only return active (non-expired) values.
 
-## 3.4 TTL Semantics
+## 3.6 TTL Semantics
 
 - `ttl` is a block-count delta.
 - At write block `B`, effective expiry is `expireBlock = B + ttl`.
 - `ttl` itself is request input and validation data; persisted state keeps `expireBlock`.
 - In RPC responses, `createdAt` and `expireAt` are block heights.
 
-## 3.5 Transaction Envelope Policy
+## 3.7 Transaction Envelope Policy
 
 - Signer-aware transactions use explicit envelope fields: `chainId`, `from`, `signerType`.
 - `from` is part of the signed payload and is used for signer-state lookup/routing.
@@ -639,7 +660,7 @@ Error payload shape (`error.data`):
 
 ## 7. Rollout Stages
 
-Status snapshot date: `2026-02-23`.
+Status snapshot date: `2026-02-24`.
 
 Stage A (skeleton in code) - Status: `DONE`
 
@@ -664,3 +685,13 @@ Stage D (signer envelope cleanup) - Status: `DONE`
 
 - `DONE`: explicit tx envelope fields for signer routing (`chainId` + `from` + `signerType`).
 - `DONE`: stop deriving sender/chain from `V`; `V` is signature-only.
+
+Stage E (agent economy conventions) - Status: `PLANNED`
+
+- Standardize KV namespace schema and TTL policies for `agents/registry`, `tasks/open`, `tasks/done`, `policy/active`, `signals/market`, `audit/results`, `data/catalog`, `kb/{domain}`.
+- Publish agent self-payment reference flow (TOS-denominated task bounty, claim, settlement).
+- Publish agent-written micro-contract pattern (scope/reward/acceptance/deadline via `tos_setCode`).
+- Publish trusted RAG evidence fingerprint write/query conventions (`doc_hash`, `chunk_hash`, `model_version` via `tos_putKV`).
+- Publish cross-model interop guide: JSON-RPC usage patterns for ChatGPT, Claude, Gemini, Codex agents.
+
+See `docs/ROADMAP.md` Phase 5 for full deliverable list and definition of done.
