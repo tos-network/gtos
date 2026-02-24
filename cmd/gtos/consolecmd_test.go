@@ -33,7 +33,7 @@ func runMinimalGTOS(t *testing.T, args ...string) *testgeth {
 // Tests that a node embedded within a console can be started up properly and
 // then terminated by closing the input stream.
 func TestConsoleWelcome(t *testing.T) {
-	coinbase := "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182"
+	coinbase := "0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
 
 	// Start a gtos console, make sure it's cleaned up and terminate the console
 	gtos := runMinimalGTOS(t, "--miner.coinbase", coinbase, "console")
@@ -81,7 +81,7 @@ func TestAttachWelcome(t *testing.T) {
 	p := trulyRandInt(1024, 65533) // Yeah, sometimes this will fail, sorry :P
 	httpPort = strconv.Itoa(p)
 	wsPort = strconv.Itoa(p + 1)
-	gtos := runMinimalGTOS(t, "--miner.coinbase", "0x8605cdbbdb6d264aa742e77020dcbc58fcdce182",
+	gtos := runMinimalGTOS(t, "--miner.coinbase", "0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
 		"--ipcpath", ipc,
 		"--http", "--http.port", httpPort,
 		"--ws", "--ws.port", wsPort)

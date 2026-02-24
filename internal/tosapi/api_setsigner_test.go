@@ -2,7 +2,6 @@ package tosapi
 
 import (
 	"context"
-	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/accountsigner"
@@ -17,7 +16,7 @@ const testAPIEd25519PubHex = "0x0102030405060708090a0b0c0d0e0f101112131415161718
 
 func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	api := NewTOSAPI(newBackendMock())
-	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	from := common.HexToAddress("0x85b1F044Bab6D30F3A19c1501563915E194D8CFBa1943570603f7606a3115508")
 	res, err := api.BuildSetSignerTx(context.Background(), RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: from},
 		SignerType:      "ed25519",
@@ -39,7 +38,7 @@ func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	if tx.Value().Sign() != 0 {
 		t.Fatalf("expected zero value tx, got %s", tx.Value())
 	}
-	if tx.GasPrice().Cmp(big.NewInt(42)) != 0 {
+	if tx.GasPrice().Cmp(params.FixedGasPrice()) != 0 {
 		t.Fatalf("unexpected gas price: %s", tx.GasPrice())
 	}
 	wantGas, err := estimateSystemActionGas(tx.Data())
@@ -70,7 +69,7 @@ func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 
 func TestBuildSetSignerTxHonorsExplicitGas(t *testing.T) {
 	api := NewTOSAPI(newBackendMock())
-	from := common.HexToAddress("0x0000000000000000000000000000000000000002")
+	from := common.HexToAddress("0xAe6856AAc48989adf1E084945CbDD86a2fa8dc4bddD8a8f69DBa48572Eec07FB")
 	gas := hexutil.Uint64(77777)
 	res, err := api.BuildSetSignerTx(context.Background(), RPCSetSignerArgs{
 		RPCTxCommonArgs: RPCTxCommonArgs{From: from, Gas: &gas},

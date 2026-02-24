@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"os"
 	"runtime"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/trie"
@@ -91,13 +91,14 @@ func (api *MinerAPI) SetExtra(extra string) (bool, error) {
 	return true, nil
 }
 
-// SetGasPrice sets the minimum accepted gas price for the miner.
-func (api *MinerAPI) SetGasPrice(gasPrice hexutil.Big) bool {
+// SetGasPrice keeps the miner gas price pinned to the protocol-fixed value.
+func (api *MinerAPI) SetGasPrice(_ hexutil.Big) bool {
+	fixed := params.FixedGasPrice()
 	api.e.lock.Lock()
-	api.e.gasPrice = (*big.Int)(&gasPrice)
+	api.e.gasPrice = fixed
 	api.e.lock.Unlock()
 
-	api.e.txPool.SetGasPrice((*big.Int)(&gasPrice))
+	api.e.txPool.SetGasPrice(fixed)
 	return true
 }
 

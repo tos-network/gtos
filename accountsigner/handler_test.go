@@ -13,7 +13,7 @@ const testEd25519PubHex = "0x0102030405060708090a0b0c0d0e0f101112131415161718191
 
 func TestHandlerExecuteWithContext(t *testing.T) {
 	st := newTestState(t)
-	from := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+	from := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
 	data, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, SetSignerPayload{
 		SignerType:  "ed25519",
 		SignerValue: testEd25519PubHex,
@@ -40,7 +40,7 @@ func TestHandlerExecuteWithContext(t *testing.T) {
 
 func TestHandlerRejectsNonZeroValue(t *testing.T) {
 	st := newTestState(t)
-	from := common.HexToAddress("0x00000000000000000000000000000000000000dd")
+	from := common.HexToAddress("0xd0c8d1bb01b01528cd7fa3145d46ac553a974ef992a08eeef0a05990802f01f6")
 	data, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, SetSignerPayload{
 		SignerType:  "ed25519",
 		SignerValue: testEd25519PubHex,
@@ -61,7 +61,7 @@ func TestHandlerRejectsNonZeroValue(t *testing.T) {
 
 func TestHandlerRejectsInvalidPayload(t *testing.T) {
 	st := newTestState(t)
-	from := common.HexToAddress("0x00000000000000000000000000000000000000ee")
+	from := common.HexToAddress("0xbb0b8ebfca3f41857d18ed477357589f8e367c2c31f51242fb77b350a11830f3")
 	data, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, SetSignerPayload{
 		SignerType:  "ed25519",
 		SignerValue: "",

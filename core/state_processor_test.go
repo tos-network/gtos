@@ -246,7 +246,7 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		t.Fatalf("failed to load sender key: %v", err)
 	}
 	from := crypto.PubkeyToAddress(fromKey.PublicKey)
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f1")
+	to := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
 
 	edPub, edPriv, err := ed25519.GenerateKey(crand.Reader)
 	if err != nil {

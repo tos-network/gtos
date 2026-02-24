@@ -50,7 +50,7 @@ func TestResolveSenderSecp256k1FromAccountSigner(t *testing.T) {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
-	to := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	to := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, chainSigner, key)
 	if err != nil {
@@ -70,7 +70,7 @@ func TestResolveSenderSecp256k1FromAccountSigner(t *testing.T) {
 func TestResolveSenderSecp256r1(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000ab")
+	to := common.HexToAddress("0x48bfa510e8a662ddc490746edb2430b4e9ac14be6554d3942822be74811a1af9")
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestResolveSenderSecp256r1(t *testing.T) {
 func TestResolveSenderEd25519(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000ac")
+	to := common.HexToAddress("0x3ac976f9d2acd22c761751d7ae72a48c1a36bd18af168541c53037965d26e4a8")
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -168,7 +168,7 @@ func TestResolveSenderEd25519(t *testing.T) {
 func TestResolveSenderElgamal(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000ba")
+	to := common.HexToAddress("0xe887eaa0663d75bce9df910d46a23e25df9a0f6c18729dda9ad1af3b6a131160")
 
 	priv, err := accountsigner.GenerateElgamalPrivateKey(rand.Reader)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestResolveSenderElgamal(t *testing.T) {
 func TestResolveSenderBLS12381(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000be")
+	to := common.HexToAddress("0xeac52341916d0d8400c65c3ffb828f2d20c3c8cb6a9d4d7caf50e695f5ed0ec1")
 
 	priv, err := accountsigner.GenerateBLS12381PrivateKey(rand.Reader)
 	if err != nil {
@@ -274,7 +274,7 @@ func TestResolveSenderBLS12381(t *testing.T) {
 func TestResolveSenderBLS12381FastAggregate(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000bf")
+	to := common.HexToAddress("0x2164da9507f83b9d6aafe5e79fe6afb86bfe8b47ebc84c703aa0d36b323a05e0")
 
 	var (
 		pubs  [][]byte
@@ -351,7 +351,7 @@ func TestResolveSenderBLS12381FastAggregate(t *testing.T) {
 func TestResolveSenderRejectsMetaMismatch(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000ad")
+	to := common.HexToAddress("0x85bb60ea47e6f84e50727bf362f94e9ac9349bccc61bfe66ddade6292702ecb6")
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -400,7 +400,7 @@ func TestResolveSenderRejectsUnknownSignerType(t *testing.T) {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
-	to := common.HexToAddress("0x00000000000000000000000000000000000000ae")
+	to := common.HexToAddress("0xa71fd83786876fb4a4cf839f0d8e461687b7d06f86ec348e0c270b0f279855f0")
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, chainSigner, key)
 	if err != nil {
@@ -441,7 +441,7 @@ func TestResolveSenderRejectsChainIDMismatchSecp256k1(t *testing.T) {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
-	to := common.HexToAddress("0x00000000000000000000000000000000000000b1")
+	to := common.HexToAddress("0x56bc7029c3710a508f9446088fd379246834eac74b8419ffda202cf8051f7a03")
 
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, signerChain1, key)
@@ -460,7 +460,7 @@ func TestResolveSenderRejectsChainIDMismatchEd25519(t *testing.T) {
 	st := newSenderTestState(t)
 	signerChain1 := types.LatestSignerForChainID(big.NewInt(1))
 	signerChain2 := types.LatestSignerForChainID(big.NewInt(2))
-	to := common.HexToAddress("0x00000000000000000000000000000000000000b2")
+	to := common.HexToAddress("0x27624080fa4506f970fe4aa688f9b82462f6c4bf4a0fb15e5c3971559a316e7f")
 
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -503,8 +503,8 @@ func TestResolveSenderRejectsChainIDMismatchEd25519(t *testing.T) {
 func TestResolveSenderRejectsSignerTypeMismatchWithConfiguredAccountSigner(t *testing.T) {
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
-	from := common.HexToAddress("0x00000000000000000000000000000000000000b3")
-	to := common.HexToAddress("0x00000000000000000000000000000000000000b4")
+	from := common.HexToAddress("0x109483b57a3791ea3736cf1be8acf143afbf8b1371a20ea934d334180190eac1")
+	to := common.HexToAddress("0xfbd73219f3d65f07a140ce86a84585fb6728f413d4d89ec972c45e94686bf38e")
 
 	r1Key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

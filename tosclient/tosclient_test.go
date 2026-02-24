@@ -493,7 +493,7 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gasPrice.Cmp(big.NewInt(1000000000)) != 0 {
+	if gasPrice.Cmp(params.FixedGasPrice()) != 0 {
 		t.Fatalf("unexpected gas price: %v", gasPrice)
 	}
 
@@ -511,20 +511,20 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// GTOS currently returns static tip/reward values and zero base fees in this setup.
+	// GTOS returns fixed tip/reward values and zero base fees.
 	want := &gtos.FeeHistory{
 		OldestBlock: big.NewInt(2),
 		Reward: [][]*big.Int{
 			{
-				big.NewInt(1000000000),
-				big.NewInt(1000000000),
+				params.FixedGasPrice(),
+				params.FixedGasPrice(),
 			},
 		},
 		BaseFee: []*big.Int{
 			big.NewInt(0),
 			big.NewInt(0),
 		},
-		GasUsedRatio: []float64{0.0012732398096251837},
+		GasUsedRatio: []float64{0},
 	}
 	assertFeeHistoryEqual(t, history, want)
 }

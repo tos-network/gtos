@@ -17,7 +17,7 @@ import (
 
 func getBlock(transactions int, uncles int, dataSize int) *types.Block {
 	var (
-		aa = common.HexToAddress("0x000000000000000000000000000000000000aaaa")
+		aa = common.HexToAddress("0x56bc7029c3710a508f9446088fd379246834eac74b8419ffda202cf8051f7a03")
 		// Generate a canonical chain to act as the main dataset
 		engine = dpos.NewFaker()
 		db     = rawdb.NewMemoryDatabase()

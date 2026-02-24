@@ -36,7 +36,8 @@ func TestSetFeeDefaults(t *testing.T) {
 
 	var (
 		b        = newBackendMock()
-		fortytwo = (*hexutil.Big)(big.NewInt(42))
+		fixedFee = (*hexutil.Big)(params.FixedGasPrice())
+		invalid  = (*hexutil.Big)(big.NewInt(42))
 		maxFee   = (*hexutil.Big)(big.NewInt(62))
 		al       = &types.AccessList{types.AccessTuple{Address: common.Address{0xaa}, StorageKeys: []common.Hash{{0x01}}}}
 	)
@@ -46,28 +47,35 @@ func TestSetFeeDefaults(t *testing.T) {
 			"legacy tx pre-London",
 			false,
 			&TransactionArgs{},
-			&TransactionArgs{GasPrice: fortytwo},
+			&TransactionArgs{GasPrice: fixedFee},
 			nil,
 		},
 		{
 			"legacy tx post-London, explicit gas price",
 			true,
-			&TransactionArgs{GasPrice: fortytwo},
-			&TransactionArgs{GasPrice: fortytwo},
+			&TransactionArgs{GasPrice: fixedFee},
+			&TransactionArgs{GasPrice: fixedFee},
 			nil,
+		},
+		{
+			"legacy tx explicit gas price mismatch",
+			true,
+			&TransactionArgs{GasPrice: invalid},
+			nil,
+			fmt.Errorf("gasPrice is fixed to %d wei", params.FixedGasPriceWei),
 		},
 		{
 			"access list tx pre-London",
 			false,
 			&TransactionArgs{AccessList: al},
-			&TransactionArgs{AccessList: al, GasPrice: fortytwo},
+			&TransactionArgs{AccessList: al, GasPrice: fixedFee},
 			nil,
 		},
 		{
 			"access list tx post-London",
 			true,
 			&TransactionArgs{AccessList: al},
-			&TransactionArgs{AccessList: al, GasPrice: fortytwo},
+			&TransactionArgs{AccessList: al, GasPrice: fixedFee},
 			nil,
 		},
 		{
@@ -80,14 +88,14 @@ func TestSetFeeDefaults(t *testing.T) {
 		{
 			"dynamic fee tx post-London, priorityFee set",
 			true,
-			&TransactionArgs{MaxPriorityFeePerGas: fortytwo},
+			&TransactionArgs{MaxPriorityFeePerGas: fixedFee},
 			nil,
 			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
 		},
 		{
 			"set all fee parameters",
 			false,
-			&TransactionArgs{GasPrice: fortytwo, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fortytwo},
+			&TransactionArgs{GasPrice: fixedFee, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fixedFee},
 			nil,
 			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
 		},
@@ -115,9 +123,9 @@ func TestSetFeeDefaults(t *testing.T) {
 }
 
 func TestEstimateStorageFirstGas(t *testing.T) {
-	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	from := common.HexToAddress("0x85b1F044Bab6D30F3A19c1501563915E194D8CFBa1943570603f7606a3115508")
 
-	toTransfer := common.HexToAddress("0x0000000000000000000000000000000000000003")
+	toTransfer := common.HexToAddress("0x6ab1757c2549dcaafeF121277564105e977516c53be337314C7E53838967bDAC")
 	transferGas, err := estimateStorageFirstGas(TransactionArgs{
 		From: &from,
 		To:   &toTransfer,
@@ -240,7 +248,7 @@ func (b *backendMock) deactivateLondon() {
 	b.current.Number = big.NewInt(900)
 }
 func (b *backendMock) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	return big.NewInt(42), nil
+	return params.FixedGasPrice(), nil
 }
 func (b *backendMock) CurrentHeader() *types.Header     { return b.current }
 func (b *backendMock) ChainConfig() *params.ChainConfig { return b.config }

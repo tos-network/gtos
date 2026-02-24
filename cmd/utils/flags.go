@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math"
-	"math/big"
 	"os"
 	godebug "runtime/debug"
 	"strconv"
@@ -37,7 +36,6 @@ import (
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/filters"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/tosdb/remotedb"
@@ -424,12 +422,6 @@ var (
 		Value:    tosconfig.Defaults.Miner.GasCeil,
 		Category: flags.MinerCategory,
 	}
-	MinerGasPriceFlag = &flags.BigFlag{
-		Name:     "miner.gasprice",
-		Usage:    "Minimum gas price for mining a transaction",
-		Value:    tosconfig.Defaults.Miner.GasPrice,
-		Category: flags.MinerCategory,
-	}
 	MinerCoinbaseFlag = &cli.StringFlag{
 		Name:     "miner.coinbase",
 		Aliases:  []string{"miner.etherbase"},
@@ -736,32 +728,6 @@ var (
 		Usage:    "JavaScript root path for `loadScript`",
 		Value:    flags.DirectoryString("."),
 		Category: flags.APICategory,
-	}
-
-	// Gas price oracle settings
-	GpoBlocksFlag = &cli.IntFlag{
-		Name:     "gpo.blocks",
-		Usage:    "Number of recent blocks to check for gas prices",
-		Value:    tosconfig.Defaults.GPO.Blocks,
-		Category: flags.GasPriceCategory,
-	}
-	GpoPercentileFlag = &cli.IntFlag{
-		Name:     "gpo.percentile",
-		Usage:    "Suggested gas price is the given percentile of a set of recent transaction gas prices",
-		Value:    tosconfig.Defaults.GPO.Percentile,
-		Category: flags.GasPriceCategory,
-	}
-	GpoMaxGasPriceFlag = &cli.Int64Flag{
-		Name:     "gpo.maxprice",
-		Usage:    "Maximum transaction priority fee (or gasprice before London fork) to be recommended by gpo",
-		Value:    tosconfig.Defaults.GPO.MaxPrice.Int64(),
-		Category: flags.GasPriceCategory,
-	}
-	GpoIgnoreGasPriceFlag = &cli.Int64Flag{
-		Name:     "gpo.ignoreprice",
-		Usage:    "Gas price below which gpo will ignore transactions",
-		Value:    tosconfig.Defaults.GPO.IgnorePrice.Int64(),
-		Category: flags.GasPriceCategory,
 	}
 
 	// Metrics flags
@@ -1337,26 +1303,6 @@ func SetDataDir(ctx *cli.Context, cfg *node.Config) {
 	}
 }
 
-func setGPO(ctx *cli.Context, cfg *gasprice.Config, light bool) {
-	// If we are running the light client, apply another group
-	// settings for gas oracle.
-	if light {
-		*cfg = tosconfig.LightClientGPO
-	}
-	if ctx.IsSet(GpoBlocksFlag.Name) {
-		cfg.Blocks = ctx.Int(GpoBlocksFlag.Name)
-	}
-	if ctx.IsSet(GpoPercentileFlag.Name) {
-		cfg.Percentile = ctx.Int(GpoPercentileFlag.Name)
-	}
-	if ctx.IsSet(GpoMaxGasPriceFlag.Name) {
-		cfg.MaxPrice = big.NewInt(ctx.Int64(GpoMaxGasPriceFlag.Name))
-	}
-	if ctx.IsSet(GpoIgnoreGasPriceFlag.Name) {
-		cfg.IgnorePrice = big.NewInt(ctx.Int64(GpoIgnoreGasPriceFlag.Name))
-	}
-}
-
 func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	if ctx.IsSet(TxPoolLocalsFlag.Name) {
 		locals := strings.Split(ctx.String(TxPoolLocalsFlag.Name), ",")
@@ -1410,9 +1356,6 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	}
 	if ctx.IsSet(MinerGasLimitFlag.Name) {
 		cfg.GasCeil = ctx.Uint64(MinerGasLimitFlag.Name)
-	}
-	if ctx.IsSet(MinerGasPriceFlag.Name) {
-		cfg.GasPrice = flags.GlobalBig(ctx, MinerGasPriceFlag.Name)
 	}
 	if ctx.IsSet(MinerRecommitIntervalFlag.Name) {
 		cfg.Recommit = ctx.Duration(MinerRecommitIntervalFlag.Name)
@@ -1511,7 +1454,6 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 		ks = keystores[0].(*keystore.KeyStore)
 	}
 	setCoinbase(ctx, ks, cfg)
-	setGPO(ctx, &cfg.GPO, ctx.String(SyncModeFlag.Name) == "light")
 	setTxPool(ctx, &cfg.TxPool)
 	setMiner(ctx, &cfg.Miner)
 	setRequiredBlocks(ctx, cfg)
@@ -1685,9 +1627,6 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 				cfg.Genesis = nil // fallback to db content
 			}
 			chaindb.Close()
-		}
-		if !ctx.IsSet(MinerGasPriceFlag.Name) {
-			cfg.Miner.GasPrice = big.NewInt(1)
 		}
 	default:
 		if cfg.NetworkId == 1 {

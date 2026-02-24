@@ -22,7 +22,7 @@ func FuzzResolveSenderSecp256k1Mutation(f *testing.F) {
 		panic(err)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f1")
+	to := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256k1)
 	signed, err := types.SignTx(unsigned, chainSigner, key)
@@ -133,7 +133,7 @@ func FuzzResolveSenderSecp256r1Mutation(f *testing.F) {
 	if err != nil {
 		panic(err)
 	}
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f2")
+	to := common.HexToAddress("0xd885744b9cb252077d755ad317c5185167401ed00cf5f5b2fc97d9bbfdb7d025")
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeSecp256r1)
 	hash := chainSigner.Hash(unsigned)
@@ -242,7 +242,7 @@ func FuzzResolveSenderEd25519Mutation(f *testing.F) {
 	if err != nil {
 		panic(err)
 	}
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f3")
+	to := common.HexToAddress("0xb8a0722ae6cb48cde0b4ae1f1a642f0e3c3af545e7acbd38b07251b3990914f1")
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	unsigned := newSignerUnsignedTx(0, from, to, accountsigner.SignerTypeEd25519)
 	hash := chainSigner.Hash(unsigned)

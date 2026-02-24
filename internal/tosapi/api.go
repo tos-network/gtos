@@ -46,9 +46,6 @@ func (s *TOSAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	if err != nil {
 		return nil, err
 	}
-	if head := s.b.CurrentHeader(); head.BaseFee != nil {
-		tipcap.Add(tipcap, head.BaseFee)
-	}
 	return (*hexutil.Big)(tipcap), err
 }
 
@@ -460,11 +457,11 @@ func (s *PersonalAccountAPI) SignTransaction(ctx context.Context, args Transacti
 	if args.Gas == nil {
 		return nil, fmt.Errorf("gas not specified")
 	}
-	if args.GasPrice == nil && (args.MaxFeePerGas == nil || args.MaxPriorityFeePerGas == nil) {
-		return nil, fmt.Errorf("missing gasPrice or maxFeePerGas/maxPriorityFeePerGas")
-	}
 	if args.Nonce == nil {
 		return nil, fmt.Errorf("nonce not specified")
+	}
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return nil, err
 	}
 	// Before actually signing the transaction, ensure the transaction fee is reasonable.
 	tx := args.toTransaction()
@@ -1533,9 +1530,6 @@ func (s *TransactionAPI) SignTransaction(ctx context.Context, args TransactionAr
 	if args.Gas == nil {
 		return nil, fmt.Errorf("gas not specified")
 	}
-	if args.GasPrice == nil && (args.MaxPriorityFeePerGas == nil || args.MaxFeePerGas == nil) {
-		return nil, fmt.Errorf("missing gasPrice or maxFeePerGas/maxPriorityFeePerGas")
-	}
 	if args.Nonce == nil {
 		return nil, fmt.Errorf("nonce not specified")
 	}
@@ -1588,6 +1582,10 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 	if sendArgs.Nonce == nil {
 		return common.Hash{}, fmt.Errorf("missing transaction nonce in transaction spec")
 	}
+	fixedPrice := params.FixedGasPrice()
+	if gasPrice != nil && gasPrice.ToInt().Cmp(fixedPrice) != 0 {
+		return common.Hash{}, fmt.Errorf("gasPrice is fixed to %s wei", fixedPrice.String())
+	}
 	if err := sendArgs.setDefaults(ctx, s.b); err != nil {
 		return common.Hash{}, err
 	}
@@ -1595,9 +1593,6 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 
 	// Before replacing the old transaction, ensure the _new_ transaction fee is reasonable.
 	var price = matchTx.GasPrice()
-	if gasPrice != nil {
-		price = gasPrice.ToInt()
-	}
 	var gas = matchTx.Gas()
 	if gasLimit != nil {
 		gas = uint64(*gasLimit)
@@ -1615,9 +1610,7 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 		pFrom := rpcTxFrom(s.signer, p)
 		if pFrom == sendArgs.from() && s.signer.Hash(p) == wantSigHash {
 			// Match. Re-sign and send the transaction.
-			if gasPrice != nil && (*big.Int)(gasPrice).Sign() != 0 {
-				sendArgs.GasPrice = gasPrice
-			}
+			sendArgs.GasPrice = (*hexutil.Big)(fixedPrice)
 			if gasLimit != nil && *gasLimit != 0 {
 				sendArgs.Gas = gasLimit
 			}

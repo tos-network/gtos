@@ -67,7 +67,7 @@ func TestEstimatePutPayloadGasIncludesTTLSurcharge(t *testing.T) {
 
 func TestPutGetRoundTrip(t *testing.T) {
 	st := newTestState(t)
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	owner := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	ns := "app:user-profile"
 	key := []byte("user:42")
 	value := []byte("alice")
@@ -88,7 +88,7 @@ func TestPutGetRoundTrip(t *testing.T) {
 
 func TestPutOverwriteTruncatesPreviousValue(t *testing.T) {
 	st := newTestState(t)
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	owner := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 	ns := "app:data"
 	key := []byte("k")
 	oldValue := bytes.Repeat([]byte{0xaa}, 70)
@@ -111,7 +111,7 @@ func TestPutOverwriteTruncatesPreviousValue(t *testing.T) {
 
 func TestPruneExpiredAtClearsOnlyMatchingRecords(t *testing.T) {
 	st := newTestState(t)
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+	owner := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
 
 	// key1 first expires at 50, then is overwritten to expire at 60.
 	Put(st, owner, "ns", []byte("k1"), []byte("v1"), 10, 50)

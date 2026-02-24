@@ -32,6 +32,15 @@ var (
 // on top of the intrinsic gas.
 const SysActionGas uint64 = 100_000
 
+// FixedGasPriceWei is the protocol-fixed gas price for GTOS transactions.
+// 0.043 gwei = 43,000,000 wei.
+const FixedGasPriceWei int64 = 43_000_000
+
+// FixedGasPrice returns the protocol-fixed gas price as a new big.Int.
+func FixedGasPrice() *big.Int {
+	return big.NewInt(FixedGasPriceWei)
+}
+
 // DPoS consensus parameters.
 const (
 	DPoSEpochLength   uint64 = 200

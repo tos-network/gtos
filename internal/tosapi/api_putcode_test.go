@@ -14,7 +14,7 @@ func TestSetCodeCodeSizeLimit(t *testing.T) {
 
 	oversized := make(hexutil.Bytes, int(params.MaxCodeSize)+1)
 	_, err := api.SetCode(context.Background(), RPCSetCodeArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Code:            oversized,
 		TTL:             1,
 	})
@@ -41,7 +41,7 @@ func TestSetCodeCodeSizeLimit(t *testing.T) {
 
 	atLimit := make(hexutil.Bytes, int(params.MaxCodeSize))
 	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Code:            atLimit,
 		TTL:             1,
 	})

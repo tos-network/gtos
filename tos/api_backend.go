@@ -3,6 +3,7 @@ package tos
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
 )
 
@@ -27,7 +27,6 @@ import (
 type TOSAPIBackend struct {
 	extRPCEnabled bool
 	tos           *TOS
-	gpo           *gasprice.Oracle
 }
 
 // ChainConfig returns the active chain configuration.
@@ -269,11 +268,37 @@ func (b *TOSAPIBackend) SyncProgress() gtos.SyncProgress {
 }
 
 func (b *TOSAPIBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	return b.gpo.SuggestTipCap(ctx)
+	_ = ctx
+	return params.FixedGasPrice(), nil
 }
 
 func (b *TOSAPIBackend) FeeHistory(ctx context.Context, blockCount int, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (firstBlock *big.Int, reward [][]*big.Int, baseFee []*big.Int, gasUsedRatio []float64, err error) {
-	return b.gpo.FeeHistory(ctx, blockCount, lastBlock, rewardPercentiles)
+	_ = ctx
+	if blockCount < 0 {
+		return nil, nil, nil, nil, fmt.Errorf("invalid blockCount: %d", blockCount)
+	}
+	if blockCount == 0 {
+		blockCount = 1
+	}
+	fixed := params.FixedGasPrice()
+	if lastBlock >= 0 {
+		firstBlock = big.NewInt(int64(lastBlock))
+	} else {
+		firstBlock = new(big.Int).SetUint64(b.tos.blockchain.CurrentBlock().NumberU64())
+	}
+	reward = make([][]*big.Int, blockCount)
+	for i := range reward {
+		reward[i] = make([]*big.Int, len(rewardPercentiles))
+		for j := range reward[i] {
+			reward[i][j] = new(big.Int).Set(fixed)
+		}
+	}
+	baseFee = make([]*big.Int, blockCount+1)
+	for i := range baseFee {
+		baseFee[i] = new(big.Int)
+	}
+	gasUsedRatio = make([]float64, blockCount)
+	return firstBlock, reward, baseFee, gasUsedRatio, nil
 }
 
 func (b *TOSAPIBackend) ChainDb() tosdb.Database {

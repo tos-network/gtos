@@ -28,7 +28,7 @@ func TestGetSignerReadsStoredSignerMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	addr := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	accountsigner.Set(st, addr, "ed25519", testAPIEd25519PubHex)
 
 	api := NewTOSAPI(&getSignerBackendMock{
@@ -64,7 +64,7 @@ func TestGetSignerFallbackToAddressWhenUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	addr := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 
 	api := NewTOSAPI(&getSignerBackendMock{
 		backendMock: newBackendMock(),
@@ -88,7 +88,7 @@ func TestGetAccountHistoryPrunedByRetentionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+	addr := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
 
 	api := NewTOSAPI(&getSignerBackendMock{
 		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901

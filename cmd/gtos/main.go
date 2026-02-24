@@ -20,6 +20,7 @@ import (
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
 	"github.com/tos-network/gtos/node"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tosclient"
@@ -89,7 +90,6 @@ var (
 		utils.MinerNotifyFlag,
 		utils.LegacyMinerGasTargetFlag,
 		utils.MinerGasLimitFlag,
-		utils.MinerGasPriceFlag,
 		utils.MinerTosbaseFlag,
 		utils.MinerExtraDataFlag,
 		utils.MinerRecommitIntervalFlag,
@@ -107,10 +107,6 @@ var (
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
 		utils.NoCompactionFlag,
-		utils.GpoBlocksFlag,
-		utils.GpoPercentileFlag,
-		utils.GpoMaxGasPriceFlag,
-		utils.GpoIgnoreGasPriceFlag,
 		utils.MinerNotifyFullFlag,
 		utils.IgnoreLegacyReceiptsFlag,
 		configFileFlag,
@@ -244,7 +240,7 @@ func prepare(ctx *cli.Context) {
      tos.coinbase, which can be used for testing. The random dev account is temporary,
      stored on a ramdisk, and will be lost if your machine is restarted.
   4. Mining is enabled by default. However, the client will only seal blocks if transactions
-     are pending in the mempool. The miner's minimum accepted gas price is 1.
+     are pending in the mempool. The miner's accepted gas price is fixed to 0.043 gwei.
   5. Networking is disabled; there is no listen-address, the maximum number of peers is set
      to 0, and discovery is disabled.
 `)
@@ -367,9 +363,8 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 		if !ok {
 			utils.Fatalf("TOS service not running")
 		}
-		// Set the gas price to the limits from the CLI and start mining
-		gasprice := flags.GlobalBig(ctx, utils.MinerGasPriceFlag.Name)
-		tosBackend.TxPool().SetGasPrice(gasprice)
+		// Gas price is protocol-fixed in GTOS.
+		tosBackend.TxPool().SetGasPrice(params.FixedGasPrice())
 		// start mining
 		threads := ctx.Int(utils.MinerThreadsFlag.Name)
 		if err := tosBackend.StartMining(threads); err != nil {

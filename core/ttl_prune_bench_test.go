@@ -69,7 +69,7 @@ func BenchmarkPruneExpiredKVAt(b *testing.B) {
 		size := size
 		b.Run(fmt.Sprintf("records_%d", size), func(b *testing.B) {
 			const expireAt = uint64(1000)
-			owner := common.HexToAddress("0x0000000000000000000000000000000000000abc")
+			owner := common.HexToAddress("0x3ac976f9d2acd22c761751d7ae72a48c1a36bd18af168541c53037965d26e4a8")
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {

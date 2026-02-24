@@ -34,15 +34,15 @@ func TestAccountListEmpty(t *testing.T) {
 func TestAccountList(t *testing.T) {
 	datadir := tmpDatadirWithKeystore(t)
 	var want = `
-Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}/keystore/UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
-Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}/keystore/aaa
-Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}/keystore/zzz
+Account #0: {b0a2d2faf5cab56294baa4c57ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}/keystore/UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
+Account #1: {91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}/keystore/aaa
+Account #2: {09c1ee7a894a7d7a4b45825c289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}/keystore/zzz
 `
 	if runtime.GOOS == "windows" {
 		want = `
-Account #0: {7ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}\keystore\UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
-Account #1: {f466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}\keystore\aaa
-Account #2: {289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}\keystore\zzz
+Account #0: {b0a2d2faf5cab56294baa4c57ef5a6135f1fd6a02593eedc869c6d41d934aef8} keystore://{{.Datadir}}\keystore\UTC--2016-03-22T12-57-55.920751759Z--7ef5a6135f1fd6a02593eedc869c6d41d934aef8
+Account #1: {91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a} keystore://{{.Datadir}}\keystore\aaa
+Account #2: {09c1ee7a894a7d7a4b45825c289d485d9771714cce91d3393d764e1311907acc} keystore://{{.Datadir}}\keystore\zzz
 `
 	}
 	{
@@ -69,8 +69,8 @@ Repeat password: {{.InputLine "foobar"}}
 Your new key was generated
 `)
 	gtos.ExpectRegexp(`
-Public address of the key:   0x[0-9a-fA-F]{40}
-Path of the secret key file: .*UTC--.+--[0-9a-f]{40}
+Public address of the key:   0x[0-9a-fA-F]{64}
+Path of the secret key file: .*UTC--.+--[0-9a-f]{64}
 
 - You can share your public address with anyone. Others need it to interact with you.
 - You must NEVER share the secret key with anyone! The key controls access to your funds!
@@ -84,7 +84,7 @@ func TestAccountImport(t *testing.T) {
 		{
 			name:   "correct account",
 			key:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			output: "Address: {fcad0b19bb29d4674531d6f115237e16afce377c}\n",
+			output: "Address: {8a28e3bd23ede916a38d4a85fcad0b19bb29d4674531d6f115237e16afce377c}\n",
 		},
 		{
 			name:   "invalid character",
@@ -146,10 +146,10 @@ func TestAccountUpdate(t *testing.T) {
 	datadir := tmpDatadirWithKeystore(t)
 	gtos := runGeth(t, "account", "update",
 		"--datadir", datadir, "--lightkdf",
-		"f466859ead1932d743d622cb74fc058882e8648a")
+		"91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a")
 	defer gtos.ExpectExit()
 	gtos.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "foobar"}}
 Please give a new password. Do not forget this password.
@@ -164,7 +164,7 @@ func TestWalletImport(t *testing.T) {
 	gtos.Expect(`
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "foo"}}
-Address: {d4584b5f6229b7be90727b0fc8c6b91bb427821f}
+Address: {be93b831b03fa03c5b60265dd4584b5f6229b7be90727b0fc8c6b91bb427821f}
 `)
 
 	files, err := os.ReadDir(filepath.Join(gtos.Datadir, "keystore"))
@@ -185,9 +185,9 @@ Fatal: could not decrypt key with given password
 
 func TestUnlockFlag(t *testing.T) {
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "console", "--exec", "loadScript('testdata/empty.js')")
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "console", "--exec", "loadScript('testdata/empty.js')")
 	gtos.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "foobar"}}
 undefined
@@ -196,7 +196,7 @@ undefined
 
 	wantMessages := []string{
 		"Unlocked account",
-		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
+		"=0x91b6C967703a0681F59f2e7ff466859EAD1932d743d622cB74Fc058882e8648A",
 	}
 	for _, m := range wantMessages {
 		if !strings.Contains(gtos.StderrText(), m) {
@@ -207,25 +207,25 @@ undefined
 
 func TestUnlockFlagWrongPassword(t *testing.T) {
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "console", "--exec", "loadScript('testdata/empty.js')")
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "console", "--exec", "loadScript('testdata/empty.js')")
 
 	defer gtos.ExpectExit()
 	gtos.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "wrong1"}}
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 2/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 2/3
 Password: {{.InputLine "wrong2"}}
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 3/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 3/3
 Password: {{.InputLine "wrong3"}}
-Fatal: Failed to unlock account f466859ead1932d743d622cb74fc058882e8648a (could not decrypt key with given password)
+Fatal: Failed to unlock account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a (could not decrypt key with given password)
 `)
 }
 
 // https://github.com/tos-network/gtos/issues/1785
 func TestUnlockFlagMultiIndex(t *testing.T) {
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--unlock", "0,2", "console", "--exec", "loadScript('testdata/empty.js')")
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "--unlock", "0,2", "console", "--exec", "loadScript('testdata/empty.js')")
 
 	gtos.Expect(`
 Unlocking account 0 | Attempt 1/3
@@ -239,8 +239,8 @@ undefined
 
 	wantMessages := []string{
 		"Unlocked account",
-		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
-		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
+		"=0xB0a2D2FAf5caB56294bAa4c57ef5a6135F1FD6a02593eeDc869C6D41d934aEf8",
+		"=0x09C1EE7A894a7D7a4b45825C289d485d9771714CCE91D3393D764E1311907ACc",
 	}
 	for _, m := range wantMessages {
 		if !strings.Contains(gtos.StderrText(), m) {
@@ -251,7 +251,7 @@ undefined
 
 func TestUnlockFlagPasswordFile(t *testing.T) {
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password", "testdata/passwords.txt", "--unlock", "0,2", "console", "--exec", "loadScript('testdata/empty.js')")
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "--password", "testdata/passwords.txt", "--unlock", "0,2", "console", "--exec", "loadScript('testdata/empty.js')")
 
 	gtos.Expect(`
 undefined
@@ -260,8 +260,8 @@ undefined
 
 	wantMessages := []string{
 		"Unlocked account",
-		"=0x7EF5A6135f1FD6a02593eEdC869c6D41D934aef8",
-		"=0x289d485D9771714CCe91D3393D764E1311907ACc",
+		"=0xB0a2D2FAf5caB56294bAa4c57ef5a6135F1FD6a02593eeDc869C6D41d934aEf8",
+		"=0x09C1EE7A894a7D7a4b45825C289d485d9771714CCE91D3393D764E1311907ACc",
 	}
 	for _, m := range wantMessages {
 		if !strings.Contains(gtos.StderrText(), m) {
@@ -272,7 +272,7 @@ undefined
 
 func TestUnlockFlagPasswordFileWrongPassword(t *testing.T) {
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--password",
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "--password",
 		"testdata/wrong-passwords.txt", "--unlock", "0,2")
 	defer gtos.ExpectExit()
 	gtos.Expect(`
@@ -283,8 +283,8 @@ Fatal: Failed to unlock account 0 (could not decrypt key with given password)
 func TestUnlockFlagAmbiguous(t *testing.T) {
 	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
-		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a",
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "--keystore",
+		store, "--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a",
 		"console", "--exec", "loadScript('testdata/empty.js')")
 	defer gtos.ExpectExit()
 
@@ -294,10 +294,10 @@ func TestUnlockFlagAmbiguous(t *testing.T) {
 		return abs
 	})
 	gtos.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "foobar"}}
-Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
+Multiple key files exist for address 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a:
    keystore://{{keypath "1"}}
    keystore://{{keypath "2"}}
 Testing your password against all of them...
@@ -310,7 +310,7 @@ undefined
 
 	wantMessages := []string{
 		"Unlocked account",
-		"=0xf466859eAD1932D743d622CB74FC058882E8648A",
+		"=0x91b6C967703a0681F59f2e7ff466859EAD1932d743d622cB74Fc058882e8648A",
 	}
 	for _, m := range wantMessages {
 		if !strings.Contains(gtos.StderrText(), m) {
@@ -322,8 +322,8 @@ undefined
 func TestUnlockFlagAmbiguousWrongPassword(t *testing.T) {
 	store := filepath.Join("..", "..", "accounts", "keystore", "testdata", "dupes")
 	gtos := runMinimalGTOS(t, "--port", "0", "--ipcdisable", "--datadir", tmpDatadirWithKeystore(t),
-		"--unlock", "f466859ead1932d743d622cb74fc058882e8648a", "--keystore",
-		store, "--unlock", "f466859ead1932d743d622cb74fc058882e8648a")
+		"--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a", "--keystore",
+		store, "--unlock", "91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a")
 
 	defer gtos.ExpectExit()
 
@@ -333,10 +333,10 @@ func TestUnlockFlagAmbiguousWrongPassword(t *testing.T) {
 		return abs
 	})
 	gtos.Expect(`
-Unlocking account f466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
+Unlocking account 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a | Attempt 1/3
 !! Unsupported terminal, password will be echoed.
 Password: {{.InputLine "wrong"}}
-Multiple key files exist for address f466859ead1932d743d622cb74fc058882e8648a:
+Multiple key files exist for address 91b6c967703a0681f59f2e7ff466859ead1932d743d622cb74fc058882e8648a:
    keystore://{{keypath "1"}}
    keystore://{{keypath "2"}}
 Testing your password against all of them...

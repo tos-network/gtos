@@ -28,7 +28,7 @@ func TestGetCodeRespectsExpireAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	addr := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	code := []byte{0x60, 0x00}
 	st.SetCode(addr, code)
 	st.SetState(addr, core.SetCodeExpireAtSlot, common.BigToHash(new(big.Int).SetUint64(200)))
@@ -65,7 +65,7 @@ func TestGetCodeMetaIncludesExpiryFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000ab")
+	addr := common.HexToAddress("0x48bfa510e8a662ddc490746edb2430b4e9ac14be6554d3942822be74811a1af9")
 	code := []byte{0x60, 0x01}
 	st.SetCode(addr, code)
 	st.SetState(addr, core.SetCodeCreatedAtSlot, common.BigToHash(new(big.Int).SetUint64(100)))
@@ -112,7 +112,7 @@ func TestGetCodeHistoryPrunedByRetentionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000ac")
+	addr := common.HexToAddress("0x3ac976f9d2acd22c761751d7ae72a48c1a36bd18af168541c53037965d26e4a8")
 	st.SetCode(addr, []byte{0x60, 0x00})
 	st.SetState(addr, core.SetCodeExpireAtSlot, common.BigToHash(new(big.Int).SetUint64(1200)))
 

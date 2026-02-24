@@ -14,29 +14,8 @@ import (
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
 )
-
-// FullNodeGPO contains default gasprice oracle settings for full node.
-var FullNodeGPO = gasprice.Config{
-	Blocks:           20,
-	Percentile:       60,
-	MaxHeaderHistory: 1024,
-	MaxBlockHistory:  1024,
-	MaxPrice:         gasprice.DefaultMaxPrice,
-	IgnorePrice:      gasprice.DefaultIgnorePrice,
-}
-
-// LightClientGPO contains default gasprice oracle settings for light client.
-var LightClientGPO = gasprice.Config{
-	Blocks:           2,
-	Percentile:       60,
-	MaxHeaderHistory: 300,
-	MaxBlockHistory:  5,
-	MaxPrice:         gasprice.DefaultMaxPrice,
-	IgnorePrice:      gasprice.DefaultIgnorePrice,
-}
 
 // Defaults contains default settings for use on the TOS main net.
 var Defaults = Config{
@@ -55,13 +34,12 @@ var Defaults = Config{
 	FilterLogCacheSize:      32,
 	Miner: miner.Config{
 		GasCeil:  30000000,
-		GasPrice: big.NewInt(params.GWei),
+		GasPrice: params.FixedGasPrice(),
 		Recommit: 3 * time.Second,
 	},
 	TxPool:        core.DefaultTxPoolConfig,
 	RPCGasCap:     50000000,
 	RPCEVMTimeout: 5 * time.Second,
-	GPO:           FullNodeGPO,
 	RPCTxFeeCap:   1, // 1 tos
 }
 
@@ -128,9 +106,6 @@ type Config struct {
 
 	// Transaction pool options
 	TxPool core.TxPoolConfig
-
-	// Gas Price Oracle options
-	GPO gasprice.Config
 
 	// Enables tracking of SHA3 preimages in the VM
 	EnablePreimageRecording bool

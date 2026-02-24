@@ -12,7 +12,7 @@ import (
 )
 
 func newSignerTxForWallet(from common.Address, signerType string) *types.Transaction {
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f1")
+	to := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
 	return types.NewTx(&types.SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      0,

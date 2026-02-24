@@ -189,17 +189,16 @@ func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
 
 // setFeeDefaults fills in default fee values for unspecified tx fields.
 func (args *TransactionArgs) setFeeDefaults(ctx context.Context, b Backend) error {
+	_ = ctx
+	_ = b
 	if args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil {
 		return errors.New("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice")
 	}
-	if args.GasPrice != nil {
-		return nil
+	fixed := params.FixedGasPrice()
+	if args.GasPrice != nil && args.GasPrice.ToInt().Cmp(fixed) != 0 {
+		return fmt.Errorf("gasPrice is fixed to %s wei", fixed.String())
 	}
-	price, err := b.SuggestGasTipCap(ctx)
-	if err != nil {
-		return err
-	}
-	args.GasPrice = (*hexutil.Big)(price)
+	args.GasPrice = (*hexutil.Big)(fixed)
 	return nil
 }
 

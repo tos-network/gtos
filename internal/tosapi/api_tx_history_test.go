@@ -44,8 +44,8 @@ func (b *txHistoryBackendMock) GetReceipts(ctx context.Context, hash common.Hash
 }
 
 func newHistoryTestTx() *types.Transaction {
-	from := common.HexToAddress("0x00000000000000000000000000000000000000f1")
-	to := common.HexToAddress("0x00000000000000000000000000000000000000f2")
+	from := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
+	to := common.HexToAddress("0xd885744b9cb252077d755ad317c5185167401ed00cf5f5b2fc97d9bbfdb7d025")
 	return types.NewTx(&types.SignerTx{
 		ChainID:    big.NewInt(42),
 		Nonce:      0,

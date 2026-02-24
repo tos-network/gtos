@@ -31,7 +31,7 @@ func TestSetSignerValidation(t *testing.T) {
 	}
 
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		SignerType:      "ed25519",
 		SignerValue:     testAPIEd25519PubHex,
 	})
@@ -47,7 +47,7 @@ func TestSetSignerValidation(t *testing.T) {
 	}
 
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		SignerType:      accountsigner.SignerTypeBLS12381,
 		SignerValue: func() string {
 			priv, genErr := accountsigner.GenerateBLS12381PrivateKey(crand.Reader)
@@ -73,7 +73,7 @@ func TestSetSignerValidation(t *testing.T) {
 	}
 
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		SignerType:      strings.Repeat("a", accountsigner.MaxSignerTypeLen+1),
 		SignerValue:     testAPIEd25519PubHex,
 	})
@@ -89,7 +89,7 @@ func TestSetSignerValidation(t *testing.T) {
 	}
 
 	_, err = api.SetSigner(ctx, RPCSetSignerArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		SignerType:      "ed25519",
 		SignerValue:     "0x" + strings.Repeat("11", accountsigner.MaxSignerValueLen+1),
 	})
@@ -109,7 +109,7 @@ func TestBuildSetSignerTxValidation(t *testing.T) {
 	api := &TOSAPI{}
 
 	_, err := api.BuildSetSignerTx(context.Background(), RPCSetSignerArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		SignerType:      "ed25519",
 		SignerValue:     "",
 	})
@@ -147,7 +147,7 @@ func TestPutKVValidation(t *testing.T) {
 	}
 
 	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Namespace:       "   ",
 		Key:             hexutil.Bytes("k"),
 		Value:           hexutil.Bytes("v"),
@@ -165,7 +165,7 @@ func TestPutKVValidation(t *testing.T) {
 	}
 
 	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Namespace:       "ns",
 		Key:             hexutil.Bytes("k"),
 		Value:           hexutil.Bytes("v"),
@@ -183,7 +183,7 @@ func TestPutKVValidation(t *testing.T) {
 	}
 
 	_, err = api.PutKV(context.Background(), RPCPutKVArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Namespace:       "ns",
 		Key:             hexutil.Bytes("k"),
 		Value:           hexutil.Bytes("v"),
@@ -221,7 +221,7 @@ func TestSetCodeValidation(t *testing.T) {
 	}
 
 	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x0000000000000000000000000000000000000001")},
+		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
 		Code:            hexutil.Bytes{0x60, 0x00},
 		TTL:             0,
 	})
@@ -319,7 +319,7 @@ func TestValidateAndComputeExpireBlock(t *testing.T) {
 func TestCodeAndKVReadValidation(t *testing.T) {
 	api := &TOSAPI{}
 	ctx := context.Background()
-	from := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	from := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 
 	_, err := api.GetKV(ctx, common.Address{}, "ns", hexutil.Bytes("k"), nil)
 	if err == nil {

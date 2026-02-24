@@ -214,8 +214,8 @@ func (s *rpcExtTestService) GetKVMeta(namespace string, key hexutil.Bytes, block
 func (s *rpcExtTestService) GetValidators(block string) []common.Address {
 	s.lastDPoSQueryBlock = block
 	return []common.Address{
-		common.HexToAddress("0x0000000000000000000000000000000000000001"),
-		common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a"),
+		common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 	}
 }
 
@@ -327,7 +327,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	address := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	address := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 
 	account, err := client.GetAccount(ctx, address, nil)
 	if err != nil {
@@ -396,7 +396,7 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	from := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	from := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 
 	setSignerArgs := SetSignerArgs{
 		From:        from,
@@ -541,7 +541,7 @@ func TestRPCExtErrorPropagation(t *testing.T) {
 	}
 
 	_, err = client.SetSigner(context.Background(), SetSignerArgs{
-		From:        common.HexToAddress("0x0000000000000000000000000000000000000011"),
+		From:        common.HexToAddress("0x6ab1757c2549dcaafef121277564105e977516c53be337314c7e53838967bdac"),
 		SignerType:  "invalid",
 		SignerValue: "x",
 	})

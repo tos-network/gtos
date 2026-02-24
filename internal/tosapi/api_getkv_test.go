@@ -29,7 +29,7 @@ func TestGetKVRespectsExpireAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	owner := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	kvstore.Put(st, owner, "ns", []byte("k"), []byte("value"), 100, 200)
 
 	api := NewTOSAPI(&getKVBackendMock{
@@ -68,7 +68,7 @@ func TestGetKVMetaIncludesExpiredFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	owner := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 	kvstore.Put(st, owner, "ns", []byte("k"), []byte("value"), 10, 20)
 
 	api := NewTOSAPI(&getKVBackendMock{
@@ -99,7 +99,7 @@ func TestGetKVMissingReturnsNotFound(t *testing.T) {
 		head:        &types.Header{Number: big.NewInt(1)},
 	})
 
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000cc")
+	owner := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
 	_, err = api.GetKV(context.Background(), owner, "ns", hexutil.Bytes("missing"), nil)
 	if err == nil {
 		t.Fatalf("expected not found")
@@ -124,7 +124,7 @@ func TestGetKVHistoryPrunedByRetentionWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	owner := common.HexToAddress("0x00000000000000000000000000000000000000dd")
+	owner := common.HexToAddress("0xd0c8d1bb01b01528cd7fa3145d46ac553a974ef992a08eeef0a05990802f01f6")
 	kvstore.Put(st, owner, "ns", []byte("k"), []byte("value"), 100, 1000)
 
 	api := NewTOSAPI(&getKVBackendMock{

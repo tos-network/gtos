@@ -16,7 +16,7 @@ import (
 
 func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      1,
@@ -24,7 +24,7 @@ func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
 	sig := make([]byte, 64)
@@ -46,7 +46,7 @@ func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
 
 func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      2,
@@ -54,7 +54,7 @@ func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
 	sig := make([]byte, 65)
@@ -77,7 +77,7 @@ func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 
 func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      2,
@@ -85,7 +85,7 @@ func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "bls12-381",
 	})
 	sig := make([]byte, 96)
@@ -107,7 +107,7 @@ func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
 
 func TestSignerTxElgamalSignatureEncoding64(t *testing.T) {
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      5,
@@ -115,7 +115,7 @@ func TestSignerTxElgamalSignatureEncoding64(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "elgamal",
 	})
 	sig := make([]byte, 64)
@@ -144,7 +144,7 @@ func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 	x, y := curve.ScalarBaseMult(key.D.Bytes())
 	pub := elliptic.Marshal(curve, x, y)
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      3,
@@ -152,7 +152,7 @@ func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
 	signed, err := SignTx(tx, signer, key)
@@ -178,7 +178,7 @@ func TestSignerTxSignTxEd25519WithLocalECDSAKey(t *testing.T) {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      4,
@@ -186,7 +186,7 @@ func TestSignerTxSignTxEd25519WithLocalECDSAKey(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "ed25519",
 	})
 	signed, err := SignTx(tx, signer, key)
@@ -217,7 +217,7 @@ func TestSignerTxSignTxElgamalWithLocalECDSAKey(t *testing.T) {
 		t.Fatalf("failed to generate key: %v", err)
 	}
 	signer := LatestSignerForChainID(big.NewInt(1))
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      6,
@@ -225,7 +225,7 @@ func TestSignerTxSignTxElgamalWithLocalECDSAKey(t *testing.T) {
 		Value:      big.NewInt(1),
 		Gas:        21000,
 		GasPrice:   big.NewInt(1),
-		From:       common.HexToAddress("0x0000000000000000000000000000000000000002"),
+		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "elgamal",
 	})
 	signed, err := SignTx(tx, signer, key)

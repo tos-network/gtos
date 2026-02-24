@@ -8,8 +8,8 @@ import (
 )
 
 func signerTxFuzzSeedRaw() []byte {
-	to := common.HexToAddress("0x0000000000000000000000000000000000000001")
-	from := common.HexToAddress("0x0000000000000000000000000000000000000002")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	from := common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508")
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(42),
 		Nonce:      1,

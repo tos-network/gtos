@@ -34,7 +34,6 @@ import (
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/tos/downloader"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/tosconfig"
@@ -95,9 +94,10 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	if !config.SyncMode.IsValid() {
 		return nil, fmt.Errorf("invalid sync mode %d", config.SyncMode)
 	}
-	if config.Miner.GasPrice == nil || config.Miner.GasPrice.Cmp(common.Big0) <= 0 {
-		log.Warn("Sanitizing invalid miner gas price", "provided", config.Miner.GasPrice, "updated", tosconfig.Defaults.Miner.GasPrice)
-		config.Miner.GasPrice = new(big.Int).Set(tosconfig.Defaults.Miner.GasPrice)
+	fixedGasPrice := params.FixedGasPrice()
+	if config.Miner.GasPrice == nil || config.Miner.GasPrice.Cmp(fixedGasPrice) != 0 {
+		log.Info("Forcing fixed miner gas price", "provided", config.Miner.GasPrice, "fixed", fixedGasPrice)
+		config.Miner.GasPrice = fixedGasPrice
 	}
 	if config.Miner.Coinbase == (common.Address{}) && config.Miner.Tosbase != (common.Address{}) {
 		config.Miner.Coinbase = config.Miner.Tosbase
@@ -148,7 +148,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		}(),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
-		gasPrice:          config.Miner.GasPrice,
+		gasPrice:          params.FixedGasPrice(),
 		coinbase:          config.Miner.Coinbase,
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      core.NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
@@ -227,12 +227,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	tosNode.miner = miner.New(tosNode, &config.Miner, chainConfig, tosNode.EventMux(), tosNode.engine, tosNode.isLocalBlock)
 	tosNode.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 
-	tosNode.APIBackend = &TOSAPIBackend{stack.Config().ExtRPCEnabled(), tosNode, nil}
-	gpoParams := config.GPO
-	if gpoParams.Default == nil {
-		gpoParams.Default = config.Miner.GasPrice
-	}
-	tosNode.APIBackend.gpo = gasprice.NewOracle(tosNode.APIBackend, gpoParams)
+	tosNode.APIBackend = &TOSAPIBackend{extRPCEnabled: stack.Config().ExtRPCEnabled(), tos: tosNode}
 
 	// Setup DNS discovery iterators.
 	dnsclient := dnsdisc.NewClient(dnsdisc.Config{})

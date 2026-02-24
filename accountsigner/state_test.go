@@ -20,7 +20,7 @@ func newTestState(t *testing.T) *state.StateDB {
 
 func TestGetMissing(t *testing.T) {
 	st := newTestState(t)
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	addr := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	_, _, ok := Get(st, addr)
 	if ok {
 		t.Fatalf("expected no signer metadata")
@@ -29,7 +29,7 @@ func TestGetMissing(t *testing.T) {
 
 func TestSetGetRoundTrip(t *testing.T) {
 	st := newTestState(t)
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+	addr := common.HexToAddress("0xf81c536380b2dd5ef5c4ae95e1fae9b4fab2f5726677ecfa912d96b0b683e6a9")
 	Set(st, addr, "ed25519", testEd25519PubHex)
 
 	signerType, signerValue, ok := Get(st, addr)
@@ -43,7 +43,7 @@ func TestSetGetRoundTrip(t *testing.T) {
 
 func TestSetOverwriteTruncatesPreviousValue(t *testing.T) {
 	st := newTestState(t)
-	addr := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+	addr := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 	Set(st, addr, "ed25519", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789")
 	Set(st, addr, "secp256k1", "short")
 

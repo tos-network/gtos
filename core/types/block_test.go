@@ -89,7 +89,7 @@ func TestDynamicFeeBlockEncoding(t *testing.T) {
 
 	tx1 := mustDecodeLegacyTransaction(t, "f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1")
 
-	addr := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	addr := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	accesses := AccessList{AccessTuple{
 		Address: addr,
 		StorageKeys: []common.Hash{
@@ -155,7 +155,7 @@ func TestTypedEnvelopeBlockEncoding(t *testing.T) {
 	tx1 := mustDecodeLegacyTransaction(t, "f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba09bea4c4daac7c7c52e093e6a4c35dbbcf8856f1af7b059ba20253e70848d094fa08a8fae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1")
 
 	// Create ACL tx.
-	addr := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	addr := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	to := common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
 	tx2 := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
