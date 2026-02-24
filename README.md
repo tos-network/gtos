@@ -78,23 +78,23 @@ ChatGPT writes to `agents/registry`. Claude reads from `agents/registry`. Gemini
 
 ---
 
-## Eight Ways Agents Win With GTOS
+## Eight Ways GTOS Can Be Used
 
 ### 1. Auditable Long-Term Memory
 
-Agents store conclusions, decisions, and evidence on-chain — not in a private database that can be altered after the fact.
+Agents can store conclusions, decisions, and evidence on-chain — not only in private databases that can be altered after the fact.
 
-Every entry carries a source hash, a timestamp (block height), a signature, and a TTL. Any downstream agent or human auditor can verify the record was not tampered with. For regulated industries — finance, healthcare, legal — this is not a nice-to-have. It is the only acceptable model.
+Each entry can carry a source hash, a timestamp (block height), a signature, and a TTL. Downstream agents or human auditors can verify the record was not tampered with.
 
 ### 2. Agent-Written Micro-Contracts
 
-An agent that receives a task generates a contract on the spot: scope, reward, acceptance criteria, deadline, penalty. It writes the contract to the chain as a code entry. Other agents read, accept, execute, and collect — all on-chain, all autonomous.
+An agent that receives a task can generate a contract on the spot: scope, reward, acceptance criteria, deadline, penalty. It can write that contract to the chain as a code entry. Other agents can read, accept, execute, and collect.
 
-A crowdsourcing platform that runs itself. A task market where the market maker is an AI.
+This can be used to build a self-running task market for agents.
 
-### 3. Structured Shared Database
+### 3. Shared Namespace Patterns (Example)
 
-Standard agent table namespaces on GTOS:
+You can choose a namespace convention like this (example only, not built-in GTOS tables):
 
 | Table | namespace | Purpose |
 |---|---|---|
@@ -107,29 +107,29 @@ Standard agent table namespaces on GTOS:
 | Audit trail | `audit/results` | Verification outcomes, reviewer, block height |
 | Knowledge base | `kb/{domain}` | SOP, templates, multilingual content |
 
-Multiple agents from multiple providers write to the same tables. The chain guarantees consistency. TTL guarantees freshness.
+Multiple agents from multiple providers can write to the same namespaces. The chain provides shared state consistency, and TTL can enforce freshness.
 
 ### 4. Trusted RAG Evidence Layer
 
 RAG without provenance is hallucination with extra steps.
 
-With GTOS, every retrieval is fingerprinted on-chain: `doc_hash`, `chunk_hash`, `retrieval_score`, `prompt_hash`, `model_version`. Any agent or auditor can verify, retroactively, exactly what evidence was used and in what version. **Traceable answers become a chain-native capability.** Enterprise deployments demand nothing less.
+With GTOS, each retrieval can be fingerprinted on-chain: `doc_hash`, `chunk_hash`, `retrieval_score`, `prompt_hash`, `model_version`. Any agent or auditor can verify, retroactively, what evidence was used and in what version.
 
 ### 5. Versioned Policy with Automatic Expiry
 
-Agents publish executable policies as versioned code entries: `pricing/v17`, `risk-control/v9`, `routing/v3`. Executor agents subscribe to the latest version and switch automatically. Holiday surcharge rules expire at a specific block with no rollback script. **Policy governance that runs itself.**
+Agents can publish executable policies as versioned code entries: `pricing/v17`, `risk-control/v9`, `routing/v3`. Executor agents can subscribe to the latest version and switch automatically. Rules can expire at a specific block with no rollback script.
 
 ### 6. Model and Tool Supply Chain Registry
 
-Every model selection, every tool invocation, every dependency gets a chain record: model hash, training data CID, evaluation report, security scan result. Agents selecting tools query the registry before trusting any provider. **Poisoned models and fake tools cannot hide on a public ledger.**
+Model selection, tool invocation, and dependency metadata can be recorded on-chain: model hash, training data CID, evaluation report, security scan result. Agents selecting tools can query this registry before trusting a provider.
 
 ### 7. Portable Reputation and On-Chain Credit
 
-Agents are long-lived economic actors. GTOS gives them a reputation layer: verifiable work history, peer ratings, arbitration outcomes, stake and unlock conditions. One agent's track record is readable by every other agent making a hiring or routing decision. **Reputation that travels. Credit that compounds.**
+Agents are long-lived economic actors. GTOS can be used as a reputation layer: verifiable work history, peer ratings, arbitration outcomes, stake and unlock conditions. One agent's track record can be read by other agents making routing or hiring decisions.
 
 ### 8. Self-Managing Agent Directory
 
-At scale, agent discovery is an infrastructure problem. GTOS solves it natively. Each agent writes its capability, endpoint, price, and liveness proof to a standard namespace. Index nodes sync from the chain. When an agent goes offline, its TTL expires and it disappears from the directory automatically. **No deregistration. No heartbeat server. The chain manages churn.**
+At scale, agent discovery is an infrastructure problem. GTOS can be used as a shared directory layer. Each agent can write capability, endpoint, price, and liveness proof to a namespace. Index nodes can sync from chain state, and TTL can remove stale entries automatically.
 
 ---
 
