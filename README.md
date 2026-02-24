@@ -1,188 +1,187 @@
 # GTOS
 
-GTOS is the infrastructure layer for autonomous AI agents: a DPoS blockchain with native TTL storage that gives agents trusted memory, controlled forgetting, and shared state — without a general-purpose VM.
+**The world's first autonomous agent economy runs on shared memory. GTOS is that memory.**
 
-## The Shift
+ChatGPT. Claude. Gemini. Codex. Each brilliant. Each isolated. Each forgetting everything the moment the session ends.
 
-Traditional blockchains assumed humans write smart contracts, deploy them, and users call them. Agents were just another type of caller.
+GTOS solves the last unsolved problem in AI infrastructure: **how do agents remember, coordinate, and transact with each other — verifiably, autonomously, and permanently — across every model, every provider, every session.**
 
-GTOS inverts this:
+---
 
-```
-Old model:  Human developer → writes contract → deploys → users/agents call it
+## The $10 Trillion Problem Nobody Is Talking About
 
-GTOS model: Agent → writes contract code on-chain → writes its own database (KV)
-                  → chain provides: trusted memory + programmable data layer
-```
+Every enterprise AI deployment today has the same fatal flaw.
 
-An agent on GTOS is a **first-class on-chain actor**: it holds its own address, signs its own transactions, pays its own fees, writes its own logic and data to the chain, and reads back what it or other agents have written.
+Agents don't remember. Agents don't share state. Agents don't pay each other. And when you chain ChatGPT to Claude to Gemini to Codex, you get a pipeline held together with API calls, hope, and a prayer — with no ground truth, no audit trail, and no economic settlement layer.
 
-This upgrades the agent from *"a user calling someone else's contract"* to **"an autonomous entity that bootstraps its own application and self-maintains its own data"**.
+The result: AI that hallucinates its own history. AI teams that can't coordinate. AI work that can't be verified or paid for.
 
-## Three Agent Superpowers
+**GTOS eliminates all of this. One chain. Every agent. Zero trust required.**
 
-### 1. Trusted Memory
+---
 
-Agent memory is not a private database — it is chain-native state with consensus-verified writes and auditable history.
+## What GTOS Actually Is
 
-Every memory write is a signed transaction. Every read is verifiable against a known state root. Agents can prove what they knew, when they knew it, and that the record was not tampered with. This makes agent behavior inspectable, attributable, and trustworthy to other agents and humans alike.
+A DPoS blockchain purpose-built for AI agents — not humans, not DeFi, not NFTs.
 
-### 2. Controlled Forgetting
+Three primitives. That's it.
 
-TTL-based expiry gives agents the ability to declare memory as intentionally finite.
+**`code_put_ttl`** — An agent writes executable logic to the chain. Another agent reads and enforces it. TTL governs when it expires. No VM. No compiler. No deployment ceremony. The agent is the runtime.
 
-Expired entries are automatically ignored by reads and pruned by chain maintenance. Old rules, stale context, and intermediate outputs do not accumulate indefinitely. Agents avoid stale-memory pollution without requiring a trusted third party to clean up after them.
+**`kv_put_ttl`** — An agent writes structured data to a shared namespace. Every other agent on the chain can read it. TTL controls freshness. No database administrator. No schema migration. The chain is the database.
 
-TTL as a native mechanism:
+**Native TOS payments** — Agents hold balances. Agents sign transactions. Agents pay each other. The entire economic loop — task, execution, settlement, dispute — runs without a single human approval.
 
-- A risk policy expires after 500 blocks and stops applying automatically.
-- A price quote expires after 10 blocks with no manual revocation.
-- A task offer expires if unclaimed — no cleanup job needed.
-- A coordination lock self-releases on timeout.
+---
 
-### 3. Multi-Agent Shared State
+## The Multi-Agent Revolution: ChatGPT Meets Claude Meets Gemini
 
-All agents reading the same chain share a single consistent memory layer.
+Here is what has never been possible before GTOS.
 
-KV namespaces and code entries are accessible to any agent that knows the address and key. Teams of agents coordinate on shared context, policy, and state without a central coordinator or out-of-band synchronization.
+A **ChatGPT agent** identifies a market signal and writes it to `signals/market` on GTOS with a 30-block TTL.
 
-## What Agents Can Do on GTOS
+A **Gemini agent** reads that signal, runs its analysis, and writes a recommended action to `tasks/open` — along with a TOS bounty for execution.
 
-### Self-Payment
+A **Claude Code agent** reads the task, generates the required code artifact, writes it to `code/artifacts` with a verified hash, and claims the bounty.
 
-Agents hold TOS balances, sign their own transactions, and pay for storage writes autonomously. Agents receive TOS from other agents as payment for completed work. The full economic loop — task, execution, settlement — runs without human wallet management.
+A **Codex agent** audits the artifact, writes its verification result to `audit/results`, and collects an audit fee.
 
-### Self-Written Micro-Contracts
+**No shared API. No common orchestration layer. No human in the loop.**
 
-An agent that sees a demand does not just respond — it generates a contract: task definition, reward, acceptance criteria, penalty terms. It stores the contract as a code entry on-chain via `code_put_ttl`. Other agents read and accept the contract. On completion, the contract settles autonomously via TOS transfer. TTL governs the contract's validity window; it expires automatically with no manual revocation.
+The chain is the coordination fabric. Every write is signed. Every read is verifiable. Every payment is instant and final.
 
-This turns "a crowdsourcing platform" into an on-chain autonomous task market where contracts are written and iterated by agents, not humans.
+This is not a demo. This is what agent-native infrastructure makes possible.
 
-### On-Chain Structured Database (KV Store)
+---
 
-Agents maintain structured shared tables, not just scattered text. Standard namespaces:
+## Three Superpowers. No Exceptions.
 
-| Table | namespace | Content | TTL use |
-|---|---|---|---|
-| Agent registry | `agents/registry` | identity, capability, price, endpoint, reputation | uptime window |
-| Task market | `tasks/open` | open tasks, reward, acceptance rule | claim deadline |
-| Task results | `tasks/done` | result hash, submitter, audit trail | retention period |
-| Data catalog | `data/catalog` | dataset CID/hash, version, license, price | validity |
-| Policy store | `policy/active` | active rules, version, author | policy TTL |
-| Market signals | `signals/market` | price, indicator, confidence, source | signal freshness |
-| Knowledge base | `kb/{domain}` | SOP, templates, multilingual content | content TTL |
+### Trusted Memory
 
-Multiple agents write to the same table. The chain provides final consistency and a full audit trail. TTL keeps stale entries from accumulating.
+Everything an agent writes is a signed transaction against a consensus-verified state root.
 
-### Trusted RAG Evidence Layer
+Agents can prove — cryptographically, to any other agent or human — what they knew, when they knew it, and that nobody changed it afterward. This is not a log. This is not a database. This is **on-chain truth**.
 
-The biggest problem with RAG is unverifiable provenance: the answer cannot be traced back to its sources, and sources can be silently updated or tampered with.
+### Controlled Forgetting
 
-With GTOS, an agent writes a fingerprint entry for every retrieval:
+Every piece of data has a TTL. When the TTL expires, the data is gone — ignored by reads, pruned by the chain, never requiring a cleanup job.
 
-- `doc_hash`, `chunk_hash`, `retrieval_score`, `prompt_hash`, `model_version`
-- TTL = evidence retention window
+A risk policy expires in 500 blocks. A price quote in 10 blocks. A task offer at its deadline. A coordination lock at its timeout. **The chain manages the lifecycle. The agent never looks back.**
 
-Anyone can later verify: what evidence was used, what version it was, what the model was. This makes traceable answers a chain-native capability — suited for enterprise audit and compliance scenarios.
+### Shared State Across Every Model
 
-### Policy Publishing and Hot Update
+One namespace. Every agent. Consistent reads guaranteed by consensus.
 
-Agents publish versioned executable policies as on-chain code entries:
+ChatGPT writes to `agents/registry`. Claude reads from `agents/registry`. Gemini writes to `tasks/open`. Codex reads from `tasks/open`. No API negotiation. No schema translation. No synchronization protocol. **Write once. Read by anyone.**
 
-- `pricing/v17`, `risk-control/v9`, `routing/v3`
+---
 
-Executor agents subscribe to the latest policy version and switch automatically. Policy updates are transparent and auditable. TTL enables temporary policies: a holiday surcharge rule expires at a specific block with no rollback script needed.
+## Eight Ways Agents Win With GTOS
 
-### Model and Tool Supply Chain Registry
+### 1. Auditable Long-Term Memory
 
-When an agent selects or produces a model or tool, it writes the supply chain record on-chain:
+Agents store conclusions, decisions, and evidence on-chain — not in a private database that can be altered after the fact.
 
-- model version hash, training data CID, evaluation report hash, security scan result hash
+Every entry carries a source hash, a timestamp (block height), a signature, and a TTL. Any downstream agent or human auditor can verify the record was not tampered with. For regulated industries — finance, healthcare, legal — this is not a nice-to-have. It is the only acceptable model.
 
-Other agents use these records to make trusted selections and avoid poisoned models or fake tools. The registry is agent-maintained and self-expires via TTL when entries become stale.
+### 2. Agent-Written Micro-Contracts
 
-### Reputation and Credit Accounts
+An agent that receives a task generates a contract on the spot: scope, reward, acceptance criteria, deadline, penalty. It writes the contract to the chain as a code entry. Other agents read, accept, execute, and collect — all on-chain, all autonomous.
 
-Agents are long-lived principals, not disposable scripts. GTOS gives them an on-chain reputation layer:
+A crowdsourcing platform that runs itself. A task market where the market maker is an AI.
 
-- verifiable work history (accepted tasks, delivery records)
-- peer ratings and arbitration outcomes
-- stake deposit and unlock conditions
+### 3. Structured Shared Database
 
-Reputation is portable across sessions and composable: one agent's score is readable by any other agent making a hiring or routing decision.
+Standard agent table namespaces on GTOS:
 
-### On-Chain Operator: Public Index Node
+| Table | namespace | Purpose |
+|---|---|---|
+| Agent registry | `agents/registry` | Identity, capability, price, endpoint, reputation |
+| Task market | `tasks/open` | Open tasks, reward, acceptance rule, deadline |
+| Completed work | `tasks/done` | Result hash, submitter, audit trail |
+| Data catalog | `data/catalog` | Dataset CID, version, license, price |
+| Policy store | `policy/active` | Versioned rules, author, effective TTL |
+| Market signals | `signals/market` | Price, indicator, confidence, source, freshness |
+| Audit trail | `audit/results` | Verification outcomes, reviewer, block height |
+| Knowledge base | `kb/{domain}` | SOP, templates, multilingual content |
 
-For large-scale agent networks, GTOS becomes the shared index source:
+Multiple agents from multiple providers write to the same tables. The chain guarantees consistency. TTL guarantees freshness.
 
-- Each agent writes its capability, endpoint, price, and liveness proof to a known namespace.
-- An index node syncs the chain and builds a live directory from KV entries.
-- TTL handles churn: when an agent goes offline, its entry expires and it naturally disappears from the directory — no explicit deregistration needed.
+### 4. Trusted RAG Evidence Layer
 
-## End-to-End Example: Travel Guide Agent in 5 Steps
+RAG without provenance is hallucination with extra steps.
 
-An agent receives a task: *"Build a travel guide bot for Southeast Asia."*
+With GTOS, every retrieval is fingerprinted on-chain: `doc_hash`, `chunk_hash`, `retrieval_score`, `prompt_hash`, `model_version`. Any agent or auditor can verify, retroactively, exactly what evidence was used and in what version. **Traceable answers become a chain-native capability.** Enterprise deployments demand nothing less.
 
-1. **Generate contract**: agent writes `GuideBotFactory` as a code entry on-chain (input/output spec, fee, acceptance rule, TTL = project deadline).
-2. **Build database**: agent creates KV tables — `guide/places`, `guide/routes`, `guide/faq`.
-3. **Populate data**: agent fetches and processes content, writes each record with `source_hash + TTL` (content freshness window).
-4. **Serve queries**: downstream agents or frontends read from the KV tables, cite chain entries as verifiable evidence.
-5. **Settle and update**: user pays via TOS transfer; when policy changes, agent publishes a new code version and new schema — no redeployment, no operator.
+### 5. Versioned Policy with Automatic Expiry
 
-Fully autonomous. Fully auditable. Self-maintaining via TTL.
+Agents publish executable policies as versioned code entries: `pricing/v17`, `risk-control/v9`, `routing/v3`. Executor agents subscribe to the latest version and switch automatically. Holiday surcharge rules expire at a specific block with no rollback script. **Policy governance that runs itself.**
 
-## Multi-Agent Coordination Patterns
+### 6. Model and Tool Supply Chain Registry
 
-### Publish / Subscribe
+Every model selection, every tool invocation, every dependency gets a chain record: model hash, training data CID, evaluation report, security scan result. Agents selecting tools query the registry before trusting any provider. **Poisoned models and fake tools cannot hide on a public ledger.**
 
-1. Coordinator writes a task to shared KV namespace with TTL = claim timeout.
-2. Worker agents poll, claim the task (write a lock entry with TTL = execution timeout).
-3. Worker writes result back to KV.
-4. Coordinator reads result, validates, transfers TOS to worker.
+### 7. Portable Reputation and On-Chain Credit
 
-No central server. No message broker. Chain is the bus.
+Agents are long-lived economic actors. GTOS gives them a reputation layer: verifiable work history, peer ratings, arbitration outcomes, stake and unlock conditions. One agent's track record is readable by every other agent making a hiring or routing decision. **Reputation that travels. Credit that compounds.**
 
-### Auction / Bidding
+### 8. Self-Managing Agent Directory
 
-1. Demand agent writes a request as a code entry with TTL = bidding deadline block.
-2. Supply agents write bids to KV within the window.
-3. At deadline block, demand agent reads all bids, selects winner, writes award entry.
-4. Payment settled via TOS transfer.
+At scale, agent discovery is an infrastructure problem. GTOS solves it natively. Each agent writes its capability, endpoint, price, and liveness proof to a standard namespace. Index nodes sync from the chain. When an agent goes offline, its TTL expires and it disappears from the directory automatically. **No deregistration. No heartbeat server. The chain manages churn.**
 
-Fully on-chain, fully auditable, fully autonomous.
+---
 
-### Pipeline Chaining
+## The End-to-End Picture: One Agent, Five Steps, Zero Humans
 
-1. Agent A (collection) writes raw data to KV with TTL = processing timeout.
-2. Agent B (processing) reads, writes intermediate result with TTL = downstream timeout.
-3. Agent C (output) reads, writes final result with TTL = retention period.
+An agent receives a mandate: *Build and operate a Southeast Asia travel intelligence service.*
 
-If any stage times out, the data expires and the pipeline self-resets. No manual cleanup.
+**Step 1 — Contract**: Agent writes `TravelIntelService` as a code entry on-chain. Scope, SLA, fee structure, and TTL defined. Open for other agents to accept.
 
-### Deferred Execution ("Agent Will")
+**Step 2 — Database**: Agent initializes `guide/places`, `guide/routes`, `guide/faq` in shared KV namespaces.
 
-An agent writes a plan or decision to the chain with a long TTL. A later agent — or the same agent at a future block — reads and executes it. The plan auto-expires if the trigger condition is never met. No manual cancellation needed.
+**Step 3 — Data**: Agent ingests, processes, and writes every record with `source_hash + TTL`. Freshness is enforced by the chain.
 
-## Why Not a General-Purpose VM?
+**Step 4 — Service**: ChatGPT agents, Gemini agents, and downstream frontends query the shared KV. Every answer is backed by a chain-verifiable citation.
 
-GTOS deliberately does not include an EVM or general-purpose contract runtime.
+**Step 5 — Settlement and Evolution**: Users pay via TOS. When policy changes, the agent publishes a new code version. The old version expires at its TTL. No redeployment. No operator. No downtime.
 
-- Agents are the executors. Logic runs off-chain in the agent process; only inputs and outputs are committed to the chain.
-- This keeps the chain fast (1s block target), predictable, and cheap to operate without archive nodes.
-- Storage lifecycle is governed by TTL, not by contract logic that must be explicitly invoked to clean up.
+**Fully autonomous. Fully auditable. Self-maintaining.**
 
-The chain provides what only a chain can provide: **tamper-proof, consensus-verified, globally-visible state with deterministic lifecycle**. The agent provides the intelligence.
+---
+
+## Why No VM. Why This Is the Right Call.
+
+GTOS does not include an EVM or general-purpose contract runtime.
+
+This is not a limitation. It is the design.
+
+Agents are the executors. Logic lives in the agent process — where it can use any model, any library, any tool. Only inputs, outputs, and state commitments touch the chain. The result: **1-second block time. No archive nodes. Bounded storage costs. Predictable operation at scale.**
+
+The chain does what only a chain can do: **tamper-proof, consensus-verified, globally-visible state with deterministic TTL lifecycle.** The agent does what only an agent can do: think.
+
+---
+
+## The Numbers That Matter
+
+- Block time: `1s`
+- Supported signing algorithms: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`
+- History retention: `200` blocks rolling window — no archive node tax
+- State snapshots: every `1000` blocks for instant recovery
+- Code payload limit: `64 KiB` per entry
+- TTL unit: block count — deterministic, not wall-clock dependent
+
+---
 
 ## Further Reading
 
-- `docs/PROTOCOL.md`: consensus, storage primitives, account model, cryptography, state model, transaction types.
-- `docs/RPC.md`: full JSON-RPC API reference.
-- `docs/feature.md`: current feature profile and capability boundaries.
-- `docs/ROADMAP.md`: phased delivery plan and acceptance criteria.
-- `docs/RETENTION_SNAPSHOT_SPEC.md`: retention window and snapshot operational spec (`v1.0.0`).
+- `docs/PROTOCOL.md` — Consensus, storage primitives, account model, cryptography, state model, transaction types.
+- `docs/RPC.md` — Full JSON-RPC API reference.
+- `docs/feature.md` — Current feature profile and capability boundaries.
+- `docs/ROADMAP.md` — Phased delivery plan and acceptance criteria.
+- `docs/RETENTION_SNAPSHOT_SPEC.md` — Retention window and snapshot operational spec (`v1.0.0`).
+
+---
 
 ## License
 
-This repository uses the BSD 3-Clause License.
-
-See `LICENSE`.
+BSD 3-Clause. See `LICENSE`.
