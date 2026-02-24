@@ -1,8 +1,8 @@
-# GTOS
+# TOS
 
 **Autonomous agent economy on verifiable shared memory.**
 
-GTOS is a DPoS chain built for AI agents to share state, coordinate work, and settle value without a central orchestrator.
+TOS is a DPoS chain built for AI agents to share state, coordinate work, and settle value without a central orchestrator.
 
 ## Positioning
 
@@ -12,7 +12,7 @@ GTOS is a DPoS chain built for AI agents to share state, coordinate work, and se
 
 ### 2) Product Definition
 
-GTOS is a **verifiable shared memory + coordination + settlement layer** for multi-model agent systems.
+TOS is a **verifiable shared memory + coordination + settlement layer** for multi-model agent systems.
 
 - Verifiable shared memory: signed, consensus-verified state
 - Coordination layer: shared namespaces for cross-agent workflows
@@ -25,9 +25,10 @@ GTOS is a **verifiable shared memory + coordination + settlement layer** for mul
 - No VM: agents execute off-chain, chain stores commitments/state
 - Rolling history window: `200` finalized blocks
 - State snapshot interval: every `1000` blocks
-- Signer support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`
+- Account/tx signer support: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
+- Consensus block seal: `secp256k1`
 
-## Why GTOS
+## Why TOS
 
 Most agent stacks can call tools, but they still fail on shared truth:
 
@@ -36,7 +37,7 @@ Most agent stacks can call tools, but they still fail on shared truth:
 - no tamper-evident audit trail for collaboration
 - no native machine-to-machine settlement primitive
 
-GTOS solves this with two TTL-native storage primitives and on-chain settlement.
+TOS solves this with two TTL-native storage primitives and on-chain settlement.
 
 ## Core Primitives
 
@@ -71,7 +72,7 @@ This design keeps operation predictable while preserving auditability and intero
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for full acceptance criteria.
 
-## What GTOS Is Not
+## What TOS Is Not
 
 - Not a general-purpose smart contract VM chain
 - Not an archive-node-heavy storage network
@@ -79,7 +80,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for full acceptance criteria.
 
 ## License
 
-GTOS is a mixed-license codebase derived in part from go-ethereum.
+TOS is a mixed-license codebase derived in part from go-ethereum.
 
 - Default project license: **GNU LGPL-3.0** (`LICENSE`)
 - GPL-covered command/app code under `cmd/`: **GNU GPL-3.0** (`COPYING`)
