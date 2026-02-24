@@ -23,8 +23,6 @@ NODE_PID=""
 RPC_URL=""
 FROM_ADDR=""
 TO_ADDR="0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
-GAS_PRICE=1000000000000
-GAS_PRICE_HEX=""
 SEND_BATCH_PAYLOAD=""
 
 WORKER_PIDS=()
@@ -129,8 +127,8 @@ build_send_batch_payload() {
 	local i
 	printf '['
 	for ((i = 0; i < BATCH_SIZE; i++)); do
-		printf '{"jsonrpc":"2.0","id":%d,"method":"tos_sendTransaction","params":[{"from":"%s","to":"%s","value":"0x1","gas":"0x5208","gasPrice":"%s"}]}' \
-			"$i" "$FROM_ADDR" "$TO_ADDR" "$GAS_PRICE_HEX"
+		printf '{"jsonrpc":"2.0","id":%d,"method":"tos_sendTransaction","params":[{"from":"%s","to":"%s","value":"0x1","gas":"0x5208"}]}' \
+			"$i" "$FROM_ADDR" "$TO_ADDR"
 		if (( i + 1 < BATCH_SIZE )); then
 			printf ','
 		fi
@@ -326,7 +324,6 @@ fi
 
 RPC_URL="http://127.0.0.1:${HTTP_PORT}"
 NODE_LOG="${DATADIR}/node.log"
-printf -v GAS_PRICE_HEX "0x%x" "$GAS_PRICE"
 
 echo "Starting benchmark node..."
 "$GTOS_BIN" \

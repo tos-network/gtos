@@ -38,7 +38,6 @@ type signerTxGoldenValid struct {
 type signerTxGoldenInput struct {
 	ChainID    string `json:"chainId"`
 	Nonce      uint64 `json:"nonce"`
-	GasPrice   string `json:"gasPrice"`
 	Gas        uint64 `json:"gas"`
 	To         string `json:"to"`
 	Value      string `json:"value"`
@@ -87,13 +86,11 @@ func mustBuildUnsignedGoldenTx(t *testing.T, in signerTxGoldenInput) (*Transacti
 	t.Helper()
 
 	chainID := mustDecodeHexBig(t, in.ChainID)
-	gasPrice := mustDecodeHexBig(t, in.GasPrice)
 	value := mustDecodeHexBig(t, in.Value)
 	to := common.HexToAddress(in.To)
 	return NewTx(&SignerTx{
 		ChainID:    new(big.Int).Set(chainID),
 		Nonce:      in.Nonce,
-		GasPrice:   gasPrice,
 		Gas:        in.Gas,
 		To:         &to,
 		Value:      value,

@@ -28,14 +28,13 @@ var (
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 )
 
-func newSignedTransferTx(signer types.Signer, key *ecdsa.PrivateKey, from common.Address, nonce uint64, to common.Address, value, gasPrice *big.Int) *types.Transaction {
+func newSignedTransferTx(signer types.Signer, key *ecdsa.PrivateKey, from common.Address, nonce uint64, to common.Address, value, _ *big.Int) *types.Transaction {
 	tx := types.NewTx(&types.SignerTx{
 		ChainID:    params.TestChainConfig.ChainID,
 		Nonce:      nonce,
 		To:         &to,
 		Value:      value,
 		Gas:        params.TxGas,
-		GasPrice:   gasPrice,
 		From:       from,
 		SignerType: "secp256k1",
 	})

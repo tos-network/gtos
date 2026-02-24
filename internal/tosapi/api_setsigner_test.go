@@ -38,7 +38,7 @@ func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	if tx.Value().Sign() != 0 {
 		t.Fatalf("expected zero value tx, got %s", tx.Value())
 	}
-	if tx.GasPrice().Cmp(params.FixedGasPrice()) != 0 {
+	if tx.GasPrice().Cmp(params.GTOSPrice()) != 0 {
 		t.Fatalf("unexpected gas price: %s", tx.GasPrice())
 	}
 	wantGas, err := estimateSystemActionGas(tx.Data())

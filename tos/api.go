@@ -93,7 +93,7 @@ func (api *MinerAPI) SetExtra(extra string) (bool, error) {
 
 // SetGasPrice keeps the miner gas price pinned to the protocol-fixed value.
 func (api *MinerAPI) SetGasPrice(_ hexutil.Big) bool {
-	fixed := params.FixedGasPrice()
+	fixed := params.GTOSPrice()
 	api.e.lock.Lock()
 	api.e.gasPrice = fixed
 	api.e.lock.Unlock()

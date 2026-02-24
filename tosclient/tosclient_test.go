@@ -183,7 +183,6 @@ var testTx1 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &
 	ChainID:    genesis.Config.ChainID,
 	Nonce:      0,
 	Value:      big.NewInt(12),
-	GasPrice:   big.NewInt(params.InitialBaseFee),
 	Gas:        params.TxGas,
 	To:         &common.Address{2},
 	From:       testAddr,
@@ -194,7 +193,6 @@ var testTx2 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &
 	ChainID:    genesis.Config.ChainID,
 	Nonce:      1,
 	Value:      big.NewInt(8),
-	GasPrice:   big.NewInt(params.InitialBaseFee),
 	Gas:        params.TxGas,
 	To:         &common.Address{2},
 	From:       testAddr,
@@ -493,7 +491,7 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gasPrice.Cmp(params.FixedGasPrice()) != 0 {
+	if gasPrice.Cmp(params.GTOSPrice()) != 0 {
 		t.Fatalf("unexpected gas price: %v", gasPrice)
 	}
 
@@ -516,8 +514,8 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 		OldestBlock: big.NewInt(2),
 		Reward: [][]*big.Int{
 			{
-				params.FixedGasPrice(),
-				params.FixedGasPrice(),
+				params.GTOSPrice(),
+				params.GTOSPrice(),
 			},
 		},
 		BaseFee: []*big.Int{
@@ -694,7 +692,6 @@ func sendTransaction(ec *Client) error {
 		To:         &common.Address{2},
 		Value:      big.NewInt(1),
 		Gas:        22000,
-		GasPrice:   big.NewInt(params.InitialBaseFee),
 		From:       testAddr,
 		SignerType: "secp256k1",
 	})

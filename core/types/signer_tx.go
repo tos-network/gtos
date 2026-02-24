@@ -4,13 +4,13 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/params"
 )
 
 // SignerTx carries explicit signer metadata in the envelope.
 type SignerTx struct {
 	ChainID    *big.Int
 	Nonce      uint64
-	GasPrice   *big.Int
 	Gas        uint64
 	To         *common.Address `rlp:"nil"` // nil means setCode path
 	Value      *big.Int
@@ -37,7 +37,6 @@ func (tx *SignerTx) copy() TxData {
 		SignerType: tx.SignerType,
 		Value:      new(big.Int),
 		ChainID:    new(big.Int),
-		GasPrice:   new(big.Int),
 		V:          new(big.Int),
 		R:          new(big.Int),
 		S:          new(big.Int),
@@ -48,9 +47,6 @@ func (tx *SignerTx) copy() TxData {
 	}
 	if tx.ChainID != nil {
 		cpy.ChainID.Set(tx.ChainID)
-	}
-	if tx.GasPrice != nil {
-		cpy.GasPrice.Set(tx.GasPrice)
 	}
 	if tx.V != nil {
 		cpy.V.Set(tx.V)
@@ -70,9 +66,9 @@ func (tx *SignerTx) chainID() *big.Int      { return tx.ChainID }
 func (tx *SignerTx) accessList() AccessList { return tx.AccessList }
 func (tx *SignerTx) data() []byte           { return tx.Data }
 func (tx *SignerTx) gas() uint64            { return tx.Gas }
-func (tx *SignerTx) gasPrice() *big.Int     { return tx.GasPrice }
-func (tx *SignerTx) gasTipCap() *big.Int    { return tx.GasPrice }
-func (tx *SignerTx) gasFeeCap() *big.Int    { return tx.GasPrice }
+func (tx *SignerTx) gasPrice() *big.Int     { return params.GTOSPrice() }
+func (tx *SignerTx) gasTipCap() *big.Int    { return params.GTOSPrice() }
+func (tx *SignerTx) gasFeeCap() *big.Int    { return params.GTOSPrice() }
 func (tx *SignerTx) value() *big.Int        { return tx.Value }
 func (tx *SignerTx) nonce() uint64          { return tx.Nonce }
 func (tx *SignerTx) to() *common.Address    { return tx.To }

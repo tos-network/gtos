@@ -35,7 +35,6 @@ var (
 		To:         &testAddr,
 		Value:      big.NewInt(10),
 		Gas:        25000,
-		GasPrice:   big.NewInt(1),
 		Data:       common.FromHex("5544"),
 		From:       testFrom,
 		SignerType: "secp256k1",
@@ -47,7 +46,6 @@ var (
 		To:       &testAddr,
 		Value:    big.NewInt(10),
 		Gas:      25000,
-		GasPrice: big.NewInt(1),
 		Data:     common.FromHex("5544"),
 		From:     testFrom,
 		// keep default signer type explicit to make signer hash deterministic
@@ -217,7 +215,6 @@ func testTransactionPriceNonceSort(t *testing.T, baseFee *big.Int) {
 					To:         &common.Address{},
 					Value:      big.NewInt(100),
 					Gas:        100,
-					GasPrice:   big.NewInt(int64(gasFeeCap)),
 					Data:       nil,
 					From:       common.Address{},
 					SignerType: "secp256k1",

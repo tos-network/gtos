@@ -266,24 +266,28 @@ func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Tran
 	// If there's an older better transaction, abort
 	old := l.txs.Get(tx.Nonce())
 	if old != nil {
-		if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
-			return false, nil
-		}
-		// thresholdFeeCap = oldFC  * (100 + priceBump) / 100
-		a := big.NewInt(100 + int64(priceBump))
-		aFeeCap := new(big.Int).Mul(a, old.GasFeeCap())
-		aTip := a.Mul(a, old.GasTipCap())
+		// SignerTx uses protocol-fixed pricing, so replacement is nonce-based only.
+		// Price-bump semantics do not apply in this mode.
+		if old.Type() != types.SignerTxType || tx.Type() != types.SignerTxType {
+			if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
+				return false, nil
+			}
+			// thresholdFeeCap = oldFC  * (100 + priceBump) / 100
+			a := big.NewInt(100 + int64(priceBump))
+			aFeeCap := new(big.Int).Mul(a, old.GasFeeCap())
+			aTip := a.Mul(a, old.GasTipCap())
 
-		// thresholdTip    = oldTip * (100 + priceBump) / 100
-		b := big.NewInt(100)
-		thresholdFeeCap := aFeeCap.Div(aFeeCap, b)
-		thresholdTip := aTip.Div(aTip, b)
+			// thresholdTip    = oldTip * (100 + priceBump) / 100
+			b := big.NewInt(100)
+			thresholdFeeCap := aFeeCap.Div(aFeeCap, b)
+			thresholdTip := aTip.Div(aTip, b)
 
-		// We have to ensure that both the new fee cap and tip are higher than the
-		// old ones as well as checking the percentage threshold to ensure that
-		// this is accurate for low (Wei-level) gas price replacements.
-		if tx.GasFeeCapIntCmp(thresholdFeeCap) < 0 || tx.GasTipCapIntCmp(thresholdTip) < 0 {
-			return false, nil
+			// We have to ensure that both the new fee cap and tip are higher than the
+			// old ones as well as checking the percentage threshold to ensure that
+			// this is accurate for low (Wei-level) gas price replacements.
+			if tx.GasFeeCapIntCmp(thresholdFeeCap) < 0 || tx.GasTipCapIntCmp(thresholdTip) < 0 {
+				return false, nil
+			}
 		}
 	}
 	// Otherwise overwrite the old transaction with the current one

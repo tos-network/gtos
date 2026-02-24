@@ -472,7 +472,6 @@ func (s accessListSigner) Hash(tx *Transaction) common.Hash {
 		[]interface{}{
 			s.chainId,
 			tx.Nonce(),
-			tx.GasPrice(),
 			tx.Gas(),
 			tx.To(),
 			tx.Value(),

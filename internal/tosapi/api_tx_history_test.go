@@ -49,7 +49,6 @@ func newHistoryTestTx() *types.Transaction {
 	return types.NewTx(&types.SignerTx{
 		ChainID:    big.NewInt(42),
 		Nonce:      0,
-		GasPrice:   big.NewInt(1),
 		Gas:        21_000,
 		To:         &to,
 		Value:      big.NewInt(1),

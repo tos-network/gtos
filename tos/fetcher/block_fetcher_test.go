@@ -47,7 +47,6 @@ func makeChain(n int, seed byte, parent *types.Block) ([]common.Hash, map[common
 				To:         &common.Address{seed},
 				Value:      big.NewInt(1000),
 				Gas:        params.TxGas,
-				GasPrice:   block.BaseFee(),
 				From:       testAddress,
 				SignerType: "secp256k1",
 			})

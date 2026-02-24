@@ -77,7 +77,6 @@ func benchRLP(b *testing.B, encode bool) {
 				&SignerTx{
 					ChainID:    big.NewInt(1337),
 					Nonce:      1,
-					GasPrice:   big.NewInt(500),
 					Gas:        1000000,
 					To:         &to,
 					Value:      big.NewInt(1),

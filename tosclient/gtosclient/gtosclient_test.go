@@ -212,7 +212,6 @@ func testSubscribePendingTransactions(t *testing.T, client *rpc.Client) {
 		To:         &common.Address{1},
 		Value:      big.NewInt(1),
 		Gas:        22000,
-		GasPrice:   big.NewInt(1),
 		From:       testAddr,
 		SignerType: "secp256k1",
 	})

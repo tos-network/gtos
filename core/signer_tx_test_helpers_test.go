@@ -33,7 +33,6 @@ func signTestSignerTx(
 		To:         &to,
 		Value:      new(big.Int).Set(amount),
 		Gas:        gasLimit,
-		GasPrice:   new(big.Int).Set(gasPrice),
 		Data:       common.CopyBytes(data),
 		From:       from,
 		SignerType: accountsigner.SignerTypeSecp256k1,

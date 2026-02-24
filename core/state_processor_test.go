@@ -56,7 +56,6 @@ func TestStateProcessorErrors(t *testing.T) {
 			Gas:        gasLimit,
 			To:         &to,
 			Value:      big.NewInt(0),
-			GasPrice:   new(big.Int).Set(gasPrice),
 			From:       crypto.PubkeyToAddress(key1.PublicKey),
 			SignerType: "frost",
 			V:          new(big.Int),
@@ -117,13 +116,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(1000000000000000000), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000002625000000000", addr1.Hex()),
-			},
-			{ // ErrInsufficientFunds
-				txs: []*types.Transaction{
-					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas, big.NewInt(900000000000000000), nil),
-				},
-				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 2700000000000000000000", addr1.Hex()),
+				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000000129000000000", addr1.Hex()),
 			},
 			// ErrGasUintOverflow
 			// One missing 'core' error is ErrGasUintOverflow: "gas uint64 overflow",
@@ -266,7 +259,6 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		To:         &systemActionTo,
 		Value:      big.NewInt(0),
 		Gas:        500_000,
-		GasPrice:   big.NewInt(1),
 		Data:       setSignerPayload,
 		From:       from,
 		SignerType: accountsigner.SignerTypeSecp256k1,
@@ -282,7 +274,6 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        params.TxGas,
-		GasPrice:   big.NewInt(1),
 		From:       from,
 		SignerType: accountsigner.SignerTypeEd25519,
 	})
@@ -294,7 +285,6 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		To:         txEdUnsigned.To(),
 		Value:      txEdUnsigned.Value(),
 		Gas:        txEdUnsigned.Gas(),
-		GasPrice:   txEdUnsigned.GasPrice(),
 		Data:       txEdUnsigned.Data(),
 		From:       from,
 		SignerType: accountsigner.SignerTypeEd25519,
@@ -502,7 +492,6 @@ func TestStateProcessorPrunesExpiredCodeAtBlockBoundary(t *testing.T) {
 		To:         nil,
 		Value:      big.NewInt(0),
 		Gas:        500_000,
-		GasPrice:   big.NewInt(1),
 		Data:       payload,
 		From:       from,
 		SignerType: accountsigner.SignerTypeSecp256k1,

@@ -74,7 +74,6 @@ type SetSignerArgs struct {
 	SignerValue string          `json:"signerValue"`
 	Nonce       *hexutil.Uint64 `json:"nonce,omitempty"`
 	Gas         *hexutil.Uint64 `json:"gas,omitempty"`
-	GasPrice    *hexutil.Big    `json:"gasPrice,omitempty"`
 }
 
 // BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
@@ -85,12 +84,11 @@ type BuildSetSignerTxResult struct {
 
 // SetCodeArgs is the argument object for tos_setCode.
 type SetCodeArgs struct {
-	From     common.Address  `json:"from"`
-	Nonce    *hexutil.Uint64 `json:"nonce,omitempty"`
-	Gas      *hexutil.Uint64 `json:"gas,omitempty"`
-	GasPrice *hexutil.Big    `json:"gasPrice,omitempty"`
-	Code     hexutil.Bytes   `json:"code"`
-	TTL      hexutil.Uint64  `json:"ttl"`
+	From  common.Address  `json:"from"`
+	Nonce *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas   *hexutil.Uint64 `json:"gas,omitempty"`
+	Code  hexutil.Bytes   `json:"code"`
+	TTL   hexutil.Uint64  `json:"ttl"`
 }
 
 // CodeObject describes a code record and ttl metadata.
@@ -115,7 +113,6 @@ type PutKVArgs struct {
 	From      common.Address  `json:"from"`
 	Nonce     *hexutil.Uint64 `json:"nonce,omitempty"`
 	Gas       *hexutil.Uint64 `json:"gas,omitempty"`
-	GasPrice  *hexutil.Big    `json:"gasPrice,omitempty"`
 	Namespace string          `json:"namespace"`
 	Key       hexutil.Bytes   `json:"key"`
 	Value     hexutil.Bytes   `json:"value"`

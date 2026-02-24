@@ -13,7 +13,6 @@ func signerTxFuzzSeedRaw() []byte {
 	tx := NewTx(&SignerTx{
 		ChainID:    big.NewInt(42),
 		Nonce:      1,
-		GasPrice:   big.NewInt(1),
 		Gas:        21_000,
 		To:         &to,
 		Value:      big.NewInt(0),

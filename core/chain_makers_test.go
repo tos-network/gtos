@@ -25,7 +25,11 @@ func ExampleGenerateChain() {
 	// Ensure that key1 has some funds in the genesis block.
 	gspec := &Genesis{
 		Config: &params.ChainConfig{},
-		Alloc:  GenesisAlloc{addr1: {Balance: big.NewInt(1000000)}},
+		Alloc: GenesisAlloc{
+			// Keep the original example end balances stable under fixed GTOSPrice.
+			addr1: {Balance: big.NewInt(258001000000)},
+			addr2: {Balance: big.NewInt(129000000000)},
+		},
 	}
 	genesis := gspec.MustCommit(db)
 

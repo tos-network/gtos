@@ -364,7 +364,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 			utils.Fatalf("TOS service not running")
 		}
 		// Gas price is protocol-fixed in GTOS.
-		tosBackend.TxPool().SetGasPrice(params.FixedGasPrice())
+		tosBackend.TxPool().SetGasPrice(params.GTOSPrice())
 		// start mining
 		threads := ctx.Int(utils.MinerThreadsFlag.Name)
 		if err := tosBackend.StartMining(threads); err != nil {

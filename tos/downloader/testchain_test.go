@@ -138,14 +138,13 @@ func (tc *testChain) copy(newlen int) *testChain {
 	return cpy
 }
 
-func newSignedTestTx(nonce uint64, to common.Address, value, gasPrice *big.Int, gas uint64, data []byte, key *ecdsa.PrivateKey) *types.Transaction {
+func newSignedTestTx(nonce uint64, to common.Address, value, _ *big.Int, gas uint64, data []byte, key *ecdsa.PrivateKey) *types.Transaction {
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	tx := types.NewTx(&types.SignerTx{
 		ChainID:    params.TestChainConfig.ChainID,
 		Nonce:      nonce,
 		To:         &to,
 		Value:      value,
-		GasPrice:   gasPrice,
 		Gas:        gas,
 		Data:       data,
 		From:       from,

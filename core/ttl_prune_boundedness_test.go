@@ -65,7 +65,6 @@ func TestTTLPruneLongRunBoundedStorageAndDeterministicRoots(t *testing.T) {
 			To:         nil,
 			Value:      big.NewInt(0),
 			Gas:        500_000,
-			GasPrice:   big.NewInt(1),
 			Data:       codePayload,
 			From:       codeOwner,
 			SignerType: "secp256k1",

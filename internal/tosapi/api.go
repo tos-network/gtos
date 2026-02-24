@@ -40,7 +40,7 @@ func NewTOSAPI(b Backend) *TOSAPI {
 	return &TOSAPI{b}
 }
 
-// GasPrice returns a suggestion for a gas price for legacy transactions.
+// GasPrice returns the protocol-fixed GTOS transaction price.
 func (s *TOSAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	tipcap, err := s.b.SuggestGasTipCap(ctx)
 	if err != nil {
@@ -1057,7 +1057,6 @@ type RPCTransaction struct {
 	From             common.Address    `json:"from"`
 	SignerType       string            `json:"signerType,omitempty"`
 	Gas              hexutil.Uint64    `json:"gas"`
-	GasPrice         *hexutil.Big      `json:"gasPrice"`
 	GasFeeCap        *hexutil.Big      `json:"maxFeePerGas,omitempty"`
 	GasTipCap        *hexutil.Big      `json:"maxPriorityFeePerGas,omitempty"`
 	Hash             common.Hash       `json:"hash"`
@@ -1091,18 +1090,17 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	from := rpcTxFrom(signer, tx)
 	v, r, s := tx.RawSignatureValues()
 	result := &RPCTransaction{
-		Type:     hexutil.Uint64(tx.Type()),
-		From:     from,
-		Gas:      hexutil.Uint64(tx.Gas()),
-		GasPrice: (*hexutil.Big)(tx.GasPrice()),
-		Hash:     tx.Hash(),
-		Input:    hexutil.Bytes(tx.Data()),
-		Nonce:    hexutil.Uint64(tx.Nonce()),
-		To:       tx.To(),
-		Value:    (*hexutil.Big)(tx.Value()),
-		V:        (*hexutil.Big)(v),
-		R:        (*hexutil.Big)(r),
-		S:        (*hexutil.Big)(s),
+		Type:  hexutil.Uint64(tx.Type()),
+		From:  from,
+		Gas:   hexutil.Uint64(tx.Gas()),
+		Hash:  tx.Hash(),
+		Input: hexutil.Bytes(tx.Data()),
+		Nonce: hexutil.Uint64(tx.Nonce()),
+		To:    tx.To(),
+		Value: (*hexutil.Big)(tx.Value()),
+		V:     (*hexutil.Big)(v),
+		R:     (*hexutil.Big)(r),
+		S:     (*hexutil.Big)(s),
 	}
 	if blockHash != (common.Hash{}) {
 		result.BlockHash = &blockHash
@@ -1465,7 +1463,7 @@ func (s *TransactionAPI) SendTransaction(ctx context.Context, args TransactionAr
 	return SubmitTransaction(ctx, s.b, signed)
 }
 
-// FillTransaction fills the defaults (nonce, gas, gasPrice or 1559 fields)
+// FillTransaction fills default transaction fields (nonce, gas, type-specific defaults)
 // on a given unsigned transaction, and returns it to the caller for further
 // processing (signing + broadcast).
 func (s *TransactionAPI) FillTransaction(ctx context.Context, args TransactionArgs) (*SignTransactionResult, error) {
@@ -1576,15 +1574,11 @@ func (s *TransactionAPI) PendingTransactions() ([]*RPCTransaction, error) {
 	return transactions, nil
 }
 
-// Resend accepts an existing transaction and a new gas price and limit. It will remove
-// the given transaction from the pool and reinsert it with the new gas price and limit.
-func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, gasPrice *hexutil.Big, gasLimit *hexutil.Uint64) (common.Hash, error) {
+// Resend accepts an existing transaction and an optional new gas limit.
+// It removes the given transaction from the pool and reinserts it.
+func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, gasLimit *hexutil.Uint64) (common.Hash, error) {
 	if sendArgs.Nonce == nil {
 		return common.Hash{}, fmt.Errorf("missing transaction nonce in transaction spec")
-	}
-	fixedPrice := params.FixedGasPrice()
-	if gasPrice != nil && gasPrice.ToInt().Cmp(fixedPrice) != 0 {
-		return common.Hash{}, fmt.Errorf("gasPrice is fixed to %s wei", fixedPrice.String())
 	}
 	if err := sendArgs.setDefaults(ctx, s.b); err != nil {
 		return common.Hash{}, err
@@ -1610,7 +1604,6 @@ func (s *TransactionAPI) Resend(ctx context.Context, sendArgs TransactionArgs, g
 		pFrom := rpcTxFrom(s.signer, p)
 		if pFrom == sendArgs.from() && s.signer.Hash(p) == wantSigHash {
 			// Match. Re-sign and send the transaction.
-			sendArgs.GasPrice = (*hexutil.Big)(fixedPrice)
 			if gasLimit != nil && *gasLimit != 0 {
 				sendArgs.Gas = gasLimit
 			}
@@ -1872,10 +1865,9 @@ type RPCSignerProfile struct {
 }
 
 type RPCTxCommonArgs struct {
-	From     common.Address  `json:"from"`
-	Nonce    *hexutil.Uint64 `json:"nonce,omitempty"`
-	Gas      *hexutil.Uint64 `json:"gas,omitempty"`
-	GasPrice *hexutil.Big    `json:"gasPrice,omitempty"`
+	From  common.Address  `json:"from"`
+	Nonce *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas   *hexutil.Uint64 `json:"gas,omitempty"`
 }
 
 type RPCSetSignerArgs struct {
@@ -2184,13 +2176,12 @@ func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetS
 	input := hexutil.Bytes(payload)
 	zero := hexutil.Big{}
 	txArgs := &TransactionArgs{
-		From:     &from,
-		To:       &to,
-		Gas:      args.Gas,
-		GasPrice: args.GasPrice,
-		Value:    &zero,
-		Nonce:    args.Nonce,
-		Input:    &input,
+		From:  &from,
+		To:    &to,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
 	}
 	if txArgs.Gas == nil {
 		estimate, gasErr := estimateSystemActionGas(payload)
@@ -2247,13 +2238,12 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 	}
 	return &RPCBuildTxResult{
 		Tx: map[string]interface{}{
-			"from":     args.From,
-			"to":       params.SystemActionAddress,
-			"nonce":    hexutil.Uint64(tx.Nonce()),
-			"gas":      hexutil.Uint64(tx.Gas()),
-			"gasPrice": (*hexutil.Big)(new(big.Int).Set(tx.GasPrice())),
-			"value":    (*hexutil.Big)(new(big.Int).Set(tx.Value())),
-			"input":    hexutil.Bytes(tx.Data()),
+			"from":  args.From,
+			"to":    params.SystemActionAddress,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
 		},
 		Raw: raw,
 	}, nil
@@ -2314,13 +2304,12 @@ func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash,
 	from := args.From
 	zero := hexutil.Big{}
 	txArgs := TransactionArgs{
-		From:     &from,
-		To:       nil,
-		Gas:      args.Gas,
-		GasPrice: args.GasPrice,
-		Value:    &zero,
-		Nonce:    args.Nonce,
-		Input:    &input,
+		From:  &from,
+		To:    nil,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
 		// Internal-only bypass: tos_setCode is the only RPC that may build to=nil tx.
 		allowSetCodeCreation: true,
 	}
@@ -2370,13 +2359,12 @@ func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, err
 	from := args.From
 	zero := hexutil.Big{}
 	txArgs := TransactionArgs{
-		From:     &from,
-		To:       &to,
-		Gas:      args.Gas,
-		GasPrice: args.GasPrice,
-		Value:    &zero,
-		Nonce:    args.Nonce,
-		Input:    &input,
+		From:  &from,
+		To:    &to,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
 	}
 	if txArgs.Gas == nil {
 		estimate, gasErr := kvstore.EstimatePutPayloadGas(payload, uint64(args.TTL))

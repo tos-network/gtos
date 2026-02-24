@@ -68,10 +68,6 @@ func genValueTx(nbytes int) func(int, *BlockGen) {
 		data := make([]byte, nbytes)
 		gas, _ := IntrinsicGas(data, nil, false, false, false)
 		signer := types.MakeSigner(gen.config, big.NewInt(int64(i)))
-		gasPrice := big.NewInt(0)
-		if gen.header.BaseFee != nil {
-			gasPrice = gen.header.BaseFee
-		}
 		tx, _ := types.SignNewTx(benchRootKey, signer, &types.SignerTx{
 			ChainID:    signer.ChainID(),
 			Nonce:      gen.TxNonce(benchRootAddr),
@@ -79,7 +75,6 @@ func genValueTx(nbytes int) func(int, *BlockGen) {
 			Value:      big.NewInt(1),
 			Gas:        gas,
 			Data:       data,
-			GasPrice:   gasPrice,
 			From:       benchRootAddr,
 			SignerType: "secp256k1",
 		})
@@ -110,10 +105,6 @@ func genTxRing(naccounts int) func(int, *BlockGen) {
 	return func(i int, gen *BlockGen) {
 		block := gen.PrevBlock(i - 1)
 		gas := block.GasLimit()
-		gasPrice := big.NewInt(0)
-		if gen.header.BaseFee != nil {
-			gasPrice = gen.header.BaseFee
-		}
 		signer := types.MakeSigner(gen.config, big.NewInt(int64(i)))
 		for {
 			gas -= params.TxGas
@@ -134,7 +125,6 @@ func genTxRing(naccounts int) func(int, *BlockGen) {
 					To:         &ringAddrs[to],
 					Value:      availableFunds,
 					Gas:        params.TxGas,
-					GasPrice:   gasPrice,
 					From:       ringAddrs[from],
 					SignerType: "secp256k1",
 				})

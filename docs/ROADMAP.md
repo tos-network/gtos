@@ -1,21 +1,23 @@
-# GTOS Roadmap (DPoS + TTL-Native Decentralized Storage)
+# GTOS Roadmap
 
 ## Status Legend
 
 - `DONE`: completed and merged.
 - `IN_PROGRESS`: partially implemented or implemented as skeleton/validation only.
 - `PLANNED`: not implemented yet.
-- Status snapshot date: `2026-02-23`.
+- Status snapshot date: `2026-02-24`.
 
 ## Product Alignment
 
-This roadmap is aligned with `README.md` and defines GTOS as a storage-first chain:
+This roadmap is aligned with `README.md` and defines GTOS as the **shared memory and coordination layer for autonomous AI agents**:
 
-- DPoS consensus with fast finality.
-- Native decentralized storage as the primary capability.
-- TTL lifecycle for both code storage and generic KV storage.
+- Any AI agent — ChatGPT, Claude, Gemini, Codex, or custom — reads and writes to the same chain-native state.
+- Agents remember, coordinate, and transact with each other verifiably, without a central orchestrator.
+- DPoS consensus with fast finality (1-second block target).
+- Native TTL storage as the primary capability: `code_put_ttl` (agent-written logic) + `kv_put_ttl` (agent-maintained database).
 - TTL unit is block count, with deterministic expiry by height.
 - Predictable pruning with no archive-node dependency.
+- No general-purpose VM: agents are the executors; the chain is the tamper-proof state layer.
 
 ## Retention Strategy (No Archive Nodes)
 

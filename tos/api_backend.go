@@ -269,7 +269,7 @@ func (b *TOSAPIBackend) SyncProgress() gtos.SyncProgress {
 
 func (b *TOSAPIBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 	_ = ctx
-	return params.FixedGasPrice(), nil
+	return params.GTOSPrice(), nil
 }
 
 func (b *TOSAPIBackend) FeeHistory(ctx context.Context, blockCount int, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (firstBlock *big.Int, reward [][]*big.Int, baseFee []*big.Int, gasUsedRatio []float64, err error) {
@@ -280,7 +280,7 @@ func (b *TOSAPIBackend) FeeHistory(ctx context.Context, blockCount int, lastBloc
 	if blockCount == 0 {
 		blockCount = 1
 	}
-	fixed := params.FixedGasPrice()
+	fixed := params.GTOSPrice()
 	if lastBlock >= 0 {
 		firstBlock = big.NewInt(int64(lastBlock))
 	} else {

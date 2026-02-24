@@ -35,11 +35,9 @@ func TestSetFeeDefaults(t *testing.T) {
 	}
 
 	var (
-		b        = newBackendMock()
-		fixedFee = (*hexutil.Big)(params.FixedGasPrice())
-		invalid  = (*hexutil.Big)(big.NewInt(42))
-		maxFee   = (*hexutil.Big)(big.NewInt(62))
-		al       = &types.AccessList{types.AccessTuple{Address: common.Address{0xaa}, StorageKeys: []common.Hash{{0x01}}}}
+		b      = newBackendMock()
+		maxFee = (*hexutil.Big)(big.NewInt(62))
+		al     = &types.AccessList{types.AccessTuple{Address: common.Address{0xaa}, StorageKeys: []common.Hash{{0x01}}}}
 	)
 
 	tests := []test{
@@ -47,35 +45,28 @@ func TestSetFeeDefaults(t *testing.T) {
 			"legacy tx pre-London",
 			false,
 			&TransactionArgs{},
-			&TransactionArgs{GasPrice: fixedFee},
+			&TransactionArgs{},
 			nil,
 		},
 		{
-			"legacy tx post-London, explicit gas price",
+			"legacy tx post-London",
 			true,
-			&TransactionArgs{GasPrice: fixedFee},
-			&TransactionArgs{GasPrice: fixedFee},
+			&TransactionArgs{},
+			&TransactionArgs{},
 			nil,
-		},
-		{
-			"legacy tx explicit gas price mismatch",
-			true,
-			&TransactionArgs{GasPrice: invalid},
-			nil,
-			fmt.Errorf("gasPrice is fixed to %d wei", params.FixedGasPriceWei),
 		},
 		{
 			"access list tx pre-London",
 			false,
 			&TransactionArgs{AccessList: al},
-			&TransactionArgs{AccessList: al, GasPrice: fixedFee},
+			&TransactionArgs{AccessList: al},
 			nil,
 		},
 		{
 			"access list tx post-London",
 			true,
 			&TransactionArgs{AccessList: al},
-			&TransactionArgs{AccessList: al, GasPrice: fixedFee},
+			&TransactionArgs{AccessList: al},
 			nil,
 		},
 		{
@@ -83,21 +74,21 @@ func TestSetFeeDefaults(t *testing.T) {
 			false,
 			&TransactionArgs{MaxFeePerGas: maxFee},
 			nil,
-			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS"),
 		},
 		{
 			"dynamic fee tx post-London, priorityFee set",
 			true,
-			&TransactionArgs{MaxPriorityFeePerGas: fixedFee},
+			&TransactionArgs{MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1))},
 			nil,
-			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS"),
 		},
 		{
 			"set all fee parameters",
 			false,
-			&TransactionArgs{GasPrice: fixedFee, MaxFeePerGas: maxFee, MaxPriorityFeePerGas: fixedFee},
+			&TransactionArgs{MaxFeePerGas: maxFee, MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1))},
 			nil,
-			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice"),
+			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS"),
 		},
 	}
 
@@ -248,7 +239,7 @@ func (b *backendMock) deactivateLondon() {
 	b.current.Number = big.NewInt(900)
 }
 func (b *backendMock) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	return params.FixedGasPrice(), nil
+	return params.GTOSPrice(), nil
 }
 func (b *backendMock) CurrentHeader() *types.Header     { return b.current }
 func (b *backendMock) ChainConfig() *params.ChainConfig { return b.config }

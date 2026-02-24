@@ -274,7 +274,7 @@ Params schema (`params[0]`):
 ```json
 {
   "type": "object",
-  "required": ["from", "signerType", "signerValue", "gasPrice"],
+  "required": ["from", "signerType", "signerValue"],
   "properties": {
     "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "signerType": {
@@ -283,8 +283,7 @@ Params schema (`params[0]`):
     },
     "signerValue": {"type": "string"},
     "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -356,14 +355,13 @@ Params schema (`params[0]`):
 ```json
 {
   "type": "object",
-  "required": ["from", "code", "ttl", "gasPrice"],
+  "required": ["from", "code", "ttl"],
   "properties": {
     "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "code": {"$ref": "gtos.rpc.common#/definitions/hexData"},
     "ttl": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```
@@ -429,7 +427,7 @@ Params schema (`params[0]`):
 ```json
 {
   "type": "object",
-  "required": ["from", "namespace", "key", "value", "ttl", "gasPrice"],
+  "required": ["from", "namespace", "key", "value", "ttl"],
   "properties": {
     "from": {"$ref": "gtos.rpc.common#/definitions/address"},
     "namespace": {"type": "string", "minLength": 1},
@@ -437,8 +435,7 @@ Params schema (`params[0]`):
     "value": {"$ref": "gtos.rpc.common#/definitions/hexData"},
     "ttl": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "nonce": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "gasPrice": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
+    "gas": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"}
   }
 }
 ```

@@ -23,7 +23,6 @@ func TestSignerTxSecp256r1SignatureEncoding64(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
@@ -53,7 +52,6 @@ func TestSignerTxSecp256r1SignatureEncoding65(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
@@ -84,7 +82,6 @@ func TestSignerTxBLS12381SignatureEncoding96(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "bls12-381",
 	})
@@ -114,7 +111,6 @@ func TestSignerTxElgamalSignatureEncoding64(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "elgamal",
 	})
@@ -151,7 +147,6 @@ func TestSignerTxSignTxSecp256r1WithLocalECDSAKey(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "secp256r1",
 	})
@@ -185,7 +180,6 @@ func TestSignerTxSignTxEd25519WithLocalECDSAKey(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "ed25519",
 	})
@@ -224,7 +218,6 @@ func TestSignerTxSignTxElgamalWithLocalECDSAKey(t *testing.T) {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
 		SignerType: "elgamal",
 	})

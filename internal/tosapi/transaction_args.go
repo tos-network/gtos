@@ -24,7 +24,6 @@ type TransactionArgs struct {
 	From                 *common.Address `json:"from"`
 	To                   *common.Address `json:"to"`
 	Gas                  *hexutil.Uint64 `json:"gas"`
-	GasPrice             *hexutil.Big    `json:"gasPrice"`
 	MaxFeePerGas         *hexutil.Big    `json:"maxFeePerGas"`
 	MaxPriorityFeePerGas *hexutil.Big    `json:"maxPriorityFeePerGas"`
 	Value                *hexutil.Big    `json:"value"`
@@ -99,7 +98,6 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		callArgs := TransactionArgs{
 			From:                 args.From,
 			To:                   args.To,
-			GasPrice:             args.GasPrice,
 			MaxFeePerGas:         args.MaxFeePerGas,
 			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
 			Value:                args.Value,
@@ -192,13 +190,8 @@ func (args *TransactionArgs) setFeeDefaults(ctx context.Context, b Backend) erro
 	_ = ctx
 	_ = b
 	if args.MaxFeePerGas != nil || args.MaxPriorityFeePerGas != nil {
-		return errors.New("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS; use gasPrice")
+		return errors.New("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS")
 	}
-	fixed := params.FixedGasPrice()
-	if args.GasPrice != nil && args.GasPrice.ToInt().Cmp(fixed) != 0 {
-		return fmt.Errorf("gasPrice is fixed to %s wei", fixed.String())
-	}
-	args.GasPrice = (*hexutil.Big)(fixed)
 	return nil
 }
 
@@ -213,7 +206,7 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 	// Set sender address or use zero address if none specified.
 	addr := args.from()
 
-	// Set default gas & gas price if none were set
+	// Set default gas if none was set
 	gas := globalGasCap
 	if gas == 0 {
 		gas = uint64(math.MaxUint64 / 2)
@@ -225,11 +218,8 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		log.Warn("Caller gas above allowance, capping", "requested", gas, "cap", globalGasCap)
 		gas = globalGasCap
 	}
-	gasPrice := new(big.Int)
-	if args.GasPrice != nil {
-		gasPrice = args.GasPrice.ToInt()
-	}
-	gasFeeCap, gasTipCap := gasPrice, gasPrice
+	gasPrice := params.GTOSPrice()
+	gasFeeCap, gasTipCap := params.GTOSPrice(), params.GTOSPrice()
 	value := new(big.Int)
 	if args.Value != nil {
 		value = args.Value.ToInt()
@@ -255,7 +245,6 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 		ChainID:    (*big.Int)(args.ChainID),
 		Nonce:      uint64(*args.Nonce),
 		Gas:        uint64(*args.Gas),
-		GasPrice:   (*big.Int)(args.GasPrice),
 		Value:      (*big.Int)(args.Value),
 		Data:       args.data(),
 		AccessList: accessList,

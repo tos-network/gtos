@@ -94,7 +94,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	if !config.SyncMode.IsValid() {
 		return nil, fmt.Errorf("invalid sync mode %d", config.SyncMode)
 	}
-	fixedGasPrice := params.FixedGasPrice()
+	fixedGasPrice := params.GTOSPrice()
 	if config.Miner.GasPrice == nil || config.Miner.GasPrice.Cmp(fixedGasPrice) != 0 {
 		log.Info("Forcing fixed miner gas price", "provided", config.Miner.GasPrice, "fixed", fixedGasPrice)
 		config.Miner.GasPrice = fixedGasPrice
@@ -148,7 +148,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		}(),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
-		gasPrice:          params.FixedGasPrice(),
+		gasPrice:          params.GTOSPrice(),
 		coinbase:          config.Miner.Coinbase,
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      core.NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
