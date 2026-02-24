@@ -1,0 +1,12 @@
+Signer benchmark on this machine (sign-ops=5000, verify-ops=5000)
+- Raw sign/verify only; no network or serialization overhead
+Algorithm         sign us   sign ops/s  verify us verify ops/s
+secp256k1           68.06        14692      72.91        13715
+secp256r1           43.49        22991     101.90         9814
+ed25519std          33.13        30184      72.57        13779
+ed25519native       53.70        18621     116.21         8605
+bls12-381          408.49         2448    1054.99          948
+elgamal            111.10         9001      86.26        11593
+
+Sign speed rank (fast -> slow): ed25519std > secp256r1 > ed25519native > secp256k1 > elgamal > bls12-381
+Verify speed rank (fast -> slow): ed25519std > secp256k1 > elgamal > secp256r1 > ed25519native > bls12-381
