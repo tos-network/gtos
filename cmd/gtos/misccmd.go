@@ -72,17 +72,12 @@ func version(ctx *cli.Context) error {
 }
 
 func license(_ *cli.Context) error {
-	fmt.Println(`GTOS is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+	fmt.Println(`GTOS licensing summary
 
-GTOS is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
+- Default repository license: GNU LGPL-3.0 (see LICENSE, COPYING.LESSER)
+- cmd/ command applications include GPL-3.0-governed components (see COPYING)
+- Some embedded third-party subdirectories carry their own license files
 
-You should have received a copy of the GNU General Public License
-along with gtos. If not, see <http://www.gnu.org/licenses/>.`)
+See LICENSES.md for directory-level mapping and NOTICE for origin/attribution.`)
 	return nil
 }

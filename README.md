@@ -186,4 +186,11 @@ The chain does what only a chain can do: **tamper-proof, consensus-verified, glo
 
 ## License
 
-BSD 3-Clause. See `LICENSE`.
+GTOS is a mixed-license codebase derived in part from go-ethereum.
+
+- Default project license: **GNU LGPL-3.0** (`LICENSE`, `COPYING.LESSER`)
+- GPL-covered command/app code under `cmd/`: **GNU GPL-3.0** (`COPYING`)
+- Third-party embedded components keep their own licenses in subdirectories
+
+For directory-level mapping and precedence rules, see `LICENSES.md`.
+For origin/attribution notice, see `NOTICE`.

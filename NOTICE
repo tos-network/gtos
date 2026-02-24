@@ -1,0 +1,16 @@
+GTOS Notice
+===========
+
+This repository includes original work from TOS Network contributors and
+code derived from go-ethereum (The go-ethereum Authors).
+
+License summary:
+- Primary project license: GNU Lesser General Public License v3.0 (LGPL-3.0),
+  see LICENSE and COPYING.LESSER.
+- CLI/application components under cmd/ include GPL-3.0-governed material,
+  see COPYING and LICENSES.md.
+- Additional third-party components carry their own licenses in subdirectories
+  (for example under crypto/, log/, metrics/).
+
+When a file header or a subdirectory license file specifies a license,
+that notice controls for that file/subdirectory.
