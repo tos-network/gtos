@@ -2,8 +2,10 @@
 
 This document describes the core protocol design of GTOS: consensus, storage primitives, account model, cryptography, and history retention policy.
 
-For the product narrative and Agent use cases, see `README.md`.
-For the full RPC specification, see `docs/RPC.md`.
+GTOS is the shared memory and coordination layer for autonomous AI agents. The protocol primitives described here are what agents call — directly via JSON-RPC, or through named skills in agent frameworks — to read and write chain-native state.
+
+For the product narrative and agent use cases, see `README.md`.
+For the full RPC specification and method schemas, see `docs/RPC.md`.
 For the feature profile and roadmap status, see `docs/feature.md` and `docs/ROADMAP.md`.
 
 ## Consensus: DPoS
@@ -17,22 +19,28 @@ For the feature profile and roadmap status, see `docs/feature.md` and `docs/ROAD
 
 ## Storage Primitives (TTL Native)
 
-GTOS provides two native storage types, both with deterministic TTL lifecycle.
+GTOS provides two native storage types, both with deterministic TTL lifecycle. These are the chain-level primitives that agent skills wrap.
 
-### Code Storage
+### Code Storage (`tos_setCode`)
 
-- `code_put_ttl(code, ttl)` writes a code object bound to the sender account.
+Agents use this to write executable logic on-chain. Agent frameworks typically expose this as a skill named `code_put_ttl`; the underlying chain RPC method is `tos_setCode`.
+
+- Writes a code object bound to the sender account, with TTL metadata.
 - Code objects are immutable while active: no update, no delete.
 - Only one active code entry per account.
 - Code can be written again only after TTL expiry clears the active entry.
 - Code payload is limited to `65536` bytes (`64 KiB`).
+- The agent is the executor: there is no VM. Logic runs in the agent process; only the code artifact and its lifecycle metadata are stored on-chain.
 
-### KV Storage
+### KV Storage (`tos_putKV`)
 
-- `kv_put_ttl(key, value, ttl)` writes an expiring key-value record scoped by `(account, namespace, key)`.
+Agents use this as their shared structured database. Agent frameworks typically expose this as a skill named `kv_put_ttl`; the underlying chain RPC method is `tos_putKV`.
+
+- Writes an expiring key-value record scoped by `(account, namespace, key)`.
 - KV entries are updatable: writing the same key overwrites the existing value and TTL.
 - KV entries are not manually deletable.
 - Reads return only active (non-expired) entries.
+- Multiple agents from different providers can read and write the same namespaces; consensus guarantees consistency.
 
 ### TTL Semantics
 
@@ -40,6 +48,7 @@ GTOS provides two native storage types, both with deterministic TTL lifecycle.
 - Expiry is deterministic: `expire_block = current_block + ttl`.
 - Persisted state stores `expire_block` and `created_block` (absolute block heights), not raw `ttl`.
 - Expired items are ignored by reads and pruned by block-time maintenance logic.
+- TTL is how agents implement controlled forgetting: stale memory, expired policies, and timed-out coordination locks are removed without manual cleanup.
 
 ## Account and Signer Model
 
@@ -49,12 +58,19 @@ GTOS provides two native storage types, both with deterministic TTL lifecycle.
 - `signer` is the real signing identity, supporting multi-algorithm verification.
 - Backward-compatible default: if `signer` is not set, the account address is used as signer.
 - Signer algorithms supported: `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
+- Agents hold their own address and signing key; they sign their own transactions and pay their own fees.
 
 ## Transaction Types
 
-- `account_set_signer`: bind a new signing key (of any supported algorithm) to an account.
-- `code_put_ttl`: write code to the sender account with TTL.
-- `kv_put_ttl`: write a KV entry with TTL.
+Three transaction types exist at the protocol level. Agent skills map onto these:
+
+| Protocol tx type | Agent skill name (example) | Chain RPC method |
+|---|---|---|
+| `account_set_signer` | `set_signer` | `tos_setSigner` |
+| `code_put_ttl` | `code_put_ttl` | `tos_setCode` |
+| `kv_put_ttl` | `kv_put_ttl` | `tos_putKV` |
+
+Agent frameworks may use any skill names they choose. The names in the middle column are the canonical names used in GTOS documentation.
 
 ## Transaction Envelope
 
@@ -67,12 +83,14 @@ GTOS provides two native storage types, both with deterministic TTL lifecycle.
 
 Account and transaction signer algorithms:
 
-- `secp256k1`
-- `secp256r1`
-- `ed25519`
-- `bls12-381` (using `blst` / supranational backend; compressed G2 signatures, 96 bytes; compressed G1 pubkeys, 48 bytes)
+| Algorithm | Typical agent use |
+|---|---|
+| `secp256k1` | Default; EVM-compatible key infrastructure |
+| `secp256r1` | Hardware security modules, mobile secure enclaves |
+| `ed25519` | High-throughput agent identity and daily transaction signing |
+| `bls12-381` | Aggregated proof paths; `blst` backend; G2 sig (96 bytes), G1 pubkey (48 bytes) |
 
-DPoS consensus block sealing uses `secp256k1` header seal only.
+DPoS consensus block sealing uses `secp256k1` header seal only. No consensus-side BLS aggregation.
 
 ## State Model
 
@@ -80,7 +98,7 @@ DPoS consensus block sealing uses `secp256k1` header seal only.
 - `CodeStore`: code hash/object → payload + `created_block` + `expire_block`.
 - `KVStore`: `(account, namespace, key)` → value + `created_block` + `expire_block`.
 
-All state transitions are consensus-verified and auditable on-chain.
+All state transitions are consensus-verified and auditable on-chain. Any agent can verify what another agent wrote, when it was written, and that it has not been tampered with.
 
 ## History Retention Policy (No Archive Nodes)
 
@@ -99,22 +117,25 @@ Requests targeting block numbers outside the retention window return:
 Tradeoff:
 
 - Transactions outside the retention window are not queryable from normal nodes.
+- TTL-expired state (code/KV) is pruned independently of the block retention window.
 
 ## Differentiators vs. Other Storage Networks
 
 Compared with Filecoin / Arweave / Sia / Storj / Swarm, GTOS focuses on a different core profile:
 
 - **Data model**: chain-native state storage (`code` + `kv`) with deterministic TTL, not large-file object storage.
+- **Caller model**: AI agents as first-class actors with their own addresses, signing keys, and balances — not human users calling pre-deployed contracts.
 - **Lifecycle**: explicit block-based expiry and deterministic prune behavior, not permanent storage.
 - **Cost profile**: non-archive node operation with bounded history window, not full-history replication.
 - **Control plane**: signer-aware typed transaction path (`SignerTx`) and system-action based signer updates.
 - **Consensus boundary**: DPoS header seal (`secp256k1`); no consensus-side BLS aggregation requirement.
-- **Product fit**: state, config, policy, and AI intermediate outputs requiring deterministic on-chain lifecycle and verifiable state transitions.
+- **Product fit**: agent memory, coordination state, policy logic, and AI intermediate outputs requiring deterministic on-chain lifecycle and verifiable state transitions.
 
 ## Further Reading
 
-- `docs/RPC.md`: full JSON-RPC method list, schemas, and error codes.
+- `docs/RPC.md`: full JSON-RPC method list, schemas, error codes, and standard agent KV namespace conventions.
+- `docs/API.md`: concise API overview with method reference tables.
 - `docs/RETENTION_SNAPSHOT_SPEC.md`: versioned operational spec for retention window and snapshot policy (`v1.0.0`).
 - `docs/OBSERVABILITY_BASELINE.md`: metrics and structured log baseline for prune and retention signals.
 - `docs/PERFORMANCE_BASELINE.md`: TTL prune benchmark baselines.
-- `docs/ROADMAP.md`: phased delivery plan and acceptance criteria.
+- `docs/ROADMAP.md`: phased delivery plan including Phase 5 Agent Economy Layer.
