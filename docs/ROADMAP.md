@@ -207,13 +207,46 @@ Harden the chain for sustained production load.
 - `DONE` Restart/recovery drills succeed at latest finalized height (`core/restart_recovery_test.go::TestRestartRecoversLatestFinalizedAndResumesImport`).
 - `DONE` Retention window remains deterministic and bounded across nodes (`core/ttl_prune_boundedness_test.go::TestTTLPruneLongRunBoundedStorageAndDeterministicRoots` + `internal/tosapi/api_retention_crossnode_test.go::TestRetentionBoundaryDeterministicAcrossNodes`).
 
+## Phase 5: Agent Economy Layer
+
+Status: `PLANNED`
+
+### Goal
+
+Establish GTOS as the canonical shared memory and coordination substrate for multi-model AI agent networks. Provide standard namespace conventions, SDK primitives, and cross-model interoperability foundations that turn isolated agents into a coherent autonomous economy.
+
+### Context
+
+Phases 0-4 deliver the protocol substrate. Phase 5 turns that substrate into a first-class agent runtime: conventions agents can rely on, tooling that removes boilerplate, and interop patterns that let ChatGPT, Claude, Gemini, Codex, and custom agents coordinate without shared APIs.
+
+### Deliverables
+
+- `PLANNED` Standard KV namespace conventions: `agents/registry`, `tasks/open`, `tasks/done`, `policy/active`, `signals/market`, `audit/results`, `kb/{domain}` — documented schema, versioning rules, and TTL policies.
+- `PLANNED` Agent self-payment reference implementation: canonical flow for TOS-denominated task bounty, claim, and settlement between agent addresses.
+- `PLANNED` Agent-written micro-contract pattern: reference contract schema (scope, reward, acceptance criteria, deadline, penalty) stored via `code_put_ttl`; executor agent read/claim/settle flow.
+- `PLANNED` Trusted RAG evidence layer tooling: SDK helper for writing retrieval fingerprints (`doc_hash`, `chunk_hash`, `model_version`) to KV; query interface for downstream verification.
+- `PLANNED` Agent supply chain registry conventions: standard schema for model/tool provenance records (model hash, training data CID, evaluation report hash, security scan result).
+- `PLANNED` Portable agent reputation schema: standard fields (work history, peer rating, arbitration outcome, stake/unlock condition); query and update conventions.
+- `PLANNED` Self-managing agent directory: standard liveness-proof write pattern + reference index-node implementation that syncs from chain KV; TTL-based churn handling.
+- `PLANNED` Cross-model interop guide: JSON-RPC usage patterns for ChatGPT, Claude, Gemini, and Codex agents; authentication, signing, and namespace isolation conventions.
+- `PLANNED` Versioned policy hot-update pattern: standard namespace (`policy/active`), version key convention, executor agent subscription and switch flow.
+
+### Definition of Done
+
+- Standard namespace conventions documented and published.
+- At least one end-to-end multi-model agent demo (two distinct model providers coordinating via GTOS KV with autonomous TOS settlement).
+- Agent directory reference implementation available with TTL-based churn handling verified.
+- RAG evidence fingerprint write/query helper available and tested against at least one retrieval pipeline.
+
 ## Milestone Priorities
 
-1. Consensus safety and deterministic finality.
-2. Code/KV TTL pruning determinism (cross-node state-root checks).
-3. RPC surface convergence for storage-first profile (deprecate VM-era calls).
-4. DPoS long-run stability and recovery drills.
-5. Operability and production hardening.
+1. Consensus safety and deterministic finality. ✓
+2. Code/KV TTL pruning determinism (cross-node state-root checks). ✓
+3. RPC surface convergence (deprecate VM-era calls). ✓
+4. DPoS long-run stability and recovery drills. ✓
+5. Production hardening: observability, security baseline, retention determinism. ✓
+6. 24h DPoS soak automation: full-window evidence capture. ← current
+7. Agent economy layer: namespace conventions, SDK primitives, cross-model interop.
 
 ## Out of Scope
 
@@ -221,3 +254,4 @@ Harden the chain for sustained production load.
 - Contract runtime execution semantics.
 - Cross-chain bridge features.
 - Archive-node deployment requirements.
+- Consensus-side BLS vote aggregation.
