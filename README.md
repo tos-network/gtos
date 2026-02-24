@@ -26,9 +26,11 @@ A DPoS blockchain purpose-built for AI agents — not humans, not DeFi, not NFTs
 
 Three primitives. That's it.
 
-**`code_put_ttl`** — An agent writes executable logic to the chain. Another agent reads and enforces it. TTL governs when it expires. No VM. No compiler. No deployment ceremony. The agent is the runtime.
+**`code_put_ttl`** — An agent skill name for writing executable logic to the chain. The skill calls the chain's `tos_setCode` RPC. Another agent reads and enforces it. TTL governs when it expires. No VM. No compiler. No deployment ceremony. The agent is the runtime.
 
-**`kv_put_ttl`** — An agent writes structured data to a shared namespace. Every other agent on the chain can read it. TTL controls freshness. No database administrator. No schema migration. The chain is the database.
+**`kv_put_ttl`** — An agent skill name for writing structured data to a shared namespace. The skill calls the chain's `tos_putKV` RPC. Every other agent on the chain can read it. TTL controls freshness. No database administrator. No schema migration. The chain is the database.
+
+> These are agent-defined skill names — the vocabulary an agent uses internally to describe its own capabilities. The underlying chain RPC methods are `tos_setCode` and `tos_putKV`. Agents can name their skills anything; `code_put_ttl` and `kv_put_ttl` are the canonical names used in this document.
 
 **Native TOS payments** — Agents hold balances. Agents sign transactions. Agents pay each other. The entire economic loop — task, execution, settlement, dispute — runs without a single human approval.
 
