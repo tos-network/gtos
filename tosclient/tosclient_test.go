@@ -32,7 +32,6 @@ var (
 	_ = gtos.ChainSyncReader(&Client{})
 	_ = gtos.ContractCaller(&Client{})
 	_ = gtos.GasEstimator(&Client{})
-	_ = gtos.GasPricer(&Client{})
 	_ = gtos.LogFilterer(&Client{})
 	_ = gtos.PendingStateReader(&Client{})
 	// _ = gtos.PendingStateEventer(&Client{})
@@ -486,21 +485,12 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 		t.Fatalf("unexpected networkID: %v", networkID)
 	}
 
-	// SuggestGasPrice
-	gasPrice, err := ec.SuggestGasPrice(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gasPrice.Cmp(params.GTOSPrice()) != 0 {
-		t.Fatalf("unexpected gas price: %v", gasPrice)
-	}
-
 	// SuggestGasTipCap
 	gasTipCap, err := ec.SuggestGasTipCap(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gasTipCap.Cmp(gasPrice) != 0 {
+	if gasTipCap.Cmp(params.GTOSPrice()) != 0 {
 		t.Fatalf("unexpected gas tip cap: %v", gasTipCap)
 	}
 

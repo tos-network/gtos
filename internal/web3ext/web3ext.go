@@ -732,12 +732,6 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
-			name: 'setGasPrice',
-			call: 'miner_setGasPrice',
-			params: 1,
-			inputFormatter: [web3._extend.utils.fromDecimal]
-		}),
-		new web3._extend.Method({
 			name: 'setGasLimit',
 			call: 'miner_setGasLimit',
 			params: 1,

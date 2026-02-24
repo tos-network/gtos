@@ -240,7 +240,7 @@ func prepare(ctx *cli.Context) {
      tos.coinbase, which can be used for testing. The random dev account is temporary,
      stored on a ramdisk, and will be lost if your machine is restarted.
   4. Mining is enabled by default. However, the client will only seal blocks if transactions
-     are pending in the mempool. The miner's accepted gas price is fixed to 0.043 gwei.
+     are pending in the mempool. The miner's accepted tx price is fixed to 0.043 gwei.
   5. Networking is disabled; there is no listen-address, the maximum number of peers is set
      to 0, and discovery is disabled.
 `)
@@ -364,7 +364,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 			utils.Fatalf("TOS service not running")
 		}
 		// Gas price is protocol-fixed in GTOS.
-		tosBackend.TxPool().SetGasPrice(params.GTOSPrice())
+		tosBackend.TxPool().SetTxPrice(params.GTOSPrice())
 		// start mining
 		threads := ctx.Int(utils.MinerThreadsFlag.Name)
 		if err := tosBackend.StartMining(threads); err != nil {

@@ -19,7 +19,6 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/log"
-	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/trie"
@@ -89,17 +88,6 @@ func (api *MinerAPI) SetExtra(extra string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-// SetGasPrice keeps the miner gas price pinned to the protocol-fixed value.
-func (api *MinerAPI) SetGasPrice(_ hexutil.Big) bool {
-	fixed := params.GTOSPrice()
-	api.e.lock.Lock()
-	api.e.gasPrice = fixed
-	api.e.lock.Unlock()
-
-	api.e.txPool.SetGasPrice(fixed)
-	return true
 }
 
 // SetGasLimit sets the gaslimit to target towards during mining.

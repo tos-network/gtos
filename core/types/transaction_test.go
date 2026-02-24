@@ -41,13 +41,13 @@ var (
 	})
 
 	emptyTypedTx = NewTx(&SignerTx{
-		ChainID:  big.NewInt(1),
-		Nonce:    3,
-		To:       &testAddr,
-		Value:    big.NewInt(10),
-		Gas:      25000,
-		Data:     common.FromHex("5544"),
-		From:     testFrom,
+		ChainID: big.NewInt(1),
+		Nonce:   3,
+		To:      &testAddr,
+		Value:   big.NewInt(10),
+		Gas:     25000,
+		Data:    common.FromHex("5544"),
+		From:    testFrom,
 		// keep default signer type explicit to make signer hash deterministic
 		SignerType: "secp256k1",
 	})
@@ -207,22 +207,22 @@ func testTransactionPriceNonceSort(t *testing.T, baseFee *big.Int) {
 	for start, key := range keys {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
 		count := 25
-			for i := 0; i < 25; i++ {
-				gasFeeCap := rand.Intn(50)
-				tx := NewTx(&SignerTx{
-					ChainID:    common.Big1,
-					Nonce:      uint64(start + i),
-					To:         &common.Address{},
-					Value:      big.NewInt(100),
-					Gas:        100,
-					Data:       nil,
-					From:       common.Address{},
-					SignerType: "secp256k1",
-				})
-				if baseFee != nil && count == 25 && int64(gasFeeCap) < baseFee.Int64() {
-					count = i
-				}
-				tx, err := SignTx(tx, signer, key)
+		for i := 0; i < 25; i++ {
+			gasFeeCap := rand.Intn(50)
+			tx := NewTx(&SignerTx{
+				ChainID:    common.Big1,
+				Nonce:      uint64(start + i),
+				To:         &common.Address{},
+				Value:      big.NewInt(100),
+				Gas:        100,
+				Data:       nil,
+				From:       common.Address{},
+				SignerType: "secp256k1",
+			})
+			if baseFee != nil && count == 25 && int64(gasFeeCap) < baseFee.Int64() {
+				count = i
+			}
+			tx, err := SignTx(tx, signer, key)
 			if err != nil {
 				t.Fatalf("failed to sign tx: %s", err)
 			}
@@ -261,7 +261,7 @@ func testTransactionPriceNonceSort(t *testing.T, baseFee *big.Int) {
 				t.Errorf("error calculating effective tip")
 			}
 			if fromi != fromNext && tip.Cmp(nextTip) < 0 {
-				t.Errorf("invalid gasprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.GasPrice(), i+1, fromNext[:4], next.GasPrice())
+				t.Errorf("invalid txprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.TxPrice(), i+1, fromNext[:4], next.TxPrice())
 			}
 		}
 	}
@@ -304,11 +304,11 @@ func TestTransactionTimeSort(t *testing.T) {
 			next := txs[i+1]
 			fromNext, _ := Sender(signer, next)
 
-			if txi.GasPrice().Cmp(next.GasPrice()) < 0 {
-				t.Errorf("invalid gasprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.GasPrice(), i+1, fromNext[:4], next.GasPrice())
+			if txi.TxPrice().Cmp(next.TxPrice()) < 0 {
+				t.Errorf("invalid txprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.TxPrice(), i+1, fromNext[:4], next.TxPrice())
 			}
-			// Make sure time order is ascending if the txs have the same gas price
-			if txi.GasPrice().Cmp(next.GasPrice()) == 0 && txi.time.After(next.time) {
+			// Make sure time order is ascending if the txs have the same tx price
+			if txi.TxPrice().Cmp(next.TxPrice()) == 0 && txi.time.After(next.time) {
 				t.Errorf("invalid received time ordering: tx #%d (A=%x T=%v) > tx #%d (A=%x T=%v)", i, fromi[:4], txi.time, i+1, fromNext[:4], next.time)
 			}
 		}

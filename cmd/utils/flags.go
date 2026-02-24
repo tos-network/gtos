@@ -288,7 +288,7 @@ var (
 	}
 	TxPoolPriceLimitFlag = &cli.Uint64Flag{
 		Name:     "txpool.pricelimit",
-		Usage:    "Minimum gas price limit to enforce for acceptance into the pool",
+		Usage:    "Minimum tx price limit to enforce for acceptance into the pool",
 		Value:    tosconfig.Defaults.TxPool.PriceLimit,
 		Category: flags.TxPoolCategory,
 	}

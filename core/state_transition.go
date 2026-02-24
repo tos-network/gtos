@@ -23,7 +23,7 @@ type StateTransition struct {
 	gp          *GasPool
 	msg         Message
 	gas         uint64
-	gasPrice    *big.Int
+	txPrice     *big.Int
 	gasFeeCap   *big.Int
 	gasTipCap   *big.Int
 	initialGas  uint64
@@ -39,7 +39,7 @@ type Message interface {
 	From() common.Address
 	To() *common.Address
 
-	GasPrice() *big.Int
+	TxPrice() *big.Int
 	GasFeeCap() *big.Int
 	GasTipCap() *big.Int
 	Gas() uint64
@@ -130,7 +130,7 @@ func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfi
 	return &StateTransition{
 		gp:          gp,
 		msg:         msg,
-		gasPrice:    msg.GasPrice(),
+		txPrice:     msg.TxPrice(),
 		gasFeeCap:   msg.GasFeeCap(),
 		gasTipCap:   msg.GasTipCap(),
 		value:       msg.Value(),
@@ -157,7 +157,7 @@ func (st *StateTransition) to() common.Address {
 
 func (st *StateTransition) buyGas() error {
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
-	mgval = mgval.Mul(mgval, st.gasPrice)
+	mgval = mgval.Mul(mgval, st.txPrice)
 	balanceCheck := mgval
 	if st.gasFeeCap != nil {
 		balanceCheck = new(big.Int).SetUint64(st.msg.Gas())
@@ -276,8 +276,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Refund gas
 	st.refundGas(params.RefundQuotient)
 
-	// Pay miner fee by fixed gasPrice
-	effectiveTip := st.gasPrice
+	// Pay miner fee by fixed txPrice
+	effectiveTip := st.txPrice
 	fee := new(big.Int).SetUint64(st.gasUsed())
 	fee.Mul(fee, effectiveTip)
 	st.state.AddBalance(st.blockCtx.Coinbase, fee)
@@ -365,7 +365,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	}
 	st.gas += refund
 
-	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.gasPrice)
+	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.txPrice)
 	st.state.AddBalance(st.msg.From(), remaining)
 
 	st.gp.AddGas(st.gas)

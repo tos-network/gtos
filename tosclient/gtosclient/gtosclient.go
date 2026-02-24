@@ -188,9 +188,6 @@ func toCallArg(msg gtos.CallMsg) interface{} {
 	if msg.Gas != 0 {
 		arg["gas"] = hexutil.Uint64(msg.Gas)
 	}
-	if msg.GasPrice != nil {
-		arg["gasPrice"] = (*hexutil.Big)(msg.GasPrice)
-	}
 	return arg
 }
 

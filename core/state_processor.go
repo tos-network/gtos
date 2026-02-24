@@ -148,11 +148,11 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 }
 
 func txAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, baseFee *big.Int, statedb *state.StateDB) (types.Message, error) {
-	gasPrice := new(big.Int).Set(tx.GasPrice())
+	txPrice := new(big.Int).Set(tx.TxPrice())
 	gasFeeCap := new(big.Int).Set(tx.GasFeeCap())
 	gasTipCap := new(big.Int).Set(tx.GasTipCap())
 	if baseFee != nil {
-		gasPrice = cmath.BigMin(new(big.Int).Add(gasTipCap, baseFee), gasFeeCap)
+		txPrice = cmath.BigMin(new(big.Int).Add(gasTipCap, baseFee), gasFeeCap)
 	}
 	from, err := ResolveSender(tx, signer, statedb)
 	if err != nil {
@@ -164,7 +164,7 @@ func txAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, ba
 		tx.Nonce(),
 		tx.Value(),
 		tx.Gas(),
-		gasPrice,
+		txPrice,
 		gasFeeCap,
 		gasTipCap,
 		tx.Data(),

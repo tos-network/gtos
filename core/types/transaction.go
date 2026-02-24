@@ -58,7 +58,7 @@ type TxData interface {
 	accessList() AccessList
 	data() []byte
 	gas() uint64
-	gasPrice() *big.Int
+	txPrice() *big.Int
 	gasTipCap() *big.Int
 	gasFeeCap() *big.Int
 	value() *big.Int
@@ -246,8 +246,8 @@ func (tx *Transaction) AccessList() AccessList { return tx.inner.accessList() }
 // Gas returns the gas limit of the transaction.
 func (tx *Transaction) Gas() uint64 { return tx.inner.gas() }
 
-// GasPrice returns the gas price of the transaction.
-func (tx *Transaction) GasPrice() *big.Int { return new(big.Int).Set(tx.inner.gasPrice()) }
+// TxPrice returns the tx price of the transaction.
+func (tx *Transaction) TxPrice() *big.Int { return new(big.Int).Set(tx.inner.txPrice()) }
 
 // GasTipCap returns the gasTipCap per gas of the transaction.
 func (tx *Transaction) GasTipCap() *big.Int { return new(big.Int).Set(tx.inner.gasTipCap()) }
@@ -267,9 +267,9 @@ func (tx *Transaction) To() *common.Address {
 	return copyAddressPtr(tx.inner.to())
 }
 
-// Cost returns gas * gasPrice + value.
+// Cost returns gas * txPrice + value.
 func (tx *Transaction) Cost() *big.Int {
-	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
+	total := new(big.Int).Mul(tx.TxPrice(), new(big.Int).SetUint64(tx.Gas()))
 	total.Add(total, tx.Value())
 	return total
 }
@@ -434,7 +434,7 @@ func (s TxByNonce) Len() int           { return len(s) }
 func (s TxByNonce) Less(i, j int) bool { return s[i].Nonce() < s[j].Nonce() }
 func (s TxByNonce) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
-// TxWithMinerFee wraps a transaction with its gas price or effective miner gasTipCap
+// TxWithMinerFee wraps a transaction with its tx price or effective miner gasTipCap
 type TxWithMinerFee struct {
 	tx       *Transaction
 	minerFee *big.Int
@@ -559,7 +559,7 @@ type Message struct {
 	nonce      uint64
 	amount     *big.Int
 	gasLimit   uint64
-	gasPrice   *big.Int
+	txPrice    *big.Int
 	gasFeeCap  *big.Int
 	gasTipCap  *big.Int
 	data       []byte
@@ -567,14 +567,14 @@ type Message struct {
 	isFake     bool
 }
 
-func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, gasPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
+func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, txPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
 	return Message{
 		from:       from,
 		to:         to,
 		nonce:      nonce,
 		amount:     amount,
 		gasLimit:   gasLimit,
-		gasPrice:   gasPrice,
+		txPrice:    txPrice,
 		gasFeeCap:  gasFeeCap,
 		gasTipCap:  gasTipCap,
 		data:       data,
@@ -588,7 +588,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
 		nonce:      tx.Nonce(),
 		gasLimit:   tx.Gas(),
-		gasPrice:   new(big.Int).Set(tx.GasPrice()),
+		txPrice:    new(big.Int).Set(tx.TxPrice()),
 		gasFeeCap:  new(big.Int).Set(tx.GasFeeCap()),
 		gasTipCap:  new(big.Int).Set(tx.GasTipCap()),
 		to:         tx.To(),
@@ -597,9 +597,9 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		accessList: tx.AccessList(),
 		isFake:     false,
 	}
-	// If baseFee provided, set gasPrice to effectiveGasPrice.
+	// If baseFee provided, set txPrice to effectiveTxPrice.
 	if baseFee != nil {
-		msg.gasPrice = math.BigMin(msg.gasPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
+		msg.txPrice = math.BigMin(msg.txPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
 	var err error
 	msg.from, err = Sender(s, tx)
@@ -608,7 +608,7 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 
 func (m Message) From() common.Address   { return m.from }
 func (m Message) To() *common.Address    { return m.to }
-func (m Message) GasPrice() *big.Int     { return m.gasPrice }
+func (m Message) TxPrice() *big.Int      { return m.txPrice }
 func (m Message) GasFeeCap() *big.Int    { return m.gasFeeCap }
 func (m Message) GasTipCap() *big.Int    { return m.gasTipCap }
 func (m Message) Value() *big.Int        { return m.amount }

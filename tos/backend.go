@@ -4,7 +4,6 @@ package tos
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"runtime"
 	"strings"
 	"sync"
@@ -71,7 +70,6 @@ type TOS struct {
 	APIBackend *TOSAPIBackend
 
 	miner    *miner.Miner
-	gasPrice *big.Int
 	coinbase common.Address
 
 	networkID     uint64
@@ -79,7 +77,7 @@ type TOS struct {
 
 	p2pServer *p2p.Server
 
-	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and coinbase)
+	lock sync.RWMutex // Protects variadic fields (e.g. coinbase)
 
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
 }
@@ -93,11 +91,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	}
 	if !config.SyncMode.IsValid() {
 		return nil, fmt.Errorf("invalid sync mode %d", config.SyncMode)
-	}
-	fixedGasPrice := params.GTOSPrice()
-	if config.Miner.GasPrice == nil || config.Miner.GasPrice.Cmp(fixedGasPrice) != 0 {
-		log.Info("Forcing fixed miner gas price", "provided", config.Miner.GasPrice, "fixed", fixedGasPrice)
-		config.Miner.GasPrice = fixedGasPrice
 	}
 	if config.Miner.Coinbase == (common.Address{}) && config.Miner.Tosbase != (common.Address{}) {
 		config.Miner.Coinbase = config.Miner.Tosbase
@@ -148,7 +141,6 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		}(),
 		closeBloomHandler: make(chan struct{}),
 		networkID:         config.NetworkId,
-		gasPrice:          params.GTOSPrice(),
 		coinbase:          config.Miner.Coinbase,
 		bloomRequests:     make(chan chan *bloombits.Retrieval),
 		bloomIndexer:      core.NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
@@ -418,10 +410,7 @@ func (s *TOS) StartMining(threads int) error {
 	// If the miner was not running, initialize it
 	if !s.IsMining() {
 		// Propagate the initial price point to the transaction pool
-		s.lock.RLock()
-		price := s.gasPrice
-		s.lock.RUnlock()
-		s.txPool.SetGasPrice(price)
+		s.txPool.SetTxPrice(params.GTOSPrice())
 
 		// Configure the local mining address
 		eb, err := s.Coinbase()

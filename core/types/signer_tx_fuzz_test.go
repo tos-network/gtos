@@ -53,8 +53,8 @@ func FuzzDecodeSignerTxSignatureNoPanic(f *testing.F) {
 }
 
 func FuzzTransactionUnmarshalJSONSignerTx(f *testing.F) {
-	f.Add([]byte(`{"type":"0x0","chainId":"0x2a","nonce":"0x0","gasPrice":"0x1","gas":"0x5208","to":"0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a","value":"0x0","input":"0x","from":"0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508","signerType":"secp256k1","v":"0x0","r":"0x0","s":"0x0"}`))
-	f.Add([]byte(`{"type":"0x0","chainId":"0x2a","nonce":"0x1","gasPrice":"0x1","gas":"0x5208","to":"0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a","value":"0x0","input":"0x","from":"0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508","signerType":"bls12-381","v":"0x0","r":"0x1","s":"0x1"}`))
+	f.Add([]byte(`{"type":"0x0","chainId":"0x2a","nonce":"0x0","gas":"0x5208","to":"0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a","value":"0x0","input":"0x","from":"0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508","signerType":"secp256k1","v":"0x0","r":"0x0","s":"0x0"}`))
+	f.Add([]byte(`{"type":"0x0","chainId":"0x2a","nonce":"0x1","gas":"0x5208","to":"0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a","value":"0x0","input":"0x","from":"0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508","signerType":"bls12-381","v":"0x0","r":"0x1","s":"0x1"}`))
 
 	f.Fuzz(func(t *testing.T, input []byte) {
 		if len(input) > 4096 {

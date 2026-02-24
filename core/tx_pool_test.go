@@ -66,18 +66,18 @@ func transaction(nonce uint64, gaslimit uint64, key *ecdsa.PrivateKey) *types.Tr
 	return pricedTransaction(nonce, gaslimit, big.NewInt(1), key)
 }
 
-func pricedTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
+func pricedTransaction(nonce uint64, gaslimit uint64, txprice *big.Int, key *ecdsa.PrivateKey) *types.Transaction {
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
-	tx, _ := signTestSignerTx(signer, key, nonce, common.Address{}, big.NewInt(100), gaslimit, gasprice, nil)
+	tx, _ := signTestSignerTx(signer, key, nonce, common.Address{}, big.NewInt(100), gaslimit, txprice, nil)
 	return tx
 }
 
-func pricedDataTransaction(nonce uint64, gaslimit uint64, gasprice *big.Int, key *ecdsa.PrivateKey, bytes uint64) *types.Transaction {
+func pricedDataTransaction(nonce uint64, gaslimit uint64, txprice *big.Int, key *ecdsa.PrivateKey, bytes uint64) *types.Transaction {
 	data := make([]byte, bytes)
 	rand.Read(data)
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
-	tx, _ := signTestSignerTx(signer, key, nonce, common.Address{}, big.NewInt(0), gaslimit, gasprice, data)
+	tx, _ := signTestSignerTx(signer, key, nonce, common.Address{}, big.NewInt(0), gaslimit, txprice, data)
 	return tx
 }
 
@@ -238,7 +238,7 @@ func TestStateChangeDuringTransactionPoolReset(t *testing.T) {
 
 func testAddBalance(pool *TxPool, addr common.Address, amount *big.Int) {
 	scaled := new(big.Int).Set(amount)
-	// Many historical txpool tests were authored with unit gas price assumptions.
+	// Many historical txpool tests were authored with unit tx price assumptions.
 	// Scale small literals to keep those scenarios valid under fixed GTOSPrice.
 	if abs := new(big.Int).Abs(scaled); abs.Cmp(big.NewInt(1_000_000_000)) < 0 {
 		scaled = scaled.Mul(scaled, params.GTOSPrice())
@@ -268,7 +268,7 @@ func TestInvalidTransactions(t *testing.T) {
 		t.Error("expected", ErrInsufficientFunds)
 	}
 
-	balance := new(big.Int).Add(tx.Value(), new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), tx.GasPrice()))
+	balance := new(big.Int).Add(tx.Value(), new(big.Int).Mul(new(big.Int).SetUint64(tx.Gas()), tx.TxPrice()))
 	testAddBalance(pool, from, balance)
 	if err := pool.AddRemote(tx); !errors.Is(err, ErrIntrinsicGas) {
 		t.Error("expected", ErrIntrinsicGas, "got", err)
@@ -282,7 +282,7 @@ func TestInvalidTransactions(t *testing.T) {
 	}
 
 	tx = transaction(1, 100000, key)
-	pool.gasPrice = new(big.Int).Add(params.GTOSPrice(), big.NewInt(1))
+	pool.txPrice = new(big.Int).Add(params.GTOSPrice(), big.NewInt(1))
 	if err := pool.AddRemote(tx); err != ErrUnderpriced {
 		t.Error("expected", ErrUnderpriced, "got", err)
 	}
@@ -1188,7 +1188,7 @@ func TestTransactionAllowedTxSize(t *testing.T) {
 	//
 	// It is assumed the fields in the transaction (except of the data) are:
 	//   - nonce     <= 32 bytes
-	//   - gasPrice  <= 32 bytes
+	//   - txPrice  <= 32 bytes
 	//   - gasLimit  <= 32 bytes
 	//   - recipient == 20 bytes
 	//   - value     <= 32 bytes
@@ -1305,7 +1305,7 @@ func TestTransactionPendingMinimumAllowance(t *testing.T) {
 	}
 }
 
-// Tests that setting the transaction pool gas price to a higher value correctly
+// Tests that setting the transaction pool tx price to a higher value correctly
 // discards everything cheaper than that and moves any gapped transactions back
 // from the pending pool to the queue.
 //
@@ -1367,7 +1367,7 @@ func TestTransactionPoolRepricing(t *testing.T) {
 		t.Fatalf("pool internal state corrupted: %v", err)
 	}
 	// Reprice the pool and check that underpriced transactions get dropped
-	pool.SetGasPrice(big.NewInt(2))
+	pool.SetTxPrice(big.NewInt(2))
 
 	pending, queued = pool.Stats()
 	if pending != 2 {
@@ -1430,7 +1430,7 @@ func TestTransactionPoolRepricing(t *testing.T) {
 	}
 }
 
-// Tests that setting the transaction pool gas price to a higher value correctly
+// Tests that setting the transaction pool tx price to a higher value correctly
 // discards everything cheaper (legacy & dynamic fee) than that and moves any
 // gapped transactions back from the pending pool to the queue.
 //
@@ -1489,7 +1489,7 @@ func TestTransactionPoolRepricingDynamicFee(t *testing.T) {
 		t.Fatalf("pool internal state corrupted: %v", err)
 	}
 	// Reprice the pool and check that underpriced transactions get dropped
-	pool.SetGasPrice(big.NewInt(2))
+	pool.SetTxPrice(big.NewInt(2))
 
 	pending, queued = pool.Stats()
 	if pending != 2 {
@@ -1558,7 +1558,7 @@ func TestTransactionPoolRepricingDynamicFee(t *testing.T) {
 	}
 }
 
-// Tests that setting the transaction pool gas price to a higher value does not
+// Tests that setting the transaction pool tx price to a higher value does not
 // remove local transactions (legacy & dynamic fee).
 func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 	t.Parallel()
@@ -1577,7 +1577,7 @@ func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 		keys[i], _ = crypto.GenerateKey()
 		testAddBalance(pool, crypto.PubkeyToAddress(keys[i].PublicKey), big.NewInt(1000*1000000))
 	}
-	// Create transaction (both pending and queued) with a linearly growing gasprice
+	// Create transaction (both pending and queued) with a linearly growing txprice
 	for i := uint64(0); i < 500; i++ {
 		// Add pending transaction.
 		pendingTx := pricedTransaction(i, 100000, big.NewInt(int64(i)), keys[2])
@@ -1619,13 +1619,13 @@ func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 	validate()
 
 	// Reprice the pool and check that nothing is dropped
-	pool.SetGasPrice(big.NewInt(2))
+	pool.SetTxPrice(big.NewInt(2))
 	validate()
 
-	pool.SetGasPrice(big.NewInt(2))
-	pool.SetGasPrice(big.NewInt(4))
-	pool.SetGasPrice(big.NewInt(8))
-	pool.SetGasPrice(big.NewInt(100))
+	pool.SetTxPrice(big.NewInt(2))
+	pool.SetTxPrice(big.NewInt(4))
+	pool.SetTxPrice(big.NewInt(8))
+	pool.SetTxPrice(big.NewInt(100))
 	validate()
 }
 
@@ -2488,7 +2488,7 @@ func BenchmarkInsertRemoteWithAllLocals(b *testing.B) {
 	}
 	remotes := make([]*types.Transaction, 1000)
 	for i := 0; i < len(remotes); i++ {
-		remotes[i] = pricedTransaction(uint64(i), 100000, big.NewInt(2), remoteKey) // Higher gasprice
+		remotes[i] = pricedTransaction(uint64(i), 100000, big.NewInt(2), remoteKey) // Higher txprice
 	}
 	// Benchmark importing the transactions into the queue
 	b.ResetTimer()

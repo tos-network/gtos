@@ -43,8 +43,8 @@ type BlockContext struct {
 
 // TxContext provides information about a transaction.
 type TxContext struct {
-	Origin   common.Address
-	GasPrice *big.Int
+	Origin  common.Address
+	TxPrice *big.Int
 }
 
 // CanTransferFunc is the signature of a transfer guard function.

@@ -42,13 +42,13 @@ func TestStateProcessorErrors(t *testing.T) {
 		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
 		addr2   = crypto.PubkeyToAddress(key2.PublicKey)
 	)
-	var makeTx = func(key *ecdsa.PrivateKey, nonce uint64, to common.Address, amount *big.Int, gasLimit uint64, gasPrice *big.Int, data []byte) *types.Transaction {
-		tx, _ := signTestSignerTx(signer, key, nonce, to, amount, gasLimit, gasPrice, data)
+	var makeTx = func(key *ecdsa.PrivateKey, nonce uint64, to common.Address, amount *big.Int, gasLimit uint64, txPrice *big.Int, data []byte) *types.Transaction {
+		tx, _ := signTestSignerTx(signer, key, nonce, to, amount, gasLimit, txPrice, data)
 		return tx
 	}
-	var mkUnsupportedSignerTypeTx = func(nonce uint64, to common.Address, gasLimit uint64, gasPrice *big.Int) *types.Transaction {
-		if gasPrice == nil {
-			gasPrice = big.NewInt(1)
+	var mkUnsupportedSignerTypeTx = func(nonce uint64, to common.Address, gasLimit uint64, txPrice *big.Int) *types.Transaction {
+		if txPrice == nil {
+			txPrice = big.NewInt(1)
 		}
 		return types.NewTx(&types.SignerTx{
 			ChainID:    signer.ChainID(),

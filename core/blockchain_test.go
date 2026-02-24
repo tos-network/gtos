@@ -2655,7 +2655,7 @@ func TestSideImportPrunedBlocks(t *testing.T) {
 // 4. The transaction sender pays for both the tip and baseFee.
 // 5. The coinbase receives only the partially realized tip when
 //    gasFeeCap - gasTipCap < baseFee.
-// 6. Legacy transaction behave as expected (e.g. gasPrice = gasFeeCap = gasTipCap).
+// 6. Legacy transaction behave as expected (e.g. txPrice = gasFeeCap = gasTipCap).
 
 // Tests the scenario the chain is requested to another point with the missing state.
 // It expects the state is recovered and all relevant chain markers are set correctly.

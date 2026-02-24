@@ -17,14 +17,14 @@ func signTestSignerTx(
 	to common.Address,
 	amount *big.Int,
 	gasLimit uint64,
-	gasPrice *big.Int,
+	txPrice *big.Int,
 	data []byte,
 ) (*types.Transaction, error) {
 	if amount == nil {
 		amount = new(big.Int)
 	}
-	if gasPrice == nil {
-		gasPrice = new(big.Int)
+	if txPrice == nil {
+		txPrice = new(big.Int)
 	}
 	from := crypto.PubkeyToAddress(key.PublicKey)
 	tx := types.NewTx(&types.SignerTx{

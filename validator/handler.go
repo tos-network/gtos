@@ -42,7 +42,7 @@ func (h *validatorHandler) handleRegister(ctx *sysaction.Context, _ *sysaction.S
 
 	// 2. R2-C5: explicit sender balance check.
 	//    For dynamic-fee txs, buyGas() already includes tx.Value in its balance check.
-	//    For legacy txs (no gasFeeCap), buyGas() only checks gas*gasPrice — the value
+	//    For legacy txs (no gasFeeCap), buyGas() only checks gas*txPrice — the value
 	//    is NOT checked, so SubBalance below could make the balance negative without
 	//    this guard.
 	if ctx.StateDB.GetBalance(ctx.From).Cmp(ctx.Value) < 0 {

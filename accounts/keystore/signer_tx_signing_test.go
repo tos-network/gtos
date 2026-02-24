@@ -19,7 +19,6 @@ func newSignerTxForWallet(from common.Address, signerType string) *types.Transac
 		To:         &to,
 		Value:      big.NewInt(1),
 		Gas:        21000,
-		GasPrice:   big.NewInt(1),
 		From:       from,
 		SignerType: signerType,
 	})

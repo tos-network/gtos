@@ -361,7 +361,6 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 			To:         &to,
 			Value:      new(big.Int).Set(stake),
 			Gas:        500_000,
-			GasPrice:   big.NewInt(1),
 			Data:       registerPayload,
 			From:       from,
 			SignerType: "secp256k1",

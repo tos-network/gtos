@@ -618,7 +618,6 @@ func makeTestBlocks(nblock int, txsPerBlock int) []*types.Block {
 		txs[i], err = types.SignNewTx(key, signer, &types.SignerTx{
 			ChainID:    signer.ChainID(),
 			Nonce:      2,
-			GasPrice:   big.NewInt(30000),
 			Gas:        0x45454545,
 			To:         &to,
 			Value:      new(big.Int),

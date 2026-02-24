@@ -66,7 +66,6 @@ func init() {
 		To:         &testUserAddress,
 		Value:      big.NewInt(1000),
 		Gas:        params.TxGas,
-		GasPrice:   big.NewInt(params.InitialBaseFee),
 		From:       testBankAddress,
 		SignerType: "secp256k1",
 	})
@@ -78,7 +77,6 @@ func init() {
 		To:         &testUserAddress,
 		Value:      big.NewInt(1000),
 		Gas:        params.TxGas,
-		GasPrice:   big.NewInt(params.InitialBaseFee),
 		From:       testBankAddress,
 		SignerType: "secp256k1",
 	})
@@ -155,7 +153,6 @@ func (b *testWorkerBackend) newRandomUncle() *types.Block {
 }
 
 func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
-	gasPrice := big.NewInt(10 * params.InitialBaseFee)
 	signer := types.LatestSigner(dposChainConfig)
 	to := testUserAddress
 	gasLimit := uint64(params.TxGas)
@@ -170,7 +167,6 @@ func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
 		To:         &to,
 		Value:      big.NewInt(1000),
 		Gas:        gasLimit,
-		GasPrice:   gasPrice,
 		Data:       data,
 		From:       testBankAddress,
 		SignerType: "secp256k1",
