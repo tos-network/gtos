@@ -7,12 +7,17 @@
 // The Extra field format mirrors Clique:
 //
 //	Genesis (block 0):   [32B vanity][N×AddressLength addrs]             (no seal)
-//	Normal block:        [32B vanity][65B seal]
-//	Epoch block (N>0):   [32B vanity][N×AddressLength addrs][65B seal]
+//	Normal block:        [32B vanity][seal]
+//	Epoch block (N>0):   [32B vanity][N×AddressLength addrs][seal]
+//
+// Seal encoding depends on dpos.sealSignerType:
+//   - secp256k1: [65B secp256k1 signature]
+//   - ed25519:   [32B pubkey || 64B signature]
 package dpos
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -51,6 +56,7 @@ var (
 	errWrongDifficulty             = errors.New("dpos: wrong difficulty for turn")
 	errMissingVanity               = errors.New("dpos: extra missing vanity")
 	errMissingSignature            = errors.New("dpos: extra missing seal")
+	errInvalidSignature            = errors.New("dpos: invalid seal signature")
 	errExtraValidators             = errors.New("dpos: non-epoch block has validator list")
 	errInvalidCheckpointValidators = errors.New("dpos: invalid checkpoint validator list")
 	errInvalidTimestamp            = errors.New("dpos: invalid timestamp")
@@ -65,7 +71,9 @@ var (
 
 const (
 	extraVanity            = 32   // bytes of vanity prefix in Extra
-	extraSeal              = 65   // bytes of secp256k1 seal in Extra (crypto.SignatureLength)
+	extraSeal              = 65   // legacy/test helper: secp256k1 seal length
+	extraSealSecp256k1     = 65   // bytes of secp256k1 seal in Extra (crypto.SignatureLength)
+	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
 	wiggleTime             = 500 * time.Millisecond
@@ -81,6 +89,7 @@ type DPoS struct {
 	db         tosdb.Database // nil in NewFaker()
 	recents    *lru.ARCCache  // hash → *Snapshot (inmemorySnapshots entries)
 	signatures *lru.ARCCache  // hash → common.Address (inmemorySignatures entries)
+	sealLength int
 
 	validator common.Address
 	signFn    SignerFn
@@ -93,6 +102,9 @@ type DPoS struct {
 
 // New creates a DPoS engine. Returns error if config values are invalid (R2-C4).
 func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
+	if config == nil {
+		return nil, errors.New("dpos: missing config")
+	}
 	if config.Epoch == 0 {
 		return nil, errors.New("dpos: epoch must be > 0")
 	}
@@ -102,15 +114,31 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if config.MaxValidators == 0 {
 		return nil, errors.New("dpos: maxValidators must be > 0")
 	}
+	sealSignerType, err := params.NormalizeDPoSSealSignerType(config.SealSignerType)
+	if err != nil {
+		return nil, err
+	}
+	config.SealSignerType = sealSignerType
 	recents, _ := lru.NewARC(inmemorySnapshots)
 	signatures, _ := lru.NewARC(inmemorySignatures)
-	return &DPoS{config: config, db: db, recents: recents, signatures: signatures}, nil
+	return &DPoS{
+		config:     config,
+		db:         db,
+		recents:    recents,
+		signatures: signatures,
+		sealLength: sealLengthForSignerType(config.SealSignerType),
+	}, nil
 }
 
 // NewFaker returns a DPoS engine suitable for unit tests. It skips difficulty
 // checks and uses nil db (no disk persistence). Panics on invalid config.
 func NewFaker() *DPoS {
-	d, err := New(&params.DPoSConfig{Epoch: 200, MaxValidators: 21, Period: 3}, nil)
+	d, err := New(&params.DPoSConfig{
+		Epoch:          200,
+		MaxValidators:  21,
+		Period:         3,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -167,50 +195,99 @@ func (d *DPoS) Author(header *types.Header) (common.Address, error) {
 	if d.fakeDiff {
 		return header.Coinbase, nil
 	}
-	return ecrecover(header, d.signatures)
+	return recoverHeaderSigner(d.config, header, d.signatures)
 }
 
 // SealHash implements consensus.Engine (method form).
-func (d *DPoS) SealHash(header *types.Header) common.Hash { return SealHash(header) }
+func (d *DPoS) SealHash(header *types.Header) common.Hash {
+	return sealHashWithSealLength(header, d.sealLength)
+}
 
 // SealHash (package function) returns the hash of a block prior to sealing.
-// Covers the entire header RLP except the last extraSeal bytes of Extra.
+// This package-level helper uses legacy secp256k1 seal length for compatibility.
 func SealHash(header *types.Header) (hash common.Hash) {
+	return sealHashWithSealLength(header, extraSealSecp256k1)
+}
+
+func sealHashWithSealLength(header *types.Header, sealLen int) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
-	encodeSigHeader(hasher, header)
+	encodeSigHeader(hasher, header, sealLen)
 	hasher.(crypto.KeccakState).Read(hash[:])
 	return hash
 }
 
 // encodeSigHeader writes the RLP of the header without its seal.
-func encodeSigHeader(w io.Writer, header *types.Header) {
+func encodeSigHeader(w io.Writer, header *types.Header, sealLen int) {
+	extraNoSeal := header.Extra
+	if sealLen >= 0 && len(header.Extra) >= sealLen {
+		extraNoSeal = header.Extra[:len(header.Extra)-sealLen]
+	}
 	enc := []interface{}{
 		header.ParentHash, header.UncleHash, header.Coinbase,
 		header.Root, header.TxHash, header.ReceiptHash, header.Bloom,
 		header.Difficulty, header.Number, header.GasLimit, header.GasUsed,
 		header.Time,
-		header.Extra[:len(header.Extra)-extraSeal], // strip seal
+		extraNoSeal, // strip seal bytes
 		header.MixDigest, header.Nonce,
 	}
 	rlp.Encode(w, enc)
 }
 
-// ecrecover extracts the validator address from a signed header; caches in sigcache.
-func ecrecover(header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
+func sealLengthForSignerType(signerType string) int {
+	if signerType == params.DPoSSealSignerTypeEd25519 {
+		return extraSealEd25519
+	}
+	return extraSealSecp256k1
+}
+
+func (d *DPoS) normalizeSealPayload(payload []byte) ([]byte, error) {
+	switch d.config.SealSignerType {
+	case params.DPoSSealSignerTypeEd25519:
+		if len(payload) != extraSealEd25519 {
+			return nil, fmt.Errorf("dpos: invalid ed25519 seal length: have %d want %d", len(payload), extraSealEd25519)
+		}
+		return append([]byte(nil), payload...), nil
+	default:
+		if len(payload) != extraSealSecp256k1 {
+			return nil, fmt.Errorf("dpos: invalid secp256k1 seal length: have %d want %d", len(payload), extraSealSecp256k1)
+		}
+		return append([]byte(nil), payload...), nil
+	}
+}
+
+// recoverHeaderSigner extracts the validator address from a signed header; caches in sigcache.
+func recoverHeaderSigner(config *params.DPoSConfig, header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	hash := header.Hash()
 	if addr, ok := sigcache.Get(hash); ok {
 		return addr.(common.Address), nil
 	}
-	if len(header.Extra) < extraSeal {
+	sealSignerType := params.DefaultDPoSSealSignerType
+	if config != nil {
+		sealSignerType = config.SealSignerType
+	}
+	sealLen := sealLengthForSignerType(sealSignerType)
+	if len(header.Extra) < sealLen {
 		return common.Address{}, errMissingSignature
 	}
-	sig := header.Extra[len(header.Extra)-extraSeal:]
-	pub, err := crypto.Ecrecover(SealHash(header).Bytes(), sig)
-	if err != nil {
-		return common.Address{}, err
-	}
+	sig := header.Extra[len(header.Extra)-sealLen:]
+	digest := sealHashWithSealLength(header, sealLen).Bytes()
+
 	var signer common.Address
-	copy(signer[:], crypto.Keccak256(pub[1:]))
+	switch sealSignerType {
+	case params.DPoSSealSignerTypeEd25519:
+		pub := sig[:ed25519.PublicKeySize]
+		signature := sig[ed25519.PublicKeySize:]
+		if !ed25519.Verify(ed25519.PublicKey(pub), digest, signature) {
+			return common.Address{}, errInvalidSignature
+		}
+		copy(signer[:], crypto.Keccak256(pub))
+	default:
+		pub, err := crypto.Ecrecover(digest, sig)
+		if err != nil {
+			return common.Address{}, err
+		}
+		copy(signer[:], crypto.Keccak256(pub[1:]))
+	}
 	sigcache.Add(hash, signer)
 	return signer, nil
 }
@@ -295,11 +372,11 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 			return errInvalidCheckpointValidators
 		}
 	} else {
-		if len(header.Extra) < extraVanity+extraSeal {
+		if len(header.Extra) < extraVanity+d.sealLength {
 			return errMissingSignature
 		}
 		isEpoch := number%d.config.Epoch == 0
-		validatorBytes := len(header.Extra) - extraVanity - extraSeal
+		validatorBytes := len(header.Extra) - extraVanity - d.sealLength
 		if !isEpoch && validatorBytes != 0 {
 			return errExtraValidators
 		}
@@ -347,7 +424,7 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	if number == 0 {
 		return errUnknownBlock
 	}
-	signer, err := ecrecover(header, d.signatures)
+	signer, err := recoverHeaderSigner(d.config, header, d.signatures)
 	if err != nil {
 		return err
 	}
@@ -495,7 +572,7 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 				bytes.Repeat([]byte{0x00}, extraVanity-len(header.Extra))...)
 		}
 		header.Extra = header.Extra[:extraVanity]
-		header.Extra = append(header.Extra, make([]byte, extraSeal)...)
+		header.Extra = append(header.Extra, make([]byte, d.sealLength)...)
 		return nil
 	}
 
@@ -518,7 +595,7 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	}
 	header.Extra = header.Extra[:extraVanity]
 	// Reserve space for the seal; FinalizeAndAssemble may insert validator list before it.
-	header.Extra = append(header.Extra, make([]byte, extraSeal)...)
+	header.Extra = append(header.Extra, make([]byte, d.sealLength)...)
 	return nil
 }
 
@@ -554,12 +631,12 @@ func (d *DPoS) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *ty
 		}
 		// validators is already address-sorted (ReadActiveValidators phase 3).
 		vanity := header.Extra[:extraVanity]
-		extra := make([]byte, extraVanity+len(validators)*common.AddressLength+extraSeal)
+		extra := make([]byte, extraVanity+len(validators)*common.AddressLength+d.sealLength)
 		copy(extra, vanity)
 		for i, v := range validators {
 			copy(extra[extraVanity+i*common.AddressLength:], v.Bytes())
 		}
-		header.Extra = extra // trailing extraSeal bytes are the seal placeholder
+		header.Extra = extra // trailing seal bytes are the seal placeholder
 	}
 
 	d.Finalize(chain, header, st, txs, uncles)
@@ -621,11 +698,15 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 
 	// Sign with DPoS MIME type (R2-L1).
 	sighash, err := signFn(accounts.Account{Address: v},
-		accounts.MimetypeDPoS, SealHash(header).Bytes())
+		accounts.MimetypeDPoS, d.SealHash(header).Bytes())
 	if err != nil {
 		return err
 	}
-	copy(header.Extra[len(header.Extra)-extraSeal:], sighash)
+	seal, err := d.normalizeSealPayload(sighash)
+	if err != nil {
+		return err
+	}
+	copy(header.Extra[len(header.Extra)-d.sealLength:], seal)
 
 	go func() {
 		select {

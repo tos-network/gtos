@@ -135,7 +135,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		}
 
 		// Recover signer; validate membership and recency.
-		signer, err := ecrecover(header, snap.sigcache)
+		signer, err := recoverHeaderSigner(snap.config, header, snap.sigcache)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +156,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		// A byzantine validator (with <50% stake) could embed a wrong list,
 		// but cannot sustain a fork since honest nodes build on the honest chain.
 		if number%s.config.Epoch == 0 {
-			validators, err := parseEpochValidators(header.Extra)
+			validators, err := parseEpochValidators(header.Extra, snap.config)
 			if err != nil {
 				return nil, err
 			}
@@ -184,12 +184,17 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 }
 
 // parseEpochValidators extracts the validator list from an epoch block's Extra.
-// Format: [32B vanity][N×AddressLength addresses][65B seal]
-func parseEpochValidators(extra []byte) ([]common.Address, error) {
-	if len(extra) < extraVanity+extraSeal {
+// Format: [32B vanity][N×AddressLength addresses][seal]
+func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Address, error) {
+	sealSignerType := params.DefaultDPoSSealSignerType
+	if cfg != nil {
+		sealSignerType = cfg.SealSignerType
+	}
+	sealLen := sealLengthForSignerType(sealSignerType)
+	if len(extra) < extraVanity+sealLen {
 		return nil, errMissingSignature
 	}
-	payload := extra[extraVanity : len(extra)-extraSeal]
+	payload := extra[extraVanity : len(extra)-sealLen]
 	if len(payload)%common.AddressLength != 0 {
 		return nil, errInvalidCheckpointValidators
 	}

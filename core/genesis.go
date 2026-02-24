@@ -434,9 +434,10 @@ func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address
 	// Override the default period to the user requested one
 	config := *params.AllDPoSProtocolChanges
 	config.DPoS = &params.DPoSConfig{
-		Period:        period,
-		Epoch:         config.DPoS.Epoch,
-		MaxValidators: config.DPoS.MaxValidators,
+		Period:         period,
+		Epoch:          config.DPoS.Epoch,
+		MaxValidators:  config.DPoS.MaxValidators,
+		SealSignerType: config.DPoS.SealSignerType,
 	}
 
 	// DPoS genesis extra: 32-byte vanity + faucet address as initial validator

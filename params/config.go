@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/tos-network/gtos/common"
 	"golang.org/x/crypto/sha3"
@@ -58,15 +59,42 @@ var (
 	// and accepted by the TOS core developers into the DPoS consensus.
 	AllDPoSProtocolChanges = &ChainConfig{
 		ChainID: big.NewInt(1337),
-		DPoS:    &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS: &DPoSConfig{
+			Period:         3,
+			Epoch:          DPoSEpochLength,
+			MaxValidators:  21,
+			SealSignerType: DefaultDPoSSealSignerType,
+		},
 	}
 
 	TestChainConfig = &ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS: &DPoSConfig{
+			Period:         3,
+			Epoch:          DPoSEpochLength,
+			MaxValidators:  21,
+			SealSignerType: DefaultDPoSSealSignerType,
+		},
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false)
 )
+
+const (
+	DPoSSealSignerTypeSecp256k1 = "secp256k1"
+	DPoSSealSignerTypeEd25519   = "ed25519"
+	DefaultDPoSSealSignerType   = DPoSSealSignerTypeEd25519
+)
+
+func NormalizeDPoSSealSignerType(signerType string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(signerType)) {
+	case "", DPoSSealSignerTypeEd25519:
+		return DPoSSealSignerTypeEd25519, nil
+	case DPoSSealSignerTypeSecp256k1, "ethereum_secp256k1":
+		return DPoSSealSignerTypeSecp256k1, nil
+	default:
+		return "", fmt.Errorf("unsupported dpos seal signer type: %s", strings.TrimSpace(signerType))
+	}
+}
 
 // NetworkNames are user friendly names to use in the chain spec banner.
 var NetworkNames = map[string]string{
@@ -136,15 +164,16 @@ type ChainConfig struct {
 
 // DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
 type DPoSConfig struct {
-	Period        uint64 `json:"period"`        // target block interval (seconds)
-	Epoch         uint64 `json:"epoch"`         // blocks between validator-set snapshots
-	MaxValidators uint64 `json:"maxValidators"` // maximum active validators
+	Period         uint64 `json:"period"`                   // target block interval (seconds)
+	Epoch          uint64 `json:"epoch"`                    // blocks between validator-set snapshots
+	MaxValidators  uint64 `json:"maxValidators"`            // maximum active validators
+	SealSignerType string `json:"sealSignerType,omitempty"` // consensus block-seal signer type: ed25519 (default) or secp256k1
 }
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{period: %d, epoch: %d, maxValidators: %d}",
-		c.Period, c.Epoch, c.MaxValidators)
+	return fmt.Sprintf("{period: %d, epoch: %d, maxValidators: %d, sealSignerType: %s}",
+		c.Period, c.Epoch, c.MaxValidators, c.SealSignerType)
 }
 
 // String implements the fmt.Stringer interface.

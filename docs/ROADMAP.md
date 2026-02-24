@@ -118,12 +118,12 @@ Status: `IN_PROGRESS`
 ### Layer Mapping
 
 - `DONE` Transaction/account signer layer (current tx format): `secp256k1`, `secp256r1`, `ed25519`, `bls12-381`.
-- `DONE` DPoS consensus sealing/verification remains header `secp256k1` seal + `extra` validation; no consensus-side `bls12-381` import.
+- `DONE` DPoS consensus sealing/verification supports configurable header seal (`ed25519` default, `secp256k1` supported) + deterministic `extra` validation; no consensus-side `bls12-381` import.
 
 ### Staged Execution
 
 - `DONE` Stage 1: explicit tx `chainId + signerType + from` envelope and `LegacyTx` rejection for submissions.
-- `DONE` Stage 2 decision: keep consensus path on DPoS header seal (`secp256k1`) and do not add BLS vote objects/aggregation to consensus.
+- `DONE` Stage 2 decision: keep consensus path on DPoS header seal (now configurable between `ed25519` and `secp256k1`) and do not add BLS vote objects/aggregation to consensus.
 
 ## Next Tasks (Execution Order)
 

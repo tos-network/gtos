@@ -1,6 +1,8 @@
 package dpos
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"math/big"
 	"sort"
 	"testing"
@@ -129,7 +131,8 @@ func TestEpochExtraParse(t *testing.T) {
 	// N=1.
 	a1 := common.Address{0x01}
 	extra := append(append(vanity, a1.Bytes()...), seal...)
-	out, err := parseEpochValidators(extra)
+	d := NewFaker()
+	out, err := parseEpochValidators(extra, d.config)
 	if err != nil {
 		t.Fatalf("N=1: %v", err)
 	}
@@ -138,20 +141,20 @@ func TestEpochExtraParse(t *testing.T) {
 	}
 
 	// Missing seal (too short).
-	if _, err := parseEpochValidators(append(vanity, a1.Bytes()...)); err == nil {
+	if _, err := parseEpochValidators(append(vanity, a1.Bytes()...), d.config); err == nil {
 		t.Error("missing seal: expected error")
 	}
 
 	// Bad alignment: vanity + 19 bytes + seal.
 	badPayload := append(append(vanity, make([]byte, 19)...), seal...)
-	if _, err := parseEpochValidators(badPayload); err == nil {
+	if _, err := parseEpochValidators(badPayload, d.config); err == nil {
 		t.Error("bad alignment: expected error")
 	}
 }
 
 // ── SealHash / ecrecover ──────────────────────────────────────────────────────
 
-// TestSealHashRoundTrip verifies that ecrecover(sign(SealHash(h))) == signer.
+// TestSealHashRoundTrip verifies that recoverHeaderSigner(sign(SealHash(h))) == signer.
 func TestSealHashRoundTrip(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)
@@ -163,19 +166,58 @@ func TestSealHashRoundTrip(t *testing.T) {
 		Time:       uint64(time.Now().Unix()),
 	}
 
-	sig, err := crypto.Sign(SealHash(header).Bytes(), key)
+	d := NewFaker()
+	sig, err := crypto.Sign(d.SealHash(header).Bytes(), key)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
 
-	d := NewFaker()
-	recovered, err := ecrecover(header, d.signatures)
+	recovered, err := recoverHeaderSigner(d.config, header, d.signatures)
 	if err != nil {
 		t.Fatalf("ecrecover: %v", err)
 	}
 	if recovered != signer {
 		t.Errorf("ecrecover: want %v, got %v", signer, recovered)
+	}
+}
+
+func TestSealHashRoundTripEd25519(t *testing.T) {
+	d, err := New(&params.DPoSConfig{
+		Period:         3,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ed25519 key: %v", err)
+	}
+	signer := common.BytesToAddress(crypto.Keccak256(pub))
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		Difficulty: big.NewInt(2),
+		Extra:      make([]byte, extraVanity+d.sealLength),
+		Coinbase:   signer,
+		Time:       uint64(time.Now().Unix()),
+	}
+	digest := d.SealHash(header).Bytes()
+	sig := ed25519.Sign(priv, digest)
+	seal := make([]byte, 0, len(pub)+len(sig))
+	seal = append(seal, pub...)
+	seal = append(seal, sig...)
+	copy(header.Extra[len(header.Extra)-d.sealLength:], seal)
+
+	recovered, err := recoverHeaderSigner(d.config, header, d.signatures)
+	if err != nil {
+		t.Fatalf("recoverHeaderSigner: %v", err)
+	}
+	if recovered != signer {
+		t.Errorf("recoverHeaderSigner: want %v, got %v", signer, recovered)
 	}
 }
 

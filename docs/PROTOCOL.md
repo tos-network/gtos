@@ -14,7 +14,9 @@ For the feature profile and roadmap status, see `docs/feature.md` and `docs/ROAD
 - Weighted voting and quorum finality.
 - Epoch-based validator rotation.
 - Target block interval: `1s` (`target_block_interval=1s`).
-- Block sealing uses `secp256k1` header signature.
+- Block sealing signer is configurable via `config.dpos.sealSignerType`:
+  - `ed25519` (default)
+  - `secp256k1`
 - Consensus-side BLS vote aggregation is not enabled in the current design.
 
 ## Storage Primitives (TTL Native)
@@ -90,7 +92,7 @@ Account and transaction signer algorithms:
 | `ed25519` | High-throughput agent identity and daily transaction signing |
 | `bls12-381` | Aggregated proof paths; `blst` backend; G2 sig (96 bytes), G1 pubkey (48 bytes) |
 
-DPoS consensus block sealing uses `secp256k1` header seal only. No consensus-side BLS aggregation.
+DPoS consensus block sealing supports `ed25519` (default) and `secp256k1` via genesis config. No consensus-side BLS aggregation.
 
 ## State Model
 
@@ -128,7 +130,7 @@ Compared with Filecoin / Arweave / Sia / Storj / Swarm, GTOS focuses on a differ
 - **Lifecycle**: explicit block-based expiry and deterministic prune behavior, not permanent storage.
 - **Cost profile**: non-archive node operation with bounded history window, not full-history replication.
 - **Control plane**: signer-aware typed transaction path (`SignerTx`) and system-action based signer updates.
-- **Consensus boundary**: DPoS header seal (`secp256k1`); no consensus-side BLS aggregation requirement.
+- **Consensus boundary**: DPoS header seal (`ed25519` default, `secp256k1` supported); no consensus-side BLS aggregation requirement.
 - **Product fit**: agent memory, coordination state, policy logic, and AI intermediate outputs requiring deterministic on-chain lifecycle and verifiable state transitions.
 
 ## Further Reading

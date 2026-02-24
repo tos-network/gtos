@@ -280,6 +280,49 @@ func (ks *KeyStore) SignHash(a accounts.Account, hash []byte) ([]byte, error) {
 	return crypto.Sign(hash, unlockedKey.PrivateKey)
 }
 
+func signDPoSHashWithKeyMaterial(key *Key, hash []byte) ([]byte, error) {
+	if key == nil {
+		return nil, ErrUnsupportedSigningKey
+	}
+	switch canonicalSignerTypeOrDefault(key.SignerType) {
+	case accountsigner.SignerTypeSecp256k1:
+		if key.PrivateKey == nil {
+			return nil, ErrUnsupportedSigningKey
+		}
+		return crypto.Sign(hash, key.PrivateKey)
+	case accountsigner.SignerTypeEd25519:
+		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
+			return nil, ErrUnsupportedSigningKey
+		}
+		pub, ok := key.Ed25519PrivateKey.Public().(ed25519.PublicKey)
+		if !ok || len(pub) != ed25519.PublicKeySize {
+			return nil, ErrUnsupportedSigningKey
+		}
+		sig := ed25519.Sign(key.Ed25519PrivateKey, hash)
+		out := make([]byte, 0, ed25519.PublicKeySize+len(sig))
+		out = append(out, pub...)
+		out = append(out, sig...)
+		return out, nil
+	default:
+		return nil, ErrUnsupportedSigningKey
+	}
+}
+
+// SignDPoSHash signs the given DPoS header digest with the account's configured signer type.
+// Return format:
+//   - secp256k1: [R || S || V] (65 bytes)
+//   - ed25519:   [pub(32) || sig(64)] (96 bytes)
+func (ks *KeyStore) SignDPoSHash(a accounts.Account, hash []byte) ([]byte, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+
+	unlockedKey, found := ks.unlocked[a.Address]
+	if !found {
+		return nil, ErrLocked
+	}
+	return signDPoSHashWithKeyMaterial(unlockedKey.Key, hash)
+}
+
 // SignTx signs the given transaction with the requested account.
 func (ks *KeyStore) SignTx(a accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
 	// Look up the key to sign with and abort if it cannot be found
@@ -308,6 +351,16 @@ func (ks *KeyStore) SignHashWithPassphrase(a accounts.Account, passphrase string
 		return nil, ErrUnsupportedSigningKey
 	}
 	return crypto.Sign(hash, key.PrivateKey)
+}
+
+// SignDPoSHashWithPassphrase signs DPoS header digest using passphrase-protected key material.
+func (ks *KeyStore) SignDPoSHashWithPassphrase(a accounts.Account, passphrase string, hash []byte) ([]byte, error) {
+	_, key, err := ks.getDecryptedKey(a, passphrase)
+	if err != nil {
+		return nil, err
+	}
+	defer zeroKeyMaterial(key)
+	return signDPoSHashWithKeyMaterial(key, hash)
 }
 
 // SignTxWithPassphrase signs the transaction if the private key matching the

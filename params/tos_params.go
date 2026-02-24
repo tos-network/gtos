@@ -24,7 +24,7 @@ var (
 
 // DPoS validator stake and reward parameters.
 var (
-	DPoSMinValidatorStake = new(big.Int).Mul(big.NewInt(10_000), big.NewInt(1e18)) // 10,000 TOS
+	DPoSMinValidatorStake = new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18)) // 1,000,000 TOS
 	DPoSBlockReward       = new(big.Int).Mul(big.NewInt(2), big.NewInt(1e18))      // 2 TOS/block
 )
 
@@ -43,7 +43,7 @@ func GTOSPrice() *big.Int {
 
 // DPoS consensus parameters.
 const (
-	DPoSEpochLength   uint64 = 200
+	DPoSEpochLength   uint64 = 1000
 	DPoSMaxValidators uint64 = 21
 	DPoSBlockPeriod   uint64 = 3 // target seconds per block
 )

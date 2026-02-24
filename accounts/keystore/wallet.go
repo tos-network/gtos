@@ -93,13 +93,22 @@ func (w *keystoreWallet) signHash(account accounts.Account, hash []byte) ([]byte
 	return w.keystore.SignHash(account, hash)
 }
 
-// SignData signs keccak256(data). The mimetype parameter describes the type of data being signed.
+// SignData signs payload according to mimeType.
+// For DPoS headers it signs the provided digest directly; otherwise it signs keccak256(data).
 func (w *keystoreWallet) SignData(account accounts.Account, mimeType string, data []byte) ([]byte, error) {
+	if mimeType == accounts.MimetypeDPoS {
+		// DPoS consensus sealing signs the provided digest directly.
+		return w.keystore.SignDPoSHash(account, data)
+	}
 	return w.signHash(account, crypto.Keccak256(data))
 }
 
-// SignDataWithPassphrase signs keccak256(data). The mimetype parameter describes the type of data being signed.
+// SignDataWithPassphrase signs payload according to mimeType.
+// For DPoS headers it signs the provided digest directly; otherwise it signs keccak256(data).
 func (w *keystoreWallet) SignDataWithPassphrase(account accounts.Account, passphrase, mimeType string, data []byte) ([]byte, error) {
+	if mimeType == accounts.MimetypeDPoS {
+		return w.keystore.SignDPoSHashWithPassphrase(account, passphrase, data)
+	}
 	// Make sure the requested account is contained within
 	if !w.Contains(account) {
 		return nil, accounts.ErrUnknownAccount

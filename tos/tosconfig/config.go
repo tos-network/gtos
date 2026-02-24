@@ -143,9 +143,10 @@ func CreateConsensusEngine(_ *node.Node, chainConfig *params.ChainConfig, db tos
 	cfg := chainConfig.DPoS
 	if cfg == nil {
 		cfg = &params.DPoSConfig{
-			Period:        params.DPoSBlockPeriod,
-			Epoch:         params.DPoSEpochLength,
-			MaxValidators: params.DPoSMaxValidators,
+			Period:         params.DPoSBlockPeriod,
+			Epoch:          params.DPoSEpochLength,
+			MaxValidators:  params.DPoSMaxValidators,
+			SealSignerType: params.DefaultDPoSSealSignerType,
 		}
 	}
 	e, err := dpos.New(cfg, db)

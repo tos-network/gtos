@@ -22,6 +22,35 @@ import (
 	"testing"
 )
 
+func TestNormalizeDPoSSealSignerType(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{in: "", want: DPoSSealSignerTypeEd25519},
+		{in: "ed25519", want: DPoSSealSignerTypeEd25519},
+		{in: "secp256k1", want: DPoSSealSignerTypeSecp256k1},
+		{in: " ethereum_secp256k1 ", want: DPoSSealSignerTypeSecp256k1},
+		{in: "bls12-381", wantErr: true},
+	}
+	for _, tc := range tests {
+		got, err := NormalizeDPoSSealSignerType(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("NormalizeDPoSSealSignerType(%q): expected error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("NormalizeDPoSSealSignerType(%q): %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("NormalizeDPoSSealSignerType(%q): have %q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestCheckCompatible(t *testing.T) {
 	type test struct {
 		stored, new *ChainConfig

@@ -2,6 +2,7 @@ package dpos
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
@@ -40,7 +41,12 @@ func TestDPoSChainInsert(t *testing.T) {
 	genesisExtra := make([]byte, extraVanity+common.AddressLength)
 	copy(genesisExtra[extraVanity:], signer.Bytes())
 
-	dposCfg := &params.DPoSConfig{Period: 1, Epoch: 200, MaxValidators: 21}
+	dposCfg := &params.DPoSConfig{
+		Period:         1,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
@@ -122,6 +128,97 @@ func TestDPoSChainInsert(t *testing.T) {
 	}
 }
 
+func TestDPoSChainInsertEd25519Seal(t *testing.T) {
+	seed := bytes.Repeat([]byte{0x42}, ed25519.SeedSize)
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub, ok := priv.Public().(ed25519.PublicKey)
+	if !ok {
+		t.Fatal("failed to derive ed25519 public key")
+	}
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pub))
+
+	db := rawdb.NewMemoryDatabase()
+
+	// Genesis Extra: 32-byte vanity + signer address (no seal on block 0).
+	genesisExtra := make([]byte, extraVanity+common.AddressLength)
+	copy(genesisExtra[extraVanity:], signer.Bytes())
+
+	dposCfg := &params.DPoSConfig{
+		Period:         1,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	chainCfg := *params.AllDPoSProtocolChanges
+	chainCfg.DPoS = dposCfg
+
+	genspec := &core.Genesis{
+		Config:    &chainCfg,
+		ExtraData: genesisExtra,
+		Coinbase:  signer,
+		Alloc: map[common.Address]core.GenesisAccount{
+			signer: {Balance: new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18))},
+		},
+		BaseFee: big.NewInt(params.InitialBaseFee),
+	}
+	genesis := genspec.MustCommit(db)
+
+	engine, err := New(dposCfg, db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	chain, err := core.NewBlockChain(db, nil, &chainCfg, engine, nil, nil)
+	if err != nil {
+		t.Fatalf("NewBlockChain: %v", err)
+	}
+	defer chain.Stop()
+
+	const nBlocks = 5
+	blocks, _ := core.GenerateChain(&chainCfg, genesis, engine, db, nBlocks,
+		func(i int, b *core.BlockGen) {
+			b.SetDifficulty(diffInTurn)
+		})
+
+	for i, block := range blocks {
+		header := block.Header()
+		if i > 0 {
+			header.ParentHash = blocks[i-1].Hash()
+		}
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
+		if len(header.Extra) >= extraVanity {
+			copy(newExtra, header.Extra[:extraVanity])
+		}
+		header.Extra = newExtra
+
+		digest := engine.SealHash(header).Bytes()
+		sig := ed25519.Sign(priv, digest)
+		seal := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+		seal = append(seal, pub...)
+		seal = append(seal, sig...)
+		copy(header.Extra[extraVanity:], seal)
+
+		blocks[i] = block.WithSeal(header)
+	}
+
+	if n, err := chain.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain failed at block %d: %v", n+1, err)
+	}
+	if head := chain.CurrentBlock().NumberU64(); head != nBlocks {
+		t.Errorf("chain head: want %d, got %d", nBlocks, head)
+	}
+
+	// Verify block rewards accrued: signer balance > initial allocation.
+	st, _ := chain.State()
+	initialBal := new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18))
+	bal := st.GetBalance(signer)
+	if bal.Cmp(initialBal) <= 0 {
+		t.Errorf("signer balance did not increase after %d blocks: got %v, want > %v",
+			nBlocks, bal, initialBal)
+	}
+}
+
 func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 	const (
 		nBlocks     = 1024
@@ -149,7 +246,12 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 		return validators[i].Hex() < validators[j].Hex()
 	})
 
-	dposCfg := &params.DPoSConfig{Period: 1, Epoch: 5000, MaxValidators: 21}
+	dposCfg := &params.DPoSConfig{
+		Period:         1,
+		Epoch:          5000,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
@@ -314,7 +416,12 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 		return bytes.Compare(expectedValidators[i][:], expectedValidators[j][:]) < 0
 	})
 
-	dposCfg := &params.DPoSConfig{Period: 1, Epoch: 2, MaxValidators: 21}
+	dposCfg := &params.DPoSConfig{
+		Period:         1,
+		Epoch:          2,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
@@ -470,7 +577,7 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 		t.Fatalf("unexpected head number: have %d want %d", have, want)
 	}
 
-	epochValidators, err := parseEpochValidators(blocks[1].Header().Extra)
+	epochValidators, err := parseEpochValidators(blocks[1].Header().Extra, dposCfg)
 	if err != nil {
 		t.Fatalf("parse epoch validators: %v", err)
 	}
@@ -522,7 +629,12 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 		return validators[i].Hex() < validators[j].Hex()
 	})
 
-	dposCfg := &params.DPoSConfig{Period: 1, Epoch: 5000, MaxValidators: 21}
+	dposCfg := &params.DPoSConfig{
+		Period:         1,
+		Epoch:          5000,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
