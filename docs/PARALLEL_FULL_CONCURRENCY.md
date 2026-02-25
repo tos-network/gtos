@@ -1,5 +1,8 @@
 # 100% Parallel Transaction Execution: Eliminating Global Shared State
 
+> **Status: IMPLEMENTED** — Option A (Lazy Expiry) is fully implemented and merged
+> into `main` (commit `088d5c7`). All tests pass, race detector clean.
+
 ## Goal
 
 All transactions from different senders in a block execute in level 0 — true 100%
@@ -74,7 +77,7 @@ No writes to any global address.
 Removing the global expiry index requires adjusting `pruneExpiredCodeAt` and
 `PruneExpiredAt`. Three options:
 
-#### Option A: Lazy Expiry (Recommended)
+#### Option A: Lazy Expiry (Recommended — **IMPLEMENTED**)
 
 No proactive pruning at block end. Expiry is checked inline in business logic.
 
@@ -150,7 +153,7 @@ Pros: zero global writes, zero parallel conflicts, minimal code change.
 Cons: expired storage slots are not reclaimed until the sender's next transaction
 (minor on-chain storage growth for inactive accounts).
 
-#### Option B: Node-Local Index
+#### Option B: Node-Local Index (Not implemented)
 
 Store the `(expireAt → []sender)` index in the node's local database (leveldb/pebble),
 not in statedb.
@@ -163,7 +166,7 @@ not in statedb.
 Pros: retains proactive pruning, no on-chain storage growth.
 Cons: requires additional local DB reads/writes; slightly more complex to implement.
 
-#### Option C: Append-Only Unique Slot
+#### Option C: Append-Only Unique Slot (Not implemented)
 
 Each transaction writes to a unique slot (e.g., `keccak256(sender ++ expireAt)`) on
 the global address instead of a shared read-modify-write counter.
@@ -176,18 +179,22 @@ Not recommended.
 
 ---
 
-## Scope of Changes (Option A)
+## Scope of Changes (Option A — DONE)
 
-| File | Change |
-|---|---|
-| `core/state_transition.go` | `applySetCode`: remove `appendSetCodeExpiryIndex` call |
-| `core/setcode_prune.go` | Remove or stub `appendSetCodeExpiryIndex` and `pruneExpiredCodeAt` |
-| `kvstore/state.go` | `Put`: remove `appendExpiryIndex` call; `Get`/`GetMeta`: add `currentBlock` param and inline expiry check; remove or stub `PruneExpiredAt` |
-| `core/state_processor.go` | Remove `pruneExpiredCodeAt` and `kvstore.PruneExpiredAt` calls and their metrics |
-| `core/parallel/analyze.go` | `AnalyzeTx`: SetCode and KV Put write sets contain sender only; remove expiry count slot tracking |
+| File | Change | Status |
+|---|---|---|
+| `core/state_transition.go` | `applySetCode`: remove `appendSetCodeExpiryIndex` call | ✅ Done |
+| `core/setcode_prune.go` | Deleted (entire file) | ✅ Done |
+| `core/ttl_prune_metrics.go` | Deleted (entire file) | ✅ Done |
+| `kvstore/state.go` | `Put`: remove `appendExpiryIndex` call; `Get`/`GetMeta`: add `currentBlock` param and inline expiry check; `PruneExpiredAt` and all expiry bucket helpers removed | ✅ Done |
+| `core/state_processor.go` | Remove `pruneExpiredCodeAt` and `kvstore.PruneExpiredAt` calls and their metrics | ✅ Done |
+| `core/chain_makers.go` | Remove pruning calls (mirrors state_processor determinism path) | ✅ Done |
+| `core/parallel/analyze.go` | `AnalyzeTx`: SetCode and KV Put write sets contain sender only; `blockNumber` param removed | ✅ Done |
+| `core/parallel/executor.go` | Update `AnalyzeTx` call (no blockNumber arg) | ✅ Done |
+| `internal/tosapi/api.go` | Pass `currentBlock` to `kvstore.Get`/`GetMeta`; remove redundant post-read expiry check | ✅ Done |
 
 All other files in `core/parallel/` (`accessset.go`, `dag.go`, `executor.go`,
-`writebuf.go`) require no changes.
+`writebuf.go`) required no changes.
 
 ---
 
