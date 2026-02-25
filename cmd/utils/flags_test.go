@@ -67,21 +67,19 @@ func Test_SplitTagsFlag(t *testing.T) {
 	}
 }
 
-func TestResolveDeveloperPeriodMs(t *testing.T) {
+func TestDeveloperPeriodMsFlagValue(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want uint64
 	}{
 		{name: "default periodms", args: nil, want: params.DPoSBlockPeriodMs},
-		{name: "legacy seconds flag", args: []string{"--dev.period=2"}, want: 2000},
 		{name: "periodms flag", args: []string{"--dev.periodms=750"}, want: 750},
-		{name: "periodms overrides seconds", args: []string{"--dev.period=2", "--dev.periodms=650"}, want: 650},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			app := cli.NewApp()
-			app.Flags = []cli.Flag{DeveloperPeriodFlag, DeveloperPeriodMsFlag}
+			app.Flags = []cli.Flag{DeveloperPeriodMsFlag}
 
 			set := flag.NewFlagSet("test", flag.ContinueOnError)
 			for _, f := range app.Flags {
@@ -93,8 +91,8 @@ func TestResolveDeveloperPeriodMs(t *testing.T) {
 				t.Fatalf("parse flags: %v", err)
 			}
 			ctx := cli.NewContext(app, set, nil)
-			if got := resolveDeveloperPeriodMs(ctx); got != tt.want {
-				t.Fatalf("resolveDeveloperPeriodMs() = %d, want %d", got, tt.want)
+			if got := ctx.Uint64(DeveloperPeriodMsFlag.Name); got != tt.want {
+				t.Fatalf("dev.periodms = %d, want %d", got, tt.want)
 			}
 		})
 	}

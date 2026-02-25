@@ -449,24 +449,19 @@ func (ec *Client) DPoSGetValidator(ctx context.Context, address common.Address, 
 // DPoSGetEpochInfo returns epoch context at the requested block.
 func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*DPoSEpochInfo, error) {
 	var raw struct {
-		BlockNumber          hexutil.Uint64 `json:"blockNumber"`
-		EpochLength          hexutil.Uint64 `json:"epochLength"`
-		EpochIndex           hexutil.Uint64 `json:"epochIndex"`
-		EpochStart           hexutil.Uint64 `json:"epochStart"`
-		NextEpochStart       hexutil.Uint64 `json:"nextEpochStart"`
-		BlocksUntilEpoch     hexutil.Uint64 `json:"blocksUntilEpoch"`
-		TargetBlockPeriodMs  hexutil.Uint64 `json:"targetBlockPeriodMs"`
-		TargetBlockPeriodSec hexutil.Uint64 `json:"targetBlockPeriodS"` // legacy field
-		MaxValidators        hexutil.Uint64 `json:"maxValidators"`
-		ValidatorCount       hexutil.Uint64 `json:"validatorCount"`
-		SnapshotHash         common.Hash    `json:"snapshotHash"`
+		BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+		EpochLength         hexutil.Uint64 `json:"epochLength"`
+		EpochIndex          hexutil.Uint64 `json:"epochIndex"`
+		EpochStart          hexutil.Uint64 `json:"epochStart"`
+		NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
+		BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
+		TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+		MaxValidators       hexutil.Uint64 `json:"maxValidators"`
+		ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
+		SnapshotHash        common.Hash    `json:"snapshotHash"`
 	}
 	if err := ec.c.CallContext(ctx, &raw, "dpos_getEpochInfo", toBlockNumArg(blockNumber)); err != nil {
 		return nil, err
-	}
-	periodMs := uint64(raw.TargetBlockPeriodMs)
-	if periodMs == 0 && raw.TargetBlockPeriodSec > 0 {
-		periodMs = uint64(raw.TargetBlockPeriodSec) * 1000
 	}
 	return &DPoSEpochInfo{
 		BlockNumber:         uint64(raw.BlockNumber),
@@ -475,7 +470,7 @@ func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*
 		EpochStart:          uint64(raw.EpochStart),
 		NextEpochStart:      uint64(raw.NextEpochStart),
 		BlocksUntilEpoch:    uint64(raw.BlocksUntilEpoch),
-		TargetBlockPeriodMs: periodMs,
+		TargetBlockPeriodMs: uint64(raw.TargetBlockPeriodMs),
 		MaxValidators:       uint64(raw.MaxValidators),
 		ValidatorCount:      uint64(raw.ValidatorCount),
 		SnapshotHash:        raw.SnapshotHash,

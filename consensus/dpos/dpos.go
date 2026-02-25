@@ -105,7 +105,6 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if config == nil {
 		return nil, errors.New("dpos: missing config")
 	}
-	config.NormalizePeriod()
 	if config.Epoch == 0 {
 		return nil, errors.New("dpos: epoch must be > 0")
 	}

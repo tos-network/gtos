@@ -46,5 +46,4 @@ const (
 	DPoSEpochLength   uint64 = 1000
 	DPoSMaxValidators uint64 = 21
 	DPoSBlockPeriodMs uint64 = 500 // target milliseconds per block
-	DPoSBlockPeriod   uint64 = 3   // legacy target seconds per block
 )

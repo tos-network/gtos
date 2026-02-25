@@ -94,7 +94,7 @@ func newTester(t *testing.T, confOverride func(*tosconfig.Config)) *tester {
 		t.Fatalf("failed to create node: %v", err)
 	}
 	tosConf := &tosconfig.Config{
-		Genesis: core.DeveloperGenesisBlock(15, 11_500_000, common.Address{}),
+		Genesis: core.DeveloperGenesisBlockMs(15000, 11_500_000, common.Address{}),
 		Miner: miner.Config{
 			Coinbase: common.HexToAddress(testAddress),
 		},

@@ -18,6 +18,7 @@ package params
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -164,42 +165,42 @@ type ChainConfig struct {
 
 // DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
 type DPoSConfig struct {
-	Period         uint64 `json:"period,omitempty"`         // legacy target block interval (seconds), mapped to PeriodMs when PeriodMs is unset
-	PeriodMs       uint64 `json:"periodMs,omitempty"`       // target block interval (milliseconds)
+	PeriodMs       uint64 `json:"periodMs"`                 // target block interval (milliseconds)
 	Epoch          uint64 `json:"epoch"`                    // blocks between validator-set snapshots
 	MaxValidators  uint64 `json:"maxValidators"`            // maximum active validators
 	SealSignerType string `json:"sealSignerType,omitempty"` // consensus block-seal signer type: ed25519 (default) or secp256k1
 }
 
-// TargetBlockPeriodMs returns the effective target block interval in milliseconds.
-// PeriodMs takes precedence; legacy Period (seconds) is mapped when needed.
+// TargetBlockPeriodMs returns the configured target block interval in milliseconds.
 func (c *DPoSConfig) TargetBlockPeriodMs() uint64 {
 	if c == nil {
 		return 0
 	}
-	if c.PeriodMs > 0 {
-		return c.PeriodMs
-	}
-	if c.Period > 0 {
-		return c.Period * 1000
-	}
-	return 0
+	return c.PeriodMs
 }
 
-// NormalizePeriod fills PeriodMs from legacy Period (seconds) when PeriodMs is unset.
-func (c *DPoSConfig) NormalizePeriod() {
-	if c == nil {
-		return
+// UnmarshalJSON rejects the removed legacy dpos.period field.
+func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return err
 	}
-	if c.PeriodMs == 0 && c.Period > 0 {
-		c.PeriodMs = c.Period * 1000
+	if _, ok := fields["period"]; ok {
+		return fmt.Errorf("dpos.period is removed; use dpos.periodMs")
 	}
+	type dposConfigAlias DPoSConfig
+	var dec dposConfigAlias
+	if err := json.Unmarshal(input, &dec); err != nil {
+		return err
+	}
+	*c = DPoSConfig(dec)
+	return nil
 }
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{periodMs: %d, period: %d, epoch: %d, maxValidators: %d, sealSignerType: %s}",
-		c.TargetBlockPeriodMs(), c.Period, c.Epoch, c.MaxValidators, c.SealSignerType)
+	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, sealSignerType: %s}",
+		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.SealSignerType)
 }
 
 // String implements the fmt.Stringer interface.

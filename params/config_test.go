@@ -60,8 +60,6 @@ func TestDPoSConfigTargetBlockPeriodMs(t *testing.T) {
 	}{
 		{name: "nil", cfg: nil, want: 0},
 		{name: "periodMs only", cfg: &DPoSConfig{PeriodMs: 500}, want: 500},
-		{name: "legacy period only", cfg: &DPoSConfig{Period: 2}, want: 2000},
-		{name: "periodMs precedence", cfg: &DPoSConfig{Period: 2, PeriodMs: 750}, want: 750},
 	}
 	for _, tc := range tests {
 		if got := tc.cfg.TargetBlockPeriodMs(); got != tc.want {
@@ -70,21 +68,7 @@ func TestDPoSConfigTargetBlockPeriodMs(t *testing.T) {
 	}
 }
 
-func TestDPoSConfigNormalizePeriod(t *testing.T) {
-	cfg := &DPoSConfig{Period: 3}
-	cfg.NormalizePeriod()
-	if cfg.PeriodMs != 3000 {
-		t.Fatalf("legacy period mapping failed: have %d want %d", cfg.PeriodMs, 3000)
-	}
-
-	cfg = &DPoSConfig{Period: 3, PeriodMs: 450}
-	cfg.NormalizePeriod()
-	if cfg.PeriodMs != 450 {
-		t.Fatalf("periodMs should take precedence: have %d want %d", cfg.PeriodMs, 450)
-	}
-}
-
-func TestChainConfigJSONPeriodMsAndLegacyPeriod(t *testing.T) {
+func TestChainConfigJSONPeriodMs(t *testing.T) {
 	periodMsJSON := []byte(`{"chainId":1,"dpos":{"periodMs":500,"epoch":1000,"maxValidators":21,"sealSignerType":"ed25519"}}`)
 	var cfg ChainConfig
 	if err := json.Unmarshal(periodMsJSON, &cfg); err != nil {
@@ -97,16 +81,13 @@ func TestChainConfigJSONPeriodMsAndLegacyPeriod(t *testing.T) {
 		t.Fatalf("periodMs parse mismatch: have %d want %d", cfg.DPoS.TargetBlockPeriodMs(), 500)
 	}
 
+}
+
+func TestChainConfigJSONRejectsLegacyPeriod(t *testing.T) {
 	legacyPeriodJSON := []byte(`{"chainId":1,"dpos":{"period":1,"epoch":1000,"maxValidators":21,"sealSignerType":"ed25519"}}`)
-	var legacy ChainConfig
-	if err := json.Unmarshal(legacyPeriodJSON, &legacy); err != nil {
-		t.Fatalf("unmarshal legacy period config: %v", err)
-	}
-	if legacy.DPoS == nil {
-		t.Fatalf("legacy dpos config missing")
-	}
-	if legacy.DPoS.TargetBlockPeriodMs() != 1000 {
-		t.Fatalf("legacy period mapping mismatch: have %d want %d", legacy.DPoS.TargetBlockPeriodMs(), 1000)
+	var cfg ChainConfig
+	if err := json.Unmarshal(legacyPeriodJSON, &cfg); err == nil {
+		t.Fatalf("expected legacy period config to be rejected")
 	}
 }
 

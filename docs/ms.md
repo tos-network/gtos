@@ -42,15 +42,14 @@ Core principles:
 - Keep `Header.Time uint64`, but switch DPoS semantics to Unix milliseconds.
 - Migrate consensus timing first, then optimize network propagation/pipeline.
 
-New config fields:
+New config field:
 
 - `dpos.periodMs`: target block interval in milliseconds.
-- `dpos.timeUnit`: optional `second` or `millisecond` (internal/transition use).
 
 Compatibility strategy:
 
 - GTOS is pre-mainnet, so no on-chain backward-compatibility window is required.
-- We can switch directly to millisecond semantics in the experiment branch.
+- We switch directly to millisecond semantics in the experiment branch and reject legacy `dpos.period`.
 
 ## 4. Required Changes
 
@@ -59,13 +58,12 @@ Compatibility strategy:
 Changes:
 
 - Extend `params.DPoSConfig` with millisecond interval fields.
-- Keep legacy `Period` for transition compatibility.
 - Use `periodMs` by default for new networks.
 
 Acceptance:
 
 - Config parser accepts `periodMs`-only configuration.
-- Legacy `period` is auto-mapped to `periodMs = period * 1000` during transition.
+- Legacy `period` is rejected with an explicit configuration error.
 
 ## 4.2 Consensus Time Path
 
@@ -139,7 +137,7 @@ Phase C (`<200ms`, experimental):
 Correctness:
 
 - Unit tests for millisecond code paths.
-- Config transition tests for legacy `period` to `periodMs` (if legacy parsing remains).
+- Config parsing tests for `periodMs` and explicit rejection of legacy `period`.
 
 Consistency:
 

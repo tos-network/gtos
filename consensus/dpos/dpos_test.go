@@ -460,38 +460,6 @@ func TestPrepareUsesPeriodMs(t *testing.T) {
 	}
 }
 
-func TestPrepareLegacyPeriodMappedToMs(t *testing.T) {
-	signer := common.Address{0x01}
-	now := uint64(time.Now().UnixMilli())
-	genesis := &types.Header{
-		Number: big.NewInt(0),
-		Time:   now + 2000,
-		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
-	}
-	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
-
-	d, err := New(&params.DPoSConfig{
-		Period:         2, // legacy seconds field
-		Epoch:          200,
-		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeEd25519,
-	}, nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	header := &types.Header{
-		Number:     big.NewInt(1),
-		ParentHash: genesis.Hash(),
-	}
-	if err := d.Prepare(chain, header); err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
-	if want := genesis.Time + 2000; header.Time != want {
-		t.Fatalf("prepared legacy time mismatch: have %d want %d", header.Time, want)
-	}
-}
-
 // ── inturn / addressAscending ─────────────────────────────────────────────────
 
 // TestInturn verifies round-robin assignment of in-turn validators.
