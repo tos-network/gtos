@@ -243,27 +243,27 @@ func (s *rpcExtTestService) GetValidator(address common.Address, block string) i
 func (s *rpcExtTestService) GetEpochInfo(block string) interface{} {
 	s.lastDPoSQueryBlock = block
 	return struct {
-		BlockNumber        hexutil.Uint64 `json:"blockNumber"`
-		EpochLength        hexutil.Uint64 `json:"epochLength"`
-		EpochIndex         hexutil.Uint64 `json:"epochIndex"`
-		EpochStart         hexutil.Uint64 `json:"epochStart"`
-		NextEpochStart     hexutil.Uint64 `json:"nextEpochStart"`
-		BlocksUntilEpoch   hexutil.Uint64 `json:"blocksUntilEpoch"`
-		TargetBlockPeriodS hexutil.Uint64 `json:"targetBlockPeriodS"`
-		MaxValidators      hexutil.Uint64 `json:"maxValidators"`
-		ValidatorCount     hexutil.Uint64 `json:"validatorCount"`
-		SnapshotHash       common.Hash    `json:"snapshotHash"`
+		BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+		EpochLength         hexutil.Uint64 `json:"epochLength"`
+		EpochIndex          hexutil.Uint64 `json:"epochIndex"`
+		EpochStart          hexutil.Uint64 `json:"epochStart"`
+		NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
+		BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
+		TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+		MaxValidators       hexutil.Uint64 `json:"maxValidators"`
+		ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
+		SnapshotHash        common.Hash    `json:"snapshotHash"`
 	}{
-		BlockNumber:        hexutil.Uint64(99),
-		EpochLength:        hexutil.Uint64(50),
-		EpochIndex:         hexutil.Uint64(1),
-		EpochStart:         hexutil.Uint64(50),
-		NextEpochStart:     hexutil.Uint64(100),
-		BlocksUntilEpoch:   hexutil.Uint64(1),
-		TargetBlockPeriodS: hexutil.Uint64(1),
-		MaxValidators:      hexutil.Uint64(21),
-		ValidatorCount:     hexutil.Uint64(7),
-		SnapshotHash:       common.HexToHash("0x99"),
+		BlockNumber:         hexutil.Uint64(99),
+		EpochLength:         hexutil.Uint64(50),
+		EpochIndex:          hexutil.Uint64(1),
+		EpochStart:          hexutil.Uint64(50),
+		NextEpochStart:      hexutil.Uint64(100),
+		BlocksUntilEpoch:    hexutil.Uint64(1),
+		TargetBlockPeriodMs: hexutil.Uint64(1000),
+		MaxValidators:       hexutil.Uint64(21),
+		ValidatorCount:      hexutil.Uint64(7),
+		SnapshotHash:        common.HexToHash("0x99"),
 	}
 }
 
@@ -490,7 +490,7 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	if svc.lastDPoSQueryBlock != "pending" {
 		t.Fatalf("DPoSGetEpochInfo block arg = %q, want pending", svc.lastDPoSQueryBlock)
 	}
-	if epoch.TargetBlockPeriodS != 1 || epoch.ValidatorCount != 7 {
+	if epoch.TargetBlockPeriodMs != 1000 || epoch.ValidatorCount != 7 {
 		t.Fatalf("unexpected epoch info: %+v", epoch)
 	}
 }

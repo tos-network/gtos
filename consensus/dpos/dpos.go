@@ -77,7 +77,7 @@ const (
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
 	wiggleTime             = 500 * time.Millisecond
-	allowedFutureBlockTime = uint64(5) // R2-M1: seconds of clock-skew grace period
+	allowedFutureBlockTime = uint64(5000) // milliseconds of clock-skew grace period
 )
 
 // SignerFn is the callback the miner uses to sign a header hash.
@@ -105,11 +105,12 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if config == nil {
 		return nil, errors.New("dpos: missing config")
 	}
+	config.NormalizePeriod()
 	if config.Epoch == 0 {
 		return nil, errors.New("dpos: epoch must be > 0")
 	}
-	if config.Period == 0 {
-		return nil, errors.New("dpos: period must be > 0")
+	if config.TargetBlockPeriodMs() == 0 {
+		return nil, errors.New("dpos: periodMs must be > 0")
 	}
 	if config.MaxValidators == 0 {
 		return nil, errors.New("dpos: maxValidators must be > 0")
@@ -136,7 +137,7 @@ func NewFaker() *DPoS {
 	d, err := New(&params.DPoSConfig{
 		Epoch:          200,
 		MaxValidators:  21,
-		Period:         3,
+		PeriodMs:       3000,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
 	}, nil)
 	if err != nil {
@@ -326,7 +327,7 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 
 	// Reject far-future blocks (R2-M1 constant). Checked even in faker mode.
-	if header.Time > uint64(time.Now().Unix())+allowedFutureBlockTime {
+	if header.Time > uint64(time.Now().UnixMilli())+allowedFutureBlockTime {
 		return consensus.ErrFutureBlock
 	}
 	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
@@ -408,7 +409,7 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
-	if header.Time < parent.Time+d.config.Period {
+	if header.Time < parent.Time+d.config.TargetBlockPeriodMs() {
 		return errInvalidTimestamp
 	}
 
@@ -559,8 +560,8 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	header.Time = parent.Time + d.config.Period
-	if now := uint64(time.Now().Unix()); header.Time < now {
+	header.Time = parent.Time + d.config.TargetBlockPeriodMs()
+	if now := uint64(time.Now().UnixMilli()); header.Time < now {
 		header.Time = now
 	}
 
@@ -664,7 +665,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 		return nil
 	}
 
-	if d.config.Period == 0 && len(block.Transactions()) == 0 {
+	if d.config.TargetBlockPeriodMs() == 0 && len(block.Transactions()) == 0 {
 		return errors.New("dpos: sealing paused, no transactions")
 	}
 
@@ -689,7 +690,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	}
 
 	// Compute delay. In-turn: honour header.Time. Out-of-turn: add random wiggle.
-	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
+	delay := time.UnixMilli(int64(header.Time)).Sub(time.Now())
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
 		// math/rand is intentional: delay randomness is not a security property.
 		wiggle := time.Duration(len(snap.Validators)/2+1) * wiggleTime

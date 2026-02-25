@@ -580,7 +580,7 @@ Result schema:
     "epochStart",
     "nextEpochStart",
     "blocksUntilEpoch",
-    "targetBlockPeriodS",
+    "targetBlockPeriodMs",
     "maxValidators",
     "validatorCount",
     "snapshotHash"
@@ -592,7 +592,7 @@ Result schema:
     "epochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "nextEpochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "blocksUntilEpoch": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "targetBlockPeriodS": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "targetBlockPeriodMs": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "maxValidators": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "validatorCount": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "snapshotHash": {"$ref": "gtos.rpc.common#/definitions/hash32"}

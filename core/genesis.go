@@ -435,6 +435,7 @@ func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address
 	config := *params.AllDPoSProtocolChanges
 	config.DPoS = &params.DPoSConfig{
 		Period:         period,
+		PeriodMs:       period * 1000,
 		Epoch:          config.DPoS.Epoch,
 		MaxValidators:  config.DPoS.MaxValidators,
 		SealSignerType: config.DPoS.SealSignerType,

@@ -163,7 +163,7 @@ func TestSealHashRoundTrip(t *testing.T) {
 		Number:     big.NewInt(1),
 		Difficulty: big.NewInt(2),
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 
 	d := NewFaker()
@@ -203,7 +203,7 @@ func TestSealHashRoundTripEd25519(t *testing.T) {
 		Difficulty: big.NewInt(2),
 		Extra:      make([]byte, extraVanity+d.sealLength),
 		Coinbase:   signer,
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	digest := d.SealHash(header).Bytes()
 	sig := ed25519.Sign(priv, digest)
@@ -240,7 +240,7 @@ func TestCoinbaseMismatch(t *testing.T) {
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer2, // deliberately wrong: will sign with key1
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	sig, _ := crypto.Sign(SealHash(header).Bytes(), key1)
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
@@ -278,7 +278,7 @@ func TestRecentlySigned(t *testing.T) {
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
@@ -320,12 +320,12 @@ func TestAllowedFutureBlock(t *testing.T) {
 	d := NewFaker()
 	chain := &fakeChainReader{}
 
-	now := uint64(time.Now().Unix())
+	now := uint64(time.Now().UnixMilli())
 
 	// 4 seconds into the future: allowed.
 	h4 := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 4,
+		Time:       now + 4000,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
@@ -337,7 +337,7 @@ func TestAllowedFutureBlock(t *testing.T) {
 	// 6 seconds into the future: rejected.
 	h6 := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 6,
+		Time:       now + 6000,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,

@@ -147,16 +147,16 @@ type DPoSValidatorInfo struct {
 
 // DPoSEpochInfo is epoch context at a specific block.
 type DPoSEpochInfo struct {
-	BlockNumber        uint64
-	EpochLength        uint64
-	EpochIndex         uint64
-	EpochStart         uint64
-	NextEpochStart     uint64
-	BlocksUntilEpoch   uint64
-	TargetBlockPeriodS uint64
-	MaxValidators      uint64
-	ValidatorCount     uint64
-	SnapshotHash       common.Hash
+	BlockNumber         uint64
+	EpochLength         uint64
+	EpochIndex          uint64
+	EpochStart          uint64
+	NextEpochStart      uint64
+	BlocksUntilEpoch    uint64
+	TargetBlockPeriodMs uint64
+	MaxValidators       uint64
+	ValidatorCount      uint64
+	SnapshotHash        common.Hash
 }
 
 // Dial connects a client to the given URL.
@@ -449,31 +449,36 @@ func (ec *Client) DPoSGetValidator(ctx context.Context, address common.Address, 
 // DPoSGetEpochInfo returns epoch context at the requested block.
 func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*DPoSEpochInfo, error) {
 	var raw struct {
-		BlockNumber        hexutil.Uint64 `json:"blockNumber"`
-		EpochLength        hexutil.Uint64 `json:"epochLength"`
-		EpochIndex         hexutil.Uint64 `json:"epochIndex"`
-		EpochStart         hexutil.Uint64 `json:"epochStart"`
-		NextEpochStart     hexutil.Uint64 `json:"nextEpochStart"`
-		BlocksUntilEpoch   hexutil.Uint64 `json:"blocksUntilEpoch"`
-		TargetBlockPeriodS hexutil.Uint64 `json:"targetBlockPeriodS"`
-		MaxValidators      hexutil.Uint64 `json:"maxValidators"`
-		ValidatorCount     hexutil.Uint64 `json:"validatorCount"`
-		SnapshotHash       common.Hash    `json:"snapshotHash"`
+		BlockNumber          hexutil.Uint64 `json:"blockNumber"`
+		EpochLength          hexutil.Uint64 `json:"epochLength"`
+		EpochIndex           hexutil.Uint64 `json:"epochIndex"`
+		EpochStart           hexutil.Uint64 `json:"epochStart"`
+		NextEpochStart       hexutil.Uint64 `json:"nextEpochStart"`
+		BlocksUntilEpoch     hexutil.Uint64 `json:"blocksUntilEpoch"`
+		TargetBlockPeriodMs  hexutil.Uint64 `json:"targetBlockPeriodMs"`
+		TargetBlockPeriodSec hexutil.Uint64 `json:"targetBlockPeriodS"` // legacy field
+		MaxValidators        hexutil.Uint64 `json:"maxValidators"`
+		ValidatorCount       hexutil.Uint64 `json:"validatorCount"`
+		SnapshotHash         common.Hash    `json:"snapshotHash"`
 	}
 	if err := ec.c.CallContext(ctx, &raw, "dpos_getEpochInfo", toBlockNumArg(blockNumber)); err != nil {
 		return nil, err
 	}
+	periodMs := uint64(raw.TargetBlockPeriodMs)
+	if periodMs == 0 && raw.TargetBlockPeriodSec > 0 {
+		periodMs = uint64(raw.TargetBlockPeriodSec) * 1000
+	}
 	return &DPoSEpochInfo{
-		BlockNumber:        uint64(raw.BlockNumber),
-		EpochLength:        uint64(raw.EpochLength),
-		EpochIndex:         uint64(raw.EpochIndex),
-		EpochStart:         uint64(raw.EpochStart),
-		NextEpochStart:     uint64(raw.NextEpochStart),
-		BlocksUntilEpoch:   uint64(raw.BlocksUntilEpoch),
-		TargetBlockPeriodS: uint64(raw.TargetBlockPeriodS),
-		MaxValidators:      uint64(raw.MaxValidators),
-		ValidatorCount:     uint64(raw.ValidatorCount),
-		SnapshotHash:       raw.SnapshotHash,
+		BlockNumber:         uint64(raw.BlockNumber),
+		EpochLength:         uint64(raw.EpochLength),
+		EpochIndex:          uint64(raw.EpochIndex),
+		EpochStart:          uint64(raw.EpochStart),
+		NextEpochStart:      uint64(raw.NextEpochStart),
+		BlocksUntilEpoch:    uint64(raw.BlocksUntilEpoch),
+		TargetBlockPeriodMs: periodMs,
+		MaxValidators:       uint64(raw.MaxValidators),
+		ValidatorCount:      uint64(raw.ValidatorCount),
+		SnapshotHash:        raw.SnapshotHash,
 	}, nil
 }
 

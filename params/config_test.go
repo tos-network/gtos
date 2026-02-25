@@ -51,6 +51,38 @@ func TestNormalizeDPoSSealSignerType(t *testing.T) {
 	}
 }
 
+func TestDPoSConfigTargetBlockPeriodMs(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *DPoSConfig
+		want uint64
+	}{
+		{name: "nil", cfg: nil, want: 0},
+		{name: "periodMs only", cfg: &DPoSConfig{PeriodMs: 500}, want: 500},
+		{name: "legacy period only", cfg: &DPoSConfig{Period: 2}, want: 2000},
+		{name: "periodMs precedence", cfg: &DPoSConfig{Period: 2, PeriodMs: 750}, want: 750},
+	}
+	for _, tc := range tests {
+		if got := tc.cfg.TargetBlockPeriodMs(); got != tc.want {
+			t.Fatalf("%s: have %d want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestDPoSConfigNormalizePeriod(t *testing.T) {
+	cfg := &DPoSConfig{Period: 3}
+	cfg.NormalizePeriod()
+	if cfg.PeriodMs != 3000 {
+		t.Fatalf("legacy period mapping failed: have %d want %d", cfg.PeriodMs, 3000)
+	}
+
+	cfg = &DPoSConfig{Period: 3, PeriodMs: 450}
+	cfg.NormalizePeriod()
+	if cfg.PeriodMs != 450 {
+		t.Fatalf("periodMs should take precedence: have %d want %d", cfg.PeriodMs, 450)
+	}
+}
+
 func TestCheckCompatible(t *testing.T) {
 	type test struct {
 		stored, new *ChainConfig

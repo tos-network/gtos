@@ -28,16 +28,16 @@ type ValidatorInfo struct {
 
 // EpochInfo describes epoch context for a specific block.
 type EpochInfo struct {
-	BlockNumber        hexutil.Uint64 `json:"blockNumber"`
-	EpochLength        hexutil.Uint64 `json:"epochLength"`
-	EpochIndex         hexutil.Uint64 `json:"epochIndex"`
-	EpochStart         hexutil.Uint64 `json:"epochStart"`
-	NextEpochStart     hexutil.Uint64 `json:"nextEpochStart"`
-	BlocksUntilEpoch   hexutil.Uint64 `json:"blocksUntilEpoch"`
-	TargetBlockPeriodS hexutil.Uint64 `json:"targetBlockPeriodS"`
-	MaxValidators      hexutil.Uint64 `json:"maxValidators"`
-	ValidatorCount     hexutil.Uint64 `json:"validatorCount"`
-	SnapshotHash       common.Hash    `json:"snapshotHash"`
+	BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+	EpochLength         hexutil.Uint64 `json:"epochLength"`
+	EpochIndex          hexutil.Uint64 `json:"epochIndex"`
+	EpochStart          hexutil.Uint64 `json:"epochStart"`
+	NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
+	BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
+	TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+	MaxValidators       hexutil.Uint64 `json:"maxValidators"`
+	ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
+	SnapshotHash        common.Hash    `json:"snapshotHash"`
 }
 
 func (api *API) resolveHeader(number *rpc.BlockNumber) *types.Header {
@@ -138,15 +138,15 @@ func (api *API) GetEpochInfo(number *rpc.BlockNumber) (*EpochInfo, error) {
 	nextEpochStart := epochStart + epoch
 
 	return &EpochInfo{
-		BlockNumber:        hexutil.Uint64(blockNum),
-		EpochLength:        hexutil.Uint64(epoch),
-		EpochIndex:         hexutil.Uint64(epochIndex),
-		EpochStart:         hexutil.Uint64(epochStart),
-		NextEpochStart:     hexutil.Uint64(nextEpochStart),
-		BlocksUntilEpoch:   hexutil.Uint64(nextEpochStart - blockNum),
-		TargetBlockPeriodS: hexutil.Uint64(cfg.Period),
-		MaxValidators:      hexutil.Uint64(cfg.MaxValidators),
-		ValidatorCount:     hexutil.Uint64(len(snap.Validators)),
-		SnapshotHash:       snap.Hash,
+		BlockNumber:         hexutil.Uint64(blockNum),
+		EpochLength:         hexutil.Uint64(epoch),
+		EpochIndex:          hexutil.Uint64(epochIndex),
+		EpochStart:          hexutil.Uint64(epochStart),
+		NextEpochStart:      hexutil.Uint64(nextEpochStart),
+		BlocksUntilEpoch:    hexutil.Uint64(nextEpochStart - blockNum),
+		TargetBlockPeriodMs: hexutil.Uint64(cfg.TargetBlockPeriodMs()),
+		MaxValidators:       hexutil.Uint64(cfg.MaxValidators),
+		ValidatorCount:      hexutil.Uint64(len(snap.Validators)),
+		SnapshotHash:        snap.Hash,
 	}, nil
 }

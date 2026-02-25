@@ -172,7 +172,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		if head.NumberU64() >= h.checkpointNumber {
 			// Checkpoint passed, sanity check the timestamp to have a fallback mechanism
 			// for non-checkpointed (number = 0) private networks.
-			if head.Time() >= uint64(time.Now().AddDate(0, -1, 0).Unix()) {
+			if params.UnixTimestampToTime(head.Time()).After(time.Now().AddDate(0, -1, 0)) {
 				atomic.StoreUint32(&h.acceptTxs, 1)
 			}
 		}
