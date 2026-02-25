@@ -13,7 +13,7 @@ For the feature profile and roadmap status, see `docs/feature.md` and `docs/ROAD
 - Validator set governed by stake and delegation.
 - Weighted voting and quorum finality.
 - Epoch-based validator rotation.
-- Target block interval: `1s` (`target_block_interval=1s`).
+- Target block interval: `360ms` (`dpos.periodMs=360`).
 - Block sealing signer is configurable via `config.dpos.sealSignerType`:
   - `ed25519` (default)
   - `secp256k1`

@@ -13,7 +13,7 @@ This roadmap is aligned with `README.md` and defines GTOS as the **shared memory
 
 - Any AI agent — ChatGPT, Claude, Gemini, Codex, or custom — reads and writes to the same chain-native state.
 - Agents remember, coordinate, and transact with each other verifiably, without a central orchestrator.
-- DPoS consensus with fast finality (1-second block target).
+- DPoS consensus with fast finality (`360ms` block target).
 - Native TTL storage as the primary capability: `code_put_ttl` (agent-written logic) + `kv_put_ttl` (agent-maintained database).
 - TTL unit is block count, with deterministic expiry by height.
 - Predictable pruning with no archive-node dependency.
@@ -37,7 +37,7 @@ Freeze the minimum protocol and state rules before feature expansion.
 ### Deliverables
 
 - `DONE` Consensus spec: validator set, weighted voting, quorum/finality, epoch transition.
-- `DONE` Consensus timing spec: target block interval `1s` (`target_block_interval=1s`).
+- `DONE` Consensus timing spec: target block interval `360ms` (`dpos.periodMs=360`).
 - `DONE` State spec: account nonce/metadata, signer binding, code storage with TTL, KV storage with TTL.
 - `DONE` TTL semantics spec: `expire_block = current_block + ttl`, and state persistence stores `expire_block` (not raw `ttl`).
 - `DONE` Mutability spec: code is immutable while active (no update/delete), KV is updatable (overwrite by key) but not deletable.
@@ -49,7 +49,7 @@ Freeze the minimum protocol and state rules before feature expansion.
 
 - `DONE` Specs reviewed and versioned.
 - `DONE` Golden vectors for active typed signer transaction (`SignerTx`) across `secp256k1`/`schnorr`/`secp256r1`/`ed25519`/`bls12-381`, including invalid decode/canonicalization cases.
-- `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `target_block_interval=1s`.
+- `DONE` Parameters frozen: `retain_blocks=200`, `snapshot_interval=1000`, `dpos.periodMs=360`.
 
 ## Phase 1: DPoS + Account/Signer Foundation
 

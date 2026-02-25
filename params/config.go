@@ -63,7 +63,7 @@ var (
 		DPoS: &DPoSConfig{
 			PeriodMs:       DPoSBlockPeriodMs,
 			Epoch:          DPoSEpochLength,
-			MaxValidators:  21,
+			MaxValidators:  DPoSMaxValidators,
 			SealSignerType: DefaultDPoSSealSignerType,
 		},
 	}
@@ -73,7 +73,7 @@ var (
 		DPoS: &DPoSConfig{
 			PeriodMs:       DPoSBlockPeriodMs,
 			Epoch:          DPoSEpochLength,
-			MaxValidators:  21,
+			MaxValidators:  DPoSMaxValidators,
 			SealSignerType: DefaultDPoSSealSignerType,
 		},
 	}
@@ -165,10 +165,11 @@ type ChainConfig struct {
 
 // DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
 type DPoSConfig struct {
-	PeriodMs       uint64 `json:"periodMs"`                 // target block interval (milliseconds)
-	Epoch          uint64 `json:"epoch"`                    // blocks between validator-set snapshots
-	MaxValidators  uint64 `json:"maxValidators"`            // maximum active validators
-	SealSignerType string `json:"sealSignerType,omitempty"` // consensus block-seal signer type: ed25519 (default) or secp256k1
+	PeriodMs           uint64 `json:"periodMs"`                     // target block interval (milliseconds)
+	Epoch              uint64 `json:"epoch"`                        // blocks between validator-set snapshots
+	MaxValidators      uint64 `json:"maxValidators"`                // maximum active validators
+	RecentSignerWindow uint64 `json:"recentSignerWindow,omitempty"` // recent-sign window in blocks; 0 => auto (validators/3 + 1)
+	SealSignerType     string `json:"sealSignerType,omitempty"`     // consensus block-seal signer type: ed25519 (default) or secp256k1
 }
 
 // TargetBlockPeriodMs returns the configured target block interval in milliseconds.
@@ -177,6 +178,22 @@ func (c *DPoSConfig) TargetBlockPeriodMs() uint64 {
 		return 0
 	}
 	return c.PeriodMs
+}
+
+// RecentSignerWindowSize returns the effective recent-sign window in blocks.
+// If RecentSignerWindow is zero, it defaults to validators/3 + 1.
+func (c *DPoSConfig) RecentSignerWindowSize(validators int) uint64 {
+	if validators <= 0 {
+		return 1
+	}
+	maxWindow := uint64(validators)
+	if c != nil && c.RecentSignerWindow > 0 {
+		if c.RecentSignerWindow > maxWindow {
+			return maxWindow
+		}
+		return c.RecentSignerWindow
+	}
+	return uint64(validators/3 + 1)
 }
 
 // UnmarshalJSON rejects the removed legacy dpos.period field.
@@ -199,8 +216,8 @@ func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, sealSignerType: %s}",
-		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.SealSignerType)
+	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, sealSignerType: %s}",
+		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.SealSignerType)
 }
 
 // String implements the fmt.Stringer interface.

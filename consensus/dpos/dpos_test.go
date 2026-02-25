@@ -251,9 +251,9 @@ func TestCoinbaseMismatch(t *testing.T) {
 }
 
 // TestRecentlySigned verifies that a block is rejected when the validator
-// signed within the recency window (len(Validators)/2+1 blocks).
+// signed within the recency window (default: len(Validators)/3+1 blocks).
 //
-// With 3 validators, limit = 3/2+1 = 2.
+// With 3 validators, limit = 3/3+1 = 2.
 // If signer last signed at block 2 and current block is 3:
 //
 //	seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
@@ -265,7 +265,7 @@ func TestRecentlySigned(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)
 
-	// Three-validator set; recency window = 3/2+1 = 2.
+	// Three-validator set; recency window = 3/3+1 = 2.
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
@@ -322,28 +322,28 @@ func TestAllowedFutureBlock(t *testing.T) {
 
 	now := uint64(time.Now().UnixMilli())
 
-	// 4 seconds into the future: allowed.
-	h4 := &types.Header{
+	// Slightly below grace window: allowed.
+	hAllowed := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 4000,
+		Time:       now + allowedFutureBlockTime - 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
 	}
-	if err := d.verifyHeader(chain, h4, nil); err == consensus.ErrFutureBlock {
-		t.Error("4s ahead should be allowed, got ErrFutureBlock")
+	if err := d.verifyHeader(chain, hAllowed, nil); err == consensus.ErrFutureBlock {
+		t.Error("block within future-block grace should be allowed, got ErrFutureBlock")
 	}
 
-	// 6 seconds into the future: rejected.
-	h6 := &types.Header{
+	// Slightly above grace window: rejected.
+	hRejected := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 6000,
+		Time:       now + allowedFutureBlockTime + 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
 	}
-	if err := d.verifyHeader(chain, h6, nil); err != consensus.ErrFutureBlock {
-		t.Errorf("6s ahead should be rejected as ErrFutureBlock, got %v", err)
+	if err := d.verifyHeader(chain, hRejected, nil); err != consensus.ErrFutureBlock {
+		t.Errorf("block above future-block grace should be rejected as ErrFutureBlock, got %v", err)
 	}
 }
 
@@ -395,8 +395,8 @@ func TestVoteSigningLifecycle(t *testing.T) {
 
 func TestOutOfTurnWiggleWindow(t *testing.T) {
 	d := NewFaker()
-	if got := d.outOfTurnWiggleWindow(); got != 1500*time.Millisecond {
-		t.Fatalf("unexpected default wiggle window: have %s want %s", got, 1500*time.Millisecond)
+	if got := d.outOfTurnWiggleWindow(); got != maxWiggleTime {
+		t.Fatalf("unexpected default wiggle window: have %s want %s", got, maxWiggleTime)
 	}
 
 	msCfg := &params.DPoSConfig{
@@ -409,8 +409,8 @@ func TestOutOfTurnWiggleWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(msCfg): %v", err)
 	}
-	if got := dms.outOfTurnWiggleWindow(); got != 250*time.Millisecond {
-		t.Fatalf("unexpected 500ms wiggle window: have %s want %s", got, 250*time.Millisecond)
+	if got := dms.outOfTurnWiggleWindow(); got != maxWiggleTime {
+		t.Fatalf("unexpected 500ms wiggle window: have %s want %s", got, maxWiggleTime)
 	}
 
 	tinyCfg := &params.DPoSConfig{

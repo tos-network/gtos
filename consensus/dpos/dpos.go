@@ -76,8 +76,9 @@ const (
 	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
-	minWiggleTime          = 25 * time.Millisecond
-	allowedFutureBlockTime = uint64(5000) // milliseconds of clock-skew grace period
+	minWiggleTime          = 100 * time.Millisecond
+	maxWiggleTime          = 1 * time.Second
+	allowedFutureBlockTime = uint64(1080) // milliseconds: 3 × periodMs(360ms) clock-skew grace period
 )
 
 // SignerFn is the callback the miner uses to sign a header hash.
@@ -135,7 +136,7 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 func NewFaker() *DPoS {
 	d, err := New(&params.DPoSConfig{
 		Epoch:          200,
-		MaxValidators:  21,
+		MaxValidators:  params.DPoSMaxValidators,
 		PeriodMs:       3000,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
 	}, nil)
@@ -437,7 +438,7 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	}
 	// Check recency: if signer appears in Recents, only reject if this block
 	// does NOT shift that entry out of the window. Mirrors Clique's logic.
-	limit := uint64(len(snap.Validators)/2 + 1)
+	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
 	for seen, recent := range snap.Recents {
 		if recent == signer {
 			if number < limit || seen > number-limit {
@@ -679,7 +680,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if _, ok := snap.ValidatorsMap[v]; !ok {
 		return errUnauthorizedValidator
 	}
-	limit := uint64(len(snap.Validators)/2 + 1)
+	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
 	for seen, recent := range snap.Recents {
 		if recent == v {
 			if number < limit || seen > number-limit {
@@ -691,7 +692,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	// Compute delay. In-turn: honour header.Time. Out-of-turn: add random wiggle.
 	delay := time.UnixMilli(int64(header.Time)).Sub(time.Now())
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
-		// Sub-second tuning: cap out-of-turn jitter to half a slot budget.
+		// Sub-second tuning: widen out-of-turn jitter and cap it to 1s.
 		// math/rand is intentional: delay randomness is not a security property.
 		wiggle := d.outOfTurnWiggleWindow()
 		delay += time.Duration(rand.Int63n(int64(wiggle)))
@@ -752,7 +753,10 @@ func (d *DPoS) outOfTurnWiggleWindow() time.Duration {
 	if period <= 0 {
 		return minWiggleTime
 	}
-	wiggle := period / 2
+	wiggle := period * 2
+	if wiggle > maxWiggleTime {
+		wiggle = maxWiggleTime
+	}
 	if wiggle < minWiggleTime {
 		return minWiggleTime
 	}

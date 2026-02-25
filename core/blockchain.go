@@ -89,7 +89,7 @@ const (
 	receiptsCacheLimit  = 32
 	txLookupCacheLimit  = 1024
 	maxFutureBlocks     = 256
-	maxTimeFutureBlocks = 30
+	maxTimeFutureBlocks = 30_000 // milliseconds
 	TriesInMemory       = 128
 
 	// BlockChainVersion ensures that an incompatible database forces a resync from scratch.
@@ -1391,12 +1391,7 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 // TODO after the transition, the future block shouldn't be kept. Because
 // it's not checked in the GTOS side anymore.
 func (bc *BlockChain) addFutureBlock(block *types.Block) error {
-	var max uint64
-	if params.IsMillisecondsTimestamp(block.Time()) {
-		max = uint64(time.Now().UnixMilli()) + maxTimeFutureBlocks*1000
-	} else {
-		max = uint64(time.Now().Unix()) + maxTimeFutureBlocks
-	}
+	max := uint64(time.Now().UnixMilli()) + maxTimeFutureBlocks
 	if block.Time() > max {
 		return fmt.Errorf("future block timestamp %v > allowed %v", block.Time(), max)
 	}
