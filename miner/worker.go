@@ -605,15 +605,13 @@ func (w *worker) mainLoop() {
 				if gp := w.current.gasPool; gp != nil && gp.Gas() < params.TxGas {
 					continue
 				}
-				txs := make(map[common.Address]types.Transactions)
+				newTxs := make(map[common.Address]types.Transactions)
 				for _, tx := range ev.Txs {
 					acc := txSenderHint(w.current.signer, tx)
-					txs[acc] = append(txs[acc], tx)
+					newTxs[acc] = append(newTxs[acc], tx)
 				}
-				txset := types.NewTransactionsByPriceAndNonce(w.current.signer, txs, w.current.header.BaseFee)
 				tcount := w.current.tcount
-				w.commitTransactions(w.current, txset, nil)
-
+				w.applyTxBatch(w.current, newTxs)
 				// Only update the snapshot if any new transactions were added
 				// to the pending block
 				if tcount != w.current.tcount {
@@ -830,124 +828,111 @@ func (w *worker) updateSnapshot(env *environment) {
 	w.snapshotState = env.state.Copy()
 }
 
-func (w *worker) commitTransaction(env *environment, tx *types.Transaction) ([]*types.Log, error) {
-	snap := env.state.Snapshot()
+// selectTransactions pre-selects txs from the local and remote maps using
+// nonce/gas filtering, without executing them.  Returns the selected txs,
+// their pre-built messages, and whether the interrupt signal fired.
+// Locals are iterated first (higher priority), then remotes.
+func (w *worker) selectTransactions(
+	env *environment,
+	localTxs, remoteTxs map[common.Address]types.Transactions,
+	interrupt *int32,
+) (selected []*types.Transaction, msgs []types.Message, interrupted bool) {
+	nextNonce := make(map[common.Address]uint64)
+	remainingGas := env.gasPool.Gas()
 
-	receipt, err := core.ApplyTransaction(w.chainConfig, w.chain, &env.coinbase, env.gasPool, env.state, env.header, tx, &env.header.GasUsed)
-	if err != nil {
-		env.state.RevertToSnapshot(snap)
-		return nil, err
+	doSelect := func(m map[common.Address]types.Transactions) bool {
+		if len(m) == 0 {
+			return false
+		}
+		iter := types.NewTransactionsByPriceAndNonce(env.signer, m, env.header.BaseFee)
+		for {
+			if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
+				return true
+			}
+			if remainingGas < params.TxGas {
+				log.Trace("Not enough gas for further transactions", "have", remainingGas, "want", params.TxGas)
+				break
+			}
+			tx := iter.Peek()
+			if tx == nil {
+				break
+			}
+			from := txSenderHint(env.signer, tx)
+
+			expected, ok := nextNonce[from]
+			if !ok {
+				expected = env.state.GetNonce(from)
+				nextNonce[from] = expected
+			}
+			if tx.Nonce() < expected {
+				log.Trace("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
+				iter.Shift()
+				continue
+			}
+			if tx.Nonce() > expected {
+				log.Trace("Skipping account with high nonce", "sender", from, "nonce", tx.Nonce())
+				iter.Pop()
+				continue
+			}
+			if tx.Gas() > remainingGas {
+				log.Trace("Gas limit exceeded for current block", "sender", from)
+				iter.Pop()
+				continue
+			}
+			msg, err := core.TxAsMessageWithAccountSigner(tx, env.signer, env.header.BaseFee, env.state)
+			if err != nil {
+				log.Debug("Transaction message build failed", "hash", tx.Hash(), "err", err)
+				iter.Shift()
+				continue
+			}
+			selected = append(selected, tx)
+			msgs = append(msgs, msg)
+			nextNonce[from] = expected + 1
+			remainingGas -= tx.Gas()
+			iter.Shift()
+		}
+		return false
 	}
-	env.txs = append(env.txs, tx)
-	env.receipts = append(env.receipts, receipt)
 
-	return receipt.Logs, nil
+	if doSelect(localTxs) {
+		return selected, msgs, true
+	}
+	if doSelect(remoteTxs) {
+		return selected, msgs, true
+	}
+	return selected, msgs, false
 }
 
-func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByPriceAndNonce, interrupt *int32) error {
-	gasLimit := env.header.GasLimit
+// applyTxBatch selects and executes a specific set of transactions against env.
+// Used in non-sealing mode to apply newly-arrived pool transactions to the
+// pending block state for RPC queries.  Handles prevGas offset for correct
+// CumulativeGasUsed values.
+func (w *worker) applyTxBatch(env *environment, txsMap map[common.Address]types.Transactions) {
 	if env.gasPool == nil {
-		env.gasPool = new(core.GasPool).AddGas(gasLimit)
+		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
 	}
-	var coalescedLogs []*types.Log
-
-	for {
-		// In the following three cases, we will interrupt the execution of the transaction.
-		// (1) new head block event arrival, the interrupt signal is 1
-		// (2) worker start or restart, the interrupt signal is 1
-		// (3) worker recreate the sealing block with any newly arrived transactions, the interrupt signal is 2.
-		// For the first two cases, the semi-finished work will be discarded.
-		// For the third case, the semi-finished work will be submitted to the consensus engine.
-		if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
-			// Notify resubmit loop to increase resubmitting interval due to too frequent commits.
-			if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
-				ratio := float64(gasLimit-env.gasPool.Gas()) / float64(gasLimit)
-				if ratio < 0.1 {
-					ratio = 0.1
-				}
-				w.resubmitAdjustCh <- &intervalAdjust{
-					ratio: ratio,
-					inc:   true,
-				}
-				return errBlockInterruptedByRecommit
-			}
-			return errBlockInterruptedByNewHead
-		}
-		// If we don't have enough gas for any further transactions then we're done
-		if env.gasPool.Gas() < params.TxGas {
-			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", params.TxGas)
-			break
-		}
-		// Retrieve the next transaction and abort if all done
-		tx := txs.Peek()
-		if tx == nil {
-			break
-		}
-		// Error may be ignored here. The error has already been checked
-		// during transaction acceptance in the transaction pool.
-		//
-		// Chain-id replay protection is always active in GTOS.
-		from := txSenderHint(env.signer, tx)
-		// Start executing the transaction
-		env.state.Prepare(tx.Hash(), env.tcount)
-
-		logs, err := w.commitTransaction(env, tx)
-		switch {
-		case errors.Is(err, core.ErrGasLimitReached):
-			// Pop the current out-of-gas transaction without shifting in the next from the account
-			log.Trace("Gas limit exceeded for current block", "sender", from)
-			txs.Pop()
-
-		case errors.Is(err, core.ErrNonceTooLow):
-			// New head notification data race between the transaction pool and miner, shift
-			log.Trace("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
-			txs.Shift()
-
-		case errors.Is(err, core.ErrNonceTooHigh):
-			// Reorg notification data race between the transaction pool and miner, skip account =
-			log.Trace("Skipping account with hight nonce", "sender", from, "nonce", tx.Nonce())
-			txs.Pop()
-
-		case errors.Is(err, nil):
-			// Everything ok, collect the logs and shift in the next transaction from the same account
-			coalescedLogs = append(coalescedLogs, logs...)
-			env.tcount++
-			txs.Shift()
-
-		case errors.Is(err, core.ErrTxTypeNotSupported):
-			// Pop the unsupported transaction without shifting in the next from the account
-			log.Trace("Skipping unsupported transaction type", "sender", from, "type", tx.Type())
-			txs.Pop()
-
-		default:
-			// Strange error, discard the transaction and get the next in line (note, the
-			// nonce-too-high clause will prevent us from executing in vain).
-			log.Debug("Transaction failed, account skipped", "hash", tx.Hash(), "err", err)
-			txs.Shift()
-		}
+	selected, msgs, _ := w.selectTransactions(env, txsMap, nil, nil)
+	if len(selected) == 0 {
+		return
 	}
-
-	if !w.isRunning() && len(coalescedLogs) > 0 {
-		// We don't push the pendingLogsEvent while we are sealing. The reason is that
-		// when we are sealing, the worker will regenerate a sealing block every 3 seconds.
-		// In order to avoid pushing the repeated pendingLog, we disable the pending log pushing.
-
-		// make a copy, the state caches the logs and these logs get "upgraded" from pending to mined
-		// logs by filling in the block hash when the block was mined by the local miner. This can
-		// cause a race condition if a log was "upgraded" before the PendingLogsEvent is processed.
-		cpy := make([]*types.Log, len(coalescedLogs))
-		for i, l := range coalescedLogs {
-			cpy[i] = new(types.Log)
-			*cpy[i] = *l
-		}
-		w.pendingLogsFeed.Send(cpy)
+	blockCtx := core.NewTVMBlockContext(env.header, w.chain, &env.coinbase)
+	receipts, _, gasUsed, err := core.ExecuteTransactions(
+		w.chainConfig, blockCtx, env.state,
+		types.Transactions(selected), env.header.Hash(), env.header.Number,
+		env.gasPool, msgs,
+	)
+	if err != nil {
+		log.Debug("Failed to apply new transactions to pending state", "err", err)
+		return
 	}
-	// Notify resubmit loop to decrease resubmitting interval if current interval is larger
-	// than the user-specified one.
-	if interrupt != nil {
-		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
+	prevGas := env.header.GasUsed
+	env.header.GasUsed += gasUsed
+	for _, r := range receipts {
+		r.CumulativeGasUsed += prevGas
 	}
-	return nil
+	env.txs = append(env.txs, selected...)
+	env.receipts = append(env.receipts, receipts...)
+	env.tcount += len(selected)
 }
 
 // generateParams wraps various of settings for generating sealing task.
@@ -1038,12 +1023,14 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 	return env, nil
 }
 
-// fillTransactions retrieves the pending transactions from the txpool and fills them
-// into the given sealing block. The transaction selection and ordering strategy can
-// be customized with the plugin in the future.
+// fillTransactions retrieves pending transactions from the txpool, selects a
+// valid batch, and executes them all in a single parallel call.
 func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
-	// Split the pending transactions into locals and remotes
-	// Fill the block with all available pending transactions.
+	if env.gasPool == nil {
+		env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
+	}
+
+	// Split the pending transactions into locals and remotes.
 	pending := w.tos.TxPool().Pending(true)
 	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
 	for _, account := range w.tos.TxPool().Locals() {
@@ -1052,17 +1039,62 @@ func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
 			localTxs[account] = txs
 		}
 	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+
+	// Phase 1: Pre-select transactions using nonce/gas filtering (no execution).
+	selected, msgs, interrupted := w.selectTransactions(env, localTxs, remoteTxs, interrupt)
+	if interrupted {
+		if atomic.LoadInt32(interrupt) == commitInterruptResubmit {
+			ratio := float64(env.header.GasLimit-env.gasPool.Gas()) / float64(env.header.GasLimit)
+			if ratio < 0.1 {
+				ratio = 0.1
+			}
+			w.resubmitAdjustCh <- &intervalAdjust{ratio: ratio, inc: true}
+			return errBlockInterruptedByRecommit
 		}
+		return errBlockInterruptedByNewHead
 	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+	if len(selected) == 0 {
+		if interrupt != nil {
+			w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 		}
+		return nil
+	}
+
+	// Phase 2: Execute all selected txs in a single parallel batch.
+	blockCtx := core.NewTVMBlockContext(env.header, w.chain, &env.coinbase)
+	receipts, coalescedLogs, gasUsed, err := core.ExecuteTransactions(
+		w.chainConfig, blockCtx, env.state,
+		types.Transactions(selected), env.header.Hash(), env.header.Number,
+		env.gasPool, msgs,
+	)
+	if err != nil {
+		log.Error("Failed to execute transactions during block building", "err", err)
+		return errBlockInterruptedByNewHead
+	}
+	// Fix CumulativeGasUsed: ExecuteTransactions starts cumulation from 0, but
+	// env.header.GasUsed may already contain gas from a prior batch.
+	prevGas := env.header.GasUsed
+	env.header.GasUsed += gasUsed
+	for _, r := range receipts {
+		r.CumulativeGasUsed += prevGas
+	}
+	env.txs = append(env.txs, selected...)
+	env.receipts = append(env.receipts, receipts...)
+	env.tcount += len(selected)
+
+	if !w.isRunning() && len(coalescedLogs) > 0 {
+		// make a copy, the state caches the logs and these logs get "upgraded" from pending to mined
+		// logs by filling in the block hash when the block was mined by the local miner. This can
+		// cause a race condition if a log was "upgraded" before the PendingLogsEvent is processed.
+		cpy := make([]*types.Log, len(coalescedLogs))
+		for i, l := range coalescedLogs {
+			cpy[i] = new(types.Log)
+			*cpy[i] = *l
+		}
+		w.pendingLogsFeed.Send(cpy)
+	}
+	if interrupt != nil {
+		w.resubmitAdjustCh <- &intervalAdjust{inc: false}
 	}
 	return nil
 }

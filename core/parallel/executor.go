@@ -7,11 +7,14 @@ package parallel
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 
+	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -53,16 +56,13 @@ type BlockGasPool interface {
 	Gas() uint64
 }
 
-// parallelThreshold is the minimum number of transactions for the parallel path.
-const parallelThreshold = 2
-
 // goroutineResult holds the output from a single tx goroutine.
 type goroutineResult struct {
 	result *TxResult
 	err    error // fatal block-level error
 }
 
-// ExecuteParallel runs block transactions in parallel levels and returns receipts,
+// ExecuteParallel runs transactions in parallel levels and returns receipts,
 // all logs, total gas used, and any error.
 //
 // It falls back to an empty result when no transactions are present.
@@ -71,7 +71,9 @@ type goroutineResult struct {
 //   - config: chain configuration
 //   - blockCtx: block-level execution context (includes coinbase, block number, etc.)
 //   - statedb: mutable state database (modified in place)
-//   - block: the block whose transactions are to be executed
+//   - txs: transactions to execute
+//   - blockHash: hash of the enclosing block (used for receipt and log fields)
+//   - blockNumber: number of the enclosing block
 //   - gp: block-level gas pool; SubGas is called serially for each tx
 //   - msgs: per-transaction messages, pre-built from the signer in the caller
 //   - applyMsg: callback that executes a single message against a vm.StateDB
@@ -79,19 +81,19 @@ func ExecuteParallel(
 	config *params.ChainConfig,
 	blockCtx vm.BlockContext,
 	statedb *state.StateDB,
-	block *types.Block,
+	txs types.Transactions,
+	blockHash common.Hash,
+	blockNumber *big.Int,
 	gp BlockGasPool,
 	msgs []types.Message,
 	applyMsg ApplyMsgFn,
 ) (types.Receipts, []*types.Log, uint64, error) {
-	txs := block.Transactions()
 	if len(txs) == 0 {
 		return nil, nil, 0, nil
 	}
-
-	header := block.Header()
-	blockHash := block.Hash()
-	blockNumber := header.Number
+	if len(msgs) != len(txs) {
+		return nil, nil, 0, fmt.Errorf("message count mismatch: txs=%d msgs=%d", len(txs), len(msgs))
+	}
 
 	// Build access sets and execution levels.
 	accessSets := make([]AccessSet, len(txs))
@@ -99,15 +101,27 @@ func ExecuteParallel(
 		accessSets[i] = AnalyzeTx(msg)
 	}
 	levels := BuildLevels(accessSets)
+	// Conservative fallback: if the block coinbase also appears as a tx sender,
+	// force serial-by-index execution to preserve balance-dependent semantics.
+	if hasCoinbaseSender(msgs, blockCtx.Coinbase) {
+		coinbaseSenderFallbackBlocksMeter.Mark(1)
+		coinbaseSenderFallbackTxsMeter.Mark(int64(len(txs)))
+		var blockU64 uint64
+		if blockNumber != nil {
+			blockU64 = blockNumber.Uint64()
+		}
+		log.Debug("Parallel executor fallback to serial levels", "reason", "coinbase-sender", "block", blockU64, "txs", len(txs))
+		levels = serialLevels(len(txs))
+	}
 
 	// Pre-allocate result slots indexed by tx position.
 	goroutineResults := make([]goroutineResult, len(txs))
 	txBufs := make([]*WriteBufStateDB, len(txs))
+	receiptsByTx := make(types.Receipts, len(txs))
 
 	var (
-		receipts types.Receipts
 		allLogs  []*types.Log
-		cumulGas uint64
+		totalGas uint64
 	)
 
 	for _, level := range levels {
@@ -157,7 +171,7 @@ func ExecuteParallel(
 			if err := gp.SubGas(result.UsedGas); err != nil {
 				return nil, nil, 0, ErrGasLimitReached
 			}
-			cumulGas += result.UsedGas
+			totalGas += result.UsedGas
 
 			// Apply overlay writes to statedb and finalise.
 			buf := txBufs[txIdx]
@@ -178,7 +192,7 @@ func ExecuteParallel(
 			// Build receipt.
 			receipt := &types.Receipt{
 				Type:              tx.Type(),
-				CumulativeGasUsed: cumulGas,
+				CumulativeGasUsed: 0, // filled in tx index order below
 				TxHash:            tx.Hash(),
 				GasUsed:           result.UsedGas,
 				BlockHash:         blockHash,
@@ -192,11 +206,21 @@ func ExecuteParallel(
 				receipt.Status = types.ReceiptStatusSuccessful
 			}
 			receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
-			receipts = append(receipts, receipt)
+			receiptsByTx[txIdx] = receipt
 		}
 	}
 
-	return receipts, allLogs, cumulGas, nil
+	// Fill cumulative gas strictly in tx order.
+	var cumulativeGasUsed uint64
+	for i, receipt := range receiptsByTx {
+		if receipt == nil {
+			return nil, nil, 0, fmt.Errorf("missing receipt for tx index %d", i)
+		}
+		cumulativeGasUsed += receipt.GasUsed
+		receipt.CumulativeGasUsed = cumulativeGasUsed
+	}
+
+	return receiptsByTx, allLogs, totalGas, nil
 }
 
 // sortedInts returns a copy of s sorted in ascending order using insertion sort.
@@ -214,4 +238,21 @@ func sortedInts(s []int) []int {
 		out[j+1] = key
 	}
 	return out
+}
+
+func hasCoinbaseSender(msgs []types.Message, coinbase common.Address) bool {
+	for _, msg := range msgs {
+		if msg.From() == coinbase {
+			return true
+		}
+	}
+	return false
+}
+
+func serialLevels(n int) [][]int {
+	levels := make([][]int, n)
+	for i := 0; i < n; i++ {
+		levels[i] = []int{i}
+	}
+	return levels
 }

@@ -133,6 +133,17 @@ func clearRecord(db vm.StateDB, owner common.Address, base common.Hash) {
 	db.SetState(owner, existsSlot, common.Hash{})
 }
 
+// Delete zeroes all storage slots for a KV record (value chunks + 4 meta slots).
+func Delete(db vm.StateDB, owner common.Address, namespace string, key []byte) {
+	clearRecord(db, owner, slotForRecord(namespace, key))
+}
+
+// GetRawExpireAt reads the raw expireAt slot for a KV record without applying
+// lazy-expiry filtering.  Returns 0 if the record does not exist.
+func GetRawExpireAt(db vm.StateDB, owner common.Address, namespace string, key []byte) uint64 {
+	return readUint64(db, owner, metaSlot(slotForRecord(namespace, key), "expireAt"))
+}
+
 // Put upserts a TTL KV record and persists absolute createdAt/expireAt heights.
 func Put(db vm.StateDB, owner common.Address, namespace string, key, value []byte, createdAt, expireAt uint64) {
 	base := slotForRecord(namespace, key)

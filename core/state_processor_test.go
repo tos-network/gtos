@@ -564,6 +564,158 @@ func TestStateProcessorPrunesExpiredCodeAtBlockBoundary(t *testing.T) {
 	}
 }
 
+// TestStateProcessorDoesNotPhysicallyDeleteExpiredKVAtBlock3 verifies that
+// expiry remains logical-only in consensus execution: after expiry, KV reads
+// are hidden, but raw storage slots are not physically cleared by block import.
+//
+//	block 1: KV Put TTL=1  → expireAt=2
+//	block 2: empty (lazy expiry: record hidden but slots still non-zero)
+//	block 3: empty (still hidden logically; raw slots remain)
+func TestStateProcessorDoesNotPhysicallyDeleteExpiredKVAtBlock3(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	signer := types.LatestSigner(config)
+	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	if err != nil {
+		t.Fatalf("load key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+
+	buildDB := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc:  GenesisAlloc{from: {Balance: big.NewInt(10_000_000_000_000_000)}},
+	}
+	genesis := gspec.MustCommit(buildDB)
+
+	payload, err := kvstore.EncodePutPayload("ns", []byte("k"), []byte("value"), 1) // expireAt=2
+	if err != nil {
+		t.Fatalf("encode kv payload: %v", err)
+	}
+	txKV, err := signTestSignerTx(signer, key, 0, params.KVRouterAddress, big.NewInt(0), 500_000, big.NewInt(1), payload)
+	if err != nil {
+		t.Fatalf("sign kv tx: %v", err)
+	}
+
+	blocks, _ := GenerateChain(config, genesis, dpos.NewFaker(), buildDB, 3, func(i int, b *BlockGen) {
+		if i == 0 {
+			b.AddTx(txKV)
+		}
+	})
+
+	runDB := rawdb.NewMemoryDatabase()
+	gspec.MustCommit(runDB)
+	blockchain, err := NewBlockChain(runDB, nil, gspec.Config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatalf("create blockchain: %v", err)
+	}
+	defer blockchain.Stop()
+
+	if _, err := blockchain.InsertChain(blocks); err != nil {
+		t.Fatalf("insert blocks: %v", err)
+	}
+	if have, want := blockchain.CurrentBlock().NumberU64(), uint64(3); have != want {
+		t.Fatalf("unexpected head: have %d want %d", have, want)
+	}
+
+	st, err := blockchain.State()
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+
+	// Logical expiry only: record is hidden for reads, but raw expireAt remains.
+	if meta := kvstore.GetMeta(st, from, "ns", []byte("k"), 3); meta.Exists {
+		t.Fatalf("expected expired KV to stay hidden at block3, got %+v", meta)
+	}
+	if _, _, found := kvstore.Get(st, from, "ns", []byte("k"), 3); found {
+		t.Fatalf("expected expired KV to be hidden at block3")
+	}
+	if raw := kvstore.GetRawExpireAt(st, from, "ns", []byte("k")); raw != 2 {
+		t.Fatalf("expected raw expireAt to remain 2 without physical deletion, got %d", raw)
+	}
+}
+
+// TestStateProcessorDoesNotPhysicallyDeleteExpiredSetCodeAtBlock3 verifies that
+// expiry remains logical-only for SetCode in consensus execution.
+//
+//	block 1: SetCode TTL=1  → expireAt=2
+//	block 2: empty (lazy expiry: code still in state)
+//	block 3: empty (code + metadata still present in raw state)
+func TestStateProcessorDoesNotPhysicallyDeleteExpiredSetCodeAtBlock3(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	signer := types.LatestSigner(config)
+	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	if err != nil {
+		t.Fatalf("load key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+
+	buildDB := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc:  GenesisAlloc{from: {Balance: big.NewInt(10_000_000_000_000_000)}},
+	}
+	genesis := gspec.MustCommit(buildDB)
+
+	codePayload, err := EncodeSetCodePayload(1, []byte{0x60, 0x00}) // expireAt=2
+	if err != nil {
+		t.Fatalf("encode setCode payload: %v", err)
+	}
+	txSetCode := types.NewTx(&types.SignerTx{
+		ChainID:    signer.ChainID(),
+		Nonce:      0,
+		To:         nil,
+		Value:      big.NewInt(0),
+		Gas:        500_000,
+		Data:       codePayload,
+		From:       from,
+		SignerType: accountsigner.SignerTypeSecp256k1,
+	})
+	txSetCode, err = types.SignTx(txSetCode, signer, key)
+	if err != nil {
+		t.Fatalf("sign setCode tx: %v", err)
+	}
+
+	blocks, _ := GenerateChain(config, genesis, dpos.NewFaker(), buildDB, 3, func(i int, b *BlockGen) {
+		if i == 0 {
+			b.AddTx(txSetCode)
+		}
+	})
+
+	runDB := rawdb.NewMemoryDatabase()
+	gspec.MustCommit(runDB)
+	blockchain, err := NewBlockChain(runDB, nil, gspec.Config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatalf("create blockchain: %v", err)
+	}
+	defer blockchain.Stop()
+
+	if _, err := blockchain.InsertChain(blocks); err != nil {
+		t.Fatalf("insert blocks: %v", err)
+	}
+	if have, want := blockchain.CurrentBlock().NumberU64(), uint64(3); have != want {
+		t.Fatalf("unexpected head: have %d want %d", have, want)
+	}
+
+	st, err := blockchain.State()
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+
+	// Logical expiry only: no proactive physical clear from consensus path.
+	if raw := stateWordToUint64(st.GetState(from, SetCodeExpireAtSlot)); raw != 2 {
+		t.Fatalf("expected SetCodeExpireAtSlot to remain 2 without physical deletion, got %d", raw)
+	}
+	if code := st.GetCode(from); len(code) == 0 {
+		t.Fatalf("expected code bytes to remain without physical deletion")
+	}
+}
+
 // GenerateBadBlock constructs a "block" which contains the transactions. The transactions are not expected to be
 // valid, and no proper post-state can be made. But from the perspective of the blockchain, the block is sufficiently
 // valid to be considered for import:

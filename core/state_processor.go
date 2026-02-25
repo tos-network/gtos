@@ -71,17 +71,40 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 	txs := block.Transactions()
 	msgs := make([]types.Message, len(txs))
 	for i, tx := range txs {
-		msg, err := txAsMessageWithAccountSigner(tx, signer, header.BaseFee, statedb)
+		msg, err := TxAsMessageWithAccountSigner(tx, signer, header.BaseFee, statedb)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		msgs[i] = msg
 	}
 
-	// applyMsgFn wraps ApplyMessage for the parallel executor.
-	// Each call uses an independent per-tx gas pool seeded with msg.Gas(),
-	// keeping per-tx gas accounting self-contained. Block-level gas is
-	// accounted for serially by ExecuteParallel.
+	var err error
+	receipts, allLogs, *usedGas, err = ExecuteTransactions(
+		p.config, blockCtx, statedb, txs, block.Hash(), header.Number, gp, msgs,
+	)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
+	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
+
+	return receipts, allLogs, *usedGas, nil
+}
+
+// ExecuteTransactions runs txs against statedb using the parallel executor with
+// the standard per-tx gas pool accounting.  It is the single entry point for
+// all tx execution in GTOS (validation, mining, and test chain generation).
+func ExecuteTransactions(
+	config *params.ChainConfig,
+	blockCtx vm.BlockContext,
+	statedb *state.StateDB,
+	txs types.Transactions,
+	blockHash common.Hash,
+	blockNumber *big.Int,
+	gp *GasPool,
+	msgs []types.Message,
+) (types.Receipts, []*types.Log, uint64, error) {
 	applyMsgFn := func(bCtx vm.BlockContext, cfg *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*parallel.TxResult, error) {
 		perTxGP := new(GasPool).AddGas(msg.Gas())
 		result, err := ApplyMessage(bCtx, cfg, msg, perTxGP, sdb)
@@ -90,66 +113,12 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		}
 		return &parallel.TxResult{UsedGas: result.UsedGas, VMErr: result.Err}, nil
 	}
-
-	var parallelErr error
-	receipts, allLogs, *usedGas, parallelErr = parallel.ExecuteParallel(
-		p.config, blockCtx, statedb, block, gp, msgs, applyMsgFn,
-	)
-	if parallelErr != nil {
-		return nil, nil, 0, parallelErr
-	}
-	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
-
-	return receipts, allLogs, *usedGas, nil
+	return parallel.ExecuteParallel(config, blockCtx, statedb, txs, blockHash, blockNumber, gp, msgs, applyMsgFn)
 }
 
-func applyTransaction(msg types.Message, config *params.ChainConfig, blockCtx vm.BlockContext, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64) (*types.Receipt, error) {
-	// Apply the transaction to the current state.
-	result, err := ApplyMessage(blockCtx, config, msg, gp, statedb)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update the state with pending changes.
-	statedb.Finalise(true)
-	var root []byte
-	*usedGas += result.UsedGas
-
-	// Create a new receipt for the transaction, storing the intermediate root and gas used
-	// by the tx.
-	receipt := &types.Receipt{Type: tx.Type(), PostState: root, CumulativeGasUsed: *usedGas}
-	if result.Failed() {
-		receipt.Status = types.ReceiptStatusFailed
-	} else {
-		receipt.Status = types.ReceiptStatusSuccessful
-	}
-	receipt.TxHash = tx.Hash()
-	receipt.GasUsed = result.UsedGas
-
-	// Set the receipt logs and create the bloom filter.
-	receipt.Logs = statedb.GetLogs(tx.Hash(), blockHash)
-	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
-	receipt.BlockHash = blockHash
-	receipt.BlockNumber = blockNumber
-	receipt.TransactionIndex = uint(statedb.TxIndex())
-	return receipt, err
-}
-
-// ApplyTransaction attempts to apply a transaction to the given state database
-// and uses the input parameters for its environment. It returns the receipt
-// for the transaction, gas used and an error if the transaction failed,
-// indicating the block was invalid.
-func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64) (*types.Receipt, error) {
-	msg, err := txAsMessageWithAccountSigner(tx, types.MakeSigner(config, header.Number), header.BaseFee, statedb)
-	if err != nil {
-		return nil, err
-	}
-	blockCtx := NewTVMBlockContext(header, bc, author)
-	return applyTransaction(msg, config, blockCtx, gp, statedb, header.Number, header.Hash(), tx, usedGas)
-}
-
-func txAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, baseFee *big.Int, statedb *state.StateDB) (types.Message, error) {
+// TxAsMessageWithAccountSigner converts a transaction to a Message using the
+// account-based signer (resolves sender from state for SignerTx types).
+func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, baseFee *big.Int, statedb *state.StateDB) (types.Message, error) {
 	txPrice := new(big.Int).Set(tx.TxPrice())
 	gasFeeCap := new(big.Int).Set(tx.GasFeeCap())
 	gasTipCap := new(big.Int).Set(tx.GasTipCap())

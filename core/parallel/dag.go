@@ -20,6 +20,11 @@ func BuildLevels(accessSets []AccessSet) [][]int {
 				}
 			}
 		}
+		// Preserve tx-index execution order across levels:
+		// level indices must be non-decreasing so flatten(levels) follows tx order.
+		if levels[i] < levels[i-1] {
+			levels[i] = levels[i-1]
+		}
 	}
 
 	// Find max level.

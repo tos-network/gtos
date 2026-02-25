@@ -1,6 +1,7 @@
 package parallel
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -256,7 +257,6 @@ func TestBuildLevelsSysActionsAllSerialized(t *testing.T) {
 		AnalyzeTx(sysActionMsg(addr("0xE1"), 0)),
 		AnalyzeTx(sysActionMsg(addr("0xE2"), 0)),
 		AnalyzeTx(sysActionMsg(addr("0xE3"), 0)),
-
 	}
 	levels := BuildLevels(sets)
 	if len(levels) != 3 {
@@ -283,6 +283,28 @@ func TestBuildLevelsMixed(t *testing.T) {
 	}
 	if len(levels[1]) != 1 || levels[1][0] != 3 {
 		t.Errorf("expected tx3 in level 1, got %v", levels[1])
+	}
+}
+
+func TestBuildLevelsKeepTxIndexOrder(t *testing.T) {
+	// tx1 conflicts with tx0; tx2 is independent.
+	// Raw DAG levels would be [0,1,0], but BuildLevels must enforce non-decreasing
+	// level numbers so flattened execution keeps tx order.
+	s := addr("0xA100")
+	sets := []AccessSet{
+		AnalyzeTx(plainMsg(s, addr("0xB101"), 0, 1)),              // tx0
+		AnalyzeTx(plainMsg(s, addr("0xB102"), 1, 1)),              // tx1 (conflicts with tx0)
+		AnalyzeTx(plainMsg(addr("0xA200"), addr("0xB201"), 0, 1)), // tx2 (independent)
+	}
+	levels := BuildLevels(sets)
+	if len(levels) != 2 {
+		t.Fatalf("expected 2 levels, got %d", len(levels))
+	}
+	if len(levels[0]) != 1 || levels[0][0] != 0 {
+		t.Fatalf("expected level0=[0], got %v", levels[0])
+	}
+	if len(levels[1]) != 2 || levels[1][0] != 1 || levels[1][1] != 2 {
+		t.Fatalf("expected level1=[1,2], got %v", levels[1])
 	}
 }
 
@@ -513,7 +535,7 @@ func TestExecuteParallelEmpty(t *testing.T) {
 			BlockNumber: big.NewInt(1),
 			Difficulty:  big.NewInt(1),
 		},
-		db, block, &gp, nil, mockApplyMsg(1000),
+		db, block.Transactions(), block.Hash(), block.Header().Number, &gp, nil, mockApplyMsg(1000),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -557,7 +579,7 @@ func TestExecuteParallelIndependentTxs(t *testing.T) {
 			Difficulty:  big.NewInt(1),
 			Coinbase:    coinbase,
 		},
-		db, block, &gp, msgs, apply,
+		db, block.Transactions(), block.Hash(), block.Header().Number, &gp, msgs, apply,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -624,7 +646,7 @@ func TestExecuteParallelStateRootParity(t *testing.T) {
 				Difficulty:  big.NewInt(1),
 				Coinbase:    coinbase,
 			},
-			db, block, &gp, msgs, mockApplyMsg(500),
+			db, block.Transactions(), block.Hash(), block.Header().Number, &gp, msgs, mockApplyMsg(500),
 		)
 		if err != nil {
 			t.Fatalf("ExecuteParallel failed: %v", err)
@@ -678,7 +700,7 @@ func TestExecuteParallelSerialEquivalence(t *testing.T) {
 			Difficulty:  big.NewInt(1),
 			Coinbase:    coinbase,
 		},
-		dbParallel, block, &gp1, msgs, applyFn,
+		dbParallel, block.Transactions(), block.Hash(), block.Header().Number, &gp1, msgs, applyFn,
 	)
 	if err != nil {
 		t.Fatalf("parallel: %v", err)
@@ -706,6 +728,127 @@ func TestExecuteParallelSerialEquivalence(t *testing.T) {
 
 	if parallelRoot != serialRoot {
 		t.Errorf("state root mismatch: parallel=%v serial=%v", parallelRoot, serialRoot)
+	}
+}
+
+func TestExecuteParallelReceiptsFollowTxOrder(t *testing.T) {
+	coinbase := addr("0xCA01")
+	sameSender := addr("0xAA11")
+	otherSender := addr("0xAA22")
+	r1 := addr("0xBB11")
+	r2 := addr("0xBB22")
+	r3 := addr("0xBB33")
+
+	db := newTestStateDB(t)
+	db.AddBalance(sameSender, big.NewInt(100_000))
+	db.AddBalance(otherSender, big.NewInt(100_000))
+	db.Finalise(false)
+
+	msgs := []types.Message{
+		plainMsg(sameSender, r1, 0, 10),  // tx0
+		plainMsg(sameSender, r2, 1, 20),  // tx1 (conflicts with tx0)
+		plainMsg(otherSender, r3, 0, 30), // tx2 (independent)
+	}
+	txs := []*types.Transaction{makeFakeTx(0), makeFakeTx(1), makeFakeTx(2)}
+	block := makeTestBlock(t, txs)
+	gp := simpleGasPool(10_000_000)
+
+	apply := func(blockCtx vm.BlockContext, _ *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*TxResult, error) {
+		var gasUsed uint64
+		switch *msg.To() {
+		case r1:
+			gasUsed = 100
+		case r2:
+			gasUsed = 200
+		case r3:
+			gasUsed = 300
+		default:
+			return nil, fmt.Errorf("unexpected recipient %s", msg.To().Hex())
+		}
+		fee := new(big.Int).SetUint64(gasUsed)
+		sdb.SubBalance(msg.From(), fee)
+		sdb.SubBalance(msg.From(), msg.Value())
+		sdb.AddBalance(*msg.To(), msg.Value())
+		sdb.SetNonce(msg.From(), sdb.GetNonce(msg.From())+1)
+		sdb.AddBalance(blockCtx.Coinbase, fee)
+		return &TxResult{UsedGas: gasUsed}, nil
+	}
+
+	receipts, _, totalGas, err := ExecuteParallel(
+		&params.ChainConfig{},
+		vm.BlockContext{
+			BlockNumber: big.NewInt(1),
+			Difficulty:  big.NewInt(1),
+			Coinbase:    coinbase,
+		},
+		db, block.Transactions(), block.Hash(), block.Header().Number, &gp, msgs, apply,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if totalGas != 600 {
+		t.Fatalf("unexpected total gas: have %d want %d", totalGas, 600)
+	}
+	for i := range txs {
+		if receipts[i].TxHash != txs[i].Hash() {
+			t.Fatalf("receipt[%d] hash mismatch: have %s want %s", i, receipts[i].TxHash, txs[i].Hash())
+		}
+	}
+	if receipts[0].CumulativeGasUsed != 100 || receipts[1].CumulativeGasUsed != 300 || receipts[2].CumulativeGasUsed != 600 {
+		t.Fatalf("unexpected cumulative gas sequence: [%d %d %d]",
+			receipts[0].CumulativeGasUsed, receipts[1].CumulativeGasUsed, receipts[2].CumulativeGasUsed)
+	}
+}
+
+func TestExecuteParallelCoinbaseSenderForcesSerialFallback(t *testing.T) {
+	coinbase := addr("0xCB01")
+	sender := addr("0xAA01")
+	receiver := addr("0xDD01")
+	beneficiary := addr("0xEE01")
+
+	db := newTestStateDB(t)
+	db.AddBalance(sender, big.NewInt(10_000))
+	db.AddBalance(coinbase, big.NewInt(0))
+	db.Finalise(false)
+
+	msgs := []types.Message{
+		plainMsg(sender, beneficiary, 0, 0), // tx0: pays fee to coinbase
+		plainMsg(coinbase, receiver, 0, 0),  // tx1: requires coinbase balance from tx0
+	}
+	txs := []*types.Transaction{makeFakeTx(0), makeFakeTx(1)}
+	block := makeTestBlock(t, txs)
+	gp := simpleGasPool(10_000_000)
+
+	apply := func(blockCtx vm.BlockContext, _ *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*TxResult, error) {
+		const gasUsed = uint64(100)
+		fee := new(big.Int).SetUint64(gasUsed)
+		required := new(big.Int).Add(fee, msg.Value())
+		if sdb.GetBalance(msg.From()).Cmp(required) < 0 {
+			return nil, fmt.Errorf("insufficient balance for %s", msg.From().Hex())
+		}
+		sdb.SubBalance(msg.From(), required)
+		if msg.Value().Sign() > 0 {
+			sdb.AddBalance(*msg.To(), msg.Value())
+		}
+		sdb.SetNonce(msg.From(), sdb.GetNonce(msg.From())+1)
+		sdb.AddBalance(blockCtx.Coinbase, fee)
+		return &TxResult{UsedGas: gasUsed}, nil
+	}
+
+	_, _, _, err := ExecuteParallel(
+		&params.ChainConfig{},
+		vm.BlockContext{
+			BlockNumber: big.NewInt(1),
+			Difficulty:  big.NewInt(1),
+			Coinbase:    coinbase,
+		},
+		db, block.Transactions(), block.Hash(), block.Header().Number, &gp, msgs, apply,
+	)
+	if err != nil {
+		t.Fatalf("expected success with serial fallback, got error: %v", err)
+	}
+	if got := db.GetNonce(coinbase); got != 1 {
+		t.Fatalf("coinbase tx should be applied after fee credit, nonce=%d want=1", got)
 	}
 }
 
@@ -762,7 +905,7 @@ func BenchmarkParallelExec(b *testing.B) {
 				Difficulty:  big.NewInt(1),
 				Coinbase:    coinbase,
 			},
-			db, benchBlock, &gp, msgs, mockApplyMsg(fee),
+			db, benchBlock.Transactions(), benchBlock.Hash(), benchBlock.Header().Number, &gp, msgs, mockApplyMsg(fee),
 		)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)

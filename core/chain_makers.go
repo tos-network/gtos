@@ -101,11 +101,25 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 	if b.gasPool == nil {
 		b.SetCoinbase(common.Address{})
 	}
-	b.statedb.Prepare(tx.Hash(), len(b.txs))
-	receipt, err := ApplyTransaction(b.config, bc, &b.header.Coinbase, b.gasPool, b.statedb, b.header, tx, &b.header.GasUsed)
+	signer := types.MakeSigner(b.config, b.header.Number)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, b.header.BaseFee, b.statedb)
 	if err != nil {
 		panic(err)
 	}
+	blockCtx := NewTVMBlockContext(b.header, bc, &b.header.Coinbase)
+	receipts, _, _, err := ExecuteTransactions(
+		b.config, blockCtx, b.statedb,
+		types.Transactions{tx}, common.Hash{}, b.header.Number,
+		b.gasPool, []types.Message{msg},
+	)
+	if err != nil {
+		panic(err)
+	}
+	receipt := receipts[0]
+	// Fix CumulativeGasUsed: ExecuteParallel resets to 0 per call, but we
+	// need a running cumulative across all AddTxWithChain calls on this block.
+	b.header.GasUsed += receipt.GasUsed
+	receipt.CumulativeGasUsed = b.header.GasUsed
 	b.txs = append(b.txs, tx)
 	b.receipts = append(b.receipts, receipt)
 }
@@ -245,10 +259,12 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 				b.header.Difficulty = big.NewInt(0)
 			}
 		}
+
 		// Execute any user modifications to the block
 		if gen != nil {
 			gen(i, b)
 		}
+
 		if b.engine != nil {
 			// Finalize and seal the block
 			block, err := b.engine.FinalizeAndAssemble(chainreader, b.header, statedb, b.txs, b.uncles, b.receipts)
