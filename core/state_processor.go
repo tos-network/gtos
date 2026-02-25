@@ -24,6 +24,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	cmath "github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/core/parallel"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
@@ -60,29 +61,45 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 // transactions failed to execute due to insufficient gas it will return an error.
 func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (types.Receipts, []*types.Log, uint64, error) {
 	var (
-		receipts    types.Receipts
-		usedGas     = new(uint64)
-		header      = block.Header()
-		blockHash   = block.Hash()
-		blockNumber = block.Number()
-		allLogs     []*types.Log
-		gp          = new(GasPool).AddGas(block.GasLimit())
+		receipts types.Receipts
+		allLogs  []*types.Log
+		usedGas  = new(uint64)
+		header   = block.Header()
+		gp       = new(GasPool).AddGas(block.GasLimit())
 	)
 	blockCtx := NewTVMBlockContext(header, p.bc, nil)
 	signer := types.MakeSigner(p.config, header.Number)
-	// Iterate over and process the individual transactions
-	for i, tx := range block.Transactions() {
+
+	// Build per-transaction messages upfront (needs statedb for sender resolution).
+	txs := block.Transactions()
+	msgs := make([]types.Message, len(txs))
+	for i, tx := range txs {
 		msg, err := txAsMessageWithAccountSigner(tx, signer, header.BaseFee, statedb)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
-		statedb.Prepare(tx.Hash(), i)
-		receipt, err := applyTransaction(msg, p.config, blockCtx, gp, statedb, blockNumber, blockHash, tx, usedGas)
+		msgs[i] = msg
+	}
+
+	// applyMsgFn wraps ApplyMessage for the parallel executor.
+	// Each call uses an independent per-tx gas pool seeded with msg.Gas(),
+	// keeping per-tx gas accounting self-contained. Block-level gas is
+	// accounted for serially by ExecuteParallel.
+	applyMsgFn := func(bCtx vm.BlockContext, cfg *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*parallel.TxResult, error) {
+		perTxGP := new(GasPool).AddGas(msg.Gas())
+		result, err := ApplyMessage(bCtx, cfg, msg, perTxGP, sdb)
 		if err != nil {
-			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
+			return nil, err
 		}
-		receipts = append(receipts, receipt)
-		allLogs = append(allLogs, receipt.Logs...)
+		return &parallel.TxResult{UsedGas: result.UsedGas, VMErr: result.Err}, nil
+	}
+
+	var parallelErr error
+	receipts, allLogs, *usedGas, parallelErr = parallel.ExecuteParallel(
+		p.config, blockCtx, statedb, block, gp, msgs, applyMsgFn,
+	)
+	if parallelErr != nil {
+		return nil, nil, 0, parallelErr
 	}
 	// Deterministic TTL maintenance for KV records at current block height.
 	if header.Number != nil {
