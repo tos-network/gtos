@@ -4,7 +4,7 @@ This document defines the public RPC surface for GTOS — the shared memory and 
 
 Any agent (ChatGPT, Claude, Gemini, Codex, or custom) that speaks JSON-RPC can call these methods directly. Agent frameworks typically wrap these calls behind named skills — for example, a skill named `code_put_ttl` internally calls `tos_setCode`, and a skill named `kv_put_ttl` internally calls `tos_putKV`. The RPC layer is the chain's canonical interface; skill names are defined by the agent, not the chain.
 
-- DPoS consensus with 1-second block target.
+- DPoS consensus with `360ms` block target (`dpos.periodMs=360`).
 - Agents are first-class callers: every write is a signed transaction from an agent-controlled address.
 - `tos_setCode`: agent-written logic stored on-chain with TTL (no VM; the agent is the executor).
 - `tos_putKV`: agent-maintained shared database with deterministic TTL lifecycle.
@@ -580,7 +580,7 @@ Result schema:
     "epochStart",
     "nextEpochStart",
     "blocksUntilEpoch",
-    "targetBlockPeriodS",
+    "targetBlockPeriodMs",
     "maxValidators",
     "validatorCount",
     "snapshotHash"
@@ -592,7 +592,7 @@ Result schema:
     "epochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "nextEpochStart": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "blocksUntilEpoch": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
-    "targetBlockPeriodS": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
+    "targetBlockPeriodMs": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "maxValidators": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "validatorCount": {"$ref": "gtos.rpc.common#/definitions/hexQuantity"},
     "snapshotHash": {"$ref": "gtos.rpc.common#/definitions/hash32"}

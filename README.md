@@ -20,7 +20,7 @@ TOS is a **verifiable shared memory + coordination + settlement layer** for mult
 
 ### 3) Capability Proof
 
-- `1s` target block interval
+- `360ms` target block interval (`dpos.periodMs=360`)
 - Deterministic TTL by block height (`expire_block = current_block + ttl`)
 - No VM: agents execute off-chain, chain stores commitments/state
 - Rolling history window: `200` finalized blocks

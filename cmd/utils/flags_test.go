@@ -18,8 +18,13 @@
 package utils
 
 import (
+	"flag"
 	"reflect"
 	"testing"
+
+	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/params"
+	"github.com/urfave/cli/v2"
 )
 
 func Test_SplitTagsFlag(t *testing.T) {
@@ -60,5 +65,81 @@ func Test_SplitTagsFlag(t *testing.T) {
 				t.Errorf("splitTagsFlag() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDeveloperPeriodMsFlagValue(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want uint64
+	}{
+		{name: "default periodms", args: nil, want: params.DPoSBlockPeriodMs},
+		{name: "periodms flag", args: []string{"--dev.periodms=750"}, want: 750},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := cli.NewApp()
+			app.Flags = []cli.Flag{DeveloperPeriodMsFlag}
+
+			set := flag.NewFlagSet("test", flag.ContinueOnError)
+			for _, f := range app.Flags {
+				if err := f.Apply(set); err != nil {
+					t.Fatalf("apply flag: %v", err)
+				}
+			}
+			if err := set.Parse(tt.args); err != nil {
+				t.Fatalf("parse flags: %v", err)
+			}
+			ctx := cli.NewContext(app, set, nil)
+			if got := ctx.Uint64(DeveloperPeriodMsFlag.Name); got != tt.want {
+				t.Fatalf("dev.periodms = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNetworkFlagsIncludeTestnet(t *testing.T) {
+	foundMainnet := false
+	foundTestnet := false
+	for _, f := range NetworkFlags {
+		names := f.Names()
+		if len(names) == 0 {
+			continue
+		}
+		switch names[0] {
+		case MainnetFlag.Name:
+			foundMainnet = true
+		case TestnetFlag.Name:
+			foundTestnet = true
+		}
+	}
+	if !foundMainnet || !foundTestnet {
+		t.Fatalf("network flags missing built-ins: mainnet=%v testnet=%v", foundMainnet, foundTestnet)
+	}
+}
+
+func TestMakeGenesisTestnet(t *testing.T) {
+	app := cli.NewApp()
+	app.Flags = []cli.Flag{MainnetFlag, TestnetFlag, DeveloperFlag}
+
+	set := flag.NewFlagSet("test", flag.ContinueOnError)
+	for _, f := range app.Flags {
+		if err := f.Apply(set); err != nil {
+			t.Fatalf("apply flag: %v", err)
+		}
+	}
+	if err := set.Parse([]string{"--testnet"}); err != nil {
+		t.Fatalf("parse flags: %v", err)
+	}
+	ctx := cli.NewContext(app, set, nil)
+
+	genesis := MakeGenesis(ctx)
+	if genesis == nil {
+		t.Fatal("expected non-nil genesis for --testnet")
+	}
+	wantHash := core.DefaultTestnetGenesisBlock().ToBlock().Hash()
+	if got := genesis.ToBlock().Hash(); got != wantHash {
+		t.Fatalf("unexpected testnet genesis hash: have %s want %s", got, wantHash)
 	}
 }

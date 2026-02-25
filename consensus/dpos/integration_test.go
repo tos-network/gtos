@@ -2,8 +2,8 @@ package dpos
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"errors"
 	"math/big"
 	"reflect"
@@ -42,7 +42,7 @@ func TestDPoSChainInsert(t *testing.T) {
 	copy(genesisExtra[extraVanity:], signer.Bytes())
 
 	dposCfg := &params.DPoSConfig{
-		Period:         1,
+		PeriodMs:       1000,
 		Epoch:          200,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
@@ -145,7 +145,7 @@ func TestDPoSChainInsertEd25519Seal(t *testing.T) {
 	copy(genesisExtra[extraVanity:], signer.Bytes())
 
 	dposCfg := &params.DPoSConfig{
-		Period:         1,
+		PeriodMs:       1000,
 		Epoch:          200,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
@@ -247,7 +247,7 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 	})
 
 	dposCfg := &params.DPoSConfig{
-		Period:         1,
+		PeriodMs:       1000,
 		Epoch:          5000,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
@@ -417,7 +417,7 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 	})
 
 	dposCfg := &params.DPoSConfig{
-		Period:         1,
+		PeriodMs:       1000,
 		Epoch:          2,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
@@ -630,7 +630,7 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 	})
 
 	dposCfg := &params.DPoSConfig{
-		Period:         1,
+		PeriodMs:       1000,
 		Epoch:          5000,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,

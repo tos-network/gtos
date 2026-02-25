@@ -89,7 +89,7 @@ const (
 	receiptsCacheLimit  = 32
 	txLookupCacheLimit  = 1024
 	maxFutureBlocks     = 256
-	maxTimeFutureBlocks = 30
+	maxTimeFutureBlocks = 30_000 // milliseconds
 	TriesInMemory       = 128
 
 	// BlockChainVersion ensures that an incompatible database forces a resync from scratch.
@@ -483,13 +483,13 @@ func (bc *BlockChain) loadLastState() error {
 	blockTd := bc.GetTd(currentBlock.Hash(), currentBlock.NumberU64())
 	fastTd := bc.GetTd(currentFastBlock.Hash(), currentFastBlock.NumberU64())
 
-	log.Info("Loaded most recent local header", "number", currentHeader.Number, "hash", currentHeader.Hash(), "td", headerTd, "age", common.PrettyAge(time.Unix(int64(currentHeader.Time), 0)))
-	log.Info("Loaded most recent local full block", "number", currentBlock.Number(), "hash", currentBlock.Hash(), "td", blockTd, "age", common.PrettyAge(time.Unix(int64(currentBlock.Time()), 0)))
-	log.Info("Loaded most recent local fast block", "number", currentFastBlock.Number(), "hash", currentFastBlock.Hash(), "td", fastTd, "age", common.PrettyAge(time.Unix(int64(currentFastBlock.Time()), 0)))
+	log.Info("Loaded most recent local header", "number", currentHeader.Number, "hash", currentHeader.Hash(), "td", headerTd, "age", common.PrettyAge(params.UnixTimestampToTime(currentHeader.Time)))
+	log.Info("Loaded most recent local full block", "number", currentBlock.Number(), "hash", currentBlock.Hash(), "td", blockTd, "age", common.PrettyAge(params.UnixTimestampToTime(currentBlock.Time())))
+	log.Info("Loaded most recent local fast block", "number", currentFastBlock.Number(), "hash", currentFastBlock.Hash(), "td", fastTd, "age", common.PrettyAge(params.UnixTimestampToTime(currentFastBlock.Time())))
 
 	if currentFinalizedBlock != nil {
 		finalTd := bc.GetTd(currentFinalizedBlock.Hash(), currentFinalizedBlock.NumberU64())
-		log.Info("Loaded most recent local finalized block", "number", currentFinalizedBlock.Number(), "hash", currentFinalizedBlock.Hash(), "td", finalTd, "age", common.PrettyAge(time.Unix(int64(currentFinalizedBlock.Time()), 0)))
+		log.Info("Loaded most recent local finalized block", "number", currentFinalizedBlock.Number(), "hash", currentFinalizedBlock.Hash(), "td", finalTd, "age", common.PrettyAge(params.UnixTimestampToTime(currentFinalizedBlock.Time())))
 	}
 	if pivot := rawdb.ReadLastPivotNumber(bc.db); pivot != nil {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
@@ -1200,7 +1200,7 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 	head := blockChain[len(blockChain)-1]
 	context := []interface{}{
 		"count", stats.processed, "elapsed", common.PrettyDuration(time.Since(start)),
-		"number", head.Number(), "hash", head.Hash(), "age", common.PrettyAge(time.Unix(int64(head.Time()), 0)),
+		"number", head.Number(), "hash", head.Hash(), "age", common.PrettyAge(params.UnixTimestampToTime(head.Time())),
 		"size", common.StorageSize(size),
 	}
 	if stats.ignored > 0 {
@@ -1391,7 +1391,7 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 // TODO after the transition, the future block shouldn't be kept. Because
 // it's not checked in the GTOS side anymore.
 func (bc *BlockChain) addFutureBlock(block *types.Block) error {
-	max := uint64(time.Now().Unix() + maxTimeFutureBlocks)
+	max := uint64(time.Now().UnixMilli()) + maxTimeFutureBlocks
 	if block.Time() > max {
 		return fmt.Errorf("future block timestamp %v > allowed %v", block.Time(), max)
 	}
@@ -2203,7 +2203,7 @@ func (bc *BlockChain) SetCanonical(head *types.Block) (common.Hash, error) {
 		"root", head.Root(),
 		"elapsed", time.Since(start),
 	}
-	if timestamp := time.Unix(int64(head.Time()), 0); time.Since(timestamp) > time.Minute {
+	if timestamp := params.UnixTimestampToTime(head.Time()); time.Since(timestamp) > time.Minute {
 		context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
 	}
 	log.Info("Chain head was updated", context...)

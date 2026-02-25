@@ -24,9 +24,9 @@ func TestNewInvalidConfig(t *testing.T) {
 		name   string
 		config params.DPoSConfig
 	}{
-		{"epoch=0", params.DPoSConfig{Epoch: 0, Period: 3, MaxValidators: 21}},
-		{"period=0", params.DPoSConfig{Epoch: 200, Period: 0, MaxValidators: 21}},
-		{"maxValidators=0", params.DPoSConfig{Epoch: 200, Period: 3, MaxValidators: 0}},
+		{"epoch=0", params.DPoSConfig{Epoch: 0, PeriodMs: 3000, MaxValidators: 21}},
+		{"periodMs=0", params.DPoSConfig{Epoch: 200, PeriodMs: 0, MaxValidators: 21}},
+		{"maxValidators=0", params.DPoSConfig{Epoch: 200, PeriodMs: 3000, MaxValidators: 0}},
 	}
 	for _, tt := range tests {
 		cfg := tt.config
@@ -163,7 +163,7 @@ func TestSealHashRoundTrip(t *testing.T) {
 		Number:     big.NewInt(1),
 		Difficulty: big.NewInt(2),
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 
 	d := NewFaker()
@@ -184,7 +184,7 @@ func TestSealHashRoundTrip(t *testing.T) {
 
 func TestSealHashRoundTripEd25519(t *testing.T) {
 	d, err := New(&params.DPoSConfig{
-		Period:         3,
+		PeriodMs:       3000,
 		Epoch:          200,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
@@ -203,7 +203,7 @@ func TestSealHashRoundTripEd25519(t *testing.T) {
 		Difficulty: big.NewInt(2),
 		Extra:      make([]byte, extraVanity+d.sealLength),
 		Coinbase:   signer,
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	digest := d.SealHash(header).Bytes()
 	sig := ed25519.Sign(priv, digest)
@@ -240,7 +240,7 @@ func TestCoinbaseMismatch(t *testing.T) {
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer2, // deliberately wrong: will sign with key1
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	sig, _ := crypto.Sign(SealHash(header).Bytes(), key1)
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
@@ -251,9 +251,9 @@ func TestCoinbaseMismatch(t *testing.T) {
 }
 
 // TestRecentlySigned verifies that a block is rejected when the validator
-// signed within the recency window (len(Validators)/2+1 blocks).
+// signed within the recency window (default: len(Validators)/3+1 blocks).
 //
-// With 3 validators, limit = 3/2+1 = 2.
+// With 3 validators, limit = 3/3+1 = 2.
 // If signer last signed at block 2 and current block is 3:
 //
 //	seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
@@ -265,7 +265,7 @@ func TestRecentlySigned(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)
 
-	// Three-validator set; recency window = 3/2+1 = 2.
+	// Three-validator set; recency window = 3/3+1 = 2.
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
@@ -278,7 +278,7 @@ func TestRecentlySigned(t *testing.T) {
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(time.Now().UnixMilli()),
 	}
 	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
@@ -320,30 +320,30 @@ func TestAllowedFutureBlock(t *testing.T) {
 	d := NewFaker()
 	chain := &fakeChainReader{}
 
-	now := uint64(time.Now().Unix())
+	now := uint64(time.Now().UnixMilli())
 
-	// 4 seconds into the future: allowed.
-	h4 := &types.Header{
+	// Slightly below grace window: allowed.
+	hAllowed := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 4,
+		Time:       now + allowedFutureBlockTime - 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
 	}
-	if err := d.verifyHeader(chain, h4, nil); err == consensus.ErrFutureBlock {
-		t.Error("4s ahead should be allowed, got ErrFutureBlock")
+	if err := d.verifyHeader(chain, hAllowed, nil); err == consensus.ErrFutureBlock {
+		t.Error("block within future-block grace should be allowed, got ErrFutureBlock")
 	}
 
-	// 6 seconds into the future: rejected.
-	h6 := &types.Header{
+	// Slightly above grace window: rejected.
+	hRejected := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + 6,
+		Time:       now + allowedFutureBlockTime + 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
 	}
-	if err := d.verifyHeader(chain, h6, nil); err != consensus.ErrFutureBlock {
-		t.Errorf("6s ahead should be rejected as ErrFutureBlock, got %v", err)
+	if err := d.verifyHeader(chain, hRejected, nil); err != consensus.ErrFutureBlock {
+		t.Errorf("block above future-block grace should be rejected as ErrFutureBlock, got %v", err)
 	}
 }
 
@@ -390,6 +390,73 @@ func TestVoteSigningLifecycle(t *testing.T) {
 	}
 	if recovered := crypto.PubkeyToAddress(*pub); recovered != addr {
 		t.Fatalf("vote signature signer mismatch: have %s want %s", recovered.Hex(), addr.Hex())
+	}
+}
+
+func TestOutOfTurnWiggleWindow(t *testing.T) {
+	d := NewFaker()
+	if got := d.outOfTurnWiggleWindow(); got != maxWiggleTime {
+		t.Fatalf("unexpected default wiggle window: have %s want %s", got, maxWiggleTime)
+	}
+
+	msCfg := &params.DPoSConfig{
+		PeriodMs:       500,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	dms, err := New(msCfg, nil)
+	if err != nil {
+		t.Fatalf("New(msCfg): %v", err)
+	}
+	if got := dms.outOfTurnWiggleWindow(); got != maxWiggleTime {
+		t.Fatalf("unexpected 500ms wiggle window: have %s want %s", got, maxWiggleTime)
+	}
+
+	tinyCfg := &params.DPoSConfig{
+		PeriodMs:       10,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	dtiny, err := New(tinyCfg, nil)
+	if err != nil {
+		t.Fatalf("New(tinyCfg): %v", err)
+	}
+	if got := dtiny.outOfTurnWiggleWindow(); got != minWiggleTime {
+		t.Fatalf("unexpected min wiggle window: have %s want %s", got, minWiggleTime)
+	}
+}
+
+func TestPrepareUsesPeriodMs(t *testing.T) {
+	signer := common.Address{0x01}
+	now := uint64(time.Now().UnixMilli())
+	genesis := &types.Header{
+		Number: big.NewInt(0),
+		Time:   now + 2000,
+		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
+	}
+	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
+
+	d, err := New(&params.DPoSConfig{
+		PeriodMs:       500,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		ParentHash: genesis.Hash(),
+	}
+	if err := d.Prepare(chain, header); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if want := genesis.Time + 500; header.Time != want {
+		t.Fatalf("prepared time mismatch: have %d want %d", header.Time, want)
 	}
 }
 

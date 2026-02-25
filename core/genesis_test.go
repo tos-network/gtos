@@ -79,6 +79,15 @@ func TestSetupGenesis(t *testing.T) {
 			wantConfig: params.MainnetChainConfig,
 		},
 		{
+			name: "testnet block in DB, genesis == nil",
+			fn: func(db tosdb.Database) (*params.ChainConfig, common.Hash, error) {
+				DefaultTestnetGenesisBlock().MustCommit(db)
+				return SetupGenesisBlock(db, nil)
+			},
+			wantHash:   params.TestnetGenesisHash,
+			wantConfig: params.TestnetChainConfig,
+		},
+		{
 			name: "custom block in DB, genesis == nil",
 			fn: func(db tosdb.Database) (*params.ChainConfig, common.Hash, error) {
 				customg.MustCommit(db)
@@ -156,6 +165,7 @@ func TestGenesisHashes(t *testing.T) {
 		want    common.Hash
 	}{
 		{DefaultGenesisBlock(), params.MainnetGenesisHash},
+		{DefaultTestnetGenesisBlock(), params.TestnetGenesisHash},
 	} {
 		// Test via MustCommit
 		if have := c.genesis.MustCommit(rawdb.NewMemoryDatabase()).Hash(); have != c.want {
@@ -221,5 +231,25 @@ func TestReadWriteGenesisAlloc(t *testing.T) {
 		if !reflect.DeepEqual(want, account) {
 			t.Fatal("Unexpected account")
 		}
+	}
+}
+
+func TestDeveloperGenesisBlockMsPeriodConfig(t *testing.T) {
+	faucet := common.HexToAddress("0x1234")
+
+	genesisMs := DeveloperGenesisBlockMs(500, 11_500_000, faucet)
+	if genesisMs.Config == nil || genesisMs.Config.DPoS == nil {
+		t.Fatalf("missing dpos config in dev genesis")
+	}
+	if got := genesisMs.Config.DPoS.PeriodMs; got != 500 {
+		t.Fatalf("unexpected periodMs for sub-second dev genesis: have %d want %d", got, 500)
+	}
+
+	genesisSec := DeveloperGenesisBlockMs(1000, 11_500_000, faucet)
+	if genesisSec.Config == nil || genesisSec.Config.DPoS == nil {
+		t.Fatalf("missing dpos config in dev genesis")
+	}
+	if got := genesisSec.Config.DPoS.PeriodMs; got != 1000 {
+		t.Fatalf("unexpected periodMs for second-aligned dev genesis: have %d want %d", got, 1000)
 	}
 }

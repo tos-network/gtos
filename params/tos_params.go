@@ -43,7 +43,7 @@ func GTOSPrice() *big.Int {
 
 // DPoS consensus parameters.
 const (
-	DPoSEpochLength   uint64 = 1000
-	DPoSMaxValidators uint64 = 21
-	DPoSBlockPeriod   uint64 = 3 // target seconds per block
+	DPoSEpochLength   uint64 = 1667 // ~10 minutes at 360ms block interval
+	DPoSMaxValidators uint64 = 15
+	DPoSBlockPeriodMs uint64 = 360 // target milliseconds per block
 )

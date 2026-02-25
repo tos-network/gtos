@@ -7,6 +7,7 @@ import (
 
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/accounts/keystore"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
@@ -51,6 +52,13 @@ To sign a message contained in a file, use the --msgfile flag.
 		key, err := keystore.DecryptKey(keyjson, passphrase)
 		if err != nil {
 			utils.Fatalf("Error decrypting key: %v", err)
+		}
+		signerType, err := accountsigner.CanonicalSignerType(key.SignerType)
+		if err != nil {
+			utils.Fatalf("Unsupported signer type in keyfile: %v", err)
+		}
+		if signerType != accountsigner.SignerTypeSecp256k1 {
+			utils.Fatalf("signmessage currently supports secp256k1 keyfiles only (got %s)", signerType)
 		}
 
 		signature, err := crypto.Sign(accounts.TextHash(message), key.PrivateKey)

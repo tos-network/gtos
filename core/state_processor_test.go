@@ -50,7 +50,7 @@ func TestStateProcessorErrors(t *testing.T) {
 	var (
 		config = &params.ChainConfig{
 			ChainID: big.NewInt(1),
-			DPoS:    &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
 		}
 		signer  = types.LatestSigner(config)
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -247,7 +247,7 @@ func TestStateProcessorErrors(t *testing.T) {
 func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
 	}
 	chainSigner := types.LatestSigner(config)
 	fromKey, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -405,7 +405,7 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 func TestStateProcessorPrunesExpiredKVAtBlockBoundary(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
 	}
 	signer := types.LatestSigner(config)
 	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -480,7 +480,7 @@ func TestStateProcessorPrunesExpiredKVAtBlockBoundary(t *testing.T) {
 func TestStateProcessorPrunesExpiredCodeAtBlockBoundary(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
 	}
 	signer := types.LatestSigner(config)
 	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -568,10 +568,14 @@ func TestStateProcessorPrunesExpiredCodeAtBlockBoundary(t *testing.T) {
 // valid to be considered for import:
 // - valid pow (fake), ancestry, difficulty, gaslimit etc
 func GenerateBadBlock(parent *types.Block, engine consensus.Engine, txs types.Transactions, config *params.ChainConfig) *types.Block {
+	timeStep := uint64(10)
+	if config != nil && config.DPoS != nil {
+		timeStep = 10 * 1000
+	}
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Coinbase:   parent.Coinbase(),
-		Difficulty: engine.CalcDifficulty(&fakeChainReader{config}, parent.Time()+10, &types.Header{
+		Difficulty: engine.CalcDifficulty(&fakeChainReader{config}, parent.Time()+timeStep, &types.Header{
 			Number:     parent.Number(),
 			Time:       parent.Time(),
 			Difficulty: parent.Difficulty(),
@@ -579,7 +583,7 @@ func GenerateBadBlock(parent *types.Block, engine consensus.Engine, txs types.Tr
 		}),
 		GasLimit:  parent.GasLimit(),
 		Number:    new(big.Int).Add(parent.Number(), common.Big1),
-		Time:      parent.Time() + 10,
+		Time:      parent.Time() + timeStep,
 		UncleHash: types.EmptyUncleHash,
 	}
 	header.BaseFee = misc.CalcBaseFee(config, parent.Header())

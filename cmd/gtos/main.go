@@ -102,7 +102,7 @@ var (
 		utils.NodeKeyHexFlag,
 		utils.DNSDiscoveryFlag,
 		utils.DeveloperFlag,
-		utils.DeveloperPeriodFlag,
+		utils.DeveloperPeriodMsFlag,
 		utils.DeveloperGasLimitFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
@@ -227,7 +227,7 @@ func main() {
 func prepare(ctx *cli.Context) {
 	// If we're running a known preset, log it for convenience.
 	switch {
-	case ctx.IsSet(utils.DeveloperFlag.Name):
+	case ctx.Bool(utils.DeveloperFlag.Name):
 		log.Info("Starting GTOS in ephemeral dev mode...")
 		log.Warn(`You are running GTOS in --dev mode. Please note the following:
 
@@ -245,13 +245,15 @@ func prepare(ctx *cli.Context) {
      to 0, and discovery is disabled.
 `)
 
+	case ctx.Bool(utils.TestnetFlag.Name):
+		log.Info("Starting GTOS on TOS testnet...")
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
 		log.Info("Starting GTOS on TOS mainnet...")
 	}
 	// If we're on mainnet without --cache specified, bump default cache allowance.
 	if !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
 		// Make sure we're not on developer mode.
-		if !ctx.IsSet(utils.DeveloperFlag.Name) {
+		if !ctx.Bool(utils.DeveloperFlag.Name) && !ctx.Bool(utils.TestnetFlag.Name) {
 			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)
 			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096))
 		}
@@ -348,7 +350,7 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 				if !ok {
 					continue
 				}
-				if timestamp := time.Unix(int64(done.Latest.Time), 0); time.Since(timestamp) < 10*time.Minute {
+				if timestamp := params.UnixTimestampToTime(done.Latest.Time); time.Since(timestamp) < 10*time.Minute {
 					log.Info("Synchronisation completed", "latestnum", done.Latest.Number, "latesthash", done.Latest.Hash(),
 						"age", common.PrettyAge(timestamp))
 					stack.Close()

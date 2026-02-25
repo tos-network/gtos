@@ -17,7 +17,9 @@
 package keystore
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	crand "crypto/rand"
 	"math/rand"
 	"os"
@@ -385,6 +387,64 @@ func TestImportEd25519(t *testing.T) {
 	}
 }
 
+func TestImportSecp256r1(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate secp256r1 key: %v", err)
+	}
+	acc, err := ks.ImportSecp256r1(key, "old")
+	if err != nil {
+		t.Fatalf("importing failed: %v", err)
+	}
+	if _, err = ks.ImportSecp256r1(key, "old"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	if _, err = ks.ImportSecp256r1(key, "new"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt imported key: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeSecp256r1 {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	if decrypted.PrivateKey == nil || decrypted.PrivateKey.Curve != elliptic.P256() {
+		t.Fatalf("unexpected secp256r1 private key")
+	}
+}
+
+func TestImportElgamal(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	key, err := accountsigner.GenerateElgamalPrivateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate elgamal key: %v", err)
+	}
+	acc, err := ks.ImportElgamal(key, "old")
+	if err != nil {
+		t.Fatalf("importing failed: %v", err)
+	}
+	if _, err = ks.ImportElgamal(key, "old"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	if _, err = ks.ImportElgamal(key, "new"); err == nil {
+		t.Errorf("importing same key twice succeeded")
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt imported key: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeElgamal {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	if len(decrypted.ElgamalPrivateKey) != 32 {
+		t.Fatalf("unexpected elgamal private key size: %d", len(decrypted.ElgamalPrivateKey))
+	}
+}
+
 func TestImportBLS12381(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
 	key, err := accountsigner.GenerateBLS12381PrivateKey(crand.Reader)
@@ -438,6 +498,60 @@ func TestNewSchnorrAccount(t *testing.T) {
 	}
 	if addr != acc.Address {
 		t.Fatalf("schnorr address mismatch: have=%s want=%s", acc.Address.Hex(), addr.Hex())
+	}
+}
+
+func TestNewSecp256r1Account(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewSecp256r1Account("old")
+	if err != nil {
+		t.Fatalf("failed to create secp256r1 account: %v", err)
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt secp256r1 account: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeSecp256r1 {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	if decrypted.PrivateKey == nil || decrypted.PrivateKey.Curve != elliptic.P256() {
+		t.Fatalf("missing secp256r1 private key")
+	}
+	pub := elliptic.Marshal(elliptic.P256(), decrypted.PrivateKey.PublicKey.X, decrypted.PrivateKey.PublicKey.Y)
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSecp256r1, pub)
+	if err != nil {
+		t.Fatalf("failed to derive secp256r1 address: %v", err)
+	}
+	if addr != acc.Address {
+		t.Fatalf("secp256r1 address mismatch: have=%s want=%s", acc.Address.Hex(), addr.Hex())
+	}
+}
+
+func TestNewElgamalAccount(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewElgamalAccount("old")
+	if err != nil {
+		t.Fatalf("failed to create elgamal account: %v", err)
+	}
+	_, decrypted, err := ks.getDecryptedKey(acc, "old")
+	if err != nil {
+		t.Fatalf("failed to decrypt elgamal account: %v", err)
+	}
+	defer zeroKeyMaterial(decrypted)
+	if decrypted.SignerType != accountsigner.SignerTypeElgamal {
+		t.Fatalf("unexpected signer type: %s", decrypted.SignerType)
+	}
+	pub, err := accountsigner.PublicKeyFromElgamalPrivate(decrypted.ElgamalPrivateKey)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal pubkey: %v", err)
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, pub)
+	if err != nil {
+		t.Fatalf("failed to derive elgamal address: %v", err)
+	}
+	if addr != acc.Address {
+		t.Fatalf("elgamal address mismatch: have=%s want=%s", acc.Address.Hex(), addr.Hex())
 	}
 }
 
@@ -519,6 +633,52 @@ func TestImportExportSchnorr(t *testing.T) {
 	acc, err := ks.NewSchnorrAccount("old")
 	if err != nil {
 		t.Fatalf("failed to create schnorr account: %v", acc)
+	}
+	json, err := ks.Export(acc, "old", "new")
+	if err != nil {
+		t.Fatalf("failed to export account: %v", acc)
+	}
+	_, ks2 := tmpKeyStore(t, true)
+	if _, err = ks2.Import(json, "old", "old"); err == nil {
+		t.Errorf("importing with invalid password succeeded")
+	}
+	acc2, err := ks2.Import(json, "new", "new")
+	if err != nil {
+		t.Errorf("importing failed: %v", err)
+	}
+	if acc.Address != acc2.Address {
+		t.Error("imported account does not match exported account")
+	}
+}
+
+func TestImportExportSecp256r1(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewSecp256r1Account("old")
+	if err != nil {
+		t.Fatalf("failed to create secp256r1 account: %v", acc)
+	}
+	json, err := ks.Export(acc, "old", "new")
+	if err != nil {
+		t.Fatalf("failed to export account: %v", acc)
+	}
+	_, ks2 := tmpKeyStore(t, true)
+	if _, err = ks2.Import(json, "old", "old"); err == nil {
+		t.Errorf("importing with invalid password succeeded")
+	}
+	acc2, err := ks2.Import(json, "new", "new")
+	if err != nil {
+		t.Errorf("importing failed: %v", err)
+	}
+	if acc.Address != acc2.Address {
+		t.Error("imported account does not match exported account")
+	}
+}
+
+func TestImportExportElgamal(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	acc, err := ks.NewElgamalAccount("old")
+	if err != nil {
+		t.Fatalf("failed to create elgamal account: %v", acc)
 	}
 	json, err := ks.Export(acc, "old", "new")
 	if err != nil {

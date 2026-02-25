@@ -1913,10 +1913,12 @@ func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
 
 func (s *TOSAPI) targetBlockIntervalMs() uint64 {
-	if cfg := s.b.ChainConfig(); cfg != nil && cfg.DPoS != nil && cfg.DPoS.Period > 0 {
-		return cfg.DPoS.Period * 1000
+	if cfg := s.b.ChainConfig(); cfg != nil && cfg.DPoS != nil {
+		if period := cfg.DPoS.TargetBlockPeriodMs(); period > 0 {
+			return period
+		}
 	}
-	return 1000
+	return params.DPoSBlockPeriodMs
 }
 
 func (s *TOSAPI) currentHead() uint64 {

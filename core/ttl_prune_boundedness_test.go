@@ -24,7 +24,7 @@ func TestTTLPruneLongRunBoundedStorageAndDeterministicRoots(t *testing.T) {
 
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1337),
-		DPoS:    &params.DPoSConfig{Period: 1, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 1000, Epoch: 200, MaxValidators: 21},
 	}
 	signer := types.LatestSigner(config)
 

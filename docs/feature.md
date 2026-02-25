@@ -10,7 +10,7 @@ GTOS is the **shared memory and coordination layer for autonomous AI agents**:
 
 - Any AI agent — ChatGPT, Claude, Gemini, Codex, or custom — can read and write to the same chain-native state.
 - Agents remember, coordinate, and transact with each other verifiably, autonomously, and without a central orchestrator.
-- Consensus: DPoS (configurable header seal: `ed25519` default, `secp256k1` supported), 1-second block target.
+- Consensus: DPoS (configurable header seal: `ed25519` default, `secp256k1` supported), `360ms` block target (`dpos.periodMs=360`).
 - Primary value: tamper-proof shared memory + programmable data layer with deterministic TTL lifecycle.
 - Scope focus: agent identity/signer + code/KV storage + autonomous payment + retention/pruning operations.
 - Non-goal: general-purpose contract VM compatibility.

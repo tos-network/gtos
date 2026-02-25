@@ -76,8 +76,9 @@ const (
 	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
-	wiggleTime             = 500 * time.Millisecond
-	allowedFutureBlockTime = uint64(5) // R2-M1: seconds of clock-skew grace period
+	minWiggleTime          = 100 * time.Millisecond
+	maxWiggleTime          = 1 * time.Second
+	allowedFutureBlockTime = uint64(1080) // milliseconds: 3 × periodMs(360ms) clock-skew grace period
 )
 
 // SignerFn is the callback the miner uses to sign a header hash.
@@ -108,8 +109,8 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if config.Epoch == 0 {
 		return nil, errors.New("dpos: epoch must be > 0")
 	}
-	if config.Period == 0 {
-		return nil, errors.New("dpos: period must be > 0")
+	if config.TargetBlockPeriodMs() == 0 {
+		return nil, errors.New("dpos: periodMs must be > 0")
 	}
 	if config.MaxValidators == 0 {
 		return nil, errors.New("dpos: maxValidators must be > 0")
@@ -135,8 +136,8 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 func NewFaker() *DPoS {
 	d, err := New(&params.DPoSConfig{
 		Epoch:          200,
-		MaxValidators:  21,
-		Period:         3,
+		MaxValidators:  params.DPoSMaxValidators,
+		PeriodMs:       3000,
 		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
 	}, nil)
 	if err != nil {
@@ -326,7 +327,7 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	}
 
 	// Reject far-future blocks (R2-M1 constant). Checked even in faker mode.
-	if header.Time > uint64(time.Now().Unix())+allowedFutureBlockTime {
+	if header.Time > uint64(time.Now().UnixMilli())+allowedFutureBlockTime {
 		return consensus.ErrFutureBlock
 	}
 	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
@@ -408,7 +409,7 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
 	}
-	if header.Time < parent.Time+d.config.Period {
+	if header.Time < parent.Time+d.config.TargetBlockPeriodMs() {
 		return errInvalidTimestamp
 	}
 
@@ -437,7 +438,7 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	}
 	// Check recency: if signer appears in Recents, only reject if this block
 	// does NOT shift that entry out of the window. Mirrors Clique's logic.
-	limit := uint64(len(snap.Validators)/2 + 1)
+	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
 	for seen, recent := range snap.Recents {
 		if recent == signer {
 			if number < limit || seen > number-limit {
@@ -559,8 +560,8 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	header.Time = parent.Time + d.config.Period
-	if now := uint64(time.Now().Unix()); header.Time < now {
+	header.Time = parent.Time + d.config.TargetBlockPeriodMs()
+	if now := uint64(time.Now().UnixMilli()); header.Time < now {
 		header.Time = now
 	}
 
@@ -664,7 +665,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 		return nil
 	}
 
-	if d.config.Period == 0 && len(block.Transactions()) == 0 {
+	if d.config.TargetBlockPeriodMs() == 0 && len(block.Transactions()) == 0 {
 		return errors.New("dpos: sealing paused, no transactions")
 	}
 
@@ -679,7 +680,7 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if _, ok := snap.ValidatorsMap[v]; !ok {
 		return errUnauthorizedValidator
 	}
-	limit := uint64(len(snap.Validators)/2 + 1)
+	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
 	for seen, recent := range snap.Recents {
 		if recent == v {
 			if number < limit || seen > number-limit {
@@ -689,10 +690,11 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	}
 
 	// Compute delay. In-turn: honour header.Time. Out-of-turn: add random wiggle.
-	delay := time.Unix(int64(header.Time), 0).Sub(time.Now())
+	delay := time.UnixMilli(int64(header.Time)).Sub(time.Now())
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
+		// Sub-second tuning: widen out-of-turn jitter and cap it to 1s.
 		// math/rand is intentional: delay randomness is not a security property.
-		wiggle := time.Duration(len(snap.Validators)/2+1) * wiggleTime
+		wiggle := d.outOfTurnWiggleWindow()
 		delay += time.Duration(rand.Int63n(int64(wiggle)))
 	}
 
@@ -744,6 +746,21 @@ func calcDifficulty(snap *Snapshot, v common.Address) *big.Int {
 		return new(big.Int).Set(diffInTurn)
 	}
 	return new(big.Int).Set(diffNoTurn)
+}
+
+func (d *DPoS) outOfTurnWiggleWindow() time.Duration {
+	period := time.Duration(d.config.TargetBlockPeriodMs()) * time.Millisecond
+	if period <= 0 {
+		return minWiggleTime
+	}
+	wiggle := period * 2
+	if wiggle > maxWiggleTime {
+		wiggle = maxWiggleTime
+	}
+	if wiggle < minWiggleTime {
+		return minWiggleTime
+	}
+	return wiggle
 }
 
 // APIs implements consensus.Engine.

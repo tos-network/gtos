@@ -97,7 +97,7 @@ func (s *Snapshot) inturn(number uint64, validator common.Address) bool {
 	return false
 }
 
-// recentlySigned returns true if validator signed within the last len(Validators)/2+1 blocks.
+// recentlySigned returns true if validator signed within the active recency window.
 func (s *Snapshot) recentlySigned(validator common.Address) bool {
 	for _, recent := range s.Recents {
 		if recent == validator {
@@ -129,7 +129,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		number := header.Number.Uint64()
 
 		// Evict oldest Recents entry to allow that validator to sign again.
-		limit := uint64(len(snap.Validators)/2 + 1)
+		limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
 		if number >= limit {
 			delete(snap.Recents, number-limit)
 		}
@@ -169,7 +169,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 				snap.ValidatorsMap[v] = struct{}{}
 			}
 			// Trim Recents entries outside the new window.
-			newLimit := uint64(len(validators)/2 + 1)
+			newLimit := snap.config.RecentSignerWindowSize(len(validators))
 			for blockNum := range snap.Recents {
 				if number >= newLimit && blockNum < number-newLimit {
 					delete(snap.Recents, blockNum)

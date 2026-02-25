@@ -191,7 +191,20 @@ func (b *BlockGen) PrevBlock(index int) *types.Block {
 // associated difficulty. It's useful to test scenarios where forking is not
 // tied to chain length directly.
 func (b *BlockGen) OffsetTime(seconds int64) {
-	b.header.Time += uint64(seconds)
+	delta := seconds
+	if b.config != nil && b.config.DPoS != nil {
+		delta *= 1000
+	}
+	if delta < 0 {
+		abs := uint64(-delta)
+		if b.header.Time <= abs {
+			b.header.Time = 0
+		} else {
+			b.header.Time -= abs
+		}
+	} else {
+		b.header.Time += uint64(delta)
+	}
 	if b.header.Time <= b.parent.Header().Time {
 		panic("block time out of range")
 	}
@@ -275,11 +288,15 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 }
 
 func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.StateDB, engine consensus.Engine) *types.Header {
+	timeStep := uint64(10)
+	if cfg := chain.Config(); cfg != nil && cfg.DPoS != nil {
+		timeStep = 10 * 1000
+	}
 	var time uint64
 	if parent.Time() == 0 {
-		time = 10
+		time = timeStep
 	} else {
-		time = parent.Time() + 10 // block time is fixed at 10 seconds
+		time = parent.Time() + timeStep
 	}
 	header := &types.Header{
 		Root:       state.IntermediateRoot(true),
@@ -287,7 +304,7 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 		Coinbase:   parent.Coinbase(),
 		Difficulty: engine.CalcDifficulty(chain, time, &types.Header{
 			Number:     parent.Number(),
-			Time:       time - 10,
+			Time:       time - timeStep,
 			Difficulty: parent.Difficulty(),
 			UncleHash:  parent.UncleHash(),
 		}),

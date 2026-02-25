@@ -17,6 +17,7 @@
 package params
 
 import (
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"testing"
@@ -48,6 +49,69 @@ func TestNormalizeDPoSSealSignerType(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("NormalizeDPoSSealSignerType(%q): have %q want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestDPoSConfigTargetBlockPeriodMs(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *DPoSConfig
+		want uint64
+	}{
+		{name: "nil", cfg: nil, want: 0},
+		{name: "periodMs only", cfg: &DPoSConfig{PeriodMs: 360}, want: 360},
+	}
+	for _, tc := range tests {
+		if got := tc.cfg.TargetBlockPeriodMs(); got != tc.want {
+			t.Fatalf("%s: have %d want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestDPoSConfigRecentSignerWindowSize(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        *DPoSConfig
+		validators int
+		want       uint64
+	}{
+		{name: "auto default", cfg: &DPoSConfig{}, validators: 15, want: 6},
+		{name: "auto small set", cfg: &DPoSConfig{}, validators: 3, want: 2},
+		{name: "explicit override", cfg: &DPoSConfig{RecentSignerWindow: 9}, validators: 21, want: 9},
+		{name: "override capped by validators", cfg: &DPoSConfig{RecentSignerWindow: 100}, validators: 15, want: 15},
+		{name: "zero validators guard", cfg: &DPoSConfig{}, validators: 0, want: 1},
+		{name: "nil config uses auto", cfg: nil, validators: 21, want: 8},
+	}
+	for _, tc := range tests {
+		if got := tc.cfg.RecentSignerWindowSize(tc.validators); got != tc.want {
+			t.Fatalf("%s: have %d want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestChainConfigJSONPeriodMs(t *testing.T) {
+	periodMsJSON := []byte(`{"chainId":1,"dpos":{"periodMs":360,"epoch":1667,"maxValidators":15,"recentSignerWindow":9,"sealSignerType":"ed25519"}}`)
+	var cfg ChainConfig
+	if err := json.Unmarshal(periodMsJSON, &cfg); err != nil {
+		t.Fatalf("unmarshal periodMs config: %v", err)
+	}
+	if cfg.DPoS == nil {
+		t.Fatalf("dpos config missing")
+	}
+	if cfg.DPoS.TargetBlockPeriodMs() != 360 {
+		t.Fatalf("periodMs parse mismatch: have %d want %d", cfg.DPoS.TargetBlockPeriodMs(), 360)
+	}
+	if cfg.DPoS.RecentSignerWindow != 9 {
+		t.Fatalf("recentSignerWindow parse mismatch: have %d want %d", cfg.DPoS.RecentSignerWindow, 9)
+	}
+
+}
+
+func TestChainConfigJSONRejectsLegacyPeriod(t *testing.T) {
+	legacyPeriodJSON := []byte(`{"chainId":1,"dpos":{"period":1,"epoch":1667,"maxValidators":15,"sealSignerType":"ed25519"}}`)
+	var cfg ChainConfig
+	if err := json.Unmarshal(legacyPeriodJSON, &cfg); err == nil {
+		t.Fatalf("expected legacy period config to be rejected")
 	}
 }
 

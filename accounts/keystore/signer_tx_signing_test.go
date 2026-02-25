@@ -36,6 +36,10 @@ func ed25519PubFromKey(priv ed25519.PrivateKey) []byte {
 	return append([]byte(nil), priv.Public().(ed25519.PublicKey)...)
 }
 
+func elgamalPubFromKey(priv []byte) ([]byte, error) {
+	return accountsigner.PublicKeyFromElgamalPrivate(priv)
+}
+
 func TestKeyStoreSignTxSignerTxSecp256r1(t *testing.T) {
 	_, ks := tmpKeyStore(t, true)
 	passphrase := "pass"
@@ -326,6 +330,101 @@ func TestKeyStoreSignTxWithPassphraseSignerTxBLS12381(t *testing.T) {
 		t.Fatalf("unexpected v: %d", v.Uint64())
 	}
 	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeBLS12381, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxSecp256r1WithSecp256r1Key(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewSecp256r1Account(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeSecp256r1)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	pub := elliptic.Marshal(elliptic.P256(), unlocked.PrivateKey.PublicKey.X, unlocked.PrivateKey.PublicKey.Y)
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeSecp256r1, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxSignerTxElgamal(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewElgamalAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	if err := ks.Unlock(acc, passphrase); err != nil {
+		t.Fatalf("unlock failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeElgamal)
+	signed, err := ks.SignTx(acc, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx failed: %v", err)
+	}
+	ks.mu.RLock()
+	unlocked := ks.unlocked[acc.Address]
+	ks.mu.RUnlock()
+	pub, err := elgamalPubFromKey(unlocked.ElgamalPrivateKey)
+	if err != nil {
+		t.Fatalf("derive elgamal public key failed: %v", err)
+	}
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeElgamal, pub, signer.Hash(signed), r, s) {
+		t.Fatal("signature verification failed")
+	}
+}
+
+func TestKeyStoreSignTxWithPassphraseSignerTxElgamal(t *testing.T) {
+	_, ks := tmpKeyStore(t, true)
+	passphrase := "pass"
+	acc, err := ks.NewElgamalAccount(passphrase)
+	if err != nil {
+		t.Fatalf("new account failed: %v", err)
+	}
+	tx := newSignerTxForWallet(acc.Address, accountsigner.SignerTypeElgamal)
+	signed, err := ks.SignTxWithPassphrase(acc, passphrase, tx, big.NewInt(1))
+	if err != nil {
+		t.Fatalf("sign tx with passphrase failed: %v", err)
+	}
+	a, key, err := ks.getDecryptedKey(acc, passphrase)
+	if err != nil {
+		t.Fatalf("decrypt key failed: %v", err)
+	}
+	defer zeroKeyMaterial(key)
+	if a.Address != acc.Address {
+		t.Fatalf("resolved account mismatch: have=%s want=%s", a.Address.Hex(), acc.Address.Hex())
+	}
+	pub, err := elgamalPubFromKey(key.ElgamalPrivateKey)
+	if err != nil {
+		t.Fatalf("derive elgamal public key failed: %v", err)
+	}
+	signer := types.LatestSignerForChainID(big.NewInt(1))
+	v, r, s := signed.RawSignatureValues()
+	if v.Sign() != 0 {
+		t.Fatalf("unexpected v: %d", v.Uint64())
+	}
+	if !accountsigner.VerifyRawSignature(accountsigner.SignerTypeElgamal, pub, signer.Hash(signed), r, s) {
 		t.Fatal("signature verification failed")
 	}
 }

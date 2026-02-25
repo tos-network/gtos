@@ -10,7 +10,7 @@ GTOS_BIN="${GTOS_BIN:-$ROOT_DIR/build/bin/gtos}"
 DURATION=30
 WORKERS=4
 BATCH_SIZE=200
-DEV_PERIOD=1
+DEV_PERIOD_MS=360
 DEV_GAS_LIMIT=30000000
 COOLDOWN=5
 HTTP_PORT=18545
@@ -35,7 +35,7 @@ Options:
   --duration <sec>       Load generation duration in seconds (default: 30)
   --workers <n>          Number of concurrent load workers (default: 4)
   --batch-size <n>       Transactions per RPC batch call (default: 200)
-  --dev-period <sec>     Block period in --dev mode (default: 1)
+  --dev-periodms <ms>    Block period in --dev mode (default: 360)
   --dev-gaslimit <gas>   Initial gas limit in --dev mode (default: 30000000)
   --cooldown <sec>       Extra wait after load (default: 5)
   --http-port <port>     JSON-RPC HTTP port (default: 18545)
@@ -200,8 +200,8 @@ print_summary() {
 	local last_ts="$prev_ts"
 	local line bn ts tx_count delta tps
 
-	printf "\n%-8s %-12s %-10s %-9s %-10s\n" "Block" "Timestamp" "TxCount" "Delta(s)" "TPS"
-	printf "%-8s %-12s %-10s %-9s %-10s\n" "-----" "---------" "-------" "--------" "---"
+	printf "\n%-8s %-14s %-10s %-10s %-10s\n" "Block" "Timestamp(ms)" "TxCount" "Delta(ms)" "TPS"
+	printf "%-8s %-14s %-10s %-10s %-10s\n" "-----" "-------------" "-------" "---------" "---"
 
 	for ((bn = start_block + 1; bn <= end_block; bn++)); do
 		line="$(get_block_meta "$bn")"
@@ -213,8 +213,8 @@ print_summary() {
 		if (( delta <= 0 )); then
 			delta=1
 		fi
-		tps="$(awk -v tx="$tx_count" -v dt="$delta" 'BEGIN { printf "%.2f", tx / dt }')"
-		printf "%-8d %-12d %-10d %-9d %-10s\n" "$bn" "$ts" "$tx_count" "$delta" "$tps"
+		tps="$(awk -v tx="$tx_count" -v dt="$delta" 'BEGIN { printf "%.2f", (tx * 1000.0) / dt }')"
+		printf "%-8d %-14d %-10d %-10d %-10s\n" "$bn" "$ts" "$tx_count" "$delta" "$tps"
 		total_txs=$((total_txs + tx_count))
 		prev_ts="$ts"
 		last_ts="$ts"
@@ -225,11 +225,11 @@ print_summary() {
 		span=1
 	fi
 	local avg_tps
-	avg_tps="$(awk -v tx="$total_txs" -v dt="$span" 'BEGIN { printf "%.2f", tx / dt }')"
+	avg_tps="$(awk -v tx="$total_txs" -v dt="$span" 'BEGIN { printf "%.2f", (tx * 1000.0) / dt }')"
 
 	printf "\nBlocks analyzed : %d\n" "$((end_block - start_block))"
 	printf "Total txs       : %d\n" "$total_txs"
-	printf "Time span (sec) : %d\n" "$span"
+	printf "Time span (ms)  : %d\n" "$span"
 	printf "Average TPS     : %s\n" "$avg_tps"
 }
 
@@ -247,8 +247,8 @@ while [[ $# -gt 0 ]]; do
 		BATCH_SIZE="$2"
 		shift 2
 		;;
-	--dev-period)
-		DEV_PERIOD="$2"
+	--dev-periodms)
+		DEV_PERIOD_MS="$2"
 		shift 2
 		;;
 	--dev-gaslimit)
@@ -299,6 +299,10 @@ if [[ ! "$BATCH_SIZE" =~ ^[0-9]+$ ]] || (( BATCH_SIZE <= 0 )); then
 	echo "Invalid --batch-size: $BATCH_SIZE"
 	exit 1
 fi
+if [[ ! "$DEV_PERIOD_MS" =~ ^[0-9]+$ ]] || (( DEV_PERIOD_MS <= 0 )); then
+	echo "Invalid --dev-periodms: $DEV_PERIOD_MS"
+	exit 1
+fi
 if [[ ! "$HTTP_PORT" =~ ^[0-9]+$ ]] || (( HTTP_PORT <= 0 || HTTP_PORT > 65535 )); then
 	echo "Invalid --http-port: $HTTP_PORT"
 	exit 1
@@ -328,7 +332,7 @@ NODE_LOG="${DATADIR}/node.log"
 echo "Starting benchmark node..."
 "$GTOS_BIN" \
 	--dev \
-	--dev.period "$DEV_PERIOD" \
+	--dev.periodms "$DEV_PERIOD_MS" \
 	--dev.gaslimit "$DEV_GAS_LIMIT" \
 	--datadir "$DATADIR" \
 	--port 0 \

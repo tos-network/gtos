@@ -22,6 +22,7 @@ package keystore
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	crand "crypto/rand"
 	"errors"
 	"fmt"
@@ -504,9 +505,31 @@ func (ks *KeyStore) NewSchnorrAccount(passphrase string) (accounts.Account, erro
 	return account, nil
 }
 
+// NewSecp256r1Account generates a new native secp256r1 key and stores it into the key directory.
+func (ks *KeyStore) NewSecp256r1Account(passphrase string) (accounts.Account, error) {
+	_, account, err := storeNewSecp256r1Key(ks.storage, crand.Reader, passphrase)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	ks.cache.add(account)
+	ks.refreshWallets()
+	return account, nil
+}
+
 // NewBLS12381Account generates a new native bls12-381 key and stores it into the key directory.
 func (ks *KeyStore) NewBLS12381Account(passphrase string) (accounts.Account, error) {
 	_, account, err := storeNewBLS12381Key(ks.storage, crand.Reader, passphrase)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	ks.cache.add(account)
+	ks.refreshWallets()
+	return account, nil
+}
+
+// NewElgamalAccount generates a new native elgamal key and stores it into the key directory.
+func (ks *KeyStore) NewElgamalAccount(passphrase string) (accounts.Account, error) {
+	_, account, err := storeNewElgamalKey(ks.storage, crand.Reader, passphrase)
 	if err != nil {
 		return accounts.Account{}, err
 	}
@@ -564,6 +587,23 @@ func (ks *KeyStore) ImportECDSA(priv *ecdsa.PrivateKey, passphrase string) (acco
 	return ks.importKey(key, passphrase)
 }
 
+// ImportSecp256r1 stores the given key into the key directory as a secp256r1 account, encrypting it with the passphrase.
+func (ks *KeyStore) ImportSecp256r1(priv *ecdsa.PrivateKey, passphrase string) (accounts.Account, error) {
+	ks.importMu.Lock()
+	defer ks.importMu.Unlock()
+
+	key, err := newKeyFromSecp256r1(priv)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if ks.cache.hasAddress(key.Address) {
+		return accounts.Account{
+			Address: key.Address,
+		}, ErrAccountAlreadyExists
+	}
+	return ks.importKey(key, passphrase)
+}
+
 // ImportEd25519 stores the given native ed25519 key into the key directory, encrypting it with the passphrase.
 func (ks *KeyStore) ImportEd25519(priv ed25519.PrivateKey, passphrase string) (accounts.Account, error) {
 	ks.importMu.Lock()
@@ -587,6 +627,23 @@ func (ks *KeyStore) ImportBLS12381(priv []byte, passphrase string) (accounts.Acc
 	defer ks.importMu.Unlock()
 
 	key, err := newKeyFromBLS12381(priv)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if ks.cache.hasAddress(key.Address) {
+		return accounts.Account{
+			Address: key.Address,
+		}, ErrAccountAlreadyExists
+	}
+	return ks.importKey(key, passphrase)
+}
+
+// ImportElgamal stores the given native elgamal key into the key directory, encrypting it with the passphrase.
+func (ks *KeyStore) ImportElgamal(priv []byte, passphrase string) (accounts.Account, error) {
+	ks.importMu.Lock()
+	defer ks.importMu.Unlock()
+
+	key, err := newKeyFromElgamal(priv)
 	if err != nil {
 		return accounts.Account{}, err
 	}
@@ -656,6 +713,9 @@ func zeroKeyMaterial(k *Key) {
 	for i := range k.BLS12381PrivateKey {
 		k.BLS12381PrivateKey[i] = 0
 	}
+	for i := range k.ElgamalPrivateKey {
+		k.ElgamalPrivateKey[i] = 0
+	}
 }
 
 func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key) (*types.Transaction, error) {
@@ -688,6 +748,30 @@ func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key)
 			return nil, ErrUnsupportedSigningKey
 		}
 		return types.SignTx(tx, signer, key.PrivateKey)
+	case accountsigner.SignerTypeSecp256r1:
+		if tx.Type() != types.SignerTxType {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		txSignerType, ok := tx.SignerType()
+		if !ok {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		normalizedTxSignerType, err := accountsigner.CanonicalSignerType(txSignerType)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedTxSignerType != accountsigner.SignerTypeSecp256r1 {
+			return nil, fmt.Errorf("%w: %s", types.ErrSignerTypeNotSupportedByLocalKey, normalizedTxSignerType)
+		}
+		if key.PrivateKey == nil || key.PrivateKey.Curve != elliptic.P256() {
+			return nil, ErrUnsupportedSigningKey
+		}
+		hash := signer.Hash(tx)
+		sig, err := accountsigner.SignSecp256r1Hash(key.PrivateKey, hash)
+		if err != nil {
+			return nil, err
+		}
+		return tx.WithSignature(signer, sig)
 	case accountsigner.SignerTypeEd25519:
 		if tx.Type() != types.SignerTxType {
 			return nil, types.ErrTxTypeNotSupported
@@ -728,6 +812,27 @@ func signTxWithKeyMaterial(tx *types.Transaction, signer types.Signer, key *Key)
 		}
 		hash := signer.Hash(tx)
 		sig, err := accountsigner.SignBLS12381Hash(key.BLS12381PrivateKey, hash)
+		if err != nil {
+			return nil, err
+		}
+		return tx.WithSignature(signer, sig)
+	case accountsigner.SignerTypeElgamal:
+		if tx.Type() != types.SignerTxType {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		txSignerType, ok := tx.SignerType()
+		if !ok {
+			return nil, types.ErrTxTypeNotSupported
+		}
+		normalizedTxSignerType, err := accountsigner.CanonicalSignerType(txSignerType)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedTxSignerType != accountsigner.SignerTypeElgamal {
+			return nil, fmt.Errorf("%w: %s", types.ErrSignerTypeNotSupportedByLocalKey, normalizedTxSignerType)
+		}
+		hash := signer.Hash(tx)
+		sig, err := accountsigner.SignElgamalHash(key.ElgamalPrivateKey, hash)
 		if err != nil {
 			return nil, err
 		}
