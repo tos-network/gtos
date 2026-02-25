@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"os"
@@ -129,19 +130,36 @@ If you want to encrypt an existing private key, it can be specified by setting
 			if mnemonicMode {
 				utils.Fatalf("Can't use --privatekey with mnemonic flags")
 			}
-			if signerType == accountsigner.SignerTypeEd25519 || signerType == accountsigner.SignerTypeBLS12381 || signerType == accountsigner.SignerTypeElgamal {
-				utils.Fatalf("--privatekey is not supported for signer type %q", signerType)
+			rawPriv, loadErr := loadRawPrivateKeyHex(file)
+			if loadErr != nil {
+				utils.Fatalf("Can't load private key: %v", loadErr)
 			}
-			// Load private key from file.
-			privateKey, err = crypto.LoadECDSA(file)
-			if err != nil {
-				utils.Fatalf("Can't load private key: %v", err)
-			}
-			if signerType == accountsigner.SignerTypeSecp256r1 {
-				privateKey, err = secp256r1PrivateFromECDSA(privateKey)
+			switch signerType {
+			case accountsigner.SignerTypeSecp256k1, accountsigner.SignerTypeSchnorr:
+				privateKey, err = crypto.ToECDSA(rawPriv)
 				if err != nil {
-					utils.Fatalf("Failed to convert private key to secp256r1: %v", err)
+					utils.Fatalf("Invalid %s private key: %v", signerType, err)
 				}
+			case accountsigner.SignerTypeSecp256r1:
+				privateKey, err = secp256r1PrivateFromBytes(rawPriv)
+				if err != nil {
+					utils.Fatalf("Invalid secp256r1 private key: %v", err)
+				}
+			case accountsigner.SignerTypeEd25519:
+				ed25519Priv, err = ed25519PrivateFromBytes(rawPriv)
+				if err != nil {
+					utils.Fatalf("Invalid ed25519 private key: %v", err)
+				}
+			case accountsigner.SignerTypeBLS12381:
+				if _, err := accountsigner.PublicKeyFromBLS12381Private(rawPriv); err != nil {
+					utils.Fatalf("Invalid bls12-381 private key: %v", err)
+				}
+				blsPriv = append([]byte(nil), rawPriv...)
+			case accountsigner.SignerTypeElgamal:
+				if _, err := accountsigner.PublicKeyFromElgamalPrivate(rawPriv); err != nil {
+					utils.Fatalf("Invalid elgamal private key: %v", err)
+				}
+				elgamalPriv = append([]byte(nil), rawPriv...)
 			}
 		} else if mnemonicMode {
 			if mnemonicInput == "" {
@@ -349,10 +367,16 @@ func secp256r1PrivateFromECDSA(key *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error)
 	if key == nil || key.D == nil {
 		return nil, fmt.Errorf("missing ecdsa private key")
 	}
+	return secp256r1PrivateFromBytes(key.D.Bytes())
+}
+
+func secp256r1PrivateFromBytes(raw []byte) (*ecdsa.PrivateKey, error) {
+	if len(raw) == 0 || len(raw) > 32 {
+		return nil, fmt.Errorf("invalid secp256r1 private key size: %d", len(raw))
+	}
 	curve := elliptic.P256()
-	d := new(big.Int).Set(key.D)
-	d.Mod(d, curve.Params().N)
-	if d.Sign() <= 0 {
+	d := new(big.Int).SetBytes(raw)
+	if d.Sign() <= 0 || d.Cmp(curve.Params().N) >= 0 {
 		return nil, fmt.Errorf("invalid secp256r1 private scalar")
 	}
 	out := &ecdsa.PrivateKey{
@@ -364,4 +388,34 @@ func secp256r1PrivateFromECDSA(key *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error)
 		return nil, fmt.Errorf("invalid secp256r1 public key")
 	}
 	return out, nil
+}
+
+func ed25519PrivateFromBytes(raw []byte) (ed25519.PrivateKey, error) {
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(append([]byte(nil), raw...)), nil
+	default:
+		return nil, fmt.Errorf("invalid ed25519 private key size: %d", len(raw))
+	}
+}
+
+func loadRawPrivateKeyHex(file string) ([]byte, error) {
+	content, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(string(content))
+	if strings.HasPrefix(trimmed, "0x") || strings.HasPrefix(trimmed, "0X") {
+		trimmed = trimmed[2:]
+	}
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty private key file")
+	}
+	raw, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex data for private key: %w", err)
+	}
+	return raw, nil
 }

@@ -11,7 +11,7 @@ toskey is a simple command-line tool for working with TOS keyfiles.
 Generate a new keyfile.
 If you want to use an existing private key to use in the keyfile, it can be 
 specified by setting `--privatekey` with the location of the file containing the 
-private key.
+private key (hex-encoded, optional `0x` prefix).
 Use `--signer` to choose signer type (default `secp256k1`), supported values:
 `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`.
 
