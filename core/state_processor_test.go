@@ -453,7 +453,7 @@ func TestStateProcessorPrunesExpiredKVAtBlockBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state at block1: %v", err)
 	}
-	metaAt1 := kvstore.GetMeta(st1, from, "ns", []byte("k"))
+	metaAt1 := kvstore.GetMeta(st1, from, "ns", []byte("k"), 1)
 	if !metaAt1.Exists || metaAt1.ExpireAt != 2 {
 		t.Fatalf("unexpected kv meta at block1: %+v", metaAt1)
 	}
@@ -468,12 +468,13 @@ func TestStateProcessorPrunesExpiredKVAtBlockBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state at head: %v", err)
 	}
-	meta := kvstore.GetMeta(st, from, "ns", []byte("k"))
+	// With lazy expiry, expireAt=2 <= currentBlock=2 → record treated as not found.
+	meta := kvstore.GetMeta(st, from, "ns", []byte("k"), 2)
 	if meta.Exists {
-		t.Fatalf("expected kv to be pruned at block2, got meta=%+v", meta)
+		t.Fatalf("expected kv to be expired at block2, got meta=%+v", meta)
 	}
-	if _, _, found := kvstore.Get(st, from, "ns", []byte("k")); found {
-		t.Fatalf("expected kv value to be removed at block2")
+	if _, _, found := kvstore.Get(st, from, "ns", []byte("k"), 2); found {
+		t.Fatalf("expected kv to be expired at block2")
 	}
 }
 
@@ -552,14 +553,14 @@ func TestStateProcessorPrunesExpiredCodeAtBlockBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state at block2: %v", err)
 	}
-	if code := st2.GetCode(from); len(code) != 0 {
-		t.Fatalf("expected code to be pruned at block2, have len=%d", len(code))
+	// With lazy expiry, code is NOT proactively cleared at block end.
+	// The storage slots remain until the sender deploys new code (which
+	// applySetCode allows because expireAt(2) <= currentBlock(2)).
+	if code := st2.GetCode(from); len(code) == 0 {
+		t.Fatalf("expected code to remain in state (lazy expiry), got empty")
 	}
-	if createdAt := stateWordToUint64(st2.GetState(from, SetCodeCreatedAtSlot)); createdAt != 0 {
-		t.Fatalf("expected createdAt cleared at block2, have %d", createdAt)
-	}
-	if expireAt := stateWordToUint64(st2.GetState(from, SetCodeExpireAtSlot)); expireAt != 0 {
-		t.Fatalf("expected expireAt cleared at block2, have %d", expireAt)
+	if expireAt := stateWordToUint64(st2.GetState(from, SetCodeExpireAtSlot)); expireAt != 2 {
+		t.Fatalf("expected expireAt=2 in state (lazy expiry), got %d", expireAt)
 	}
 }
 

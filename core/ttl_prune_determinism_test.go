@@ -55,7 +55,7 @@ func TestTTLPruneWindowDeterministicRootsAcrossNodes(t *testing.T) {
 	if codeExpire != 103 {
 		t.Fatalf("unexpected code expireAt: have %d want %d", codeExpire, 103)
 	}
-	kvMeta := kvstore.GetMeta(left, kvOwner, "app", []byte("k"))
+	kvMeta := kvstore.GetMeta(left, kvOwner, "app", []byte("k"), blockKVWrite)
 	if !kvMeta.Exists || kvMeta.ExpireAt != 106 {
 		t.Fatalf("unexpected kv meta before window: %+v", kvMeta)
 	}
@@ -97,8 +97,8 @@ func TestTTLPruneWindowDeterministicRootsAcrossNodes(t *testing.T) {
 		t.Fatalf("right code expireAt mismatch: have %d want %d", have, want)
 	}
 
-	leftKV := kvstore.GetMeta(left, kvOwner, "app", []byte("k"))
-	rightKV := kvstore.GetMeta(right, kvOwner, "app", []byte("k"))
+	leftKV := kvstore.GetMeta(left, kvOwner, "app", []byte("k"), blockKVRewrite)
+	rightKV := kvstore.GetMeta(right, kvOwner, "app", []byte("k"), blockKVRewrite)
 	if leftKV != rightKV {
 		t.Fatalf("kv meta mismatch left=%+v right=%+v", leftKV, rightKV)
 	}

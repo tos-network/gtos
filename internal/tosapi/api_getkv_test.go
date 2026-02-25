@@ -63,7 +63,8 @@ func TestGetKVRespectsExpireAt(t *testing.T) {
 	}
 }
 
-func TestGetKVMetaIncludesExpiredFlag(t *testing.T) {
+func TestGetKVMetaExpiredKeyNotFound(t *testing.T) {
+	// With lazy expiry, GetKVMeta returns "not found" when expireAt <= currentBlock.
 	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
@@ -71,17 +72,25 @@ func TestGetKVMetaIncludesExpiredFlag(t *testing.T) {
 	owner := common.HexToAddress("0xb422a2991bf0212aae4f7493ff06ad5d076fa274b49c297f3fe9e29b5ba9aadc")
 	kvstore.Put(st, owner, "ns", []byte("k"), []byte("value"), 10, 20)
 
+	// At the expiry block the key is treated as not found.
 	api := NewTOSAPI(&getKVBackendMock{
 		backendMock: newBackendMock(),
 		st:          st,
 		head:        &types.Header{Number: big.NewInt(20)},
 	})
-	meta, err := api.GetKVMeta(context.Background(), owner, "ns", hexutil.Bytes("k"), nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if _, err := api.GetKVMeta(context.Background(), owner, "ns", hexutil.Bytes("k"), nil); err == nil {
+		t.Fatalf("expected not-found error for expired key at block 20")
 	}
-	if !meta.Expired {
-		t.Fatalf("expected expired=true")
+
+	// One block before expiry the key is still visible.
+	api19 := NewTOSAPI(&getKVBackendMock{
+		backendMock: newBackendMock(),
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(19)},
+	})
+	meta, err := api19.GetKVMeta(context.Background(), owner, "ns", hexutil.Bytes("k"), nil)
+	if err != nil {
+		t.Fatalf("unexpected error at block 19: %v", err)
 	}
 	if uint64(meta.CreatedAt) != 10 || uint64(meta.ExpireAt) != 20 {
 		t.Fatalf("unexpected meta heights: %+v", meta)

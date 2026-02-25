@@ -110,8 +110,6 @@ func TestTTLPruneLongRunBoundedStorageAndDeterministicRoots(t *testing.T) {
 	var (
 		maxCodeOwnerSlots uint64
 		maxKVOwnerSlots   uint64
-		maxCodeIndexSlots uint64
-		maxKVIndexSlots   uint64
 	)
 
 	for start := 0; start < nBlocks; start += insertStep {
@@ -146,19 +144,15 @@ func TestTTLPruneLongRunBoundedStorageAndDeterministicRoots(t *testing.T) {
 		}
 		codeOwnerSlotsA := countStorageSlots(t, stateA, codeOwner)
 		kvOwnerSlotsA := countStorageSlots(t, stateA, kvOwner)
-		codeIndexSlotsA := countStorageSlots(t, stateA, params.SystemActionAddress)
-		kvIndexSlotsA := countStorageSlots(t, stateA, params.KVRouterAddress)
 
 		codeOwnerSlotsB := countStorageSlots(t, stateB, codeOwner)
 		kvOwnerSlotsB := countStorageSlots(t, stateB, kvOwner)
-		codeIndexSlotsB := countStorageSlots(t, stateB, params.SystemActionAddress)
-		kvIndexSlotsB := countStorageSlots(t, stateB, params.KVRouterAddress)
 
-		if codeOwnerSlotsA != codeOwnerSlotsB || kvOwnerSlotsA != kvOwnerSlotsB || codeIndexSlotsA != codeIndexSlotsB || kvIndexSlotsA != kvIndexSlotsB {
-			t.Fatalf("slot mismatch across nodes at height %d: A(codeOwner=%d kvOwner=%d codeIndex=%d kvIndex=%d) B(codeOwner=%d kvOwner=%d codeIndex=%d kvIndex=%d)",
+		if codeOwnerSlotsA != codeOwnerSlotsB || kvOwnerSlotsA != kvOwnerSlotsB {
+			t.Fatalf("slot mismatch across nodes at height %d: A(codeOwner=%d kvOwner=%d) B(codeOwner=%d kvOwner=%d)",
 				headA.NumberU64(),
-				codeOwnerSlotsA, kvOwnerSlotsA, codeIndexSlotsA, kvIndexSlotsA,
-				codeOwnerSlotsB, kvOwnerSlotsB, codeIndexSlotsB, kvIndexSlotsB)
+				codeOwnerSlotsA, kvOwnerSlotsA,
+				codeOwnerSlotsB, kvOwnerSlotsB)
 		}
 
 		if codeOwnerSlotsA > maxCodeOwnerSlots {
@@ -167,26 +161,14 @@ func TestTTLPruneLongRunBoundedStorageAndDeterministicRoots(t *testing.T) {
 		if kvOwnerSlotsA > maxKVOwnerSlots {
 			maxKVOwnerSlots = kvOwnerSlotsA
 		}
-		if codeIndexSlotsA > maxCodeIndexSlots {
-			maxCodeIndexSlots = codeIndexSlotsA
-		}
-		if kvIndexSlotsA > maxKVIndexSlots {
-			maxKVIndexSlots = kvIndexSlotsA
-		}
 	}
 
-	// Boundedness gates after long-run execution.
+	// Boundedness: sender-owned slots must stay bounded (lazy expiry, no global index).
 	if maxCodeOwnerSlots > 2 {
 		t.Fatalf("code owner slots unbounded: have %d want <= 2", maxCodeOwnerSlots)
 	}
 	if maxKVOwnerSlots > 7 {
 		t.Fatalf("kv owner slots unbounded: have %d want <= 7", maxKVOwnerSlots)
-	}
-	if maxCodeIndexSlots > ttl*2 {
-		t.Fatalf("setCode expiry index slots unbounded: have %d want <= %d", maxCodeIndexSlots, ttl*2)
-	}
-	if maxKVIndexSlots > ttl*3 {
-		t.Fatalf("kv expiry index slots unbounded: have %d want <= %d", maxKVIndexSlots, ttl*3)
 	}
 }
 

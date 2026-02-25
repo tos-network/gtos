@@ -133,7 +133,7 @@ func TestAnalyzeTxPlainTransfer(t *testing.T) {
 	sender := addr("0x11")
 	recipient := addr("0x22")
 	msg := plainMsg(sender, recipient, 0, 1000)
-	as := AnalyzeTx(msg, 100)
+	as := AnalyzeTx(msg)
 
 	if _, ok := as.WriteAddrs[sender]; !ok {
 		t.Error("sender should be in WriteAddrs")
@@ -153,7 +153,7 @@ func TestAnalyzeTxPlainTransfer(t *testing.T) {
 func TestAnalyzeTxSysAction(t *testing.T) {
 	sender := addr("0x33")
 	msg := sysActionMsg(sender, 0)
-	as := AnalyzeTx(msg, 100)
+	as := AnalyzeTx(msg)
 
 	if _, ok := as.WriteAddrs[sender]; !ok {
 		t.Error("sender should be in WriteAddrs for sysaction")
@@ -166,20 +166,23 @@ func TestAnalyzeTxSysAction(t *testing.T) {
 func TestAnalyzeTxKVPut(t *testing.T) {
 	sender := addr("0x44")
 	msg := kvPutMsg(sender, 0, 100)
-	as := AnalyzeTx(msg, 50)
+	as := AnalyzeTx(msg)
 
 	if _, ok := as.WriteAddrs[sender]; !ok {
 		t.Error("sender should be in WriteAddrs for KV put")
 	}
-	// KVRouterAddress should have a write slot (expiry count slot)
-	if len(as.WriteSlots[params.KVRouterAddress]) == 0 {
-		t.Error("KVRouterAddress should have a write slot for expiry index")
+	// With lazy expiry, no global index slot — KVRouterAddress must NOT appear.
+	if len(as.WriteSlots[params.KVRouterAddress]) != 0 {
+		t.Error("KVRouterAddress must have no write slots (lazy expiry: no global index)")
+	}
+	if _, ok := as.WriteAddrs[params.KVRouterAddress]; ok {
+		t.Error("KVRouterAddress must not be in WriteAddrs (lazy expiry: no global index)")
 	}
 }
 
 func TestAnalyzeTxTwoSysActionsConflict(t *testing.T) {
-	a := AnalyzeTx(sysActionMsg(addr("0xAA"), 0), 100)
-	b := AnalyzeTx(sysActionMsg(addr("0xBB"), 0), 100)
+	a := AnalyzeTx(sysActionMsg(addr("0xAA"), 0))
+	b := AnalyzeTx(sysActionMsg(addr("0xBB"), 0))
 	if !a.Conflicts(&b) {
 		t.Error("two system actions should conflict via ValidatorRegistryAddress")
 	}
@@ -187,39 +190,34 @@ func TestAnalyzeTxTwoSysActionsConflict(t *testing.T) {
 
 func TestAnalyzeTxSameSenderConflict(t *testing.T) {
 	sender := addr("0x5500")
-	a := AnalyzeTx(plainMsg(sender, addr("0x0100"), 0, 10), 100)
-	b := AnalyzeTx(plainMsg(sender, addr("0x0200"), 1, 10), 100)
+	a := AnalyzeTx(plainMsg(sender, addr("0x0100"), 0, 10))
+	b := AnalyzeTx(plainMsg(sender, addr("0x0200"), 1, 10))
 	if !a.Conflicts(&b) {
 		t.Error("same sender txs should conflict")
 	}
 }
 
 func TestAnalyzeTxCrossSenderNoConflict(t *testing.T) {
-	a := AnalyzeTx(plainMsg(addr("0xA100"), addr("0xB100"), 0, 10), 100)
-	b := AnalyzeTx(plainMsg(addr("0xA200"), addr("0xB200"), 0, 10), 100)
+	a := AnalyzeTx(plainMsg(addr("0xA100"), addr("0xB100"), 0, 10))
+	b := AnalyzeTx(plainMsg(addr("0xA200"), addr("0xB200"), 0, 10))
 	if a.Conflicts(&b) {
 		t.Error("independent transfers should not conflict")
 	}
 }
 
-func TestAnalyzeTxKVSameExpireAtConflict(t *testing.T) {
-	// Two KV puts with same expireAt should conflict on the count slot.
-	ttl := uint64(100)
-	blockNum := uint64(50)
-	a := AnalyzeTx(kvPutMsg(addr("0xC1"), 0, ttl), blockNum)
-	b := AnalyzeTx(kvPutMsg(addr("0xC2"), 0, ttl), blockNum)
-	if !a.Conflicts(&b) {
-		t.Error("two KV puts with same expireAt should conflict on count slot")
-	}
-}
-
-func TestAnalyzeTxKVDifferentExpireNoConflict(t *testing.T) {
-	blockNum := uint64(50)
-	a := AnalyzeTx(kvPutMsg(addr("0xD1"), 0, 100), blockNum)
-	b := AnalyzeTx(kvPutMsg(addr("0xD2"), 0, 200), blockNum)
-	// Different TTLs → different expireAt → different slots → no conflict
+func TestAnalyzeTxKVDifferentSendersNoConflict(t *testing.T) {
+	// With lazy expiry there is no shared global index slot — KV puts from
+	// different senders never conflict regardless of TTL.
+	a := AnalyzeTx(kvPutMsg(addr("0xC1"), 0, 100))
+	b := AnalyzeTx(kvPutMsg(addr("0xC2"), 0, 100))
 	if a.Conflicts(&b) {
-		t.Error("KV puts with different expireAt should not conflict")
+		t.Error("KV puts from different senders should not conflict (same TTL, lazy expiry)")
+	}
+
+	c := AnalyzeTx(kvPutMsg(addr("0xD1"), 0, 100))
+	d := AnalyzeTx(kvPutMsg(addr("0xD2"), 0, 200))
+	if c.Conflicts(&d) {
+		t.Error("KV puts from different senders should not conflict (different TTL, lazy expiry)")
 	}
 }
 
@@ -227,9 +225,9 @@ func TestAnalyzeTxKVDifferentExpireNoConflict(t *testing.T) {
 
 func TestBuildLevelsAllIndependent(t *testing.T) {
 	sets := []AccessSet{
-		AnalyzeTx(plainMsg(addr("0xAA01"), addr("0xBB01"), 0, 1), 100),
-		AnalyzeTx(plainMsg(addr("0xAA02"), addr("0xBB02"), 0, 1), 100),
-		AnalyzeTx(plainMsg(addr("0xAA03"), addr("0xBB03"), 0, 1), 100),
+		AnalyzeTx(plainMsg(addr("0xAA01"), addr("0xBB01"), 0, 1)),
+		AnalyzeTx(plainMsg(addr("0xAA02"), addr("0xBB02"), 0, 1)),
+		AnalyzeTx(plainMsg(addr("0xAA03"), addr("0xBB03"), 0, 1)),
 	}
 	levels := BuildLevels(sets)
 	if len(levels) != 1 {
@@ -243,9 +241,9 @@ func TestBuildLevelsAllIndependent(t *testing.T) {
 func TestBuildLevelsSameSenderSerialized(t *testing.T) {
 	sender := addr("0xAA00")
 	sets := []AccessSet{
-		AnalyzeTx(plainMsg(sender, addr("0xBB01"), 0, 1), 100),
-		AnalyzeTx(plainMsg(sender, addr("0xBB02"), 1, 1), 100),
-		AnalyzeTx(plainMsg(sender, addr("0xBB03"), 2, 1), 100),
+		AnalyzeTx(plainMsg(sender, addr("0xBB01"), 0, 1)),
+		AnalyzeTx(plainMsg(sender, addr("0xBB02"), 1, 1)),
+		AnalyzeTx(plainMsg(sender, addr("0xBB03"), 2, 1)),
 	}
 	levels := BuildLevels(sets)
 	if len(levels) != 3 {
@@ -255,9 +253,10 @@ func TestBuildLevelsSameSenderSerialized(t *testing.T) {
 
 func TestBuildLevelsSysActionsAllSerialized(t *testing.T) {
 	sets := []AccessSet{
-		AnalyzeTx(sysActionMsg(addr("0xE1"), 0), 100),
-		AnalyzeTx(sysActionMsg(addr("0xE2"), 0), 100),
-		AnalyzeTx(sysActionMsg(addr("0xE3"), 0), 100),
+		AnalyzeTx(sysActionMsg(addr("0xE1"), 0)),
+		AnalyzeTx(sysActionMsg(addr("0xE2"), 0)),
+		AnalyzeTx(sysActionMsg(addr("0xE3"), 0)),
+
 	}
 	levels := BuildLevels(sets)
 	if len(levels) != 3 {
@@ -269,10 +268,10 @@ func TestBuildLevelsMixed(t *testing.T) {
 	// tx0, tx1, tx2 are independent transfers; tx3 conflicts with tx1 (same sender).
 	// Use high-byte addresses to avoid collisions with system addresses (0x01, 0x02, 0x03).
 	sets := []AccessSet{
-		AnalyzeTx(plainMsg(addr("0xA001"), addr("0xB001"), 0, 1), 100), // tx0
-		AnalyzeTx(plainMsg(addr("0xA002"), addr("0xB002"), 0, 1), 100), // tx1
-		AnalyzeTx(plainMsg(addr("0xA003"), addr("0xB003"), 0, 1), 100), // tx2
-		AnalyzeTx(plainMsg(addr("0xA002"), addr("0xB004"), 1, 1), 100), // tx3 conflicts with tx1
+		AnalyzeTx(plainMsg(addr("0xA001"), addr("0xB001"), 0, 1)), // tx0
+		AnalyzeTx(plainMsg(addr("0xA002"), addr("0xB002"), 0, 1)), // tx1
+		AnalyzeTx(plainMsg(addr("0xA003"), addr("0xB003"), 0, 1)), // tx2
+		AnalyzeTx(plainMsg(addr("0xA002"), addr("0xB004"), 1, 1)), // tx3 conflicts with tx1
 	}
 	levels := BuildLevels(sets)
 	// tx0, tx1, tx2 → level 0; tx3 → level 1

@@ -344,9 +344,7 @@ func (st *StateTransition) applySetCode(msg Message) error {
 	st.gas -= ttlGas
 	st.state.SetCode(from, payload.Code)
 	st.state.SetState(from, SetCodeCreatedAtSlot, uint64ToStateWord(currentBlock))
-	newExpireAt := currentBlock + payload.TTL
-	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(newExpireAt))
-	appendSetCodeExpiryIndex(st.state, from, newExpireAt)
+	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(currentBlock+payload.TTL))
 	return nil
 }
 

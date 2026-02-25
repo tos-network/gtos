@@ -2403,11 +2403,8 @@ func (s *TOSAPI) GetKV(ctx context.Context, from common.Address, namespace strin
 	if state == nil || header == nil {
 		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
 	}
-	value, meta, found := kvstore.Get(state, from, namespace, key)
+	value, _, found := kvstore.Get(state, from, namespace, key, header.Number.Uint64())
 	if !found {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
-	}
-	if meta.ExpireAt != 0 && header.Number != nil && header.Number.Uint64() >= meta.ExpireAt {
 		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
 	}
 	return &RPCKVResult{
@@ -2438,16 +2435,15 @@ func (s *TOSAPI) GetKVMeta(ctx context.Context, from common.Address, namespace s
 	if state == nil || header == nil {
 		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
 	}
-	meta := kvstore.GetMeta(state, from, namespace, key)
+	meta := kvstore.GetMeta(state, from, namespace, key, header.Number.Uint64())
 	if !meta.Exists {
 		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
 	}
-	expired := meta.ExpireAt != 0 && header.Number != nil && header.Number.Uint64() >= meta.ExpireAt
 	return &RPCKVMetaResult{
 		Namespace: namespace,
 		Key:       key,
 		CreatedAt: hexutil.Uint64(meta.CreatedAt),
 		ExpireAt:  hexutil.Uint64(meta.ExpireAt),
-		Expired:   expired,
+		Expired:   false, // record is live; expired records are filtered by GetMeta
 	}, nil
 }

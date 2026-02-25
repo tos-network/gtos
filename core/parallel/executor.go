@@ -96,7 +96,7 @@ func ExecuteParallel(
 	// Build access sets and execution levels.
 	accessSets := make([]AccessSet, len(txs))
 	for i, msg := range msgs {
-		accessSets[i] = AnalyzeTx(msg, blockNumber.Uint64())
+		accessSets[i] = AnalyzeTx(msg)
 	}
 	levels := BuildLevels(accessSets)
 

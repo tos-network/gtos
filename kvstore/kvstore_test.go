@@ -74,7 +74,7 @@ func TestPutGetRoundTrip(t *testing.T) {
 
 	Put(st, owner, ns, key, value, 100, 140)
 
-	got, meta, ok := Get(st, owner, ns, key)
+	got, meta, ok := Get(st, owner, ns, key, 99) // currentBlock 99 < expireAt 140
 	if !ok {
 		t.Fatalf("expected key to exist")
 	}
@@ -97,7 +97,7 @@ func TestPutOverwriteTruncatesPreviousValue(t *testing.T) {
 	Put(st, owner, ns, key, oldValue, 10, 30)
 	Put(st, owner, ns, key, newValue, 20, 40)
 
-	got, meta, ok := Get(st, owner, ns, key)
+	got, meta, ok := Get(st, owner, ns, key, 39) // currentBlock 39 < expireAt 40
 	if !ok {
 		t.Fatalf("expected key to exist")
 	}
@@ -109,34 +109,38 @@ func TestPutOverwriteTruncatesPreviousValue(t *testing.T) {
 	}
 }
 
-func TestPruneExpiredAtClearsOnlyMatchingRecords(t *testing.T) {
+func TestLazyExpiryHidesExpiredRecords(t *testing.T) {
 	st := newTestState(t)
 	owner := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
 
-	// key1 first expires at 50, then is overwritten to expire at 60.
 	Put(st, owner, "ns", []byte("k1"), []byte("v1"), 10, 50)
-	Put(st, owner, "ns", []byte("k1"), []byte("v2"), 20, 60)
-	// key2 expires at 50 and should be pruned there.
-	Put(st, owner, "ns", []byte("k2"), []byte("v3"), 11, 50)
+	Put(st, owner, "ns", []byte("k2"), []byte("v2"), 11, 60)
 
-	if pruned := PruneExpiredAt(st, 50); pruned != 1 {
-		t.Fatalf("unexpected pruned count at block 50: have %d want 1", pruned)
+	// Before expiry: both records visible.
+	if _, _, ok := Get(st, owner, "ns", []byte("k1"), 49); !ok {
+		t.Fatalf("k1 should be visible at block 49")
 	}
-	// Stale bucket entry for key1@50 must not delete current record (expireAt=60).
-	if got, meta, ok := Get(st, owner, "ns", []byte("k1")); !ok || !bytes.Equal(got, []byte("v2")) || meta.ExpireAt != 60 {
-		t.Fatalf("unexpected key1 after block-50 prune: ok=%v value=%x meta=%+v", ok, got, meta)
-	}
-	if _, _, ok := Get(st, owner, "ns", []byte("k2")); ok {
-		t.Fatalf("key2 should be pruned at block 50")
+	if _, _, ok := Get(st, owner, "ns", []byte("k2"), 49); !ok {
+		t.Fatalf("k2 should be visible at block 49")
 	}
 
-	if pruned := PruneExpiredAt(st, 50); pruned != 0 {
-		t.Fatalf("expected idempotent prune at block 50, have %d", pruned)
+	// At expireAt: record treated as not found (expireAt <= currentBlock).
+	if _, _, ok := Get(st, owner, "ns", []byte("k1"), 50); ok {
+		t.Fatalf("k1 should be expired at block 50")
 	}
-	if pruned := PruneExpiredAt(st, 60); pruned != 1 {
-		t.Fatalf("unexpected pruned count at block 60: have %d want 1", pruned)
+	// k2 still live at block 50.
+	if got, meta, ok := Get(st, owner, "ns", []byte("k2"), 50); !ok || !bytes.Equal(got, []byte("v2")) || meta.ExpireAt != 60 {
+		t.Fatalf("unexpected k2 at block 50: ok=%v meta=%+v", ok, meta)
 	}
-	if _, _, ok := Get(st, owner, "ns", []byte("k1")); ok {
-		t.Fatalf("key1 should be pruned at block 60")
+
+	// After expiry: k2 also hidden.
+	if _, _, ok := Get(st, owner, "ns", []byte("k2"), 60); ok {
+		t.Fatalf("k2 should be expired at block 60")
+	}
+
+	// Overwrite k1 with a new record (simulates lazy renewal after expiry).
+	Put(st, owner, "ns", []byte("k1"), []byte("v1-new"), 50, 100)
+	if got, meta, ok := Get(st, owner, "ns", []byte("k1"), 50); !ok || !bytes.Equal(got, []byte("v1-new")) || meta.ExpireAt != 100 {
+		t.Fatalf("k1 renewal failed: ok=%v meta=%+v", ok, meta)
 	}
 }
