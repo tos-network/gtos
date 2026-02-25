@@ -76,9 +76,8 @@ const (
 	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
-	minWiggleTime          = 100 * time.Millisecond
-	maxWiggleTime          = 1 * time.Second
-	allowedFutureBlockTime = uint64(1080) // milliseconds: 3 × periodMs(360ms) clock-skew grace period
+	minWiggleTime = 100 * time.Millisecond
+	maxWiggleTime = 1 * time.Second
 )
 
 // SignerFn is the callback the miner uses to sign a header hash.
@@ -326,8 +325,8 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		return errUnknownBlock
 	}
 
-	// Reject far-future blocks (R2-M1 constant). Checked even in faker mode.
-	if header.Time > uint64(time.Now().UnixMilli())+allowedFutureBlockTime {
+	// Reject far-future blocks (3× periodMs grace period). Checked even in faker mode.
+	if header.Time > uint64(time.Now().UnixMilli())+3*d.config.TargetBlockPeriodMs() {
 		return consensus.ErrFutureBlock
 	}
 	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
@@ -600,14 +599,38 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	return nil
 }
 
+// VerifyEpochExtra checks that an epoch block's Extra validator list exactly
+// matches the active validator registry in statedb.  Called by
+// StateProcessor.Process after transaction execution so that the state seen
+// here is the same state FinalizeAndAssemble used when building the block.
+// No-op for non-epoch blocks and in faker (test) mode.
+func (d *DPoS) VerifyEpochExtra(header *types.Header, statedb *state.StateDB) error {
+	if d.fakeDiff {
+		return nil
+	}
+	number := header.Number.Uint64()
+	if number == 0 || number%d.config.Epoch != 0 {
+		return nil
+	}
+	claimed, err := parseEpochValidators(header.Extra, d.config)
+	if err != nil {
+		return err
+	}
+	actual := validator.ReadActiveValidators(statedb, d.config.MaxValidators)
+	if len(claimed) != len(actual) {
+		return fmt.Errorf("dpos: epoch %d validator count mismatch: Extra has %d, registry has %d",
+			number, len(claimed), len(actual))
+	}
+	for i, v := range actual {
+		if claimed[i] != v {
+			return fmt.Errorf("dpos: epoch %d validator mismatch at index %d: Extra=%s, registry=%s",
+				number, i, claimed[i].Hex(), v.Hex())
+		}
+	}
+	return nil
+}
+
 // Finalize implements consensus.Engine, adding the block reward.
-//
-// R2-H1 — Accepted MVP limitation: Finalize() has no error return in
-// consensus.Engine, so we cannot verify that header.Extra matches validator
-// registry state here. FinalizeAndAssemble (the honest proposer path) always
-// reads validator registry state and
-// embeds the correct list. A byzantine validator could produce an epoch block
-// with a wrong Extra, but cannot sustain a fork without >50% of validators.
 func (d *DPoS) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	st *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 

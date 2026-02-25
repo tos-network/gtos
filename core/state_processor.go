@@ -30,6 +30,12 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
+// epochExtraVerifier is a subset of consensus.Engine implemented by DPoS.
+// Using a local interface avoids importing consensus/dpos from core (import cycle).
+type epochExtraVerifier interface {
+	VerifyEpochExtra(header *types.Header, statedb *state.StateDB) error
+}
+
 // StateProcessor is a basic Processor, which takes care of transitioning
 // state from one point to another.
 //
@@ -67,7 +73,12 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 	blockCtx := NewTVMBlockContext(header, p.bc, nil)
 	signer := types.MakeSigner(p.config, header.Number)
 
-	// Build per-transaction messages upfront (needs statedb for sender resolution).
+	// Build per-transaction messages upfront using the pre-block statedb snapshot.
+	// Sender resolution uses the signer state at block START (before any tx executes),
+	// which is the consensus-defined semantic: if ACCOUNT_SET_SIGNER changes an
+	// account's signer mid-block, subsequent txs in the same block still resolve
+	// to the old signer.  chain_makers.AddTxWithChain was aligned to this same
+	// pre-block-state semantics (see BlockGen.initStatedb).
 	txs := block.Transactions()
 	msgs := make([]types.Message, len(txs))
 	for i, tx := range txs {
@@ -88,6 +99,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
+
+	// Issue-1 fix: For epoch blocks, verify that Extra's validator list matches
+	// the on-chain registry state so a byzantine proposer cannot forge the set.
+	if ev, ok := p.engine.(epochExtraVerifier); ok {
+		if err := ev.VerifyEpochExtra(header, statedb); err != nil {
+			return nil, nil, 0, err
+		}
+	}
 
 	return receipts, allLogs, *usedGas, nil
 }

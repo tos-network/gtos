@@ -38,6 +38,13 @@ type BlockGen struct {
 	header  *types.Header
 	statedb *state.StateDB
 
+	// initStatedb is a read-only view of the state at block start (before any tx
+	// in this block executes).  Used exclusively for sender resolution in
+	// AddTxWithChain so that the semantics match StateProcessor.Process, which
+	// resolves all senders from the pre-block snapshot.  Execution itself still
+	// runs against the live statedb.
+	initStatedb *state.StateDB
+
 	gasPool  *GasPool
 	txs      []*types.Transaction
 	receipts []*types.Receipt
@@ -102,7 +109,10 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 		b.SetCoinbase(common.Address{})
 	}
 	signer := types.MakeSigner(b.config, b.header.Number)
-	msg, err := TxAsMessageWithAccountSigner(tx, signer, b.header.BaseFee, b.statedb)
+	// Use initStatedb (pre-block state) for sender resolution so that the semantics
+	// match StateProcessor.Process: an ACCOUNT_SET_SIGNER tx earlier in this block
+	// does not retroactively change the sender of subsequent txs within the same block.
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, b.header.BaseFee, b.initStatedb)
 	if err != nil {
 		panic(err)
 	}
@@ -244,7 +254,13 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
 	chainreader := &fakeChainReader{config: config}
 	genblock := func(i int, parent *types.Block, statedb *state.StateDB) (*types.Block, types.Receipts) {
-		b := &BlockGen{i: i, chain: blocks, parent: parent, statedb: statedb, config: config, engine: engine}
+		// initStatedb is a read-only view at the start of this block (shares the
+		// same underlying trie DB; reads are independent of statedb's journal).
+		initStatedb, err := state.New(parent.Root(), statedb.Database(), nil)
+		if err != nil {
+			panic(fmt.Sprintf("failed to create initStatedb for block %d: %v", i, err))
+		}
+		b := &BlockGen{i: i, chain: blocks, parent: parent, statedb: statedb, initStatedb: initStatedb, config: config, engine: engine}
 		b.header = makeHeader(chainreader, parent, statedb, b.engine)
 
 		// Set the difficulty for clique block. The chain maker doesn't have access

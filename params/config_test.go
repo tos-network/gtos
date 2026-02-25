@@ -147,6 +147,49 @@ func TestCheckCompatible(t *testing.T) {
 				RewindTo:     0,
 			},
 		},
+		// DPoS param mismatch tests: Fatal=true so startup is blocked even when RewindTo==0.
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 200, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			head:   10,
+			wantErr: &ConfigCompatError{
+				What:         "DPoS epoch",
+				StoredConfig: big.NewInt(100),
+				NewConfig:    big.NewInt(200),
+				RewindTo:     0,
+				Fatal:        true,
+			},
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 1000, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			head:   10,
+			wantErr: &ConfigCompatError{
+				What:         "DPoS periodMs",
+				StoredConfig: big.NewInt(360),
+				NewConfig:    big.NewInt(1000),
+				RewindTo:     0,
+				Fatal:        true,
+			},
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 21, SealSignerType: "secp256k1"}},
+			head:   10,
+			wantErr: &ConfigCompatError{
+				What:         "DPoS maxValidators",
+				StoredConfig: big.NewInt(15),
+				NewConfig:    big.NewInt(21),
+				RewindTo:     0,
+				Fatal:        true,
+			},
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			head:   10,
+			wantErr: &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true},
+		},
 	}
 
 	for _, test := range tests {

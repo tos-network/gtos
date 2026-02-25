@@ -303,6 +303,43 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 			RewindTo:     0,
 		}
 	}
+	// DPoS consensus params are immutable: mismatches must block startup (Fatal=true)
+	// even when RewindTo==0, because rewinding cannot fix a consensus engine mismatch.
+	if (c.DPoS == nil) != (newcfg.DPoS == nil) {
+		return &ConfigCompatError{What: "DPoS config presence", RewindTo: 0, Fatal: true}
+	}
+	if c.DPoS != nil && newcfg.DPoS != nil {
+		if c.DPoS.Epoch != newcfg.DPoS.Epoch {
+			return &ConfigCompatError{
+				What:         "DPoS epoch",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.Epoch),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.Epoch),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if c.DPoS.TargetBlockPeriodMs() != newcfg.DPoS.TargetBlockPeriodMs() {
+			return &ConfigCompatError{
+				What:         "DPoS periodMs",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.TargetBlockPeriodMs()),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.TargetBlockPeriodMs()),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if c.DPoS.MaxValidators != newcfg.DPoS.MaxValidators {
+			return &ConfigCompatError{
+				What:         "DPoS maxValidators",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaxValidators),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaxValidators),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if c.DPoS.SealSignerType != newcfg.DPoS.SealSignerType {
+			return &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true}
+		}
+	}
 	return nil
 }
 
@@ -324,6 +361,9 @@ type ConfigCompatError struct {
 	StoredConfig, NewConfig *big.Int
 	// the block number to which the local chain must be rewound to correct the error
 	RewindTo uint64
+	// Fatal marks immutable consensus params (e.g. DPoS Epoch/PeriodMs) whose
+	// mismatch must block node startup even when RewindTo == 0.
+	Fatal bool
 }
 
 func newCompatError(what string, storedblock, newblock *big.Int) *ConfigCompatError {
@@ -336,7 +376,7 @@ func newCompatError(what string, storedblock, newblock *big.Int) *ConfigCompatEr
 	default:
 		rew = newblock
 	}
-	err := &ConfigCompatError{what, storedblock, newblock, 0}
+	err := &ConfigCompatError{what, storedblock, newblock, 0, false}
 	if rew != nil && rew.Sign() > 0 {
 		err.RewindTo = rew.Uint64() - 1
 	}

@@ -321,11 +321,12 @@ func TestAllowedFutureBlock(t *testing.T) {
 	chain := &fakeChainReader{}
 
 	now := uint64(time.Now().UnixMilli())
+	grace := 3 * d.config.TargetBlockPeriodMs()
 
 	// Slightly below grace window: allowed.
 	hAllowed := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + allowedFutureBlockTime - 100,
+		Time:       now + grace - 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,
@@ -337,7 +338,7 @@ func TestAllowedFutureBlock(t *testing.T) {
 	// Slightly above grace window: rejected.
 	hRejected := &types.Header{
 		Number:     big.NewInt(1),
-		Time:       now + allowedFutureBlockTime + 100,
+		Time:       now + grace + 100,
 		Difficulty: diffInTurn,
 		Extra:      make([]byte, extraVanity+extraSeal),
 		UncleHash:  types.EmptyUncleHash,

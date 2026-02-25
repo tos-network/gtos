@@ -326,7 +326,7 @@ func SetupGenesisBlockWithOverride(db tosdb.Database, genesis *Genesis, override
 		return newcfg, stored, fmt.Errorf("missing block number for head header hash")
 	}
 	compatErr := storedcfg.CheckCompatible(newcfg, *height)
-	if compatErr != nil && *height != 0 && compatErr.RewindTo != 0 {
+	if compatErr != nil && *height != 0 && (compatErr.RewindTo != 0 || compatErr.Fatal) {
 		return newcfg, stored, compatErr
 	}
 	rawdb.WriteChainConfig(db, stored, newcfg)

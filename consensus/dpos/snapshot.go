@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 
 	lru "github.com/hashicorp/golang-lru"
@@ -185,10 +186,13 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 
 // parseEpochValidators extracts the validator list from an epoch block's Extra.
 // Format: [32B vanity][N×AddressLength addresses][seal]
+// Enforces: count ≤ MaxValidators, no duplicates, strict ascending address order.
 func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Address, error) {
 	sealSignerType := params.DefaultDPoSSealSignerType
+	maxValidators := 0
 	if cfg != nil {
 		sealSignerType = cfg.SealSignerType
+		maxValidators = int(cfg.MaxValidators)
 	}
 	sealLen := sealLengthForSignerType(sealSignerType)
 	if len(extra) < extraVanity+sealLen {
@@ -199,15 +203,25 @@ func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Addres
 		return nil, errInvalidCheckpointValidators
 	}
 	n := len(payload) / common.AddressLength
+	if maxValidators > 0 && n > maxValidators {
+		return nil, fmt.Errorf("dpos: epoch validator count %d exceeds maxValidators %d", n, maxValidators)
+	}
 	out := make([]common.Address, n)
 	for i := range out {
 		copy(out[i][:], payload[i*common.AddressLength:])
+	}
+	// Require strict ascending order (implies no duplicates, canonical form).
+	for i := 1; i < len(out); i++ {
+		if bytes.Compare(out[i-1][:], out[i][:]) >= 0 {
+			return nil, errInvalidCheckpointValidators
+		}
 	}
 	return out, nil
 }
 
 // parseGenesisValidators extracts the validator list from block-0 Extra (no seal).
 // Format: [32B vanity][N×AddressLength addresses]
+// Enforces: no duplicates, strict ascending address order.
 func parseGenesisValidators(extra []byte) ([]common.Address, error) {
 	if len(extra) < extraVanity {
 		return nil, errMissingVanity
@@ -220,6 +234,12 @@ func parseGenesisValidators(extra []byte) ([]common.Address, error) {
 	out := make([]common.Address, n)
 	for i := range out {
 		copy(out[i][:], payload[i*common.AddressLength:])
+	}
+	// Require strict ascending order (implies no duplicates, canonical form).
+	for i := 1; i < len(out); i++ {
+		if bytes.Compare(out[i-1][:], out[i][:]) >= 0 {
+			return nil, errInvalidCheckpointValidators
+		}
 	}
 	return out, nil
 }
