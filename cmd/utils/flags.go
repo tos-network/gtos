@@ -1459,6 +1459,16 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 	}
 }
 
+func resolveDeveloperPeriodMs(ctx *cli.Context) uint64 {
+	if ctx.IsSet(DeveloperPeriodMsFlag.Name) {
+		return ctx.Uint64(DeveloperPeriodMsFlag.Name)
+	}
+	if ctx.IsSet(DeveloperPeriodFlag.Name) {
+		return uint64(ctx.Int(DeveloperPeriodFlag.Name)) * 1000
+	}
+	return ctx.Uint64(DeveloperPeriodMsFlag.Name)
+}
+
 // SetTOSConfig applies tos-related command line flags to the config.
 func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	// Avoid conflicting network flags
@@ -1634,10 +1644,7 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 		log.Info("Using developer account", "address", developer.Address)
 
 		// Create a new developer genesis block or reuse existing one
-		periodMs := uint64(ctx.Int(DeveloperPeriodFlag.Name)) * 1000
-		if ctx.IsSet(DeveloperPeriodMsFlag.Name) {
-			periodMs = ctx.Uint64(DeveloperPeriodMsFlag.Name)
-		}
+		periodMs := resolveDeveloperPeriodMs(ctx)
 		cfg.Genesis = core.DeveloperGenesisBlockMs(periodMs, ctx.Uint64(DeveloperGasLimitFlag.Name), developer.Address)
 		if ctx.IsSet(DataDirFlag.Name) {
 			// If datadir doesn't exist we need to open db in write-mode

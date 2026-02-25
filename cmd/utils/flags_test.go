@@ -18,8 +18,12 @@
 package utils
 
 import (
+	"flag"
 	"reflect"
 	"testing"
+
+	"github.com/tos-network/gtos/params"
+	"github.com/urfave/cli/v2"
 )
 
 func Test_SplitTagsFlag(t *testing.T) {
@@ -58,6 +62,39 @@ func Test_SplitTagsFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := SplitTagsFlag(tt.args); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("splitTagsFlag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveDeveloperPeriodMs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want uint64
+	}{
+		{name: "default periodms", args: nil, want: params.DPoSBlockPeriodMs},
+		{name: "legacy seconds flag", args: []string{"--dev.period=2"}, want: 2000},
+		{name: "periodms flag", args: []string{"--dev.periodms=750"}, want: 750},
+		{name: "periodms overrides seconds", args: []string{"--dev.period=2", "--dev.periodms=650"}, want: 650},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := cli.NewApp()
+			app.Flags = []cli.Flag{DeveloperPeriodFlag, DeveloperPeriodMsFlag}
+
+			set := flag.NewFlagSet("test", flag.ContinueOnError)
+			for _, f := range app.Flags {
+				if err := f.Apply(set); err != nil {
+					t.Fatalf("apply flag: %v", err)
+				}
+			}
+			if err := set.Parse(tt.args); err != nil {
+				t.Fatalf("parse flags: %v", err)
+			}
+			ctx := cli.NewContext(app, set, nil)
+			if got := resolveDeveloperPeriodMs(ctx); got != tt.want {
+				t.Fatalf("resolveDeveloperPeriodMs() = %d, want %d", got, tt.want)
 			}
 		})
 	}
