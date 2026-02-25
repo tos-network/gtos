@@ -113,8 +113,14 @@ var (
 	}
 	DeveloperPeriodFlag = &cli.IntFlag{
 		Name:     "dev.period",
-		Usage:    "Block period to use in developer mode (0 = mine only if transaction pending)",
+		Usage:    "Block period in seconds for developer mode (legacy; overridden by --dev.periodms when set)",
 		Value:    1,
+		Category: flags.DevCategory,
+	}
+	DeveloperPeriodMsFlag = &cli.Uint64Flag{
+		Name:     "dev.periodms",
+		Usage:    "Block period in milliseconds for developer mode (overrides --dev.period when set)",
+		Value:    params.DPoSBlockPeriodMs,
 		Category: flags.DevCategory,
 	}
 	DeveloperGasLimitFlag = &cli.Uint64Flag{
@@ -1628,7 +1634,11 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 		log.Info("Using developer account", "address", developer.Address)
 
 		// Create a new developer genesis block or reuse existing one
-		cfg.Genesis = core.DeveloperGenesisBlock(uint64(ctx.Int(DeveloperPeriodFlag.Name)), ctx.Uint64(DeveloperGasLimitFlag.Name), developer.Address)
+		periodMs := uint64(ctx.Int(DeveloperPeriodFlag.Name)) * 1000
+		if ctx.IsSet(DeveloperPeriodMsFlag.Name) {
+			periodMs = ctx.Uint64(DeveloperPeriodMsFlag.Name)
+		}
+		cfg.Genesis = core.DeveloperGenesisBlockMs(periodMs, ctx.Uint64(DeveloperGasLimitFlag.Name), developer.Address)
 		if ctx.IsSet(DataDirFlag.Name) {
 			// If datadir doesn't exist we need to open db in write-mode
 			// so leveldb can create files.

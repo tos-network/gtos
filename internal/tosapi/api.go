@@ -1918,7 +1918,7 @@ func (s *TOSAPI) targetBlockIntervalMs() uint64 {
 			return period
 		}
 	}
-	return 1000
+	return params.DPoSBlockPeriodMs
 }
 
 func (s *TOSAPI) currentHead() uint64 {

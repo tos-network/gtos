@@ -17,6 +17,7 @@
 package params
 
 import (
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"testing"
@@ -80,6 +81,32 @@ func TestDPoSConfigNormalizePeriod(t *testing.T) {
 	cfg.NormalizePeriod()
 	if cfg.PeriodMs != 450 {
 		t.Fatalf("periodMs should take precedence: have %d want %d", cfg.PeriodMs, 450)
+	}
+}
+
+func TestChainConfigJSONPeriodMsAndLegacyPeriod(t *testing.T) {
+	periodMsJSON := []byte(`{"chainId":1,"dpos":{"periodMs":500,"epoch":1000,"maxValidators":21,"sealSignerType":"ed25519"}}`)
+	var cfg ChainConfig
+	if err := json.Unmarshal(periodMsJSON, &cfg); err != nil {
+		t.Fatalf("unmarshal periodMs config: %v", err)
+	}
+	if cfg.DPoS == nil {
+		t.Fatalf("dpos config missing")
+	}
+	if cfg.DPoS.TargetBlockPeriodMs() != 500 {
+		t.Fatalf("periodMs parse mismatch: have %d want %d", cfg.DPoS.TargetBlockPeriodMs(), 500)
+	}
+
+	legacyPeriodJSON := []byte(`{"chainId":1,"dpos":{"period":1,"epoch":1000,"maxValidators":21,"sealSignerType":"ed25519"}}`)
+	var legacy ChainConfig
+	if err := json.Unmarshal(legacyPeriodJSON, &legacy); err != nil {
+		t.Fatalf("unmarshal legacy period config: %v", err)
+	}
+	if legacy.DPoS == nil {
+		t.Fatalf("legacy dpos config missing")
+	}
+	if legacy.DPoS.TargetBlockPeriodMs() != 1000 {
+		t.Fatalf("legacy period mapping mismatch: have %d want %d", legacy.DPoS.TargetBlockPeriodMs(), 1000)
 	}
 }
 

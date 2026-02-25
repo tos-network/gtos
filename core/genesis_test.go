@@ -223,3 +223,29 @@ func TestReadWriteGenesisAlloc(t *testing.T) {
 		}
 	}
 }
+
+func TestDeveloperGenesisBlockMsPeriodConfig(t *testing.T) {
+	faucet := common.HexToAddress("0x1234")
+
+	genesisMs := DeveloperGenesisBlockMs(500, 11_500_000, faucet)
+	if genesisMs.Config == nil || genesisMs.Config.DPoS == nil {
+		t.Fatalf("missing dpos config in dev genesis")
+	}
+	if got := genesisMs.Config.DPoS.PeriodMs; got != 500 {
+		t.Fatalf("unexpected periodMs for sub-second dev genesis: have %d want %d", got, 500)
+	}
+	if got := genesisMs.Config.DPoS.Period; got != 0 {
+		t.Fatalf("legacy period should be zero for non-second-aligned ms config: have %d want %d", got, 0)
+	}
+
+	genesisSec := DeveloperGenesisBlock(1, 11_500_000, faucet)
+	if genesisSec.Config == nil || genesisSec.Config.DPoS == nil {
+		t.Fatalf("missing dpos config in legacy dev genesis")
+	}
+	if got := genesisSec.Config.DPoS.PeriodMs; got != 1000 {
+		t.Fatalf("unexpected periodMs for legacy dev genesis: have %d want %d", got, 1000)
+	}
+	if got := genesisSec.Config.DPoS.Period; got != 1 {
+		t.Fatalf("unexpected legacy period for legacy dev genesis: have %d want %d", got, 1)
+	}
+}

@@ -12,7 +12,7 @@ import (
 func TestRestartRecoversLatestFinalizedAndResumesImport(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{Period: 3, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
 	}
 	gspec := &Genesis{
 		Config: config,

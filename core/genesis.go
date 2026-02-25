@@ -430,12 +430,23 @@ func DefaultGenesisBlock() *Genesis {
 }
 
 // DeveloperGenesisBlock returns the 'gtos --dev' genesis block.
+// period is expressed in seconds (legacy helper).
 func DeveloperGenesisBlock(period uint64, gasLimit uint64, faucet common.Address) *Genesis {
-	// Override the default period to the user requested one
+	return DeveloperGenesisBlockMs(period*1000, gasLimit, faucet)
+}
+
+// DeveloperGenesisBlockMs returns the 'gtos --dev' genesis block.
+// periodMs is expressed in milliseconds.
+func DeveloperGenesisBlockMs(periodMs uint64, gasLimit uint64, faucet common.Address) *Genesis {
+	// Override the default period to the user requested one.
+	legacyPeriod := periodMs / 1000
+	if periodMs%1000 != 0 {
+		legacyPeriod = 0
+	}
 	config := *params.AllDPoSProtocolChanges
 	config.DPoS = &params.DPoSConfig{
-		Period:         period,
-		PeriodMs:       period * 1000,
+		Period:         legacyPeriod,
+		PeriodMs:       periodMs,
 		Epoch:          config.DPoS.Epoch,
 		MaxValidators:  config.DPoS.MaxValidators,
 		SealSignerType: config.DPoS.SealSignerType,

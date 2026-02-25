@@ -76,7 +76,7 @@ const (
 	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
 	inmemorySignatures     = 4096 // recent signatures to cache
-	wiggleTime             = 500 * time.Millisecond
+	minWiggleTime          = 25 * time.Millisecond
 	allowedFutureBlockTime = uint64(5000) // milliseconds of clock-skew grace period
 )
 
@@ -692,8 +692,9 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	// Compute delay. In-turn: honour header.Time. Out-of-turn: add random wiggle.
 	delay := time.UnixMilli(int64(header.Time)).Sub(time.Now())
 	if header.Difficulty.Cmp(diffNoTurn) == 0 {
+		// Sub-second tuning: cap out-of-turn jitter to half a slot budget.
 		// math/rand is intentional: delay randomness is not a security property.
-		wiggle := time.Duration(len(snap.Validators)/2+1) * wiggleTime
+		wiggle := d.outOfTurnWiggleWindow()
 		delay += time.Duration(rand.Int63n(int64(wiggle)))
 	}
 
@@ -745,6 +746,18 @@ func calcDifficulty(snap *Snapshot, v common.Address) *big.Int {
 		return new(big.Int).Set(diffInTurn)
 	}
 	return new(big.Int).Set(diffNoTurn)
+}
+
+func (d *DPoS) outOfTurnWiggleWindow() time.Duration {
+	period := time.Duration(d.config.TargetBlockPeriodMs()) * time.Millisecond
+	if period <= 0 {
+		return minWiggleTime
+	}
+	wiggle := period / 2
+	if wiggle < minWiggleTime {
+		return minWiggleTime
+	}
+	return wiggle
 }
 
 // APIs implements consensus.Engine.

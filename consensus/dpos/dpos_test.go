@@ -24,9 +24,9 @@ func TestNewInvalidConfig(t *testing.T) {
 		name   string
 		config params.DPoSConfig
 	}{
-		{"epoch=0", params.DPoSConfig{Epoch: 0, Period: 3, MaxValidators: 21}},
-		{"period=0", params.DPoSConfig{Epoch: 200, Period: 0, MaxValidators: 21}},
-		{"maxValidators=0", params.DPoSConfig{Epoch: 200, Period: 3, MaxValidators: 0}},
+		{"epoch=0", params.DPoSConfig{Epoch: 0, PeriodMs: 3000, MaxValidators: 21}},
+		{"periodMs=0", params.DPoSConfig{Epoch: 200, PeriodMs: 0, MaxValidators: 21}},
+		{"maxValidators=0", params.DPoSConfig{Epoch: 200, PeriodMs: 3000, MaxValidators: 0}},
 	}
 	for _, tt := range tests {
 		cfg := tt.config
@@ -184,7 +184,7 @@ func TestSealHashRoundTrip(t *testing.T) {
 
 func TestSealHashRoundTripEd25519(t *testing.T) {
 	d, err := New(&params.DPoSConfig{
-		Period:         3,
+		PeriodMs:       3000,
 		Epoch:          200,
 		MaxValidators:  21,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
@@ -390,6 +390,105 @@ func TestVoteSigningLifecycle(t *testing.T) {
 	}
 	if recovered := crypto.PubkeyToAddress(*pub); recovered != addr {
 		t.Fatalf("vote signature signer mismatch: have %s want %s", recovered.Hex(), addr.Hex())
+	}
+}
+
+func TestOutOfTurnWiggleWindow(t *testing.T) {
+	d := NewFaker()
+	if got := d.outOfTurnWiggleWindow(); got != 1500*time.Millisecond {
+		t.Fatalf("unexpected default wiggle window: have %s want %s", got, 1500*time.Millisecond)
+	}
+
+	msCfg := &params.DPoSConfig{
+		PeriodMs:       500,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	dms, err := New(msCfg, nil)
+	if err != nil {
+		t.Fatalf("New(msCfg): %v", err)
+	}
+	if got := dms.outOfTurnWiggleWindow(); got != 250*time.Millisecond {
+		t.Fatalf("unexpected 500ms wiggle window: have %s want %s", got, 250*time.Millisecond)
+	}
+
+	tinyCfg := &params.DPoSConfig{
+		PeriodMs:       10,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	dtiny, err := New(tinyCfg, nil)
+	if err != nil {
+		t.Fatalf("New(tinyCfg): %v", err)
+	}
+	if got := dtiny.outOfTurnWiggleWindow(); got != minWiggleTime {
+		t.Fatalf("unexpected min wiggle window: have %s want %s", got, minWiggleTime)
+	}
+}
+
+func TestPrepareUsesPeriodMs(t *testing.T) {
+	signer := common.Address{0x01}
+	now := uint64(time.Now().UnixMilli())
+	genesis := &types.Header{
+		Number: big.NewInt(0),
+		Time:   now + 2000,
+		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
+	}
+	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
+
+	d, err := New(&params.DPoSConfig{
+		PeriodMs:       500,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		ParentHash: genesis.Hash(),
+	}
+	if err := d.Prepare(chain, header); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if want := genesis.Time + 500; header.Time != want {
+		t.Fatalf("prepared time mismatch: have %d want %d", header.Time, want)
+	}
+}
+
+func TestPrepareLegacyPeriodMappedToMs(t *testing.T) {
+	signer := common.Address{0x01}
+	now := uint64(time.Now().UnixMilli())
+	genesis := &types.Header{
+		Number: big.NewInt(0),
+		Time:   now + 2000,
+		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
+	}
+	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
+
+	d, err := New(&params.DPoSConfig{
+		Period:         2, // legacy seconds field
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		ParentHash: genesis.Hash(),
+	}
+	if err := d.Prepare(chain, header); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if want := genesis.Time + 2000; header.Time != want {
+		t.Fatalf("prepared legacy time mismatch: have %d want %d", header.Time, want)
 	}
 }
 
