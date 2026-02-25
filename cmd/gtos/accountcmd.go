@@ -16,7 +16,7 @@ import (
 var (
 	accountNewSignerFlag = &cli.StringFlag{
 		Name:  "signer",
-		Usage: "Signer algorithm for new account key (`secp256k1` default, supports `schnorr`, `ed25519`, `bls12-381`)",
+		Usage: "Signer algorithm for new account key (`secp256k1` default, supports `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`)",
 	}
 
 	walletCommand = &cli.Command{
@@ -269,10 +269,14 @@ func accountCreate(ctx *cli.Context) error {
 		account, err = ks.NewAccount(password)
 	case accountsigner.SignerTypeSchnorr:
 		account, err = ks.NewSchnorrAccount(password)
+	case accountsigner.SignerTypeSecp256r1:
+		account, err = ks.NewSecp256r1Account(password)
 	case accountsigner.SignerTypeEd25519:
 		account, err = ks.NewEd25519Account(password)
 	case accountsigner.SignerTypeBLS12381:
 		account, err = ks.NewBLS12381Account(password)
+	case accountsigner.SignerTypeElgamal:
+		account, err = ks.NewElgamalAccount(password)
 	default:
 		utils.Fatalf("Signer type %q is not supported by local account creation", signerType)
 	}

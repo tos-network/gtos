@@ -79,6 +79,15 @@ func TestSetupGenesis(t *testing.T) {
 			wantConfig: params.MainnetChainConfig,
 		},
 		{
+			name: "testnet block in DB, genesis == nil",
+			fn: func(db tosdb.Database) (*params.ChainConfig, common.Hash, error) {
+				DefaultTestnetGenesisBlock().MustCommit(db)
+				return SetupGenesisBlock(db, nil)
+			},
+			wantHash:   params.TestnetGenesisHash,
+			wantConfig: params.TestnetChainConfig,
+		},
+		{
 			name: "custom block in DB, genesis == nil",
 			fn: func(db tosdb.Database) (*params.ChainConfig, common.Hash, error) {
 				customg.MustCommit(db)
@@ -156,6 +165,7 @@ func TestGenesisHashes(t *testing.T) {
 		want    common.Hash
 	}{
 		{DefaultGenesisBlock(), params.MainnetGenesisHash},
+		{DefaultTestnetGenesisBlock(), params.TestnetGenesisHash},
 	} {
 		// Test via MustCommit
 		if have := c.genesis.MustCommit(rawdb.NewMemoryDatabase()).Hash(); have != c.want {

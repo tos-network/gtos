@@ -150,6 +150,8 @@ func CommitGenesisState(db tosdb.Database, hash common.Hash) error {
 		switch hash {
 		case params.MainnetGenesisHash:
 			genesis = DefaultGenesisBlock()
+		case params.TestnetGenesisHash:
+			genesis = DefaultTestnetGenesisBlock()
 		}
 		if genesis != nil {
 			alloc = genesis.Alloc
@@ -337,6 +339,8 @@ func (g *Genesis) configOrDefault(ghash common.Hash) *params.ChainConfig {
 		return g.Config
 	case ghash == params.MainnetGenesisHash:
 		return params.MainnetChainConfig
+	case ghash == params.TestnetGenesisHash:
+		return params.TestnetChainConfig
 	default:
 		return params.AllDPoSProtocolChanges
 	}
@@ -423,6 +427,18 @@ func DefaultGenesisBlock() *Genesis {
 		Config:     params.MainnetChainConfig,
 		Nonce:      66,
 		ExtraData:  hexutil.MustDecode("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
+		GasLimit:   5000,
+		Difficulty: big.NewInt(17179869184),
+		Alloc:      decodePrealloc(mainnetAllocData),
+	}
+}
+
+// DefaultTestnetGenesisBlock returns the TOS testnet genesis block.
+func DefaultTestnetGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.TestnetChainConfig,
+		Nonce:      1666,
+		ExtraData:  hexutil.MustDecode("0x22bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
 		GasLimit:   5000,
 		Difficulty: big.NewInt(17179869184),
 		Alloc:      decodePrealloc(mainnetAllocData),

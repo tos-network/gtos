@@ -12,7 +12,22 @@ Generate a new keyfile.
 If you want to use an existing private key to use in the keyfile, it can be 
 specified by setting `--privatekey` with the location of the file containing the 
 private key.
-Use `--signer schnorr` to generate a schnorr account keyfile (default is `secp256k1`).
+Use `--signer` to choose signer type (default `secp256k1`), supported values:
+`schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`.
+
+Mnemonic flow (BIP39 -> seed -> derived private key/address) is also supported:
+
+- Generate a new mnemonic and derive key at default path:
+  - `toskey generate --mnemonic-generate`
+- Import from an existing mnemonic:
+  - `toskey generate --mnemonic "word1 ... word12"`
+- Optional flags:
+  - `--hd-path` (default: `m/44'/60'/0'/0/0`)
+  - `--mnemonic-passphrase`
+  - `--mnemonic-bits` (for `--mnemonic-generate`: 128/160/192/224/256)
+
+Mnemonic derivation currently supports signer types:
+- `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 
 
 ### `toskey inspect <keyfile>`

@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 
@@ -322,6 +323,15 @@ func encryptablePrivateKeyBytes(key *Key) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("missing schnorr private key")
 		}
 		return math.PaddedBigBytes(key.PrivateKey.D, 32), signerType, nil
+	case accountsigner.SignerTypeSecp256r1:
+		if key.PrivateKey == nil || key.PrivateKey.D == nil {
+			return nil, "", fmt.Errorf("missing secp256r1 private key")
+		}
+		p256Key, err := secp256r1PrivateFromECDSA(key.PrivateKey)
+		if err != nil {
+			return nil, "", err
+		}
+		return math.PaddedBigBytes(p256Key.D, 32), signerType, nil
 	case accountsigner.SignerTypeEd25519:
 		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
 			return nil, "", fmt.Errorf("missing ed25519 private key")
@@ -332,6 +342,11 @@ func encryptablePrivateKeyBytes(key *Key) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("missing bls12-381 private key")
 		}
 		return append([]byte(nil), key.BLS12381PrivateKey...), signerType, nil
+	case accountsigner.SignerTypeElgamal:
+		if _, err := accountsigner.PublicKeyFromElgamalPrivate(key.ElgamalPrivateKey); err != nil {
+			return nil, "", fmt.Errorf("missing elgamal private key")
+		}
+		return append([]byte(nil), key.ElgamalPrivateKey...), signerType, nil
 	default:
 		return nil, "", fmt.Errorf("unsupported signer type: %s", signerType)
 	}
@@ -350,6 +365,15 @@ func keyFromBytes(id uuid.UUID, signerType string, keyBytes []byte) (*Key, error
 	case accountsigner.SignerTypeSchnorr:
 		key := crypto.ToECDSAUnsafe(keyBytes)
 		return newSchnorrKeyWithID(id, key)
+	case accountsigner.SignerTypeSecp256r1:
+		if len(keyBytes) != 32 {
+			return nil, fmt.Errorf("invalid secp256r1 key material size: %d", len(keyBytes))
+		}
+		key, err := secp256r1PrivateFromScalar(new(big.Int).SetBytes(keyBytes))
+		if err != nil {
+			return nil, err
+		}
+		return newSecp256r1KeyWithID(id, key)
 	case accountsigner.SignerTypeEd25519:
 		if len(keyBytes) != ed25519.SeedSize && len(keyBytes) != ed25519.PrivateKeySize {
 			return nil, fmt.Errorf("invalid ed25519 key material size: %d", len(keyBytes))
@@ -392,6 +416,11 @@ func keyFromBytes(id uuid.UUID, signerType string, keyBytes []byte) (*Key, error
 			Ed25519PrivateKey:  nil,
 			BLS12381PrivateKey: append([]byte(nil), keyBytes...),
 		}, nil
+	case accountsigner.SignerTypeElgamal:
+		if len(keyBytes) != 32 {
+			return nil, fmt.Errorf("invalid elgamal key material size: %d", len(keyBytes))
+		}
+		return newElgamalKeyWithID(id, keyBytes)
 	default:
 		return nil, fmt.Errorf("unsupported signer type: %s", signerType)
 	}

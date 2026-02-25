@@ -104,6 +104,11 @@ var (
 		Usage:    "TOS mainnet",
 		Category: flags.TOSCategory,
 	}
+	TestnetFlag = &cli.BoolFlag{
+		Name:     "testnet",
+		Usage:    "TOS testnet",
+		Category: flags.TOSCategory,
+	}
 
 	// Dev mode
 	DeveloperFlag = &cli.BoolFlag{
@@ -846,6 +851,7 @@ var (
 	// NetworkFlags is the flag group of all built-in supported networks.
 	NetworkFlags = []cli.Flag{
 		MainnetFlag,
+		TestnetFlag,
 	}
 
 	// DatabasePathFlags is the flag group of all database path flags.
@@ -903,6 +909,9 @@ func setNodeUserIdent(ctx *cli.Context, cfg *node.Config) {
 // flags, reverting to pre-configured ones if none have been specified.
 func setBootstrapNodes(ctx *cli.Context, cfg *p2p.Config) {
 	urls := params.MainnetBootnodes
+	if ctx.Bool(TestnetFlag.Name) {
+		urls = params.TestnetBootnodes
+	}
 	switch {
 	case ctx.IsSet(BootnodesFlag.Name):
 		urls = SplitAndTrim(ctx.String(BootnodesFlag.Name))
@@ -1456,7 +1465,7 @@ func CheckExclusive(ctx *cli.Context, args ...interface{}) {
 // SetTOSConfig applies tos-related command line flags to the config.
 func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	// Avoid conflicting network flags
-	CheckExclusive(ctx, MainnetFlag, DeveloperFlag)
+	CheckExclusive(ctx, MainnetFlag, TestnetFlag, DeveloperFlag)
 	CheckExclusive(ctx, LightServeFlag, SyncModeFlag, "light")
 	if ctx.String(GCModeFlag.Name) == "archive" && ctx.Uint64(TxLookupLimitFlag.Name) != 0 {
 		ctx.Set(TxLookupLimitFlag.Name, "0")
@@ -1594,6 +1603,11 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 		}
 		cfg.Genesis = core.DefaultGenesisBlock()
 		SetDNSDiscoveryDefaults(cfg, params.MainnetGenesisHash)
+	case ctx.Bool(TestnetFlag.Name):
+		if !ctx.IsSet(NetworkIdFlag.Name) {
+			cfg.NetworkId = params.TestnetChainConfig.ChainID.Uint64()
+		}
+		cfg.Genesis = core.DefaultTestnetGenesisBlock()
 	case ctx.Bool(DeveloperFlag.Name):
 		if !ctx.IsSet(NetworkIdFlag.Name) {
 			cfg.NetworkId = 1337
@@ -1812,6 +1826,8 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 	switch {
 	case ctx.Bool(MainnetFlag.Name):
 		genesis = core.DefaultGenesisBlock()
+	case ctx.Bool(TestnetFlag.Name):
+		genesis = core.DefaultTestnetGenesisBlock()
 	case ctx.Bool(DeveloperFlag.Name):
 		Fatalf("Developer chains are ephemeral")
 	}

@@ -19,11 +19,13 @@ package keystore
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +58,8 @@ type Key struct {
 	Ed25519PrivateKey ed25519.PrivateKey
 	// Native bls12-381 private key (32-byte scalar serialization).
 	BLS12381PrivateKey []byte
+	// Native elgamal private key (32-byte ristretto scalar serialization).
+	ElgamalPrivateKey []byte
 }
 
 type keyStore interface {
@@ -147,6 +151,7 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		k.PrivateKey = privkey
 		k.Ed25519PrivateKey = nil
 		k.BLS12381PrivateKey = nil
+		k.ElgamalPrivateKey = nil
 	case accountsigner.SignerTypeSchnorr:
 		privkey, decErr := crypto.HexToECDSA(keyJSON.PrivateKey)
 		if decErr != nil {
@@ -155,6 +160,16 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		k.PrivateKey = privkey
 		k.Ed25519PrivateKey = nil
 		k.BLS12381PrivateKey = nil
+		k.ElgamalPrivateKey = nil
+	case accountsigner.SignerTypeSecp256r1:
+		privkey, decErr := decodeSecp256r1PrivateKeyHex(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = privkey
+		k.Ed25519PrivateKey = nil
+		k.BLS12381PrivateKey = nil
+		k.ElgamalPrivateKey = nil
 	case accountsigner.SignerTypeEd25519:
 		edPriv, decErr := decodeEd25519PrivateKeyHex(keyJSON.PrivateKey)
 		if decErr != nil {
@@ -163,6 +178,7 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		k.PrivateKey = nil
 		k.Ed25519PrivateKey = edPriv
 		k.BLS12381PrivateKey = nil
+		k.ElgamalPrivateKey = nil
 	case accountsigner.SignerTypeBLS12381:
 		blsPriv, decErr := decodeBLS12381PrivateKeyHex(keyJSON.PrivateKey)
 		if decErr != nil {
@@ -171,6 +187,16 @@ func (k *Key) UnmarshalJSON(j []byte) (err error) {
 		k.PrivateKey = nil
 		k.Ed25519PrivateKey = nil
 		k.BLS12381PrivateKey = blsPriv
+		k.ElgamalPrivateKey = nil
+	case accountsigner.SignerTypeElgamal:
+		elgamalPriv, decErr := decodeElgamalPrivateKeyHex(keyJSON.PrivateKey)
+		if decErr != nil {
+			return decErr
+		}
+		k.PrivateKey = nil
+		k.Ed25519PrivateKey = nil
+		k.BLS12381PrivateKey = nil
+		k.ElgamalPrivateKey = elgamalPriv
 	default:
 		return fmt.Errorf("unsupported signer type in keystore key json: %s", signerType)
 	}
@@ -228,6 +254,63 @@ func newKeyFromSchnorrECDSA(privateKeyECDSA *ecdsa.PrivateKey) (*Key, error) {
 	return newSchnorrKeyWithID(id, privateKeyECDSA)
 }
 
+func secp256r1PrivateFromScalar(scalar *big.Int) (*ecdsa.PrivateKey, error) {
+	if scalar == nil || scalar.Sign() <= 0 {
+		return nil, fmt.Errorf("missing secp256r1 private scalar")
+	}
+	curve := elliptic.P256()
+	d := new(big.Int).Set(scalar)
+	d.Mod(d, curve.Params().N)
+	if d.Sign() <= 0 {
+		return nil, fmt.Errorf("invalid secp256r1 private scalar")
+	}
+	key := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{Curve: curve},
+		D:         d,
+	}
+	key.PublicKey.X, key.PublicKey.Y = curve.ScalarBaseMult(d.Bytes())
+	if key.PublicKey.X == nil || key.PublicKey.Y == nil {
+		return nil, fmt.Errorf("invalid secp256r1 public key")
+	}
+	return key, nil
+}
+
+func secp256r1PrivateFromECDSA(privateKeyECDSA *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error) {
+	if privateKeyECDSA == nil || privateKeyECDSA.D == nil {
+		return nil, fmt.Errorf("missing ecdsa private key")
+	}
+	if privateKeyECDSA.Curve == elliptic.P256() {
+		return privateKeyECDSA, nil
+	}
+	return secp256r1PrivateFromScalar(privateKeyECDSA.D)
+}
+
+func newSecp256r1KeyWithID(id uuid.UUID, privateKeyECDSA *ecdsa.PrivateKey) (*Key, error) {
+	key, err := secp256r1PrivateFromECDSA(privateKeyECDSA)
+	if err != nil {
+		return nil, err
+	}
+	pub := elliptic.Marshal(elliptic.P256(), key.PublicKey.X, key.PublicKey.Y)
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeSecp256r1, pub)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{
+		Id:         id,
+		Address:    addr,
+		SignerType: accountsigner.SignerTypeSecp256r1,
+		PrivateKey: key,
+	}, nil
+}
+
+func newKeyFromSecp256r1(privateKeyECDSA *ecdsa.PrivateKey) (*Key, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("could not create random uuid: %w", err)
+	}
+	return newSecp256r1KeyWithID(id, privateKeyECDSA)
+}
+
 func newKeyFromEd25519(privateKeyED25519 ed25519.PrivateKey) (*Key, error) {
 	id, err := uuid.NewRandom()
 	if err != nil {
@@ -274,7 +357,36 @@ func newKeyFromBLS12381(privateKeyBLS []byte) (*Key, error) {
 		PrivateKey:         nil,
 		Ed25519PrivateKey:  nil,
 		BLS12381PrivateKey: append([]byte(nil), privateKeyBLS...),
+		ElgamalPrivateKey:  nil,
 	}, nil
+}
+
+func newElgamalKeyWithID(id uuid.UUID, privateKeyElgamal []byte) (*Key, error) {
+	pub, err := accountsigner.PublicKeyFromElgamalPrivate(privateKeyElgamal)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, pub)
+	if err != nil {
+		return nil, err
+	}
+	return &Key{
+		Id:                 id,
+		Address:            addr,
+		SignerType:         accountsigner.SignerTypeElgamal,
+		PrivateKey:         nil,
+		Ed25519PrivateKey:  nil,
+		BLS12381PrivateKey: nil,
+		ElgamalPrivateKey:  append([]byte(nil), privateKeyElgamal...),
+	}, nil
+}
+
+func newKeyFromElgamal(privateKeyElgamal []byte) (*Key, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("could not create random uuid: %w", err)
+	}
+	return newElgamalKeyWithID(id, privateKeyElgamal)
 }
 
 // NewKeyForDirectICAP generates a key whose address fits into < 155 bits so it can fit
@@ -322,12 +434,28 @@ func newSchnorrKey(rand io.Reader) (*Key, error) {
 	return newKeyFromSchnorrECDSA(privateKeyECDSA)
 }
 
+func newSecp256r1Key(rand io.Reader) (*Key, error) {
+	privateKeyECDSA, err := ecdsa.GenerateKey(elliptic.P256(), rand)
+	if err != nil {
+		return nil, err
+	}
+	return newKeyFromSecp256r1(privateKeyECDSA)
+}
+
 func newBLS12381Key(rand io.Reader) (*Key, error) {
 	priv, err := accountsigner.GenerateBLS12381PrivateKey(rand)
 	if err != nil {
 		return nil, err
 	}
 	return newKeyFromBLS12381(priv)
+}
+
+func newElgamalKey(rand io.Reader) (*Key, error) {
+	priv, err := accountsigner.GenerateElgamalPrivateKey(rand)
+	if err != nil {
+		return nil, err
+	}
+	return newKeyFromElgamal(priv)
 }
 
 func storeNewKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
@@ -378,8 +506,40 @@ func storeNewSchnorrKey(ks keyStore, rand io.Reader, auth string) (*Key, account
 	return key, a, err
 }
 
+func storeNewSecp256r1Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
+	key, err := newSecp256r1Key(rand)
+	if err != nil {
+		return nil, accounts.Account{}, err
+	}
+	a := accounts.Account{
+		Address: key.Address,
+		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
+	}
+	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
+		zeroKeyMaterial(key)
+		return nil, a, err
+	}
+	return key, a, err
+}
+
 func storeNewBLS12381Key(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
 	key, err := newBLS12381Key(rand)
+	if err != nil {
+		return nil, accounts.Account{}, err
+	}
+	a := accounts.Account{
+		Address: key.Address,
+		URL:     accounts.URL{Scheme: KeyStoreScheme, Path: ks.JoinPath(keyFileName(key.Address))},
+	}
+	if err := ks.StoreKey(a.URL.Path, key, auth); err != nil {
+		zeroKeyMaterial(key)
+		return nil, a, err
+	}
+	return key, a, err
+}
+
+func storeNewElgamalKey(ks keyStore, rand io.Reader, auth string) (*Key, accounts.Account, error) {
+	key, err := newElgamalKey(rand)
 	if err != nil {
 		return nil, accounts.Account{}, err
 	}
@@ -431,6 +591,28 @@ func decodeBLS12381PrivateKeyHex(privHex string) ([]byte, error) {
 	return raw, nil
 }
 
+func decodeSecp256r1PrivateKeyHex(privHex string) (*ecdsa.PrivateKey, error) {
+	raw, err := hex.DecodeString(privHex)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || len(raw) > 32 {
+		return nil, fmt.Errorf("invalid secp256r1 private key size: %d", len(raw))
+	}
+	return secp256r1PrivateFromScalar(new(big.Int).SetBytes(raw))
+}
+
+func decodeElgamalPrivateKeyHex(privHex string) ([]byte, error) {
+	raw, err := hex.DecodeString(privHex)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := accountsigner.PublicKeyFromElgamalPrivate(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 func (k *Key) privateKeyHex() (string, error) {
 	switch canonicalSignerTypeOrDefault(k.SignerType) {
 	case accountsigner.SignerTypeSecp256k1:
@@ -443,6 +625,15 @@ func (k *Key) privateKeyHex() (string, error) {
 			return "", fmt.Errorf("missing schnorr private key")
 		}
 		return hex.EncodeToString(crypto.FromECDSA(k.PrivateKey)), nil
+	case accountsigner.SignerTypeSecp256r1:
+		if k.PrivateKey == nil {
+			return "", fmt.Errorf("missing secp256r1 private key")
+		}
+		key, err := secp256r1PrivateFromECDSA(k.PrivateKey)
+		if err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(crypto.FromECDSA(key)), nil
 	case accountsigner.SignerTypeEd25519:
 		if len(k.Ed25519PrivateKey) != ed25519.PrivateKeySize {
 			return "", fmt.Errorf("missing ed25519 private key")
@@ -453,6 +644,11 @@ func (k *Key) privateKeyHex() (string, error) {
 			return "", fmt.Errorf("missing bls12-381 private key")
 		}
 		return hex.EncodeToString(k.BLS12381PrivateKey), nil
+	case accountsigner.SignerTypeElgamal:
+		if _, err := accountsigner.PublicKeyFromElgamalPrivate(k.ElgamalPrivateKey); err != nil {
+			return "", fmt.Errorf("missing elgamal private key")
+		}
+		return hex.EncodeToString(k.ElgamalPrivateKey), nil
 	default:
 		return "", fmt.Errorf("unsupported signer type: %s", k.SignerType)
 	}

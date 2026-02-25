@@ -30,6 +30,7 @@ import (
 // Genesis hashes to enforce below configs on.
 var (
 	MainnetGenesisHash = common.HexToHash("0x46d992313359269de94274665b1bd8f0424c28d65bcfc28b5635aa7cd15e5dbd")
+	TestnetGenesisHash = common.HexToHash("0xeacf581757a26dc72c03594625b43da16a073e5201313b95963051266e236621")
 )
 
 // TrustedCheckpoints associates each known checkpoint with the genesis hash of
@@ -54,6 +55,17 @@ var (
 		SectionHead:  common.HexToHash("0xe47f84b9967eb2ad2afff74d59901b63134660011822fdababaf8fdd18a75aa6"),
 		CHTRoot:      common.HexToHash("0xc31e0462ca3d39a46111bb6b63ac4e1cac84089472b7474a319d582f72b3f0c0"),
 		BloomRoot:    common.HexToHash("0x7c9f25ce3577a3ab330d52a7343f801899cf9d4980c69f81de31ccc1a055c809"),
+	}
+
+	// TestnetChainConfig is the chain parameters to run a node on the test network.
+	TestnetChainConfig = &ChainConfig{
+		ChainID: big.NewInt(1666),
+		DPoS: &DPoSConfig{
+			PeriodMs:       DPoSBlockPeriodMs,
+			Epoch:          DPoSEpochLength,
+			MaxValidators:  DPoSMaxValidators,
+			SealSignerType: DefaultDPoSSealSignerType,
+		},
 	}
 
 	// AllDPoSProtocolChanges contains every protocol change proposal introduced
@@ -100,6 +112,7 @@ func NormalizeDPoSSealSignerType(signerType string) (string, error) {
 // NetworkNames are user friendly names to use in the chain spec banner.
 var NetworkNames = map[string]string{
 	MainnetChainConfig.ChainID.String(): "mainnet",
+	TestnetChainConfig.ChainID.String(): "testnet",
 }
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
