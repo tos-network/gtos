@@ -102,7 +102,7 @@ func NormalizeDPoSSealSignerType(signerType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
 	case "", DPoSSealSignerTypeEd25519:
 		return DPoSSealSignerTypeEd25519, nil
-	case DPoSSealSignerTypeSecp256k1, "ethereum_secp256k1":
+	case DPoSSealSignerTypeSecp256k1:
 		return DPoSSealSignerTypeSecp256k1, nil
 	default:
 		return "", fmt.Errorf("unsupported dpos seal signer type: %s", strings.TrimSpace(signerType))

@@ -32,7 +32,7 @@ func TestNormalizeDPoSSealSignerType(t *testing.T) {
 		{in: "", want: DPoSSealSignerTypeEd25519},
 		{in: "ed25519", want: DPoSSealSignerTypeEd25519},
 		{in: "secp256k1", want: DPoSSealSignerTypeSecp256k1},
-		{in: " ethereum_secp256k1 ", want: DPoSSealSignerTypeSecp256k1},
+		{in: "ethereum_secp256k1", wantErr: true},
 		{in: "bls12-381", wantErr: true},
 	}
 	for _, tc := range tests {
