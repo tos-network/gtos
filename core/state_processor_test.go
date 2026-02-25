@@ -402,6 +402,113 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 	}
 }
 
+func TestAddTxWithChainAndProcessSharePreBlockSignerSemantics(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	chainSigner := types.LatestSigner(config)
+	fromKey, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	if err != nil {
+		t.Fatalf("failed to load sender key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(fromKey.PublicKey)
+	to := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
+
+	edPub, edPriv, err := ed25519.GenerateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	setSignerPayload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
+		SignerType:  accountsigner.SignerTypeEd25519,
+		SignerValue: hexutil.Encode(edPub),
+	})
+	if err != nil {
+		t.Fatalf("failed to encode setSigner payload: %v", err)
+	}
+	systemActionTo := params.SystemActionAddress
+	txSetSignerUnsigned := types.NewTx(&types.SignerTx{
+		ChainID:    chainSigner.ChainID(),
+		Nonce:      0,
+		To:         &systemActionTo,
+		Value:      big.NewInt(0),
+		Gas:        500_000,
+		Data:       setSignerPayload,
+		From:       from,
+		SignerType: accountsigner.SignerTypeSecp256k1,
+	})
+	txSetSigner, err := types.SignTx(txSetSignerUnsigned, chainSigner, fromKey)
+	if err != nil {
+		t.Fatalf("failed to sign setSigner tx: %v", err)
+	}
+
+	txEdUnsigned := types.NewTx(&types.SignerTx{
+		ChainID:    chainSigner.ChainID(),
+		Nonce:      1,
+		To:         &to,
+		Value:      big.NewInt(1),
+		Gas:        params.TxGas,
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+	})
+	hash := chainSigner.Hash(txEdUnsigned)
+	edSig := ed25519.Sign(edPriv, hash[:])
+	txEd := types.NewTx(&types.SignerTx{
+		ChainID:    txEdUnsigned.ChainId(),
+		Nonce:      txEdUnsigned.Nonce(),
+		To:         txEdUnsigned.To(),
+		Value:      txEdUnsigned.Value(),
+		Gas:        txEdUnsigned.Gas(),
+		Data:       txEdUnsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(edSig[:32]),
+		S:          new(big.Int).SetBytes(edSig[32:]),
+	})
+
+	// Path A: AddTxWithChain (GenerateChain path) should reject the second tx
+	// because sender resolution uses pre-block signer metadata.
+	buildDB := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc: GenesisAlloc{
+			from: {Balance: big.NewInt(10_000_000_000_000_000)},
+			to:   {Balance: big.NewInt(0)},
+		},
+	}
+	genesis := gspec.MustCommit(buildDB)
+	var panicVal interface{}
+	func() {
+		defer func() { panicVal = recover() }()
+		GenerateChain(config, genesis, dpos.NewFaker(), buildDB, 1, func(i int, b *BlockGen) {
+			b.AddTx(txSetSigner)
+			b.AddTx(txEd)
+		})
+	}()
+	if panicVal == nil {
+		t.Fatal("expected AddTxWithChain path to panic on signer mismatch, got nil")
+	}
+	panicMsg := fmt.Sprint(panicVal)
+	if !strings.Contains(panicMsg, ErrAccountSignerMismatch.Error()) {
+		t.Fatalf("unexpected AddTxWithChain panic: %v", panicVal)
+	}
+
+	// Path B: Process (block import path) should reject the same tx list for the same reason.
+	runDB := rawdb.NewMemoryDatabase()
+	gspec.MustCommit(runDB)
+	blockchain, err := NewBlockChain(runDB, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create blockchain: %v", err)
+	}
+	defer blockchain.Stop()
+
+	badBlock := GenerateBadBlock(blockchain.CurrentBlock(), dpos.NewFaker(), types.Transactions{txSetSigner, txEd}, config)
+	if _, err := blockchain.InsertChain(types.Blocks{badBlock}); err == nil || !strings.Contains(err.Error(), ErrAccountSignerMismatch.Error()) {
+		t.Fatalf("expected Process path signer mismatch error, got: %v", err)
+	}
+}
+
 func TestStateProcessorPrunesExpiredKVAtBlockBoundary(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),

@@ -157,6 +157,62 @@ func TestSetupGenesis(t *testing.T) {
 	}
 }
 
+func TestSetupGenesisBlockRejectsFatalDPoSCompatMismatch(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	alloc := GenesisAlloc{
+		{1}: {Balance: big.NewInt(1_000_000_000_000)},
+	}
+	storedCfg := &params.ChainConfig{
+		ChainID: big.NewInt(777),
+		DPoS: &params.DPoSConfig{
+			PeriodMs:       360,
+			Epoch:          200,
+			MaxValidators:  15,
+			SealSignerType: params.DPoSSealSignerTypeEd25519,
+		},
+	}
+	storedGenesis := &Genesis{Config: storedCfg, Alloc: alloc}
+	genesisBlock := storedGenesis.MustCommit(db)
+
+	bc, err := NewBlockChain(db, nil, storedCfg, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create blockchain: %v", err)
+	}
+	defer bc.Stop()
+	blocks, _ := GenerateChain(storedCfg, genesisBlock, dpos.NewFaker(), db, 1, nil)
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("failed to insert warmup block: %v", err)
+	}
+
+	newCfg := &params.ChainConfig{
+		ChainID: big.NewInt(777),
+		DPoS: &params.DPoSConfig{
+			PeriodMs:       1000, // period mismatch should be fatal even with RewindTo==0
+			Epoch:          200,
+			MaxValidators:  15,
+			SealSignerType: params.DPoSSealSignerTypeEd25519,
+		},
+	}
+	newGenesis := &Genesis{Config: newCfg, Alloc: alloc}
+	_, _, err = SetupGenesisBlock(db, newGenesis)
+	if err == nil {
+		t.Fatal("expected fatal DPoS compatibility error, got nil")
+	}
+	compatErr, ok := err.(*params.ConfigCompatError)
+	if !ok {
+		t.Fatalf("expected ConfigCompatError, got %T (%v)", err, err)
+	}
+	if !compatErr.Fatal {
+		t.Fatalf("expected Fatal=true, got false: %+v", compatErr)
+	}
+	if compatErr.What != "DPoS periodMs" {
+		t.Fatalf("unexpected incompatibility reason: have %q want %q", compatErr.What, "DPoS periodMs")
+	}
+	if compatErr.RewindTo != 0 {
+		t.Fatalf("expected RewindTo=0 for fatal DPoS mismatch, got %d", compatErr.RewindTo)
+	}
+}
+
 // TestGenesisHashes checks the congruity of default genesis data to
 // corresponding hardcoded genesis hash values.
 func TestGenesisHashes(t *testing.T) {
