@@ -1,6 +1,7 @@
 package dpos
 
 import (
+	gocrypto "crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"math/big"
@@ -604,6 +605,136 @@ func TestM2Guard(t *testing.T) {
 
 	if err := d.verifyCascadingFields(chain, header, nil); err != errInvalidTimestamp {
 		t.Errorf("M2Guard: want errInvalidTimestamp, got %v", err)
+	}
+}
+
+// TestRecentlySignedAllowAtWindowEdge verifies the ALLOW boundary of the recency
+// window: a validator that signed exactly at slot-limit is NOT blocked.
+//
+// With 3 validators, limit=2. seenSlot=1, slot=3: seenSlot(1) > slot-limit(1) → false → ALLOW.
+func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := crypto.PubkeyToAddress(key.PublicKey)
+
+	addrs := []common.Address{signer, {0x02}, {0x03}}
+	d := NewFaker()
+	const genesisTime = uint64(1_000_000)
+	const periodMs = uint64(360)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
+
+	// Signer signed at slot 1; current header is at slot 3.
+	// limit=2; seenSlot=1, slot-limit=1 → 1 > 1 → false → ALLOW.
+	snap.Recents[1] = signer
+
+	header := &types.Header{
+		Number:     big.NewInt(3),
+		Difficulty: big.NewInt(1),
+		Coinbase:   signer,
+		Extra:      make([]byte, extraVanity+extraSeal),
+		Time:       genesisTime + 3*periodMs, // slot 3
+	}
+	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
+	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+
+	if err := d.verifySeal(snap, header); err == errRecentlySigned {
+		t.Error("window-edge: validator should be ALLOWED at exactly slot-limit distance, got errRecentlySigned")
+	}
+}
+
+// TestApplyBulkEviction verifies that apply() evicts all stale Recents entries
+// in a single step (not just one) when slot numbers jump.
+func TestApplyBulkEviction(t *testing.T) {
+	key1, _ := crypto.GenerateKey()
+	key2, _ := crypto.GenerateKey()
+	key3, _ := crypto.GenerateKey()
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	addr2 := crypto.PubkeyToAddress(key2.PublicKey)
+	addr3 := crypto.PubkeyToAddress(key3.PublicKey)
+
+	// Sort ascending so newSnapshot accepts them.
+	addrs := []common.Address{addr1, addr2, addr3}
+	sort.Sort(addressAscending(addrs))
+
+	d := NewFaker()
+	const genesisTime = uint64(1_000_000)
+	const periodMs = uint64(360)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
+
+	// Pre-populate Recents with two stale entries at slots 0 and 1.
+	// limit = 3/3+1 = 2.  For an incoming block at slot 10: staleThreshold = 10-2 = 8.
+	// Both slot 0 and slot 1 are <= 8, so both must be evicted.
+	snap.Recents[0] = addrs[0]
+	snap.Recents[1] = addrs[1]
+
+	// Apply one header at slot 10 signed by addrs[2].
+	// Build a minimal signed header for addrs[2].
+	var signerKey *gocrypto.PrivateKey
+	for _, k := range []*gocrypto.PrivateKey{key1, key2, key3} {
+		if crypto.PubkeyToAddress(k.PublicKey) == addrs[2] {
+			signerKey = k
+			break
+		}
+	}
+	h := &types.Header{
+		Number:     big.NewInt(1),
+		ParentHash: common.Hash{},
+		Difficulty: big.NewInt(1),
+		Coinbase:   addrs[2],
+		Extra:      make([]byte, extraVanity+extraSeal),
+		Time:       genesisTime + 10*periodMs, // slot 10
+	}
+	sig, _ := crypto.Sign(SealHash(h).Bytes(), signerKey)
+	copy(h.Extra[len(h.Extra)-extraSeal:], sig)
+
+	next, err := snap.apply([]*types.Header{h})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	// Slots 0 and 1 must be gone; only slot 10 (addrs[2]) must remain.
+	if _, ok := next.Recents[0]; ok {
+		t.Error("slot 0 should have been evicted")
+	}
+	if _, ok := next.Recents[1]; ok {
+		t.Error("slot 1 should have been evicted")
+	}
+	if signer, ok := next.Recents[10]; !ok || signer != addrs[2] {
+		t.Errorf("slot 10 should map to addrs[2]; got %v ok=%v", signer, ok)
+	}
+}
+
+// TestCalcDifficultyUsesTime verifies that CalcDifficulty uses the caller-supplied
+// time argument (not parent.Time+periodMs) to determine the in-turn validator.
+func TestCalcDifficultyUsesTime(t *testing.T) {
+	signer := common.Address{0x01}
+	const genesisTime = uint64(1_000_000)
+	const periodMs = uint64(360)
+
+	// Genesis has one validator; slot 0 → signer is in-turn.
+	genesis := &types.Header{
+		Number: big.NewInt(0),
+		Time:   genesisTime,
+		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
+	}
+	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
+
+	d, err := New(&params.DPoSConfig{
+		PeriodMs: periodMs, Epoch: 200, MaxValidators: 21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	d.Authorize(signer, nil) // set validator so CalcDifficulty has a target
+
+	parent := genesis
+
+	// time = genesisTime + 1*periodMs → slot 1 → signer (only validator) is in-turn.
+	diff := d.CalcDifficulty(chain, genesisTime+periodMs, parent)
+	if diff == nil {
+		t.Fatal("CalcDifficulty returned nil")
+	}
+	if diff.Cmp(diffInTurn) != 0 {
+		t.Errorf("expected diffInTurn(%v) for in-turn slot, got %v", diffInTurn, diff)
 	}
 }
 

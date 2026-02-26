@@ -433,8 +433,12 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	}
 
 	// Rule 1: slot must strictly advance (redundant with interval check; kept defensive).
-	parentSlot, _ := headerSlot(parent.Time, snap.GenesisTime, snap.PeriodMs)
-	hdrSlot, _ := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+	// Explicitly check ok even though M2 guard above guarantees validity: defence in depth.
+	parentSlot, ok1 := headerSlot(parent.Time, snap.GenesisTime, snap.PeriodMs)
+	hdrSlot, ok2 := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+	if !ok1 || !ok2 {
+		return errInvalidTimestamp
+	}
 	if hdrSlot <= parentSlot {
 		return errInvalidSlot
 	}
@@ -793,7 +797,7 @@ func (d *DPoS) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, pa
 	d.lock.RLock()
 	v := d.validator
 	d.lock.RUnlock()
-	return calcDifficultySlot(snap, parent.Time+snap.PeriodMs, v)
+	return calcDifficultySlot(snap, time, v)
 }
 
 func calcDifficultySlot(snap *Snapshot, headerTime uint64, v common.Address) *big.Int {
