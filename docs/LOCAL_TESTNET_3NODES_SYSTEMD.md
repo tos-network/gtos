@@ -151,3 +151,8 @@ scripts/local_testnet_3nodes.sh clean
   - Ensure ports `30311-30313` are free
 - Datadir not initialized:
   - Run `scripts/local_testnet_3nodes.sh setup` again
+- Miner silently stalls at the first epoch boundary (no new blocks, no logs):
+  - The genesis `alloc` is missing TOS3 validator slots.
+  - See [docs/DPOS_GENESIS_VALIDATOR_SLOTS.md](DPOS_GENESIS_VALIDATOR_SLOTS.md)
+    for the slot layout and how to regenerate them with
+    `scripts/gen_genesis_slots/main.go`.
