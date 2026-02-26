@@ -703,17 +703,35 @@ func TestApplyBulkEviction(t *testing.T) {
 }
 
 // TestCalcDifficultyUsesTime verifies that CalcDifficulty uses the caller-supplied
-// time argument (not parent.Time+periodMs) to determine the in-turn validator.
+// time argument rather than parent.Time+periodMs to determine the in-turn validator.
+//
+// With 2 validators (addrs[0] in-turn at even slots, addrs[1] at odd slots) and
+// parent at slot 0:
+//   - parent.Time + periodMs → slot 1 → addrs[1] in-turn  → addrs[0] would be diffNoTurn (old code)
+//   - time argument           → slot 2 → addrs[0] in-turn  → addrs[0] must be diffInTurn  (new code)
+//
+// The test asserts diffInTurn; it would fail under the old implementation.
 func TestCalcDifficultyUsesTime(t *testing.T) {
-	signer := common.Address{0x01}
 	const genesisTime = uint64(1_000_000)
 	const periodMs = uint64(360)
 
-	// Genesis has one validator; slot 0 → signer is in-turn.
+	// Two validators, sorted ascending so addrs[0] is in-turn at even slots.
+	key0, _ := crypto.GenerateKey()
+	key1, _ := crypto.GenerateKey()
+	addr0 := crypto.PubkeyToAddress(key0.PublicKey)
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	addrs := []common.Address{addr0, addr1}
+	sort.Sort(addressAscending(addrs))
+	// addrs[0] is in-turn at slots 0, 2, 4, …; addrs[1] at slots 1, 3, 5, …
+
+	extra := make([]byte, extraVanity)
+	for _, a := range addrs {
+		extra = append(extra, a.Bytes()...)
+	}
 	genesis := &types.Header{
 		Number: big.NewInt(0),
 		Time:   genesisTime,
-		Extra:  append(make([]byte, extraVanity), signer.Bytes()...),
+		Extra:  extra,
 	}
 	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
 
@@ -724,17 +742,29 @@ func TestCalcDifficultyUsesTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	d.Authorize(signer, nil) // set validator so CalcDifficulty has a target
+	// Authorize addrs[0] as the local validator.
+	d.Authorize(addrs[0], nil)
 
-	parent := genesis
+	parent := genesis // parent at slot 0 (genesisTime)
 
-	// time = genesisTime + 1*periodMs → slot 1 → signer (only validator) is in-turn.
-	diff := d.CalcDifficulty(chain, genesisTime+periodMs, parent)
+	// Passed time = slot 2 → addrs[0] in-turn → must return diffInTurn.
+	// Old code would use parent.Time+periodMs = slot 1 → addrs[1] in-turn → diffNoTurn for addrs[0].
+	diff := d.CalcDifficulty(chain, genesisTime+2*periodMs, parent)
 	if diff == nil {
 		t.Fatal("CalcDifficulty returned nil")
 	}
 	if diff.Cmp(diffInTurn) != 0 {
-		t.Errorf("expected diffInTurn(%v) for in-turn slot, got %v", diffInTurn, diff)
+		t.Errorf("CalcDifficulty: want diffInTurn for addrs[0] at slot 2, got %v"+
+			" (regression: old code ignoring time arg would return diffNoTurn)", diff)
+	}
+
+	// Cross-check: slot 1 (parent.Time+periodMs) → addrs[1] in-turn → addrs[0] out-of-turn.
+	diff2 := d.CalcDifficulty(chain, genesisTime+periodMs, parent)
+	if diff2 == nil {
+		t.Fatal("CalcDifficulty (slot 1) returned nil")
+	}
+	if diff2.Cmp(diffNoTurn) != 0 {
+		t.Errorf("CalcDifficulty: want diffNoTurn for addrs[0] at slot 1, got %v", diff2)
 	}
 }
 
