@@ -42,7 +42,7 @@ func TestNewInvalidConfig(t *testing.T) {
 // TestEmptyValidatorSet verifies that newSnapshot rejects an empty validator slice.
 func TestEmptyValidatorSet(t *testing.T) {
 	d := NewFaker()
-	_, err := newSnapshot(d.config, d.signatures, 0, common.Hash{}, nil)
+	_, err := newSnapshot(d.config, d.signatures, 0, common.Hash{}, nil, 0, d.config.TargetBlockPeriodMs())
 	if err == nil {
 		t.Fatal("expected error for empty validator set")
 	}
@@ -53,7 +53,7 @@ func TestEmptyValidatorSet(t *testing.T) {
 func TestSnapshotDeepCopy(t *testing.T) {
 	d := NewFaker()
 	addrs := []common.Address{{0x01}, {0x02}}
-	snap, err := newSnapshot(d.config, d.signatures, 0, common.Hash{1}, addrs)
+	snap, err := newSnapshot(d.config, d.signatures, 0, common.Hash{1}, addrs, 0, d.config.TargetBlockPeriodMs())
 	if err != nil {
 		t.Fatalf("newSnapshot: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestCoinbaseMismatch(t *testing.T) {
 
 	addrs := []common.Address{signer1, signer2}
 	d := NewFaker()
-	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, 0, d.config.TargetBlockPeriodMs())
 
 	header := &types.Header{
 		Number:     big.NewInt(1),
@@ -251,16 +251,12 @@ func TestCoinbaseMismatch(t *testing.T) {
 }
 
 // TestRecentlySigned verifies that a block is rejected when the validator
-// signed within the recency window (default: len(Validators)/3+1 blocks).
+// signed within the slot-based recency window (default: len(Validators)/3+1 slots).
 //
 // With 3 validators, limit = 3/3+1 = 2.
-// If signer last signed at block 2 and current block is 3:
+// If signer last signed at slot 2 and current header is at slot 3:
 //
-//	seen=2, number=3, limit=2 → seen > number-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
-//
-// If signer last signed at block 1 and current block is 3:
-//
-//	seen=1, number=3, limit=2 → seen > number-limit ↔ 1 > 3-2 ↔ 1 > 1 → ALLOW
+//	seenSlot=2, slot=3, limit=2 → seenSlot > slot-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
 func TestRecentlySigned(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	signer := crypto.PubkeyToAddress(key.PublicKey)
@@ -268,9 +264,13 @@ func TestRecentlySigned(t *testing.T) {
 	// Three-validator set; recency window = 3/3+1 = 2.
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
-	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
 
-	// Signer signed block 2; current block is 3. seen=2 > number-limit = 3-2 = 1 → REJECT.
+	const genesisTime = uint64(1_000_000) // arbitrary fixed ms
+	const periodMs = uint64(360)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
+
+	// Signer signed at slot 2; current header is at slot 3.
+	// limit=2; seenSlot=2 > slot-limit = 3-2 = 1 → REJECT.
 	snap.Recents[2] = signer
 
 	header := &types.Header{
@@ -278,7 +278,7 @@ func TestRecentlySigned(t *testing.T) {
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSeal),
-		Time:       uint64(time.Now().UnixMilli()),
+		Time:       genesisTime + 3*periodMs, // slot 3
 	}
 	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
 	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
@@ -461,20 +461,33 @@ func TestPrepareUsesPeriodMs(t *testing.T) {
 	}
 }
 
-// ── inturn / addressAscending ─────────────────────────────────────────────────
+// ── inturnSlot / addressAscending ────────────────────────────────────────────
 
-// TestInturn verifies round-robin assignment of in-turn validators.
-func TestInturn(t *testing.T) {
+// TestInturnSlot verifies round-robin assignment of in-turn validators by slot number.
+func TestInturnSlot(t *testing.T) {
 	addrs := []common.Address{{0x01}, {0x02}, {0x03}}
 	d := NewFaker()
-	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs)
+	const genesisTime = uint64(1_000_000)
+	const periodMs = uint64(360)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
-	// Block 0 → addrs[0], block 1 → addrs[1], block 3 → addrs[0] again.
-	for block, want := range map[uint64]common.Address{
-		0: addrs[0], 1: addrs[1], 2: addrs[2], 3: addrs[0],
-	} {
-		if !snap.inturn(block, want) {
-			t.Errorf("block %d: %v should be in-turn", block, want)
+	// Slot 0 → addrs[0], slot 1 → addrs[1], slot 2 → addrs[2], slot 3 → addrs[0] again.
+	cases := map[uint64]common.Address{
+		0: addrs[0], 1: addrs[1], 2: addrs[2],
+		3: addrs[0], 4: addrs[1], 5: addrs[2],
+	}
+	for slot, want := range cases {
+		if !snap.inturnSlot(slot, want) {
+			t.Errorf("slot %d: %v should be in-turn", slot, want)
+		}
+		// Also verify the other validators are out-of-turn at this slot.
+		for _, other := range addrs {
+			if other == want {
+				continue
+			}
+			if snap.inturnSlot(slot, other) {
+				t.Errorf("slot %d: %v should be out-of-turn", slot, other)
+			}
 		}
 	}
 }
@@ -490,6 +503,107 @@ func TestAddressAscendingSort(t *testing.T) {
 		if got != want[i] {
 			t.Errorf("index %d: want %v got %v", i, want[i], got)
 		}
+	}
+}
+
+// ── SLOT_V3 new tests ─────────────────────────────────────────────────────────
+
+// TestSlotBasedRecentsAfterSkip demonstrates the M3 fix: a validator that signed
+// at slot 5 is NOT blocked when proposing at slot 7 (one slot was skipped).
+//
+// With 3 validators, limit = 3/3+1 = 2.
+// seenSlot=5, slot=7, slot-limit=5 → seenSlot(5) > slot-limit(5) → 5 > 5 → false → ALLOW ✓
+func TestSlotBasedRecentsAfterSkip(t *testing.T) {
+	key, _ := crypto.GenerateKey()
+	signer := crypto.PubkeyToAddress(key.PublicKey)
+
+	addrs := []common.Address{signer, {0x02}, {0x03}}
+	d := NewFaker()
+	const genesisTime = uint64(1_000_000)
+	const periodMs = uint64(360)
+	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
+
+	// Signer signed at slot 5; slot 6 was skipped; current slot is 7.
+	snap.Recents[5] = signer
+
+	header := &types.Header{
+		Number:     big.NewInt(7),
+		Difficulty: big.NewInt(1),
+		Coinbase:   signer,
+		Extra:      make([]byte, extraVanity+extraSeal),
+		Time:       genesisTime + 7*periodMs, // slot 7
+	}
+	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
+	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+
+	if err := d.verifySeal(snap, header); err == errRecentlySigned {
+		t.Error("M3 fix: validator should NOT be blocked after slot skip, got errRecentlySigned")
+	}
+}
+
+// TestHeaderSlotHelper tests the headerSlot() helper for edge cases.
+func TestHeaderSlotHelper(t *testing.T) {
+	// periodMs=0: invalid.
+	if _, ok := headerSlot(1000, 0, 0); ok {
+		t.Error("periodMs=0 should return ok=false")
+	}
+	// headerTime < genesisTime: invalid.
+	if _, ok := headerSlot(500, 1000, 360); ok {
+		t.Error("headerTime < genesisTime should return ok=false")
+	}
+	// Exact boundary: headerTime == genesisTime → slot 0.
+	slot, ok := headerSlot(1000, 1000, 360)
+	if !ok || slot != 0 {
+		t.Errorf("exact boundary: want slot=0 ok=true; got slot=%d ok=%v", slot, ok)
+	}
+	// Normal case: (1000 + 3*360 - 1000) / 360 = 3.
+	slot, ok = headerSlot(1000+3*360, 1000, 360)
+	if !ok || slot != 3 {
+		t.Errorf("normal: want slot=3 ok=true; got slot=%d ok=%v", slot, ok)
+	}
+	// Partial slot (remainder is discarded).
+	slot, ok = headerSlot(1000+3*360+100, 1000, 360)
+	if !ok || slot != 3 {
+		t.Errorf("partial: want slot=3 ok=true; got slot=%d ok=%v", slot, ok)
+	}
+}
+
+// TestM2Guard verifies that verifyCascadingFields rejects a block when
+// parent.Time < snap.GenesisTime (uint64 underflow guard).
+func TestM2Guard(t *testing.T) {
+	d, err := New(&params.DPoSConfig{
+		PeriodMs: 360, Epoch: 200, MaxValidators: 21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Parent block at time 0; we will set snap.GenesisTime=1000 so parent.Time < GenesisTime.
+	parent := &types.Header{
+		Number: big.NewInt(0),
+		Time:   0,
+		Extra:  make([]byte, extraVanity),
+	}
+
+	// Pre-load a snapshot into d.recents keyed by parent.Hash(), with GenesisTime=1000.
+	addrs := []common.Address{{0x01}}
+	snap, _ := newSnapshot(d.config, d.signatures, 0, parent.Hash(), addrs, 1000, 360)
+	d.recents.Add(parent.Hash(), snap)
+
+	// header.Time = parent.Time + periodMs = 360 passes the period check.
+	// Both header.Time(360) < snap.GenesisTime(1000) and parent.Time(0) < snap.GenesisTime(1000).
+	header := &types.Header{
+		Number:     big.NewInt(1),
+		ParentHash: parent.Hash(),
+		Time:       360, // passes period check (0+360), but < GenesisTime(1000)
+		Difficulty: diffNoTurn,
+		Extra:      make([]byte, extraVanity+extraSeal),
+	}
+	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: parent}}
+
+	if err := d.verifyCascadingFields(chain, header, nil); err != errInvalidTimestamp {
+		t.Errorf("M2Guard: want errInvalidTimestamp, got %v", err)
 	}
 }
 
