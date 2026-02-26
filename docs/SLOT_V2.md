@@ -369,8 +369,9 @@ mechanisms**:
 
 1. **Fetch-stage distance filter** (`core/src/shred_fetch_stage.rs:145-147`):
    incoming shreds with `slot > last_known_slot + max(500, 2×epoch_slots)` are
-   discarded at ingress — a hard wall-clock-independent distance limit (~16 slots
-   at mainnet settings, ~6.5 s). This is the coarse outer guard.
+   discarded at ingress — a hard wall-clock-independent distance limit
+   (`max(500, 2×slots_per_epoch)` = 16 384 slots at 8192-slot epochs, ~1.8 h).
+   This is the coarse outer guard.
 
 2. **Leader lookup / sigverify** (`ledger/src/sigverify_shreds.rs:36`):
    shreds that pass the distance filter are then verified against the
@@ -672,8 +673,8 @@ reasoning in §11.1.
 ## 14. Agave Fourth-Round Review
 
 Eight specific questions answered against Agave source (`ledger/src/sigverify_shreds.rs`,
-`core/src/shred_fetch_stage.rs`, `runtime/src/bank.rs`, `consensus/tower_storage.rs`,
-`leader-schedule/src/lib.rs`).
+`core/src/shred_fetch_stage.rs`, `runtime/src/bank.rs`,
+`core/src/consensus/tower_storage.rs`, `leader-schedule/src/lib.rs`).
 
 ### 14.1 Rule 2 / Fetch-stage — Confirmed: single ErrFutureBlock is correct
 
@@ -682,9 +683,10 @@ Eight specific questions answered against Agave source (`ledger/src/sigverify_sh
 let max_slot = last_slot + MAX_SHRED_DISTANCE_MINIMUM.max(2 * slots_per_epoch);
 ```
 Agave's fetch-stage distance filter is `last_slot + max(500, 2×slots_per_epoch)`.
-With 8192 slots/epoch and 400ms slots this is **~16 slots (~6.5 s)** ahead. GTOS's
-`ErrFutureBlock` at `now + 3×period = 1080ms ≈ 3 slots` is already **5× stricter**
-than Agave's equivalent filter. No further tightening is needed or beneficial.
+With 8192 slots/epoch: `max(500, 2×8192) = 16 384 slots` (~1.8 hours at 400ms).
+GTOS's `ErrFutureBlock` at `now + 3×period = 1080ms ≈ 3 slots` is already
+**thousands of times stricter** than Agave's equivalent filter, which is appropriate
+for a controlled validator set. No further tightening is needed or beneficial.
 
 `sigverify_shreds.rs:36` verifies leader pubkey against a pre-committed schedule —
 structurally impossible to replicate in GTOS without a leader schedule.
@@ -697,7 +699,7 @@ NTP jitter (50ms skew ÷ 360ms period = 14% disagreement probability at boundari
 
 **Q2 finding**: Agave has no recency window at all (`NUM_CONSECUTIVE_LEADER_SLOTS = 4`
 in `leader_schedule_utils.rs`). GTOS's N/3+1 window is Clique-heritage, intentionally
-stricter. The bulk-evict loop in §8 is O(window-size) ≤ O(7) for N=21, negligible
+stricter. The bulk-evict loop in §8 is O(window-size) ≤ O(8) for N=21 (N/3+1 = 8), negligible
 per block.
 
 **Q7 finding**: Recents formula `if slot < limit || seenSlot > slot-limit` is correct
@@ -768,7 +770,7 @@ GTOS's architecture.
 
 | Question | Finding | Action |
 |---|---|---|
-| Q1 Rule 2 bound | Agave fetch-stage = 16 slots; GTOS 3 slots already 5× stricter | Confirmed: `ErrFutureBlock` only; no slot(now)+1 |
+| Q1 Rule 2 bound | Agave fetch-stage = 16 384 slots; GTOS 3 slots thousands× stricter | Confirmed: `ErrFutureBlock` only; no slot(now)+1 |
 | Q2 Recents bulk evict | O(window) ≤ O(7) per block; Agave has no equivalent | Confirmed correct and efficient |
 | Q3 nowMs < genesisTime | Moot — no wall-clock slot check in verifyCascadingFields | N/A |
 | Q4 calcDifficultySlot sites | 4 call sites identified; no circular dependency | Add to §9 change table |
