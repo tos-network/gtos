@@ -364,11 +364,22 @@ occurs when the whole network is lagging. This is acceptable for ≤ 21 validato
 
 ### 11.2 C2 Admissibility Rule — Bounded, but not fully eliminated
 
-**Agave finding**: Agave has **no explicit future-slot time bound**. Future slots
-are rejected implicitly because `sigverify_shreds.rs:36` requires a known leader
-pubkey for the slot, and the leader schedule only covers the current and next epoch.
-Slots beyond that have no entry → rejected. The key point: in Agave the **schedule
-decides the leader**; the leader does not choose which slot to claim.
+**Agave finding**: Agave rejects far-future slots through **two complementary
+mechanisms**:
+
+1. **Fetch-stage distance filter** (`core/src/shred_fetch_stage.rs:145-147`):
+   incoming shreds with `slot > last_known_slot + max(500, 2×epoch_slots)` are
+   discarded at ingress — a hard wall-clock-independent distance limit (~16 slots
+   at mainnet settings, ~6.5 s). This is the coarse outer guard.
+
+2. **Leader lookup / sigverify** (`ledger/src/sigverify_shreds.rs:36`):
+   shreds that pass the distance filter are then verified against the
+   pre-committed leader schedule — if the slot has no known leader pubkey the
+   shred is rejected. This is the fine-grained inner guard that structurally
+   eliminates slot-gaming.
+
+The key point: in Agave the **schedule decides the leader**; the leader does not
+choose which slot to claim.
 
 **GTOS situation**: GTOS does not pre-compute a leader schedule. A GTOS proposer
 freely chooses `header.Time` and therefore which slot they claim. This is the
@@ -593,12 +604,15 @@ The slot-keyed change (M3) preserves this safety property after slot skips.
 2. Blockstore: `parent < slot && parent >= root` → reject
 3. Replay stage: timestamps, votes, stake-weighted clock
 
-SLOT_V2 consolidates layers 1+2 into `verifyCascadingFields`. This is correct
-for GTOS's architecture (no separate fetch/blockstore/replay split). The checks
-are sufficient:
-- M2 guard replaces Rust's `saturating_*` arithmetic safety
-- Rule 1 (`headerSlot > parentSlot`) replaces Agave's `parent < slot`
-- `ErrFutureBlock` in `verifyHeader` replaces Agave's fetch-stage distance filter
+GTOS splits the responsibility across **`verifyHeader` + `verifyCascadingFields`**
+rather than having a single consolidated function. Together they cover all three
+layers:
+- `verifyHeader`: `ErrFutureBlock` (`header.Time > now + 3×period`) replaces
+  Agave's fetch-stage distance filter (layer 1)
+- `verifyCascadingFields`: M2 guard (underflow) + Rule 1 (`headerSlot > parentSlot`)
+  replace Agave's blockstore `parent < slot` check (layer 2); M2 guard replaces
+  Rust's `saturating_*` arithmetic safety
+- No replay-stage equivalent yet (layer 3 is deferred to future BFT work)
 
 **No missing checks identified.**
 
@@ -775,7 +789,7 @@ GTOS's architecture.
    `WeightedU64Index` seeded by epoch, `NUM_CONSECUTIVE_LEADER_SLOTS = 4`).
 
 3. **Equivocation evidence**: Agave records same-slot conflicting blocks as
-   provable equivocation (`store_duplicate_slot`, `blockstore.rs:1989`). GTOS
+   provable equivocation (`store_duplicate_slot`, `blockstore.rs` ~lines 1537/1901). GTOS
    relies on TD fork resolution. Slashing on equivocation is a future feature.
 
 4. **On-chain slot sysvar**: deferred until TOS has contract execution.
