@@ -11,8 +11,8 @@ SIGNER_TYPE="${SIGNER_TYPE:-ed25519}"
 PERIOD_MS="${PERIOD_MS:-360}"
 EPOCH="${EPOCH:-1667}"
 MAX_VALIDATORS="${MAX_VALIDATORS:-15}"
-VERBOSITY="${VERBOSITY:-3}"
 VERIFY_SLEEP_SEC="${VERIFY_SLEEP_SEC:-3}"
+SERVICE_PREFIX="${SERVICE_PREFIX:-gtos-node}"
 
 VANITY_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 FUNDED_BALANCE_HEX="0x33b2e3c9fd0803ce8000000"
@@ -22,20 +22,21 @@ ENODE_MAP_FILE="${BASE_DIR}/node_enodes.txt"
 BOOTNODES_FILE="${BASE_DIR}/bootnodes.csv"
 
 usage() {
-	cat <<EOF
+	cat <<EOF_USAGE
 Usage: scripts/local_testnet_3nodes.sh [action] [options]
 
 Actions:
   up       setup + start + verify (default)
   setup    create accounts/genesis and run init for 3 nodes
   precollect-enode
-           start temporary nodes, collect enodes, write peer artifacts, stop
-  start    start 3 nodes from prepared datadirs
+           start services, collect enodes, write peer artifacts, stop services
+  start    start 3 systemd services from prepared datadirs
+  restart  restart 3 systemd services
   verify   check peers, block growth, and miner rotation
   status   print node status summary
-  stop     stop 3 nodes
+  stop     stop 3 systemd services
   down     same as stop
-  clean    stop nodes and remove chain db/log/pid (keystore kept)
+  clean    stop services and remove chain db/log files (keystore kept)
 
 Options:
   --base-dir <path>     data root (default: /data/gtos)
@@ -45,18 +46,17 @@ Options:
   --epoch <n>           dpos epoch in genesis (default: 1667)
   --max-validators <n>  dpos maxValidators in genesis (default: 15)
   --signer <type>       signer type for account creation (default: ed25519)
-  --verbosity <n>       gtos log verbosity (default: 3)
   -h, --help            show this help
 
 Environment overrides:
   GTOS_BIN, BASE_DIR, PASSFILE, NETWORK_ID, PERIOD_MS, EPOCH, MAX_VALIDATORS,
-  SIGNER_TYPE, VERBOSITY, VERIFY_SLEEP_SEC
-EOF
+  SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX
+EOF_USAGE
 }
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	up | setup | precollect-enode | start | verify | status | stop | down | clean)
+	up | setup | precollect-enode | start | restart | verify | status | stop | down | clean)
 		action="$1"
 		shift
 		;;
@@ -88,10 +88,6 @@ while [[ $# -gt 0 ]]; do
 		SIGNER_TYPE="$2"
 		shift 2
 		;;
-	--verbosity)
-		VERBOSITY="$2"
-		shift 2
-		;;
 	-h | --help)
 		usage
 		exit 0
@@ -106,44 +102,16 @@ done
 
 node_dir() { echo "${BASE_DIR}/node$1"; }
 node_ipc() { echo "$(node_dir "$1")/gtos.ipc"; }
-node_pid_file() { echo "${BASE_DIR}/node$1.pid"; }
 node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
-node_log_file() { echo "${BASE_DIR}/logs/node$1.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
-
-node_p2p_port() {
-	case "$1" in
-	1) echo 30311 ;;
-	2) echo 30312 ;;
-	3) echo 30313 ;;
-	*) return 1 ;;
-	esac
-}
+node_service() { echo "${SERVICE_PREFIX}$1.service"; }
 
 node_http_port() {
 	case "$1" in
 	1) echo 8545 ;;
 	2) echo 8547 ;;
 	3) echo 8549 ;;
-	*) return 1 ;;
-	esac
-}
-
-node_ws_port() {
-	case "$1" in
-	1) echo 8645 ;;
-	2) echo 8647 ;;
-	3) echo 8649 ;;
-	*) return 1 ;;
-	esac
-}
-
-node_authrpc_port() {
-	case "$1" in
-	1) echo 9551 ;;
-	2) echo 9552 ;;
-	3) echo 9553 ;;
 	*) return 1 ;;
 	esac
 }
@@ -229,7 +197,7 @@ load_or_create_node_address() {
 		return 0
 	fi
 
-	out="$("${GTOS_BIN}" --datadir "${nodedir}" account new --signer "${SIGNER_TYPE}" --password "${PASSFILE}" 2>&1)"
+	out="$(${GTOS_BIN} --datadir "${nodedir}" account new --signer "${SIGNER_TYPE}" --password "${PASSFILE}" 2>&1)"
 	echo "${out}" >"${acctlog}"
 	addr="$(echo "${out}" | sed -n 's/^Public address of the key:[[:space:]]*\(0x[0-9A-Fa-f]\{64\}\).*/\1/p' | tail -n1)"
 	if ! valid_addr "${addr}"; then
@@ -248,11 +216,11 @@ write_validators_files() {
 	addr2="$(load_or_create_node_address 2)"
 	addr3="$(load_or_create_node_address 3)"
 
-	cat >"${BASE_DIR}/validator_accounts.txt" <<EOF
+	cat >"${BASE_DIR}/validator_accounts.txt" <<EOF_VALIDATORS
 node1=${addr1}
 node2=${addr2}
 node3=${addr3}
-EOF
+EOF_VALIDATORS
 	printf '%s\n%s\n%s\n' "${addr1}" "${addr2}" "${addr3}" | sort >"${BASE_DIR}/validators.sorted"
 }
 
@@ -273,7 +241,7 @@ write_genesis() {
 	h3="${v3#0x}"
 	extra="0x${VANITY_HEX}${h1}${h2}${h3}"
 
-	cat >"${genesis}" <<EOF
+	cat >"${genesis}" <<EOF_GENESIS
 {
   "config": {
     "chainId": ${NETWORK_ID},
@@ -300,7 +268,7 @@ write_genesis() {
   "gasUsed": "0x0",
   "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
 }
-EOF
+EOF_GENESIS
 }
 
 init_datadirs() {
@@ -309,6 +277,30 @@ init_datadirs() {
 	for idx in 1 2 3; do
 		rm -rf "$(node_dir "${idx}")/gtos"
 		"${GTOS_BIN}" --datadir "$(node_dir "${idx}")" init "${genesis}" >"$(node_init_log "${idx}")" 2>&1
+	done
+}
+
+run_systemctl() {
+	if [[ "${EUID}" -eq 0 ]]; then
+		systemctl "$@"
+	else
+		sudo systemctl "$@"
+	fi
+}
+
+service_exists() {
+	local idx="$1"
+	run_systemctl cat "$(node_service "${idx}")" >/dev/null 2>&1
+}
+
+assert_services_prepared() {
+	local idx
+	for idx in 1 2 3; do
+		if ! service_exists "${idx}"; then
+			echo "missing systemd service: $(node_service "${idx}")" >&2
+			echo "create services first (see docs/LOCAL_TESTNET_3NODES_SYSTEMD.md)." >&2
+			exit 1
+		fi
 	done
 }
 
@@ -337,94 +329,48 @@ wait_for_attach() {
 	return 1
 }
 
-wait_for_block_growth() {
-	local idx="$1" timeout_s="${2:-90}" min_growth="${3:-2}" elapsed=0
-	local port prev now growth
-	port="$(node_http_port "${idx}")"
-	prev="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
+wait_for_service_active() {
+	local idx="$1" timeout_s="${2:-30}" elapsed=0
 	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
-		sleep 1
-		now="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
-		growth=$((now - prev))
-		if (( growth >= min_growth )); then
+		if run_systemctl is-active --quiet "$(node_service "${idx}")"; then
 			return 0
 		fi
+		sleep 1
 		elapsed=$((elapsed + 1))
 	done
 	return 1
 }
 
-is_pid_running() {
-	local pid="$1"
-	kill -0 "${pid}" 2>/dev/null
-}
-
-find_node_pid() {
+start_service_node() {
 	local idx="$1"
-	pgrep -f -- "gtos --datadir $(node_dir "${idx}")" | head -n1 || true
+	run_systemctl start "$(node_service "${idx}")"
+	if ! wait_for_service_active "${idx}" 30; then
+		echo "service failed to become active: $(node_service "${idx}")" >&2
+		run_systemctl status --no-pager "$(node_service "${idx}")" || true
+		exit 1
+	fi
+	if ! wait_for_ipc "${idx}" 30 || ! wait_for_attach "${idx}" 30; then
+		echo "node${idx} attach not ready" >&2
+		run_systemctl status --no-pager "$(node_service "${idx}")" || true
+		exit 1
+	fi
+	echo "node${idx} started via $(node_service "${idx}")"
 }
 
-start_node() {
-	local idx="$1" bootnodes="$2" addr pidfile logfile
-	local p2p http ws authrpc
-	addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")")"
-	if ! valid_addr "${addr}"; then
-		echo "node${idx} address invalid: ${addr}" >&2
+restart_service_node() {
+	local idx="$1"
+	run_systemctl restart "$(node_service "${idx}")"
+	if ! wait_for_service_active "${idx}" 30; then
+		echo "service failed after restart: $(node_service "${idx}")" >&2
+		run_systemctl status --no-pager "$(node_service "${idx}")" || true
 		exit 1
 	fi
-
-	pidfile="$(node_pid_file "${idx}")"
-	logfile="$(node_log_file "${idx}")"
-	p2p="$(node_p2p_port "${idx}")"
-	http="$(node_http_port "${idx}")"
-	ws="$(node_ws_port "${idx}")"
-	authrpc="$(node_authrpc_port "${idx}")"
-
-	if [[ -f "${pidfile}" ]]; then
-		local oldpid
-		oldpid="$(cat "${pidfile}" || true)"
-		if [[ -n "${oldpid}" ]] && is_pid_running "${oldpid}"; then
-			echo "node${idx} already running (pid=${oldpid})"
-			return 0
-		fi
-		rm -f "${pidfile}"
-	fi
-	local livepid
-	livepid="$(find_node_pid "${idx}")"
-	if [[ -n "${livepid}" ]] && is_pid_running "${livepid}"; then
-		echo "${livepid}" >"${pidfile}"
-		echo "node${idx} already running (pid=${livepid})"
-		return 0
-	fi
-
-	local cmd=(
-		"${GTOS_BIN}"
-		--datadir "$(node_dir "${idx}")"
-		--networkid "${NETWORK_ID}"
-		--port "${p2p}"
-		--netrestrict 127.0.0.0/8
-		--nat none
-		--http --http.addr 127.0.0.1 --http.port "${http}" --http.api admin,net,web3,tos,dpos,miner
-		--ws --ws.addr 127.0.0.1 --ws.port "${ws}" --ws.api net,web3,tos,dpos
-		--authrpc.addr 127.0.0.1 --authrpc.port "${authrpc}"
-		--unlock "${addr}" --password "${PASSFILE}" --allow-insecure-unlock
-		--mine --miner.coinbase "${addr}"
-		--syncmode full
-		--verbosity "${VERBOSITY}"
-	)
-	if [[ -n "${bootnodes}" ]]; then
-		cmd+=(--bootnodes "${bootnodes}")
-	fi
-
-	nohup "${cmd[@]}" >"${logfile}" 2>&1 &
-	echo $! >"${pidfile}"
-
-	if ! wait_for_ipc "${idx}" 30; then
-		echo "node${idx} failed to start (ipc not ready)" >&2
-		tail -n 80 "${logfile}" >&2 || true
+	if ! wait_for_ipc "${idx}" 30 || ! wait_for_attach "${idx}" 30; then
+		echo "node${idx} attach not ready after restart" >&2
+		run_systemctl status --no-pager "$(node_service "${idx}")" || true
 		exit 1
 	fi
-	echo "node${idx} started (pid=$(cat "${pidfile}"), http=127.0.0.1:${http})"
+	echo "node${idx} restarted via $(node_service "${idx}")"
 }
 
 get_node_enode() {
@@ -448,109 +394,31 @@ write_peer_artifacts() {
 	n2="$(node_dir 2)/gtos/static-nodes.json"
 	n3="$(node_dir 3)/gtos/static-nodes.json"
 
-	cat >"${ENODE_MAP_FILE}" <<EOF
+	cat >"${ENODE_MAP_FILE}" <<EOF_ENODES
 node1=${e1}
 node2=${e2}
 node3=${e3}
-EOF
+EOF_ENODES
 	printf '%s,%s,%s\n' "${e1}" "${e2}" "${e3}" >"${BOOTNODES_FILE}"
 
-	cat >"${n1}" <<EOF
+	cat >"${n1}" <<EOF_STATIC1
 [
   "${e2}",
   "${e3}"
 ]
-EOF
-	cat >"${n2}" <<EOF
+EOF_STATIC1
+	cat >"${n2}" <<EOF_STATIC2
 [
   "${e1}",
   "${e3}"
 ]
-EOF
-	cat >"${n3}" <<EOF
+EOF_STATIC2
+	cat >"${n3}" <<EOF_STATIC3
 [
   "${e1}",
   "${e2}"
 ]
-EOF
-}
-
-load_precollected_enodes() {
-	local e1 e2 e3
-	[[ -f "${ENODE_MAP_FILE}" ]] || return 1
-	e1="$(sed -n 's/^node1=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
-	e2="$(sed -n 's/^node2=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
-	e3="$(sed -n 's/^node3=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
-	if [[ "${e1}" =~ ^enode:// && "${e2}" =~ ^enode:// && "${e3}" =~ ^enode:// ]]; then
-		printf '%s\n%s\n%s\n' "${e1}" "${e2}" "${e3}"
-		return 0
-	fi
-	return 1
-}
-
-assert_network_prepared() {
-	local idx addr
-	for idx in 1 2 3; do
-		if [[ ! -d "$(node_dir "${idx}")/gtos/chaindata" ]]; then
-			echo "node${idx} is not initialized. run: scripts/local_testnet_3nodes.sh setup" >&2
-			exit 1
-		fi
-		addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")" 2>/dev/null || true)"
-		if ! valid_addr "${addr}"; then
-			echo "node${idx} validator address missing/invalid. run setup again." >&2
-			exit 1
-		fi
-	done
-}
-
-precollect_enodes() {
-	local e1 e2 e3 bootnodes
-	ensure_dirs
-	ensure_gtos_bin
-	ensure_passfile
-	assert_network_prepared
-
-	stop_nodes
-	start_node 1 ""
-	wait_for_attach 1 30 || {
-		echo "node1 attach not ready during precollect-enode" >&2
-		exit 1
-	}
-	e1="$(get_node_enode 1 30 || true)"
-	[[ "${e1}" =~ ^enode:// ]] || {
-		echo "failed to collect node1 enode" >&2
-		exit 1
-	}
-
-	start_node 2 "${e1}"
-	wait_for_attach 2 30 || {
-		echo "node2 attach not ready during precollect-enode" >&2
-		exit 1
-	}
-	e2="$(get_node_enode 2 30 || true)"
-	[[ "${e2}" =~ ^enode:// ]] || {
-		echo "failed to collect node2 enode" >&2
-		exit 1
-	}
-
-	bootnodes="${e1},${e2}"
-	start_node 3 "${bootnodes}"
-	wait_for_attach 3 30 || {
-		echo "node3 attach not ready during precollect-enode" >&2
-		exit 1
-	}
-	e3="$(get_node_enode 3 30 || true)"
-	[[ "${e3}" =~ ^enode:// ]] || {
-		echo "failed to collect node3 enode" >&2
-		exit 1
-	}
-
-	connect_mesh "${e1}" "${e2}" "${e3}"
-	write_peer_artifacts "${e1}" "${e2}" "${e3}"
-	stop_nodes
-	echo "precollect-enode done:"
-	echo "  ${ENODE_MAP_FILE}"
-	echo "  ${BOOTNODES_FILE}"
+EOF_STATIC3
 }
 
 add_peer() {
@@ -591,67 +459,85 @@ hex_to_dec() {
 	fi
 }
 
+wait_for_block_growth() {
+	local idx="$1" timeout_s="${2:-90}" min_growth="${3:-2}" elapsed=0
+	local port prev now growth
+	port="$(node_http_port "${idx}")"
+	prev="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		sleep 1
+		now="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
+		growth=$((now - prev))
+		if (( growth >= min_growth )); then
+			return 0
+		fi
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+assert_network_prepared() {
+	local idx addr
+	for idx in 1 2 3; do
+		if [[ ! -d "$(node_dir "${idx}")/gtos/chaindata" ]]; then
+			echo "node${idx} is not initialized. run: scripts/local_testnet_3nodes.sh setup" >&2
+			exit 1
+		fi
+		addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")" 2>/dev/null || true)"
+		if ! valid_addr "${addr}"; then
+			echo "node${idx} validator address missing/invalid. run setup again." >&2
+			exit 1
+		fi
+	done
+}
+
+refresh_mesh_artifacts() {
+	local e1 e2 e3
+	e1="$(get_node_enode 1 30 || true)"
+	e2="$(get_node_enode 2 30 || true)"
+	e3="$(get_node_enode 3 30 || true)"
+	if [[ ! "${e1}" =~ ^enode:// || ! "${e2}" =~ ^enode:// || ! "${e3}" =~ ^enode:// ]]; then
+		echo "failed to collect enodes after service start/restart" >&2
+		echo "node1=${e1}" >&2
+		echo "node2=${e2}" >&2
+		echo "node3=${e3}" >&2
+		exit 1
+	fi
+	connect_mesh "${e1}" "${e2}" "${e3}"
+	write_peer_artifacts "${e1}" "${e2}" "${e3}"
+	echo "mesh connected:"
+	echo "  node1=${e1}"
+	echo "  node2=${e2}"
+	echo "  node3=${e3}"
+}
+
 start_nodes() {
-	local enode1 enode2 enode3 bootnodes pre
-	if pre="$(load_precollected_enodes 2>/dev/null)"; then
-		enode1="$(echo "${pre}" | sed -n '1p')"
-		enode2="$(echo "${pre}" | sed -n '2p')"
-		enode3="$(echo "${pre}" | sed -n '3p')"
-		echo "using precollected enodes from ${ENODE_MAP_FILE}"
-	else
-		enode1=""
-		enode2=""
-		enode3=""
-	fi
-	start_node 1 ""
-	if ! wait_for_attach 1 30; then
-		echo "node1 attach not ready" >&2
-		tail -n 80 "$(node_log_file 1)" >&2 || true
-		exit 1
-	fi
-	if [[ ! "${enode1}" =~ ^enode:// ]]; then
-		enode1="$(get_node_enode 1 30 || true)"
-	fi
-	if [[ ! "${enode1}" =~ ^enode:// ]]; then
-		echo "failed to read node1 enode: ${enode1}" >&2
-		exit 1
-	fi
+	assert_services_prepared
+	start_service_node 1
 	if ! wait_for_block_growth 1 120 2; then
 		echo "warning: node1 did not show solo block growth within timeout; continuing to start node2" >&2
 	fi
-	start_node 2 "${enode1}"
-	if ! wait_for_attach 2 30; then
-		echo "node2 attach not ready" >&2
-		tail -n 80 "$(node_log_file 2)" >&2 || true
-		exit 1
-	fi
-	if [[ ! "${enode2}" =~ ^enode:// ]]; then
-		enode2="$(get_node_enode 2 30 || true)"
-	fi
-	if [[ ! "${enode2}" =~ ^enode:// ]]; then
-		echo "failed to read node2 enode: ${enode2}" >&2
-		exit 1
-	fi
-	bootnodes="${enode1},${enode2}"
-	start_node 3 "${bootnodes}"
-	if ! wait_for_attach 3 30; then
-		echo "node3 attach not ready" >&2
-		tail -n 80 "$(node_log_file 3)" >&2 || true
-		exit 1
-	fi
-	if [[ ! "${enode3}" =~ ^enode:// ]]; then
-		enode3="$(get_node_enode 3 30 || true)"
-	fi
-	if [[ ! "${enode3}" =~ ^enode:// ]]; then
-		echo "failed to read node3 enode: ${enode3}" >&2
-		exit 1
-	fi
-	connect_mesh "${enode1}" "${enode2}" "${enode3}"
-	write_peer_artifacts "${enode1}" "${enode2}" "${enode3}"
-	echo "mesh connected:"
-	echo "  node1=${enode1}"
-	echo "  node2=${enode2}"
-	echo "  node3=${enode3}"
+	start_service_node 2
+	start_service_node 3
+	refresh_mesh_artifacts
+}
+
+restart_nodes() {
+	assert_services_prepared
+	restart_service_node 1
+	restart_service_node 2
+	restart_service_node 3
+	refresh_mesh_artifacts
+}
+
+precollect_enodes() {
+	assert_services_prepared
+	stop_nodes
+	start_nodes
+	stop_nodes
+	echo "precollect-enode done:"
+	echo "  ${ENODE_MAP_FILE}"
+	echo "  ${BOOTNODES_FILE}"
 }
 
 verify_nodes() {
@@ -727,57 +613,29 @@ PY
 }
 
 stop_nodes() {
-	local idx pidfile pid waited
+	local idx svc
 	for idx in 1 2 3; do
-		pidfile="$(node_pid_file "${idx}")"
-		pid=""
-		if [[ -f "${pidfile}" ]]; then
-			pid="$(cat "${pidfile}" || true)"
+		svc="$(node_service "${idx}")"
+		if run_systemctl is-active --quiet "${svc}"; then
+			run_systemctl stop "${svc}"
+			echo "node${idx} stopped via ${svc}"
+		else
+			echo "node${idx} already stopped (${svc})"
 		fi
-		if [[ -z "${pid}" ]]; then
-			pid="$(find_node_pid "${idx}")"
-		fi
-		if [[ -z "${pid}" ]]; then
-			rm -f "${pidfile}" || true
-			continue
-		fi
-		if ! is_pid_running "${pid}"; then
-			rm -f "${pidfile}"
-			continue
-		fi
-		kill "${pid}" || true
-		waited=0
-		while is_pid_running "${pid}" && [[ "${waited}" -lt 20 ]]; do
-			sleep 1
-			waited=$((waited + 1))
-		done
-		if is_pid_running "${pid}"; then
-			kill -9 "${pid}" || true
-		fi
-		rm -f "${pidfile}"
-		echo "node${idx} stopped"
 	done
 }
 
 status_nodes() {
-	local idx pidfile pid state port block peers
+	local idx svc state port block peers pid
 	echo "==> local testnet status (${BASE_DIR})"
 	for idx in 1 2 3; do
-		pidfile="$(node_pid_file "${idx}")"
+		svc="$(node_service "${idx}")"
 		port="$(node_http_port "${idx}")"
-		state="stopped"
-		if [[ -f "${pidfile}" ]]; then
-			pid="$(cat "${pidfile}" || true)"
-			if [[ -n "${pid}" ]] && is_pid_running "${pid}"; then
-				state="running(pid=${pid})"
-			fi
-		fi
-		if [[ "${state}" == "stopped" ]]; then
-			pid="$(find_node_pid "${idx}")"
-			if [[ -n "${pid}" ]] && is_pid_running "${pid}"; then
-				echo "${pid}" >"${pidfile}"
-				state="running(pid=${pid})"
-			fi
+		if run_systemctl is-active --quiet "${svc}"; then
+			pid="$(run_systemctl show -p MainPID --value "${svc}" | tr -d '\r')"
+			state="running(service=${svc},pid=${pid})"
+		else
+			state="stopped(service=${svc})"
 		fi
 		block="-"
 		peers="-"
@@ -810,7 +668,6 @@ setup_network() {
 clean_network() {
 	stop_nodes
 	rm -rf "$(node_dir 1)/gtos" "$(node_dir 2)/gtos" "$(node_dir 3)/gtos"
-	rm -f "$(node_pid_file 1)" "$(node_pid_file 2)" "$(node_pid_file 3)"
 	rm -f "${BASE_DIR}/logs/node1.log" "${BASE_DIR}/logs/node2.log" "${BASE_DIR}/logs/node3.log"
 	echo "clean done (keystore preserved)"
 }
@@ -818,6 +675,7 @@ clean_network() {
 case "${action}" in
 up)
 	setup_network
+	assert_network_prepared
 	start_nodes
 	verify_nodes
 	;;
@@ -831,7 +689,16 @@ start)
 	assert_network_prepared
 	start_nodes
 	;;
+restart)
+	ensure_dirs
+	ensure_gtos_bin
+	assert_network_prepared
+	restart_nodes
+	;;
 precollect-enode)
+	ensure_dirs
+	ensure_gtos_bin
+	assert_network_prepared
 	precollect_enodes
 	;;
 verify)
