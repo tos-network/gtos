@@ -23,7 +23,7 @@ type ValidatorInfo struct {
 	Index              *hexutil.Uint    `json:"index,omitempty"`
 	SnapshotBlock      hexutil.Uint64   `json:"snapshotBlock"`
 	SnapshotHash       common.Hash      `json:"snapshotHash"`
-	RecentSignedBlocks []hexutil.Uint64 `json:"recentSignedBlocks,omitempty"`
+	RecentSignedSlots []hexutil.Uint64 `json:"recentSignedSlots,omitempty"`
 }
 
 // EpochInfo describes epoch context for a specific block.
@@ -98,20 +98,20 @@ func (api *API) GetValidator(address common.Address, number *rpc.BlockNumber) (*
 		}
 	}
 	var recent []hexutil.Uint64
-	for blockNum, signer := range snap.Recents {
+	for slot, signer := range snap.Recents {
 		if signer == address {
-			recent = append(recent, hexutil.Uint64(blockNum))
+			recent = append(recent, hexutil.Uint64(slot))
 		}
 	}
 	sort.Slice(recent, func(i, j int) bool { return recent[i] < recent[j] })
 
 	return &ValidatorInfo{
-		Address:            address,
-		Active:             active,
-		Index:              index,
-		SnapshotBlock:      hexutil.Uint64(snap.Number),
-		SnapshotHash:       snap.Hash,
-		RecentSignedBlocks: recent,
+		Address:           address,
+		Active:            active,
+		Index:             index,
+		SnapshotBlock:     hexutil.Uint64(snap.Number),
+		SnapshotHash:      snap.Hash,
+		RecentSignedSlots: recent,
 	}, nil
 }
 

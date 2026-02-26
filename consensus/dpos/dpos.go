@@ -61,6 +61,7 @@ var (
 	errInvalidCheckpointValidators = errors.New("dpos: invalid checkpoint validator list")
 	errInvalidTimestamp            = errors.New("dpos: invalid timestamp")
 	errInvalidChain                = errors.New("dpos: non-contiguous header chain")
+	errInvalidSlot                 = errors.New("dpos: slot did not advance")
 )
 
 // Package-level difficulty values.
@@ -68,6 +69,15 @@ var (
 	diffInTurn = big.NewInt(2) // in-turn validator
 	diffNoTurn = big.NewInt(1) // out-of-turn validator
 )
+
+// headerSlot returns the slot number for a given header timestamp.
+// Returns (slot, true) on success; (0, false) if inputs are invalid.
+func headerSlot(headerTime, genesisTime, periodMs uint64) (uint64, bool) {
+	if periodMs == 0 || headerTime < genesisTime {
+		return 0, false
+	}
+	return (headerTime - genesisTime) / periodMs, true
+}
 
 const (
 	extraVanity            = 32   // bytes of vanity prefix in Extra
@@ -416,6 +426,23 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	if err != nil {
 		return err
 	}
+
+	// M2: guard against uint64 underflow before slot computation.
+	if header.Time < snap.GenesisTime || parent.Time < snap.GenesisTime {
+		return errInvalidTimestamp
+	}
+
+	// Rule 1: slot must strictly advance (redundant with interval check; kept defensive).
+	// Explicitly check ok even though M2 guard above guarantees validity: defence in depth.
+	parentSlot, ok1 := headerSlot(parent.Time, snap.GenesisTime, snap.PeriodMs)
+	hdrSlot, ok2 := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+	if !ok1 || !ok2 {
+		return errInvalidTimestamp
+	}
+	if hdrSlot <= parentSlot {
+		return errInvalidSlot
+	}
+
 	return d.verifySeal(snap, header)
 }
 
@@ -435,18 +462,22 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	if _, ok := snap.ValidatorsMap[signer]; !ok {
 		return errUnauthorizedValidator
 	}
-	// Check recency: if signer appears in Recents, only reject if this block
-	// does NOT shift that entry out of the window. Mirrors Clique's logic.
+	// Compute slot for this header.
+	slot, ok := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+	if !ok {
+		return errInvalidTimestamp
+	}
+	// Check recency: reject if signer signed within the slot-based recency window.
 	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
-	for seen, recent := range snap.Recents {
+	for seenSlot, recent := range snap.Recents {
 		if recent == signer {
-			if number < limit || seen > number-limit {
+			if slot < limit || seenSlot > slot-limit {
 				return errRecentlySigned
 			}
 		}
 	}
 	if !d.fakeDiff {
-		inturn := snap.inturn(number, signer)
+		inturn := snap.inturnSlot(slot, signer)
 		if inturn && header.Difficulty.Cmp(diffInTurn) != 0 {
 			return errWrongDifficulty
 		}
@@ -490,7 +521,8 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 				return nil, fmt.Errorf("dpos: genesis extra: %w", err)
 			}
 			sort.Sort(addressAscending(validators))
-			snap, err = newSnapshot(d.config, d.signatures, 0, genesis.Hash(), validators)
+			snap, err = newSnapshot(d.config, d.signatures, 0, genesis.Hash(), validators,
+				genesis.Time, d.config.TargetBlockPeriodMs())
 			if err != nil {
 				return nil, err
 			}
@@ -586,7 +618,7 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	if err != nil {
 		return err
 	}
-	header.Difficulty = calcDifficulty(snap, v)
+	header.Difficulty = calcDifficultySlot(snap, header.Time, v)
 
 	// Ensure Extra has vanity prefix.
 	if len(header.Extra) < extraVanity {
@@ -703,10 +735,14 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if _, ok := snap.ValidatorsMap[v]; !ok {
 		return errUnauthorizedValidator
 	}
+	sealSlot, ok := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+	if !ok {
+		return errInvalidTimestamp
+	}
 	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
-	for seen, recent := range snap.Recents {
+	for seenSlot, recent := range snap.Recents {
 		if recent == v {
-			if number < limit || seen > number-limit {
+			if sealSlot < limit || seenSlot > sealSlot-limit {
 				return errors.New("dpos: signed recently, must wait")
 			}
 		}
@@ -761,11 +797,15 @@ func (d *DPoS) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, pa
 	d.lock.RLock()
 	v := d.validator
 	d.lock.RUnlock()
-	return calcDifficulty(snap, v)
+	return calcDifficultySlot(snap, time, v)
 }
 
-func calcDifficulty(snap *Snapshot, v common.Address) *big.Int {
-	if snap.inturn(snap.Number+1, v) {
+func calcDifficultySlot(snap *Snapshot, headerTime uint64, v common.Address) *big.Int {
+	slot, ok := headerSlot(headerTime, snap.GenesisTime, snap.PeriodMs)
+	if !ok {
+		return new(big.Int).Set(diffNoTurn)
+	}
+	if snap.inturnSlot(slot, v) {
 		return new(big.Int).Set(diffInTurn)
 	}
 	return new(big.Int).Set(diffNoTurn)

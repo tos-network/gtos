@@ -15,7 +15,7 @@ import (
 )
 
 // addressAscending sorts common.Address slices in ascending byte order.
-// Required for deterministic validator ordering in inturn() and Extra encoding.
+// Required for deterministic validator ordering in inturnSlot() and Extra encoding.
 type addressAscending []common.Address
 
 func (a addressAscending) Len() int      { return len(a) }
@@ -33,7 +33,9 @@ type Snapshot struct {
 	Hash          common.Hash                 `json:"hash"`
 	Validators    []common.Address            `json:"validators"`    // sorted ascending by address
 	ValidatorsMap map[common.Address]struct{} `json:"validatorsMap"` // O(1) lookup
-	Recents       map[uint64]common.Address   `json:"recents"`       // blockNum → signer
+	Recents       map[uint64]common.Address   `json:"recents"`       // slot → signer
+	GenesisTime   uint64                      `json:"genesisTime"`   // unix ms
+	PeriodMs      uint64                      `json:"periodMs"`      // target block period ms
 }
 
 // newSnapshot creates a new snapshot. validators must already be sorted ascending by address.
@@ -43,6 +45,7 @@ func newSnapshot(
 	number uint64,
 	hash common.Hash,
 	validators []common.Address,
+	genesisTime, periodMs uint64,
 ) (*Snapshot, error) {
 	if len(validators) == 0 {
 		return nil, errors.New("dpos: empty validator set")
@@ -55,6 +58,8 @@ func newSnapshot(
 		Validators:    validators,
 		ValidatorsMap: make(map[common.Address]struct{}, len(validators)),
 		Recents:       make(map[uint64]common.Address),
+		GenesisTime:   genesisTime,
+		PeriodMs:      periodMs,
 	}
 	for _, v := range validators {
 		snap.ValidatorsMap[v] = struct{}{}
@@ -74,25 +79,27 @@ func (s *Snapshot) copy() *Snapshot {
 		Validators:    make([]common.Address, len(s.Validators)),
 		ValidatorsMap: make(map[common.Address]struct{}, len(s.ValidatorsMap)),
 		Recents:       make(map[uint64]common.Address, len(s.Recents)),
+		GenesisTime:   s.GenesisTime,
+		PeriodMs:      s.PeriodMs,
 	}
 	copy(cpy.Validators, s.Validators)
 	for v := range s.ValidatorsMap {
 		cpy.ValidatorsMap[v] = struct{}{}
 	}
-	for block, signer := range s.Recents {
-		cpy.Recents[block] = signer
+	for seenSlot, signer := range s.Recents {
+		cpy.Recents[seenSlot] = signer
 	}
 	return cpy
 }
 
-// inturn returns true if validator is the expected proposer for the given block number.
-func (s *Snapshot) inturn(number uint64, validator common.Address) bool {
+// inturnSlot returns true if validator is the expected proposer for the given slot.
+func (s *Snapshot) inturnSlot(slot uint64, validator common.Address) bool {
 	if len(s.Validators) == 0 {
 		return false
 	}
 	for i, v := range s.Validators {
 		if v == validator {
-			return number%uint64(len(s.Validators)) == uint64(i)
+			return slot%uint64(len(s.Validators)) == uint64(i)
 		}
 	}
 	return false
@@ -129,10 +136,21 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 	for _, header := range headers {
 		number := header.Number.Uint64()
 
-		// Evict oldest Recents entry to allow that validator to sign again.
+		// Compute slot for this header.
+		slot, ok := headerSlot(header.Time, snap.GenesisTime, snap.PeriodMs)
+		if !ok {
+			return nil, errInvalidTimestamp
+		}
+
+		// Bulk-evict all stale slots (prevents unbounded growth on slot jumps).
 		limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
-		if number >= limit {
-			delete(snap.Recents, number-limit)
+		if slot >= limit {
+			staleThreshold := slot - limit
+			for seenSlot := range snap.Recents {
+				if seenSlot <= staleThreshold {
+					delete(snap.Recents, seenSlot)
+				}
+			}
 		}
 
 		// Recover signer; validate membership and recency.
@@ -146,7 +164,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if snap.recentlySigned(signer) {
 			return nil, errRecentlySigned
 		}
-		snap.Recents[number] = signer
+		snap.Recents[slot] = signer // record at slot, not block number
 
 		// Epoch boundary: update validator set from header.Extra.
 		//
@@ -156,7 +174,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		// validator registry state correctly.
 		// A byzantine validator (with <50% stake) could embed a wrong list,
 		// but cannot sustain a fork since honest nodes build on the honest chain.
-		if number%s.config.Epoch == 0 {
+		if number%snap.config.Epoch == 0 {
 			validators, err := parseEpochValidators(header.Extra, snap.config)
 			if err != nil {
 				return nil, err
@@ -169,11 +187,14 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			for _, v := range validators {
 				snap.ValidatorsMap[v] = struct{}{}
 			}
-			// Trim Recents entries outside the new window.
+			// Epoch re-trim: use new limit and current slot.
 			newLimit := snap.config.RecentSignerWindowSize(len(validators))
-			for blockNum := range snap.Recents {
-				if number >= newLimit && blockNum < number-newLimit {
-					delete(snap.Recents, blockNum)
+			if slot >= newLimit {
+				staleThreshold := slot - newLimit
+				for seenSlot := range snap.Recents {
+					if seenSlot <= staleThreshold {
+						delete(snap.Recents, seenSlot)
+					}
 				}
 			}
 		}
