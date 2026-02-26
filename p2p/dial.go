@@ -41,7 +41,7 @@ const (
 
 	// Config for the "Looking for peers" message.
 	dialStatsLogInterval = 10 * time.Second // printed at most this often
-	dialStatsPeerLimit   = 3                // but not if more than this many dialed peers
+	dialStatsPeerLimit   = 2                // but not if more than this many dialed peers
 
 	// Endpoint resolution is throttled with bounded backoff.
 	initialResolveDelay = 60 * time.Second
@@ -334,7 +334,7 @@ func (d *dialScheduler) logStats() {
 	if d.lastStatsLog.Add(dialStatsLogInterval) > now {
 		return
 	}
-	if d.dialPeers < dialStatsPeerLimit && d.dialPeers < d.maxDialPeers {
+	if len(d.peers) < dialStatsPeerLimit && d.dialPeers < d.maxDialPeers {
 		d.log.Info("Looking for peers", "peercount", len(d.peers), "tried", d.doneSinceLastLog, "static", len(d.static))
 	}
 	d.doneSinceLastLog = 0
