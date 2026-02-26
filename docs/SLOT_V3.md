@@ -104,8 +104,22 @@ The old `inturn(number, validator)` is retained for the faker path only and is
 
 When the validator set changes at an epoch boundary, `apply()` replaces the
 set atomically. The new `inturnSlot` computation uses the updated set
-immediately for subsequent slots. The same validator can appear at the last
-slot of epoch N and the first slot of epoch N+1 — this is expected and correct.
+immediately for subsequent slots.
+
+Security clarification:
+
+- If the validator set is unchanged and `len(validators) > 1`, round-robin
+  `slot % len` means consecutive slots map to different validator indices.
+- The same validator can still appear on both sides of an epoch boundary when
+  the validator set changes and the new modulo mapping lands on the same address.
+  This is expected behavior, not a consensus fault.
+
+Agave comparison (precise evidence points):
+
+- `slot_leader_at()` resolves leader strictly from `(epoch, slot_index)` schedule
+  lookup: `ledger/src/leader_schedule_cache.rs:84-92`.
+- `slot_leader_at_else_compute()` only forbids unconfirmed epochs; it does not
+  add any special “boundary anti-repeat” rule: `ledger/src/leader_schedule_cache.rs:168-174`.
 
 ---
 
@@ -196,8 +210,7 @@ if header.Time > uint64(time.Now().UnixMilli()) + 3*d.config.TargetBlockPeriodMs
 This limits any proposer to claiming a slot within `~3 slots` of wall-clock
 time. No additional slot-admissibility check is added to `verifyCascadingFields`;
 a stricter local-clock slot check would create reject/accept divergence between
-validators with typical NTP skew (50ms skew ÷ 360ms period = 14% disagreement
-probability at slot boundaries).
+validators near slot boundaries under normal NTP jitter.
 
 `ErrFutureBlock` always fires before `verifyCascadingFields()`. Exact execution
 order for a non-genesis, non-faker block:
@@ -337,7 +350,11 @@ The recency window is `N/3 + 1` *slots*:
 - For N=21 validators: window = 8 slots × 360ms = **2.88 seconds**
 
 At most `N/3` validators can be in the recent window at any time, leaving at
-least `2N/3` validators available — **liveness is guaranteed**.
+least `2N/3` validators not locally blocked by Recents.
+
+This is a protocol-level availability bound, not an absolute liveness guarantee.
+End-to-end liveness still depends on network conditions and validator behavior
+(online rate, latency, partitions, byzantine faults).
 
 The bulk-evict loop is O(window size) ≤ O(8) per block for N=21, negligible.
 
@@ -480,7 +497,7 @@ the first `apply()` will divide by zero or compute wrong slots.
 
 ```go
 func loadSnapshot(config *params.DPoSConfig, sigcache *lru.ARCCache,
-    db ethdb.KeyValueStore, hash common.Hash,
+    db tosdb.Database, hash common.Hash,
     genesisTime uint64) (*Snapshot, error) {
     // ... existing DB read + JSON unmarshal ...
 
@@ -544,7 +561,7 @@ if s, err := loadSnapshot(d.config, d.signatures, d.db, hash, genesisTime); err 
 | Difficulty consistent with slot-based inturn across all code paths | `calcDifficultySlot()` used in `Prepare()`, `CalcDifficulty()`, and `verifySeal()` |
 | Recents window measured in slots not blocks | Slot-keyed map + bulk eviction in `apply()` and lookup in `verifySeal()` |
 | Recents map bounded in size | Bulk evict on every `apply()`: map size ≤ O(N/3+1) ≤ O(8) for N=21 |
-| Liveness: ≥ 2N/3 validators always available | At most N/3 in Recents window at any time |
+| Recents non-blocked bound: ≥ 2N/3 validators | At most N/3 are locally blocked by Recents window |
 | Genesis block bypasses slot checks | `verifyHeader()` returns nil for `header.Number == 0` before cascading calls |
 | Miner requires no changes | `Prepare()` already uses `max(parent.Time + periodMs, now)` |
 
@@ -563,6 +580,15 @@ Complete elimination of slot-gaming requires a pre-committed leader schedule
 (where the leader for each slot is fixed in advance). GTOS computes `inturnSlot`
 on demand with no pre-committed schedule. This residual risk is accepted for
 ≤ 21 validators where fork convergence via TD is reliable.
+
+Security posture for rollout:
+
+- Treat this as a bounded-but-open consensus risk, not a solved property.
+- Keep validator admission permissioned and clocks tightly managed (NTP/SLA).
+- Add operational monitoring for repeated near-future timestamp claims and
+  sustained `diffInTurn` concentration by a single validator.
+- Do not claim schedule-level anti-gaming security until a pre-committed leader
+  schedule is implemented.
 
 ### 13.2 Same-slot siblings on competing forks
 
