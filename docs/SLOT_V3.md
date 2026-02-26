@@ -376,11 +376,21 @@ and the genesis era guard is sound.
 
 ### 8.6 Migration of existing Recents entries
 
-DB-loaded snapshots may have Recents entries with block-number keys (old format).
-These are safely self-evicting: block numbers are much smaller than slot numbers
-at the time of the upgrade. Old entries fall below `staleThreshold` on the first
-`apply()` call and are bulk-evicted. No explicit migration step is needed for
-Recents.
+DB-loaded snapshots may have Recents entries keyed by block number (old format).
+These entries do **not** require an explicit migration step. The reasoning depends
+on whether slots were skipped before the upgrade:
+
+- **No-skip case (normal chain)**: `slot(block N) = (genesis + N×periodMs − genesis) / periodMs = N`.
+  Block number equals slot number exactly. Old entries `{blockNum → signer}` are
+  transparently valid slot records and the recency window is enforced correctly.
+
+- **Skipped-slots case**: Old block-number keys are numerically smaller than the
+  true slot numbers. The recency window is slightly under-enforced (a validator
+  may re-sign one or a few slots sooner than the limit intends), but this is a
+  transient effect lasting at most `limit` new blocks (~2–3 seconds) until old
+  entries are bulk-evicted by the normal slot-based eviction loop.
+
+No explicit Recents clearing is needed on migration.
 
 ---
 
