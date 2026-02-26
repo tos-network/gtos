@@ -1,387 +1,354 @@
-# Dual-Ledger Privacy Transfers for gtos
-> Design v0.1 (MVP-first, audit-friendly)
+# GTOS UNO Privacy Pool (Zcash-Style Notes)
+> Design v0.3 (MVP-first, GTOS-native)
 
-## 0. Goals / Non-goals
+## 0. Scope
 
 ### Goals
-- Keep **public plaintext balance** (Ethereum-like `Account.balance`) fully functional and unchanged.
-- Add an **independent private ledger** (“private balance”) that supports:
-  - Private-to-private transfers: A → B → C without revealing sender/receiver linkage or amounts on-chain (amounts are hidden inside notes).
-  - Double-spend protection via nullifiers.
-  - Efficient verification via zk proof verification **precompile**.
-- Provide explicit, controlled bridges:
-  - **Shield**: public balance → private notes
-  - **Unshield**: private notes → public balance
-- Ensure **two ledgers are logically separated**:
-  - Public value-transfer uses `Account.balance`
-  - Private value-transfer uses note commitments/nullifiers
-  - No implicit auto-conversion
+- Keep GTOS public ledger unchanged:
+  - Public balances remain `Account.balance`.
+  - Public transfer rules remain unchanged.
+- Add a separate private pool using Zcash-style notes:
+  - `shield` (public -> private)
+  - `privateTransfer` (private -> private)
+  - `unshield` (private -> public)
+- Prevent double spend via nullifiers.
+- Verify zero-knowledge proofs inside consensus execution.
+- Keep gas payment public in MVP (`Hybrid UNO`): gas is paid in public TOS.
 
 ### Non-goals (MVP)
-- Fully hidden gas fees (gas will be paid from public balance like normal EVM tx).
-- Private smart-contract DeFi semantics inside the private ledger.
-- Full anonymity against global network-level attackers (timing, mempool, etc.).
-- Cross-chain privacy or stealth address support (optional later).
+- Fully private gas/fee market.
+- Private smart-contract DeFi.
+- Network-layer anonymity.
+- Multi-asset notes.
 
 ---
 
-## 1. High-level Architecture
+## 1. GTOS-Native Architecture (No EVM Contract Path)
 
-We introduce a **Shielded Pool System** alongside the existing EVM/account model.
+GTOS currently does not execute EVM contracts for user calldata paths. UNO must be implemented as a native transaction execution branch, not as a Solidity system contract.
 
-### Public Ledger (existing)
-- `stateObject.balance` continues to exist and behaves as Ethereum.
-- Normal transfers, contract calls with `value`, EIP-1559 gas mechanics remain unchanged.
-- Public ledger state transitions remain identical to upstream geth.
+### 1.1 Routing Model
+- Add fixed router address in protocol params:
+  - `PrivacyRouterAddress = 0x...0004` (example)
+- Keep transaction envelope unchanged:
+  - still `SignerTxType`
+  - `to = PrivacyRouterAddress`
+  - `tx.Data = UNO payload`
 
-### Private Ledger (new)
-A separate state machine maintained in consensus:
-- **Commitment Merkle Tree** (append-only)
-- **Nullifier set** (spent set)
-- **Roots ring buffer** (to allow proofs referencing recent roots)
-- (Optional) Encrypted note payload log (ciphertexts) for wallet scanning
+### 1.2 Execution Entry
+- In `core/state_transition.go`, add:
+  - `if to == params.PrivacyRouterAddress { vmerr = st.applyUNO(msg) }`
+- `applyUNO` dispatches by UNO action:
+  - `SHIELD`
+  - `PRIVATE_TRANSFER`
+  - `UNSHIELD`
 
-### Controlled Bridges
-- **Shield**: deduct public balance, mint private note(s).
-- **Unshield**: consume private note(s), credit public balance.
+### 1.3 State Ownership
+MVP stores UNO consensus state under a dedicated state owner account (the router address):
+- owner: `params.PrivacyRouterAddress`
+- keyspace prefix: `gtos.uno.*`
 
-Private-to-private transfers never touch public balances (except gas fees for the EVM transaction executing the call).
+This avoids adding a brand-new database namespace in first release.
 
 ---
 
-## 2. Data Model (Private Ledger)
+## 2. Private State Model
 
-### 2.1 Note
-A note represents spendable private value, similar to Zcash Sapling-style UTXO.
-
-Fields (conceptual):
-- `value`: UInt (hidden in zk circuit)
-- `assetId`: optional (MVP: single asset = native coin)
-- `owner`: recipient public key / diversified address (hidden)
-- `rho/rseed`: randomness for nullifier/commitment derivation
-- `memo`: optional encrypted data
-
-### 2.2 Commitment
-Commitment binds to a note without revealing its contents:
-- `cm = Commit(note, rcm)` (Pedersen or Poseidon-based depending on circuit)
-
-On-chain we store:
-- leaf `cm` in an append-only Merkle tree.
-
-### 2.3 Nullifier
-Nullifier is a public tag to prevent double-spend:
-- `nf = PRF_nf(sk, note)` (derived from spending key + note randomness)
-
-On-chain we store:
-- `spent[nf] = true`
-
-### 2.4 Merkle Tree
-- Height: `H` (e.g. 20~32)
-- Append-only insertion
-- Maintain:
+### 2.1 Note Commitment Tree
+- Append-only Merkle tree of commitments.
+- Suggested MVP height: `H=32`.
+- Store:
+  - `nextLeafIndex`
+  - incremental tree frontier/internal nodes (implementation-defined)
   - `currentRoot`
-  - `rootsRing[0..N-1]` (e.g. N=100 or 256)
-  - internal nodes for incremental update (implementation choice)
+
+### 2.2 Roots Ring Buffer
+- Keep recent accepted roots for spend proofs.
+- `ROOT_RING_SIZE = 1000` (≈ 6 minutes at 360 ms/block).
+  - At 256 the validity window was only ~92 seconds — too tight for Groth16 proof generation
+    on slow devices (mobile: 30–60 s) plus network propagation delay.
+  - 1000 blocks gives ~360 seconds; wallets must generate and broadcast within this window.
+- Store:
+  - `roots[0..N-1]`
+  - `rootsHead`
+
+### 2.3 Nullifier Set
+- One-way spent tags from circuit.
+- On-chain rule: nullifier can appear only once.
+- Store:
+  - `spentNullifier[nf] = 1`
+
+### 2.4 Optional Ciphertext Log
+- Store or emit encrypted note payloads for wallet scanning.
+- Consensus does not require ciphertext semantic correctness in MVP.
 
 ---
 
-## 3. Interfaces: System Contract + Precompiles (Recommended MVP)
+## 3. Payloads
 
-### 3.1 System Contract: `ShieldedPool`
-A pre-deployed contract at fixed address:
-- e.g. `0x0000000000000000000000000000000000001001`
+Use a deterministic binary codec (recommended: RLP envelope with prefix), not JSON.
 
-Responsibilities:
-- Public <-> private bridging logic (shield/unshield)
-- Private ledger updates (append commitments, mark nullifiers)
-- Root ring buffer maintenance
-- Emit events for wallets (commitments, ciphertexts, roots)
-- Call verifier precompile for zk proof verification
+### 3.1 Envelope
+- Prefix: `GTOSUNO1`
+- Fields:
+  - `action` (u8)
+  - `body` (bytes)
 
-### 3.2 Precompile: `ZKVerifier`
-A new precompile address:
-- e.g. `0x000000000000000000000000000000000000000A`
+Actions:
+- `0x01 = SHIELD`
+- `0x02 = PRIVATE_TRANSFER`
+- `0x03 = UNSHIELD`
 
-Responsibilities:
-- Verify zk-SNARK proofs (MVP: Groth16 on BN254)
-- Enforce input size limits and gas accounting
-- Return success/failure
+### 3.2 Shield Body
+- `amount` (u64/u128)
+- `newCommitments[]` (bytes32[], MVP exactly 1)
+- `proof` (bytes) — output proof that `CM = Poseidon(amount ‖ rho ‖ r)` for the stated `amount`
+- `ciphertexts[]` (bytes[], optional; consensus does not enforce 1:1 with commitments — wallet
+  should provide one ciphertext per commitment for recoverability, but only total size is checked)
 
----
+### 3.3 PrivateTransfer Body
+- `root` (bytes32)
+- `nullifiers[]` (bytes32[], MVP max 1)
+- `newCommitments[]` (bytes32[], MVP max 2)
+- `ciphertexts[]` (bytes[]; consensus only checks total size ≤ UNO_MAX_CIPHERTEXT_TOTAL_BYTES)
+- `proof` (bytes)
 
-## 4. Transaction Flows
+Note: `publicInputs` is NOT a payload field. Consensus derives canonical public inputs from
+the transaction fields (chainId, routerAddr, actionTag, root, nullifiers, newCommitments) and
+calls `verifier.Verify(proof, derivedInputs)`. Accepting user-supplied public inputs would
+make domain separation illusory.
 
-### 4.1 Shield (Public → Private)
-User wants to convert public balance into a private note.
-
-**Call**
-- `shield(uint256 amount, bytes32 commitment, bytes ciphertext) payable?`
-
-**Rules**
-- `amount` is public (MVP). The minted private note value equals `amount`.
-- Contract deducts `amount` from the user’s public balance:
-  - Implemented via requiring `msg.value == amount` OR via ERC20-like transfer (for native coin simplest is `msg.value`).
-- Append `commitment` into the tree.
-- Emit ciphertext for recipient scanning.
-
-**Outputs**
-- New Merkle root
-- Commitment event
-- Ciphertext event
-
-**Notes**
-- If you want `shield` without revealing amount, that is a different (harder) design; MVP keeps amount public at shield/unshield edges.
-
-### 4.2 Private Transfer (Private → Private)
-A spends one or more notes and creates new notes for B (and change back to A), staying fully in private ledger.
-
-**Call**
-- `privateTransfer(bytes proof, bytes32 root, bytes32[] nullifiers, bytes32[] newCommitments, bytes[] ciphertexts)`
-
-**Proof statement (circuit)**
-- There exist input notes owned by spender such that:
-  - Each input note commitment is a member of Merkle tree with root `root`.
-  - Each nullifier is correctly derived from the input note and spender key.
-  - Value is conserved: `sum(inputs) = sum(outputs) + fee_private(optional)`
-  - Each output commitment matches its output note.
-- Public inputs: `root`, `nullifiers`, `newCommitments`, (optional) `fee_private`.
-
-**On-chain checks**
-1. `root` is in roots ring buffer.
-2. Each `nullifier` is not yet spent.
-3. Call verifier precompile to validate `proof`.
-4. Mark nullifiers as spent.
-5. Append all `newCommitments`.
-6. Emit ciphertexts.
-
-**Result**
-- A → B → C can be repeated indefinitely inside private ledger.
-
-### 4.3 Unshield (Private → Public)
-A consumes private notes and credits a public address’ `Account.balance`.
-
-**Call**
-- `unshield(bytes proof, bytes32 root, bytes32[] nullifiers, bytes32[] newCommitments, bytes[] ciphertexts, address to, uint256 amount)`
-
-(Optionally newCommitments includes change note.)
-
-**Proof statement**
-- Like private transfer, but one output is “public withdrawal”:
-  - `sum(inputs) = sum(privateOutputs) + amount + fee_private(optional)`
-- Public inputs include `to` and `amount` (MVP: both public).
-
-**On-chain**
-- Same verify/spend/append process.
-- Then credit `to` with `amount` (native coin transfer from pool escrow or minting logic if protocol-defined).
-- Emit events.
+### 3.4 Unshield Body
+- Same as PrivateTransfer plus:
+- `to` (common.Address)
+- `amount` (u64/u128, public in MVP)
 
 ---
 
-## 5. Gas & Fee Model
+## 4. Consensus Rules Per Action
 
-### MVP rule
-- Gas fees for calling the system contract are paid **from public balance** exactly like any EVM tx.
-- Private ledger does not pay gas (no private fee market needed).
+## 4.1 SHIELD
+Checks:
+1. `amount > 0`
+2. `msg.Value == amount` (mandatory; deduction must be exact)
+3. payload limits (commitment count = 1 in MVP, ciphertext total size)
+4. Verifier returns success for SHIELD proof with public inputs `[chainId, routerAddr, amount, CM]`
 
-### Optional later
-- Relayer model: user submits proof off-chain, relayer pays gas, relayer is compensated in private notes.
-- Private fee in-circuit as a public input, minted to miner as a private note (complex; not MVP).
+State updates:
+1. Deduct from sender public balance through normal GTOS value flow.
+2. Add shielded pool reserve (escrow) on `PrivacyRouterAddress` public balance.
+3. Append commitment(s), update root and ring buffer.
+4. Emit/store ciphertext metadata.
 
----
+## 4.2 PRIVATE_TRANSFER
+Checks (all must pass before any state mutation):
+1. `root` exists in roots ring buffer.
+2. All nullifiers within the transaction are pairwise distinct.
+3. Every nullifier is currently unspent (checked against nullifier set).
+4. Payload size limits pass.
+5. Verifier returns success for canonical public inputs (derived by consensus from tx fields).
 
-## 6. State Storage Design
+State updates (strict order, only after all checks pass):
+1. Mark all nullifiers as spent.
+2. Append new commitments.
+3. Update root/ring.
+4. Emit/store ciphertext metadata.
 
-### 6.1 Where to store private ledger state
-Option A (MVP): store in EVM contract storage
-- `spent[nullifier] => bool`
-- tree nodes / roots ring buffer in storage
+## 4.3 UNSHIELD
+Checks:
+1. Same checks as `PRIVATE_TRANSFER`.
+2. `to != zero address`.
+3. `amount > 0`.
+4. Escrow balance of `PrivacyRouterAddress` is sufficient.
 
-Pros:
-- Minimal client changes; easiest to ship and test.
-Cons:
-- Potentially heavy storage/gas. Need careful tree design.
-
-Option B (Recommended for performance later): store in client-side state (consensus-level)
-- Extend StateDB with a new namespace/table:
-  - `shielded_roots`
-  - `shielded_tree_nodes`
-  - `shielded_nullifiers`
-
-Pros:
-- Much cheaper per tx and more scalable.
-Cons:
-- Requires deeper geth modifications; more audit surface.
-
-### MVP recommendation
-- Start with **Option A** for correctness and iteration speed.
-- Plan migration to Option B once circuits and rules stabilize.
-
----
-
-## 7. Anti-DoS / Limits
-
-Because proofs and ciphertexts are large:
-- Enforce maximum calldata size for private methods:
-  - e.g. `maxProofBytes`, `maxCiphertextBytes`, `maxNotesPerTx`
-- Enforce maximum number of inputs/outputs per proof:
-  - e.g. `MAX_IN = 2`, `MAX_OUT = 2` for MVP (1 recipient + 1 change)
-- Enforce verifier precompile input constraints.
-- Implement strict gas schedule for verifier:
-  - base + per-pairing cost + per-public-input cost (fixed for Groth16)
+State updates:
+1. Mark nullifiers spent.
+2. Append change commitments (if any).
+3. Update root/ring.
+4. Subtract `amount` from `PrivacyRouterAddress` public balance.
+5. Add `amount` to `to` public balance.
 
 ---
 
-## 8. Cryptography & Circuit Choices (MVP Defaults)
+## 5. Proof / Domain Separation Requirements
 
-### zk system
-- Groth16 over BN254 (alt_bn128), due to mature tooling and compact proof size.
+### 5.1 Public Inputs — Derived by Consensus, Not User-Supplied
 
-### Hashes
-- Commitment and Merkle hashes should match circuit-friendly hash:
-  - Poseidon (preferred) or Pedersen (common)
-- Merkle tree uses same hash in-circuit and on-chain.
+Consensus code derives canonical public inputs from the transaction fields and passes them
+to the verifier. The `proof` bytes are the only verifier-related field in the payload.
 
-### Encryption for ciphertexts
-- Encrypt output note data for recipients to scan:
-  - ECIES over secp256k1 OR X25519 + AEAD (depending on wallet stack)
-- On-chain does not validate ciphertext correctness (MVP), only stores/logs it.
+For `SHIELD`:
+```
+publicInputs = [chainId, PrivacyRouterAddress, actionTag=SHIELD, assetId, amount, CM]
+```
 
----
+For `PRIVATE_TRANSFER` and `UNSHIELD`:
+```
+publicInputs = [chainId, PrivacyRouterAddress, actionTag, assetId,
+                root, nullifiers[], newCommitments[]
+                (, to, publicAmount) for UNSHIELD]
+```
 
-## 9. Wallet Requirements (Off-chain)
+This prevents an attacker from submitting a proof for different public inputs than what
+the transaction actually executes (cross-chain and cross-method replay are also prevented).
 
-Wallet must:
-- Maintain keys:
-  - spending key (for creating nullifiers/proofs)
-  - viewing key (for scanning and decrypting ciphertexts)
-- Scan chain events:
-  - commitments/ciphertexts
-  - roots updates
-- Track unspent notes and build proofs:
-  - note selection (inputs)
-  - create outputs: recipient note + change note
-- Submit EVM tx calling `privateTransfer` and `unshield`
+### 5.2 Value Balance Equation (Circuit Constraint)
 
----
+The circuit MUST enforce the value balance equation as a hard constraint:
 
-## 10. geth/gtos Implementation Plan (Concrete Steps)
+```
+Σ(input note amounts) == Σ(output note amounts) + publicUnshieldAmount
+```
 
-### Step 1: Add verifier precompile
-- Add precompile address mapping.
-- Implement Groth16 verify function:
-  - Input encoding: `vkId || proof || publicInputs`
-  - Output: `0x01` for success, empty/revert for failure.
-- Add strict gas schedule & size checks.
+- `PRIVATE_TRANSFER`: `publicUnshieldAmount = 0`
+- `UNSHIELD`: `publicUnshieldAmount = amount` (public input)
 
-### Step 2: Deploy system contract at genesis
-- Embed `ShieldedPool` bytecode into genesis alloc for fixed address.
-- Optionally add chain config flag to enable/disable private ledger.
-
-### Step 3: Implement ShieldedPool contract
-- Storage layout:
-  - `rootsRing[]`
-  - `currentRoot`
-  - `spentNullifier[nf]`
-  - Merkle tree incremental state
-- Functions:
-  - `shield`
-  - `privateTransfer`
-  - `unshield`
-  - getters: `isSpent(nf)`, `getRoot(i)`, `getCurrentRoot()`
-- Events:
-  - `CommitmentInserted(index, commitment, newRoot)`
-  - `NullifierSpent(nullifier)`
-  - `Ciphertext(index, bytes ciphertext)` (or batched)
-  - `ShieldedTxMeta(root, nullifiers, newCommitments)` (optional)
-
-### Step 4: Protocol safety checks
-- Enforce max inputs/outputs.
-- Enforce ring buffer root membership.
-- Reentrancy protection where needed.
-- Ensure unshield uses escrowed funds:
-  - `shield` deposits native coin into contract
-  - `unshield` pays out from contract balance
-
-### Step 5: Tooling
-- Provide reference circuits and prover CLI.
-- Provide test vectors:
-  - deterministic keys/notes
-  - sample proofs
-- Provide an indexer script for scanning events.
+Without this constraint, a prover could spend a note of value V, create a change note of
+value V, and also unshield V — tripling the value. This equation is enforced inside the
+ZK circuit; consensus cannot verify it independently.
 
 ---
 
-## 11. Security Considerations
+## 6. Parallel Execution Safety (GTOS-Specific)
 
-- **Double-spend**: nullifier must be unique and derived correctly in-circuit.
-- **Root validity**: only accept roots from a bounded ring buffer.
-- **Front-running / timing leaks**: private transfer hides on-chain amounts/links but mempool timing and off-chain metadata can leak.
-- **Key management**: spending key compromise drains private notes irreversibly.
-- **Circuit bugs**: catastrophic; require audits and test vectors.
-- **Verifier correctness**: must be constant-time and robust against malformed inputs.
-- **Storage growth**: commitment insertions grow tree; plan pruning or periodic checkpoints (future).
+MVP must avoid nondeterministic conflicts with parallel executor.
 
----
+### 6.1 MVP Policy
+Force all UNO txs to serialize relative to each other.
 
-## 12. Upgrade Path
+Implementation hint in `core/parallel/analyze.go`:
+- For `to == PrivacyRouterAddress`, add shared write conflict marker:
+  - `WriteAddrs[PrivacyRouterAddress] = {}`
 
-### v0.2
-- Increase max notes per tx (e.g. 2-in/2-out).
-- Add multi-asset notes (`assetId`) if needed.
-- Add relayer / paymaster patterns.
+This guarantees UNO operations do not execute in parallel with other UNO operations.
 
-### v0.3
-- Move private ledger storage from contract storage to client-level StateDB namespace (performance).
-- Add RPC endpoints for efficient scanning.
-- Add optional compliance features (viewing keys, selective disclosure).
+### 6.2 Future Optimization
+Later, split conflict domains (e.g., per-nullifier slot/per-batch bucket) only after full parity tests.
 
 ---
 
-## 13. Open Parameters (MVP Defaults)
+## 7. Gas and Limits
 
-- Tree height `H`: 20 (≈1,048,576 leaves) or 32 for long-term.
-- Roots ring size `N`: 100 or 256.
-- Max inputs/outputs: 1-in/2-out (recipient + change) for MVP, or 2/2.
-- zk system: Groth16 BN254.
-- Hash: Poseidon.
-- Ciphertext size cap: e.g. 512 bytes per output.
+GTOS uses fixed public gas pricing. UNO does not change this in MVP.
+
+Add protocol constants (examples):
+- `UNOBaseGas`
+- `UNOShieldGas`
+- `UNONullifierGas` (per nullifier)
+- `UNOCommitmentGas` (per commitment)
+- `UNOVerifyBaseGas`
+- `UNOVerifyPerInputGas`
+
+Hard limits (MVP examples):
+- `UNO_MAX_IN = 1`
+- `UNO_MAX_OUT = 2`
+- `UNO_MAX_PROOF_BYTES = 512`
+  - Groth16 BN254 proof sizes by serialization format:
+    - arkworks uncompressed: 3×G1(96B) + G2(192B) = 288 bytes
+    - bellman / snarkjs uncompressed: A(64B) + B(128B) + C(64B) = 256 bytes
+  - Implementation must commit to one format; `UNO_MAX_PROOF_BYTES` includes a safety margin.
+  - Chosen format must be documented in `core/uno/verify.go`.
+- `UNO_MAX_CIPHERTEXT_BYTES = 1024` each
+- `UNO_MAX_CIPHERTEXT_TOTAL_BYTES = 4096`
+
+Any limit violation must fail deterministically.
 
 ---
 
-## Appendix A: Public Input Encoding (Example)
-For Groth16 verification, public inputs could be serialized as:
-- `root (32)`
-- `nullifier[0..MAX_IN-1] (32 each)`
-- `newCommitment[0..MAX_OUT-1] (32 each)`
-- `withdrawTo (20) + withdrawAmount (32)` for unshield
-All converted into field elements as required by BN254 verifier conventions.
+## 8. Crypto Choices (MVP Defaults)
+
+- Proof system: `Groth16 BN254`
+- Circuit hash: `Poseidon` (for commitments/tree)
+- Nullifier derivation: circuit-defined PRF (field-native)
+- Note ciphertext encryption: wallet-layer (X25519 + AEAD recommended)
+
+Consensus verifies proof validity and state transitions only; ciphertext decryptability is wallet concern in MVP.
 
 ---
 
-## Appendix B: Minimal ABI Sketch
-```solidity
-interface IShieldedPool {
-  function shield(bytes32 commitment, bytes calldata ciphertext) external payable;
+## 9. GTOS Code Integration Plan
 
-  function privateTransfer(
-    bytes calldata proof,
-    bytes32 root,
-    bytes32[] calldata nullifiers,
-    bytes32[] calldata newCommitments,
-    bytes[] calldata ciphertexts
-  ) external;
+### Step 1: Params
+- `params/tos_params.go`
+  - add `PrivacyRouterAddress`
+  - add UNO gas/limit constants
 
-  function unshield(
-    bytes calldata proof,
-    bytes32 root,
-    bytes32[] calldata nullifiers,
-    bytes32[] calldata newCommitments,
-    bytes[] calldata ciphertexts,
-    address to,
-    uint256 amount
-  ) external;
+### Step 2: Core UNO Package
+Create `core/uno/`:
+- `codec.go` (payload encode/decode)
+- `state.go` (slot derivation, read/write helpers)
+- `tree.go` (incremental root update)
+- `verify.go` (verifier interface + size checks)
+- `errors.go`
 
-  function isSpent(bytes32 nullifier) external view returns (bool);
-  function getCurrentRoot() external view returns (bytes32);
-  function getRoot(uint256 i) external view returns (bytes32);
-}
+### Step 3: State Transition
+- `core/state_transition.go`
+  - add router branch
+  - implement `applyUNO`, `applyUNOShield`, `applyUNOTransfer`, `applyUNOUnshield`
+
+### Step 4: Parallel Access Set
+- `core/parallel/analyze.go`
+  - mark UNO tx as conflicting with all UNO txs (MVP serialization)
+
+### Step 5: RPC/API
+- `internal/tosapi/api.go`
+  - `tos_shield`
+  - `tos_privateTransfer`
+  - `tos_unshield`
+  - gas estimate helpers
+
+### Step 6: Tests
+- Unit:
+  - codec roundtrip
+  - root ring membership
+  - nullifier replay reject
+  - domain separation mismatch reject
+- Core:
+  - shield/unshield escrow conservation
+  - apply order determinism
+- Parallel:
+  - serial/parallel parity with mixed blocks
+- Integration:
+  - 3-node DPoS testnet with repeated UNO traffic
+
+---
+
+## 10. Security Checklist
+
+- SHIELD commitment validity verified by ZK proof before insertion into tree.
+- Intra-tx nullifier pairwise distinctness checked before any state mutation.
+- All nullifiers confirmed unspent (against set) before any state mutation.
+- Root must be from bounded accepted ring (validity window = ROOT_RING_SIZE × periodMs).
+- Public inputs derived by consensus from tx fields; never accepted from payload.
+- Circuit enforces value balance: Σin == Σout + publicUnshieldAmount.
+- No partial state updates on failure (all checks pass → then all state writes).
+- Escrow conservation invariant: `escrow_balance(PrivacyRouterAddress) = Σshield_amounts − Σunshield_amounts`.
+- Strict byte limits to prevent proof/ciphertext DoS.
+- Proof serialization format fixed and documented in `core/uno/verify.go`.
+- Wallet key loss model documented (private notes unrecoverable without keys).
+
+---
+
+## 11. MVP Parameter Set (Recommended)
+
+- `H = 32`
+- `ROOT_RING_SIZE = 1000` (~6 min validity window at 360 ms/block)
+- `MAX_IN = 1`
+- `MAX_OUT = 2`
+- single asset: native TOS only
+- public unshield amount (Hybrid UNO)
+- UNO transactions serialized against each other
+
+---
+
+## 12. Future Phases
+
+- Phase 2:
+  - `MAX_IN=2`, `MAX_OUT=2`
+  - batch proof verification optimizations
+- Phase 3:
+  - move UNO state from router-owned storage slots to dedicated StateDB namespace
+- Phase 4:
+  - relayer/paymaster model
+  - optional multi-asset notes
+
