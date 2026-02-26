@@ -494,7 +494,7 @@ pre-committed schedule, so C2 is only bounded (not eliminated) in V2.
 
 **Residual risk**: a validator can still search within the admitted future window
 (`now + 3×period`) for favorable in-turn slots. Complete elimination requires a
-pre-committed schedule (future work, see §15.2).
+pre-committed schedule (future work, see §16.2).
 
 ### 12.2 Genesis Time — Promote to Required Change (was Open Question)
 
@@ -549,7 +549,7 @@ fair rotation; Agave's stake-weighted approach is needed only when allocating
 slots proportionally to stake. This difference is **intentional** and documented.
 
 **No change needed.** When stake-weighted schedule is adopted in future (Open
-Question §15.2), the algorithm will converge toward Agave's model.
+Question §16.2), the algorithm will converge toward Agave's model.
 
 ### 12.4 Clock Skew Tolerance — SLOT_V2 is appropriately stricter
 
@@ -779,7 +779,120 @@ GTOS's architecture.
 
 ---
 
-## 15. Open Questions (updated)
+## 15. Agave Fifth-Round Review
+
+Eight questions answered against GTOS + Agave source. Seven confirmed correct;
+one minor actionable risk identified.
+
+### 15.1 Recents epoch re-trim — Confirmed correct (Q1)
+
+`apply()` (`snapshot.go:133-178`) evicts in two passes on epoch boundaries:
+1. Normal per-block eviction using current N (line 134).
+2. Epoch re-trim using new N after validator set replacement (line 172-178).
+
+Both growth (limit expands) and shrinkage (limit shrinks) scenarios are handled
+correctly. No entries are silently retained across an epoch boundary.
+
+### 15.2 Recents off-by-one at slot 0 / genesis era — Confirmed correct (Q2)
+
+At `slot < limit`, `if slot < limit || seenSlot > slot-limit` fires unconditionally
+for any Recents entry — correct Clique-heritage behaviour for the genesis era.
+Block 0 is skipped entirely by `apply()` (genesis is initialised separately in
+`snapshot()`), so Recents starts empty; the `slot < limit` guard is never an
+issue at genesis. Matches the original go-ethereum Clique logic.
+
+### 15.3 inturnSlot at genesis — Confirmed correct (Q3)
+
+`verifyHeader()` (`dpos.go:393-394`) returns `nil` for `header.Number == 0`
+before calling `verifyCascadingFields()`. The genesis block is never passed
+through `verifySeal()` or the `inturnSlot()` check. Validators are trusted
+as given in the genesis Extra. No issue.
+
+### 15.4 getGenesisTime sync.Once — Minor bootstrap risk (Q4)
+
+**Finding**: the proposed `sync.Once` lazy helper caches any error permanently.
+If `chain.GetHeaderByNumber(0)` returns `nil` during the very first call
+(possible during genesis block import before the block is persisted), the error
+is frozen and `getGenesisTime` returns an error for the lifetime of the engine.
+
+**Agave comparison** (`bank.rs:466`): Agave sets `genesis_creation_time` eagerly
+at `Bank::new_with_paths()`, guaranteeing it is available before any slot
+operation runs.
+
+**Recommended fix**: check for zero-value after `sync.Once.Do` and retry on the
+next call if the value is still zero:
+
+```go
+func (d *DPoS) getGenesisTime(chain consensus.ChainHeaderReader) (uint64, error) {
+    // Re-attempt if a previous call failed (e.g., genesis not yet persisted).
+    if atomic.LoadUint64(&d.genesisTime) != 0 {
+        return d.genesisTime, nil
+    }
+    g := chain.GetHeaderByNumber(0)
+    if g == nil {
+        return 0, errors.New("dpos: genesis block not available")
+    }
+    atomic.StoreUint64(&d.genesisTime, g.Time)
+    return d.genesisTime, nil
+}
+```
+
+This removes the single-shot caching; since `g.Time` is immutable once written,
+repeated reads are idempotent and safe under concurrent calls.
+
+**Added to §16.5 Open Questions.**
+
+### 15.5 CalcDifficulty time param — Confirmed (Q5)
+
+`CalcDifficulty(time uint64, parent)` currently ignores `time` entirely (dead
+code, `dpos.go:764`). SLOT_V2's proposal to derive slot from `parent.Time +
+periodMs` is correct — it is deterministic and independent of the
+caller-supplied `time`. No consensus impact (TD estimation only).
+
+### 15.6 Slot arithmetic overflow — No risk (Q6)
+
+All uint64 slot operations are safe: `slot - limit` is guarded by `slot >= limit`;
+`slot % N` wraps as intended; no casts to `int64`; no `slot + K` expressions
+remain after Rule 2 was removed. 584-million-year horizon is academic.
+
+### 15.7 apply() genesis/epoch Extra ordering — Confirmed correct (Q7)
+
+Genesis handled in `snapshot()`, not `apply()`. For epoch blocks, normal
+per-block eviction (old N) fires before the epoch validator replacement; the
+subsequent epoch re-trim (new N) then adjusts. Order is correct for both
+validator-set growth and shrinkage.
+
+### 15.8 verifyHeader + verifyCascadingFields order — Confirmed correct (Q8)
+
+Exact execution order for a non-genesis, non-faker block (`dpos.go:317-420`):
+1. `ErrFutureBlock` check (line 329) — admissibility gate, runs first.
+2. Faker early return (line 335-348) — skips all subsequent checks in faker mode.
+3. Structural checks: UncleHash, MixDigest, difficulty, Extra format (lines 350-386).
+4. Genesis early return (line 393-394).
+5. `verifyCascadingFields()` (line 396) → M2 guard → Rule 1 → snapshot → `verifySeal()`.
+
+`ErrFutureBlock` always fires before `verifyCascadingFields()`. The separation
+matches Agave's layering (fetch-stage → blockstore → replay). No missing checks.
+
+`VerifyHeaders()` calls `verifyHeader()` sequentially (not in parallel goroutines),
+passing cumulative `headers[:i]` as parents — correct for ancestor context.
+
+### 15.9 Summary — Fifth Round
+
+| Q | Finding | Action |
+|---|---|---|
+| Q1 Recents epoch re-trim | Correct; old+new limit both applied | None |
+| Q2 Recents genesis era | Correct; `slot < limit` guard is sound Clique heritage | None |
+| Q3 inturnSlot genesis | Correct; genesis block skips verifySeal entirely | None |
+| Q4 sync.Once bootstrap risk | **Minor**: permanent error caching if genesis not ready | Use retryable pattern (§15.4); see §16.5 |
+| Q5 CalcDifficulty time param | Correct; use `parent.Time + periodMs` not caller `time` | None (confirmed §4) |
+| Q6 Slot overflow | No risk; all ops guarded or intrinsically safe | None |
+| Q7 apply() epoch order | Correct; old-N eviction before new-N re-trim | None |
+| Q8 verifyHeader order | Correct; ErrFutureBlock always before cascading checks | None |
+
+---
+
+## 16. Open Questions (updated)
 
 1. **Genesis time implementation**: land the required §12.2 helper
    `getGenesisTime(chain)` and switch all call sites to it.
@@ -798,3 +911,10 @@ GTOS's architecture.
    `PeriodMs` from engine config when deserialising pre-migration snapshots (§14.3).
    Required before shipping the slot implementation to any node that has an
    existing chain DB.
+
+6. **getGenesisTime eager / retryable init**: replace `sync.Once` with an atomic
+   retryable pattern (§15.4) so that a transient "genesis not yet persisted"
+   condition during node startup does not permanently break the engine.
+   Alternatively, call `getGenesisTime` eagerly at the first chain-reader-aware
+   entry point (e.g. first `VerifyHeader` call) and log a fatal error if genesis
+   is absent.
