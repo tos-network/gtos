@@ -18,6 +18,8 @@ VANITY_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 FUNDED_BALANCE_HEX="0x33b2e3c9fd0803ce8000000"
 
 action="up"
+ENODE_MAP_FILE="${BASE_DIR}/node_enodes.txt"
+BOOTNODES_FILE="${BASE_DIR}/bootnodes.csv"
 
 usage() {
 	cat <<EOF
@@ -26,6 +28,8 @@ Usage: scripts/local_testnet_3nodes.sh [action] [options]
 Actions:
   up       setup + start + verify (default)
   setup    create accounts/genesis and run init for 3 nodes
+  precollect-enode
+           start temporary nodes, collect enodes, write peer artifacts, stop
   start    start 3 nodes from prepared datadirs
   verify   check peers, block growth, and miner rotation
   status   print node status summary
@@ -52,7 +56,7 @@ EOF
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	up | setup | start | verify | status | stop | down | clean)
+	up | setup | precollect-enode | start | verify | status | stop | down | clean)
 		action="$1"
 		shift
 		;;
@@ -333,6 +337,23 @@ wait_for_attach() {
 	return 1
 }
 
+wait_for_block_growth() {
+	local idx="$1" timeout_s="${2:-90}" min_growth="${3:-2}" elapsed=0
+	local port prev now growth
+	port="$(node_http_port "${idx}")"
+	prev="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		sleep 1
+		now="$(hex_to_dec "$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || echo 0x0)")"
+		growth=$((now - prev))
+		if (( growth >= min_growth )); then
+			return 0
+		fi
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
 is_pid_running() {
 	local pid="$1"
 	kill -0 "${pid}" 2>/dev/null
@@ -406,6 +427,147 @@ start_node() {
 	echo "node${idx} started (pid=$(cat "${pidfile}"), http=127.0.0.1:${http})"
 }
 
+get_node_enode() {
+	local idx="$1" timeout_s="${2:-30}" elapsed=0 enode=""
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		enode="$("${GTOS_BIN}" --exec 'admin.nodeInfo.enode' attach "$(node_ipc "${idx}")" 2>/dev/null | tr -d '"\r\n[:space:]')"
+		if [[ "${enode}" =~ ^enode:// ]]; then
+			echo "${enode}"
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+write_peer_artifacts() {
+	local e1="$1" e2="$2" e3="$3"
+	local n1 n2 n3
+	n1="$(node_dir 1)/gtos/static-nodes.json"
+	n2="$(node_dir 2)/gtos/static-nodes.json"
+	n3="$(node_dir 3)/gtos/static-nodes.json"
+
+	cat >"${ENODE_MAP_FILE}" <<EOF
+node1=${e1}
+node2=${e2}
+node3=${e3}
+EOF
+	printf '%s,%s,%s\n' "${e1}" "${e2}" "${e3}" >"${BOOTNODES_FILE}"
+
+	cat >"${n1}" <<EOF
+[
+  "${e2}",
+  "${e3}"
+]
+EOF
+	cat >"${n2}" <<EOF
+[
+  "${e1}",
+  "${e3}"
+]
+EOF
+	cat >"${n3}" <<EOF
+[
+  "${e1}",
+  "${e2}"
+]
+EOF
+}
+
+load_precollected_enodes() {
+	local e1 e2 e3
+	[[ -f "${ENODE_MAP_FILE}" ]] || return 1
+	e1="$(sed -n 's/^node1=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
+	e2="$(sed -n 's/^node2=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
+	e3="$(sed -n 's/^node3=\(enode:\/\/.*\)$/\1/p' "${ENODE_MAP_FILE}" | tail -n1)"
+	if [[ "${e1}" =~ ^enode:// && "${e2}" =~ ^enode:// && "${e3}" =~ ^enode:// ]]; then
+		printf '%s\n%s\n%s\n' "${e1}" "${e2}" "${e3}"
+		return 0
+	fi
+	return 1
+}
+
+assert_network_prepared() {
+	local idx addr
+	for idx in 1 2 3; do
+		if [[ ! -d "$(node_dir "${idx}")/gtos/chaindata" ]]; then
+			echo "node${idx} is not initialized. run: scripts/local_testnet_3nodes.sh setup" >&2
+			exit 1
+		fi
+		addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")" 2>/dev/null || true)"
+		if ! valid_addr "${addr}"; then
+			echo "node${idx} validator address missing/invalid. run setup again." >&2
+			exit 1
+		fi
+	done
+}
+
+precollect_enodes() {
+	local e1 e2 e3 bootnodes
+	ensure_dirs
+	ensure_gtos_bin
+	ensure_passfile
+	assert_network_prepared
+
+	stop_nodes
+	start_node 1 ""
+	wait_for_attach 1 30 || {
+		echo "node1 attach not ready during precollect-enode" >&2
+		exit 1
+	}
+	e1="$(get_node_enode 1 30 || true)"
+	[[ "${e1}" =~ ^enode:// ]] || {
+		echo "failed to collect node1 enode" >&2
+		exit 1
+	}
+
+	start_node 2 "${e1}"
+	wait_for_attach 2 30 || {
+		echo "node2 attach not ready during precollect-enode" >&2
+		exit 1
+	}
+	e2="$(get_node_enode 2 30 || true)"
+	[[ "${e2}" =~ ^enode:// ]] || {
+		echo "failed to collect node2 enode" >&2
+		exit 1
+	}
+
+	bootnodes="${e1},${e2}"
+	start_node 3 "${bootnodes}"
+	wait_for_attach 3 30 || {
+		echo "node3 attach not ready during precollect-enode" >&2
+		exit 1
+	}
+	e3="$(get_node_enode 3 30 || true)"
+	[[ "${e3}" =~ ^enode:// ]] || {
+		echo "failed to collect node3 enode" >&2
+		exit 1
+	}
+
+	connect_mesh "${e1}" "${e2}" "${e3}"
+	write_peer_artifacts "${e1}" "${e2}" "${e3}"
+	stop_nodes
+	echo "precollect-enode done:"
+	echo "  ${ENODE_MAP_FILE}"
+	echo "  ${BOOTNODES_FILE}"
+}
+
+add_peer() {
+	local src_idx="$1" dst_enode="$2"
+	"${GTOS_BIN}" --exec "admin.addPeer(\"${dst_enode}\")" attach "$(node_ipc "${src_idx}")" >/dev/null 2>&1 || true
+}
+
+connect_mesh() {
+	local e1="$1" e2="$2" e3="$3"
+	add_peer 1 "${e2}"
+	add_peer 1 "${e3}"
+	add_peer 2 "${e1}"
+	add_peer 2 "${e3}"
+	add_peer 3 "${e1}"
+	add_peer 3 "${e2}"
+}
+
 rpc_call() {
 	local port="$1" method="$2" params="$3"
 	curl -fsS --max-time 5 \
@@ -430,20 +592,66 @@ hex_to_dec() {
 }
 
 start_nodes() {
-	local enode
+	local enode1 enode2 enode3 bootnodes pre
+	if pre="$(load_precollected_enodes 2>/dev/null)"; then
+		enode1="$(echo "${pre}" | sed -n '1p')"
+		enode2="$(echo "${pre}" | sed -n '2p')"
+		enode3="$(echo "${pre}" | sed -n '3p')"
+		echo "using precollected enodes from ${ENODE_MAP_FILE}"
+	else
+		enode1=""
+		enode2=""
+		enode3=""
+	fi
 	start_node 1 ""
 	if ! wait_for_attach 1 30; then
 		echo "node1 attach not ready" >&2
 		tail -n 80 "$(node_log_file 1)" >&2 || true
 		exit 1
 	fi
-	enode="$("${GTOS_BIN}" --exec 'admin.nodeInfo.enode' attach "$(node_ipc 1)" | tr -d '"')"
-	if [[ ! "${enode}" =~ ^enode:// ]]; then
-		echo "failed to read node1 enode: ${enode}" >&2
+	if [[ ! "${enode1}" =~ ^enode:// ]]; then
+		enode1="$(get_node_enode 1 30 || true)"
+	fi
+	if [[ ! "${enode1}" =~ ^enode:// ]]; then
+		echo "failed to read node1 enode: ${enode1}" >&2
 		exit 1
 	fi
-	start_node 2 "${enode}"
-	start_node 3 "${enode}"
+	if ! wait_for_block_growth 1 120 2; then
+		echo "warning: node1 did not show solo block growth within timeout; continuing to start node2" >&2
+	fi
+	start_node 2 "${enode1}"
+	if ! wait_for_attach 2 30; then
+		echo "node2 attach not ready" >&2
+		tail -n 80 "$(node_log_file 2)" >&2 || true
+		exit 1
+	fi
+	if [[ ! "${enode2}" =~ ^enode:// ]]; then
+		enode2="$(get_node_enode 2 30 || true)"
+	fi
+	if [[ ! "${enode2}" =~ ^enode:// ]]; then
+		echo "failed to read node2 enode: ${enode2}" >&2
+		exit 1
+	fi
+	bootnodes="${enode1},${enode2}"
+	start_node 3 "${bootnodes}"
+	if ! wait_for_attach 3 30; then
+		echo "node3 attach not ready" >&2
+		tail -n 80 "$(node_log_file 3)" >&2 || true
+		exit 1
+	fi
+	if [[ ! "${enode3}" =~ ^enode:// ]]; then
+		enode3="$(get_node_enode 3 30 || true)"
+	fi
+	if [[ ! "${enode3}" =~ ^enode:// ]]; then
+		echo "failed to read node3 enode: ${enode3}" >&2
+		exit 1
+	fi
+	connect_mesh "${enode1}" "${enode2}" "${enode3}"
+	write_peer_artifacts "${enode1}" "${enode2}" "${enode3}"
+	echo "mesh connected:"
+	echo "  node1=${enode1}"
+	echo "  node2=${enode2}"
+	echo "  node3=${enode3}"
 }
 
 verify_nodes() {
@@ -620,7 +828,11 @@ start)
 	ensure_dirs
 	ensure_gtos_bin
 	ensure_passfile
+	assert_network_prepared
 	start_nodes
+	;;
+precollect-enode)
+	precollect_enodes
 	;;
 verify)
 	verify_nodes
