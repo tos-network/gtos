@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: gtos gtos-ed25519c gtos-ed25519native all test clean tps ttl-prune-bench ttl-prune-bench-ci dpos-soak dpos-soak-ci lint devtools
+.PHONY: gtos gtos-ed25519c gtos-ed25519native all test clean tps ttl-prune-bench ttl-prune-bench-ci dpos-soak lint devtools
 
 GOBIN = ./build/bin
 GO ?= latest
@@ -50,8 +50,6 @@ ttl-prune-bench-ci:
 dpos-soak:
 	bash ./scripts/dpos_stability_soak.sh
 
-dpos-soak-ci:
-	$(GORUN) build/ci.go soak-dpos $(SOAK_ARGS)
 
 # The devtools target installs tools required for 'go generate'.
 # You need to put $GOBIN (or $GOPATH/bin) in your PATH to use 'go generate'.
