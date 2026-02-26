@@ -295,17 +295,117 @@ without additional on-chain state:
 
 ---
 
-## 7. Open Questions
+## 7. Codex Review Findings
+
+Reviewed by `gpt-5.3-codex` against current source (`consensus/dpos/dpos.go`,
+`consensus/dpos/snapshot.go`). Findings ordered by severity.
+
+### 7.1 Critical
+
+**C1 — Skipped-slot narrative does not match current sealing behavior**
+(`dpos.go:562`, `dpos.go:715–721`)
+
+The proposal states that a wiggle delay makes a block "land in a later slot".
+This is wrong. `Prepare()` sets `header.Time = parent.Time + periodMs` before
+sealing; `Seal()` only delays the *broadcast*, not the timestamp. An out-of-turn
+block therefore carries the *same* `header.Time` (same slot) as the in-turn
+window, not a later one. Slot advancement is a proposer timestamp *choice*, not
+an automatic consequence of wiggle.
+
+Fix: if slots are to advance on skipped windows, `Prepare()` must compute
+`header.Time` as `max(now, parent.Time + periodMs)` rounded up to the next slot
+boundary, not simply `parent.Time + periodMs`.
+
+**C2 — Timestamp gaming enables multi-`diffInTurn` siblings**
+(`dpos.go:329`, `dpos.go:449`)
+
+With slot-based `inturn()`, a proposer controls which slot it claims by choosing
+`header.Time`. Since the only upper bound is `allowedFutureBlockTime` (~1 080 ms
+ahead of wall clock), two validators can each craft a `diffInTurn` block at the
+same block height but at different slots, both valid under current verification.
+This creates competing equal-weight chain tips and weakens fork convergence.
+
+Fix: add a *slot admissibility rule* — a proposer may only claim the slot that
+corresponds to `floor(now / periodMs)` (current wall-clock slot) or the
+immediately following one. Slots further ahead must be rejected by
+`verifyCascadingFields`.
+
+### 7.2 High
+
+**H1 — Difficulty path not updated (`Prepare` / `calcDifficulty`)**
+(`dpos.go:589`, `dpos.go:767`)
+
+The proposal updates `inturn()` and `verifySeal`, but `Prepare()` and
+`calcDifficulty()` still derive in-turn status from `snap.Number+1` (block
+number). After the change, a miner will compute `diffInTurn` with block-number
+logic while `verifySeal` checks it with slot logic — these can disagree and cause
+`errWrongDifficulty` on valid blocks.
+
+Fix: `Prepare()` and `calcDifficulty()` must call the new slot-based `inturn()`
+via the same formula and genesis time source used in verification.
+
+### 7.3 Medium
+
+**M1 — Strict slot increase does not prevent same-slot siblings on forks**
+(`docs/SLOT.md §3.6`)
+
+`headerSlot > parentSlot` only forbids a block from claiming the same slot as its
+*own parent*. Two miners can still each produce a block at the same slot number
+on competing fork branches. The invariant is weaker than stated; it does not
+achieve Agave's "at most one block per slot" property network-wide.
+
+**M2 — uint64 underflow if `header.Time < genesis.Time`**
+(`docs/SLOT.md §3.1`)
+
+`(header.Time - genesis.Time) / periodMs` wraps to a huge value on uint64 when
+`header.Time < genesis.Time`. This can occur on test networks or if a genesis
+time is set in the future.
+
+Fix: add an explicit guard:
+```go
+if header.Time < genesisTime {
+    return 0, errInvalidTimestamp
+}
+```
+
+**M3 — Recents window does not decay with skipped slots**
+(`snapshot.go:133`, `snapshot.go:149`, `dpos.go:440`)
+
+The `Recents` map is block-count based (evicted after `N/3+1` *blocks*). With
+slot-based rotation, a validator may be scheduled again after only one skipped
+slot (~720 ms) while its recents entry has not yet aged out of the block window.
+`Seal()` will return "signed recently, must wait", blocking the legitimately
+scheduled validator.
+
+Fix: either convert the recents window to slot-count (evict after `N/3+1`
+*slots*), or widen the recents window to account for potential slot skips.
+
+### 7.4 Summary: must-fix before implementation
+
+| # | Issue | Severity |
+|---|---|---|
+| C1 | `Prepare()` must set `header.Time` to the actual current slot boundary, not just `parent + periodMs` | Critical |
+| C2 | Add slot admissibility rule to prevent timestamp gaming / multi-diffInTurn forks | Critical |
+| H1 | Update `Prepare()` and `calcDifficulty()` to use slot-based `inturn()` | High |
+| M1 | Document that same-slot siblings on competing forks are not prevented | Medium |
+| M2 | Guard `header.Time >= genesis.Time` before slot formula | Medium |
+| M3 | Convert `Recents` eviction window from block-count to slot-count | Medium |
+
+---
+
+## 8. Open Questions
 
 1. **Genesis timestamp source**: `chain.Config()` does not currently expose
    `GenesisTimestamp`. The genesis block's `header.Time` is the natural source.
    Needs a helper: `chain.GetHeaderByNumber(0).Time`.
 
-2. **Stake-weighted schedule (future)**: Once validators hold meaningfully different
-   stake amounts, the round-robin rotation should be replaced with stake-proportional
-   slot allocation (as in Agave). This is a protocol-level change requiring an epoch
-   schedule recomputation mechanism.
+2. **Slot admissibility bound**: the exact rule for how far ahead a proposer may
+   set `header.Time` (C2 above) needs to be specified — likely `parent.Time +
+   periodMs ≤ header.Time ≤ now + allowedFutureBlockTime`, and additionally
+   `slot(header) ≤ slot(now) + 1`.
 
-3. **On-chain slot sysvar**: For contracts to read the current slot, a `SLOT` opcode
-   or sysvar equivalent should be defined. Currently TOS has no VM, so this is
-   deferred until contract execution is introduced.
+3. **Stake-weighted schedule (future)**: once validators hold meaningfully
+   different stake amounts, round-robin should be replaced with stake-proportional
+   slot allocation (as in Agave).
+
+4. **On-chain slot sysvar**: deferred until TOS has contract execution.
