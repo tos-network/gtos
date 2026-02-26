@@ -285,8 +285,11 @@ legitimately comes back into rotation after a slot skip is no longer blocked.
 | File | Change | Reason |
 |---|---|---|
 | `consensus/dpos/snapshot.go` | Add `inturnSlot(slot, addr)` | H1, new rotation |
-| `consensus/dpos/snapshot.go` | Change `Recents` key to slot; add `GenesisTime`, `PeriodMs` fields | M3 |
+| `consensus/dpos/snapshot.go` | Change `Recents` key to slot; add `GenesisTime`, `PeriodMs` fields to struct | M3 |
+| `consensus/dpos/snapshot.go` | Update `newSnapshot()` signature to accept `genesisTime, periodMs uint64`; populate new fields | §16.2 |
+| `consensus/dpos/snapshot.go` | Update `copy()` to propagate `GenesisTime`, `PeriodMs` | §16.2 |
 | `consensus/dpos/snapshot.go` | Update `apply()` eviction to slot-based | M3 |
+| `consensus/dpos/snapshot.go` | Update `loadSnapshot()` to accept `genesisTime uint64`; patch zero-valued fields on load | §14.3, §16.3 |
 | `consensus/dpos/dpos.go` | Add `headerSlot()` helper with underflow guard | M2 |
 | `consensus/dpos/dpos.go` | `calcDifficulty` → `calcDifficultySlot` | H1 |
 | `consensus/dpos/dpos.go` | `Prepare()`: call `calcDifficultySlot` | H1 |
@@ -303,7 +306,7 @@ legitimately comes back into rotation after a slot skip is no longer blocked.
 
 | Invariant | Mechanism |
 |---|---|
-| `slot(header) > slot(parent)` | Rule 1 in `verifyCascadingFields` |
+| `slot(header) > slot(parent)` | Rule 1 in `verifyCascadingFields` (redundant with existing interval check, kept for defence-in-depth; see §16.1) |
 | `header.Time ≤ now + 3×period` | Existing `ErrFutureBlock` in `verifyHeader` |
 | `header.Time ≥ genesis.Time` | M2 guard before any slot computation |
 | Out-of-turn and in-turn may share same slot (parentSlot+1); TD resolves fork | `diffInTurn` > `diffNoTurn` weighting; Seal() unchanged |
@@ -495,7 +498,7 @@ pre-committed schedule, so C2 is only bounded (not eliminated) in V2.
 
 **Residual risk**: a validator can still search within the admitted future window
 (`now + 3×period`) for favorable in-turn slots. Complete elimination requires a
-pre-committed schedule (future work, see §16.2).
+pre-committed schedule (future work, see §17.2).
 
 ### 12.2 Genesis Time — Promote to Required Change (was Open Question)
 
@@ -550,7 +553,7 @@ fair rotation; Agave's stake-weighted approach is needed only when allocating
 slots proportionally to stake. This difference is **intentional** and documented.
 
 **No change needed.** When stake-weighted schedule is adopted in future (Open
-Question §16.2), the algorithm will converge toward Agave's model.
+Question §17.2), the algorithm will converge toward Agave's model.
 
 ### 12.4 Clock Skew Tolerance — SLOT_V2 is appropriately stricter
 
@@ -842,7 +845,7 @@ func (d *DPoS) getGenesisTime(chain consensus.ChainHeaderReader) (uint64, error)
 This removes the single-shot caching; since `g.Time` is immutable once written,
 repeated reads are idempotent and safe under concurrent calls.
 
-**Added to §16.5 Open Questions.**
+**Added to §17.5 Open Questions.**
 
 ### 15.5 CalcDifficulty time param — Confirmed (Q5)
 
@@ -886,7 +889,7 @@ passing cumulative `headers[:i]` as parents — correct for ancestor context.
 | Q1 Recents epoch re-trim | Correct; old+new limit both applied | None |
 | Q2 Recents genesis era | Correct; `slot < limit` guard is sound Clique heritage | None |
 | Q3 inturnSlot genesis | Correct; genesis block skips verifySeal entirely | None |
-| Q4 sync.Once bootstrap risk | **Minor**: permanent error caching if genesis not ready | Use retryable pattern (§15.4); see §16.5 |
+| Q4 sync.Once bootstrap risk | **Minor**: permanent error caching if genesis not ready | Use retryable pattern (§15.4); see §17.5 |
 | Q5 CalcDifficulty time param | Correct; use `parent.Time + periodMs` not caller `time` | None (confirmed §4) |
 | Q6 Slot overflow | No risk; all ops guarded or intrinsically safe | None |
 | Q7 apply() epoch order | Correct; old-N eviction before new-N re-trim | None |
@@ -894,7 +897,127 @@ passing cumulative `headers[:i]` as parents — correct for ancestor context.
 
 ---
 
-## 16. Open Questions (updated)
+## 16. Agave Sixth-Round Review
+
+Eight questions answered. Key findings: Rule 1 proven redundant but kept;
+newSnapshot() + loadSnapshot() must be changed atomically; miner unchanged.
+
+### 16.1 Rule 1 is provably redundant — keep as defensive assertion (Q1, Q7)
+
+**Mathematical proof** (verified against GTOS code):
+
+Given: `header.Time ≥ parent.Time + periodMs` (existing check, `dpos.go:146`)
+and both times `≥ genesisTime` (M2 guard) and `periodMs > 0`.
+
+Let `h = header.Time - genesisTime`, `p = parent.Time - genesisTime`:
+- `h ≥ p + periodMs`
+- `floor(h / periodMs) ≥ floor((p + periodMs) / periodMs) = floor(p/periodMs) + 1`
+
+∴ `headerSlot ≥ parentSlot + 1 > parentSlot`. Rule 1 is **never the first check to fire**.
+
+**Agave comparison** (`blockstore.rs:5126-5132`):
+```rust
+pub(crate) fn verify_shred_slots(slot: Slot, parent: Slot, root: Slot) -> bool {
+    if slot == 0 && parent == 0 && root == 0 { return true; }
+    root <= parent && parent < slot   // standalone integer comparison
+}
+```
+Agave's `parent < slot` is a **standalone, load-bearing invariant** — NOT derived
+from a timestamp minimum-interval rule, because Agave has none (timestamps are
+stake-weighted medians, not monotone relative to slots). If Agave removed this
+check, out-of-order blocks would be accepted.
+
+**GTOS conclusion**: Rule 1 is currently redundant given the existing
+`header.Time ≥ parent.Time + periodMs` check. However:
+1. If that check is ever relaxed, Rule 1 becomes load-bearing.
+2. It makes the slot invariant explicit and aligns with Agave's architecture.
+3. The proof depends on the M2 guard — without it, the redundancy breaks.
+
+**Action**: Keep Rule 1; add a comment in the implementation noting that it is
+currently implied by the minimum-interval check but kept for defence-in-depth.
+No document change needed — the existing §6 already includes it correctly.
+
+### 16.2 newSnapshot() must be updated atomically with apply() (Q5, Q6)
+
+**Finding** (`snapshot.go:40-63`): the current `newSnapshot()` has no
+`GenesisTime` or `PeriodMs` parameters. `apply()` in SLOT_V2 §8 reads
+`snap.genesisTime` and `snap.periodMs`. If `newSnapshot()` is not updated
+first, `apply()` will receive zero-value fields and divide by zero.
+
+The genesis snapshot is bootstrapped at `dpos.go:493`:
+```go
+snap, err = newSnapshot(d.config, d.signatures, 0, genesis.Hash(), validators)
+```
+This must become:
+```go
+snap, err = newSnapshot(d.config, d.signatures, 0, genesis.Hash(), validators,
+    genesisTime, config.TargetBlockPeriodMs())
+```
+
+**Required atomic sequence** — all five steps in the same PR/commit:
+1. Add `GenesisTime uint64` and `PeriodMs uint64` to `Snapshot` struct with JSON tags.
+2. Update `newSnapshot()` signature to accept `genesisTime, periodMs uint64`.
+3. Update `copy()` to propagate both new fields.
+4. Update the genesis call site at `dpos.go:493` and any other `newSnapshot()` callers.
+5. Update `apply()` to use `snap.GenesisTime` / `snap.PeriodMs` (SLOT_V2 §8).
+
+**Adding to §9 change table**: `newSnapshot()` signature update is a required change.
+
+### 16.3 loadSnapshot() must gain a genesisTime parameter (Q2, Q8)
+
+**Finding** (`dpos.go:508`): `loadSnapshot()` is called inside `snapshot()`:
+```go
+if s, err := loadSnapshot(d.config, d.signatures, d.db, hash); err == nil {
+```
+
+After SLOT_V2, `loadSnapshot()` must receive `genesisTime` to patch
+pre-migration snapshots (§14.3). The call site must become:
+```go
+genesisTime, err := d.getGenesisTime(chain)
+if err != nil { return nil, err }
+if s, err := loadSnapshot(d.config, d.signatures, d.db, hash, genesisTime); err == nil {
+```
+
+The `snapshot()` function already has `chain consensus.ChainHeaderReader` as an
+argument, so `getGenesisTime(chain)` is callable at that point.
+
+Additionally: old Recents entries (block-number keys) in a DB-loaded snapshot
+are **safely self-evicting** — on a live chain, block numbers are much smaller
+than slot numbers (`block_count ≈ slot_count / (mean_blocks_per_slot)` where
+`mean_blocks_per_slot > 1`). Old entries will fall below `staleThreshold` on
+the first `apply()` and be bulk-evicted. This is transient-safe.
+
+### 16.4 Miner requires no changes (Q4)
+
+**Confirmed**: `miner/worker.go` calls `engine.Prepare()` (`dpos.go:553-599`)
+which already sets `header.Time = max(parent.Time + periodMs, now)`. The miner
+has no block-number-based slot logic. No changes needed.
+
+### 16.5 Validator rotation: address sort, no gamification risk (Q3)
+
+**Confirmed** (`validator/state.go:118-154`): `ReadActiveValidators` final sort
+is address-ascending. An adversary could choose a favourable address, but:
+- The advantage is at most 1/N slot position (e.g., first vs last in rotation).
+- The validator key is tied to their signing identity; using a different address
+  requires re-registering as a separate validator entity.
+- For N ≤ 21, equal 1/N slot allocation makes position advantage negligible.
+- Intentional difference from Agave's stake-weighted epoch-seeded shuffle.
+
+### 16.6 Summary — Sixth Round
+
+| Q | Finding | Action |
+|---|---|---|
+| Q1/Q7 Rule 1 redundancy | Provably implied by existing check; Agave's equivalent is standalone | Keep Rule 1; add code comment (§16.1) |
+| Q2 Recents migration | Old block-num keys safely evicted on first apply; transient only | §14.3 fix sufficient |
+| Q3 Rotation determinism | Address sort fine for ≤21 validators; no gamification risk | None |
+| Q4 Miner | No changes needed | None |
+| Q5/Q6 newSnapshot() atomicity | **Critical**: must update signature + all call sites atomically with apply() | Add to §9 change table (§16.2) |
+| Q7 Agave Rule 1 | Standalone in Agave (no timestamp interval); redundant in GTOS | Keep defensively (§16.1) |
+| Q8 loadSnapshot() signature | Must gain genesisTime param; call site in snapshot() must call getGenesisTime | Add to §9 + §14.3 (§16.3) |
+
+---
+
+## 17. Open Questions (updated)
 
 1. **Genesis time implementation**: land the required §12.2 helper
    `getGenesisTime(chain)` and switch all call sites to it.
