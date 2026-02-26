@@ -8,12 +8,12 @@ Reviews: Codex (`gpt-5.3-codex`) + Agave (`~/agave`) — findings incorporated b
 
 ## 1. Changes from V1
 
-V1 had six issues identified by Codex review. V2 fixes all of them:
+V1 had six issues identified by Codex review. V2 addresses them as follows:
 
 | V1 issue | Fix in V2 |
 |---|---|
 | C1: wiggle delays broadcast, not `header.Time` — slot doesn't advance | Agave review shows re-stamp is unnecessary; `Prepare()` already uses `max(parent+period, now)` so wall-clock latency naturally advances the slot. Wiggle stays broadcast-only. |
-| C2: proposer can pick any slot via `header.Time` → multi-diffInTurn forks | Add slot admissibility rule in `verifyCascadingFields` |
+| C2: proposer can pick any slot via `header.Time` → multi-diffInTurn forks | Keep the existing `ErrFutureBlock` upper bound (`now + 3×period`) as the admissibility guard; document residual slot-gaming without a pre-committed leader schedule |
 | H1: `Prepare()` and `calcDifficulty()` use block-number `inturn()` | Both must use slot-based `inturn()` with genesis time |
 | M1: strict slot increase overstated | Documented correctly: prevents parent/child only, not fork siblings |
 | M2: uint64 underflow if `header.Time < genesis.Time` | Explicit guard in slot helper |
@@ -34,7 +34,8 @@ func headerSlot(headerTime, genesisTime, periodMs uint64) (uint64, bool) {
 }
 ```
 
-`genesisTime` is always `chain.GetHeaderByNumber(0).Time` — the canonical source.
+`genesisTime` is derived from the genesis header and retrieved via
+`getGenesisTime(chain)` (cached helper; see §12.2).
 No new header field is needed; the slot is derived from the existing `header.Time` (uint64 ms).
 
 With `periodMs = 360`:
@@ -94,7 +95,7 @@ func calcDifficultySlot(snap *Snapshot, headerTime, genesisTime, periodMs uint64
 
 `Prepare()` calls `calcDifficultySlot` with:
 - `headerTime`  = the freshly set `header.Time`
-- `genesisTime` = `chain.GetHeaderByNumber(0).Time`
+- `genesisTime` = `getGenesisTime(chain)`
 - `periodMs`    = `d.config.TargetBlockPeriodMs()`
 
 `CalcDifficulty()` (used by the miner to estimate TD of potential blocks) does
@@ -137,7 +138,7 @@ than one `periodMs` — no re-signing required.
 
 ---
 
-## 6. verifyCascadingFields() — Three New Rules
+## 6. verifyCascadingFields() — Two Consensus Rules
 
 ```go
 func (d *DPoS) verifyCascadingFields(...) error {
@@ -146,7 +147,10 @@ func (d *DPoS) verifyCascadingFields(...) error {
         return errInvalidTimestamp
     }
 
-    genesisTime := chain.GetHeaderByNumber(0).Time
+    genesisTime, err := d.getGenesisTime(chain) // cached helper; see §12.2
+    if err != nil {
+        return err
+    }
     periodMs    := d.config.TargetBlockPeriodMs()
 
     // M2: guard against underflow before computing slots.
@@ -162,35 +166,29 @@ func (d *DPoS) verifyCascadingFields(...) error {
         return errInvalidSlot // slot must advance
     }
 
-    // Rule 2 — slot admissibility (C2 partial fix): restrict claimable slot to
-    // current wall-clock slot + 1. This narrows the gaming window from ~3 slots
-    // to at most 1 slot. Complete elimination requires a pre-committed leader
-    // schedule (Agave approach; out of scope for GTOS).
-    nowMs := uint64(time.Now().UnixMilli())
-    if nowMs >= genesisTime {
-        nowSlot := (nowMs - genesisTime) / periodMs
-        if headerSlot > nowSlot+1 {
-            return errInvalidSlot
-        }
-    }
-
     // ... (snapshot and verifySeal as before)
 }
 ```
 
-**Why Rule 2 partially fixes C2**: with slot-based `inturn()`, a proposer can
-pick `header.Time` anywhere in `[parent.Time + periodMs, now + 3×period]` to
-land in whichever slot makes them `inturn`. Rule 2 tightens the upper bound to
-`slot(now) + 1`, limiting the scan to at most 1 future slot. In a 15-validator
-round-robin, the probability of any given validator being in-turn for the single
-claimable future slot is 1/15 ≈ 6.7%, vs 3/15 = 20% with a 3-slot window.
+**C2 status in this version**: admissibility is enforced by the existing
+`verifyHeader` check:
+
+```go
+if header.Time > uint64(time.Now().UnixMilli()) + 3*d.config.TargetBlockPeriodMs() {
+    return consensus.ErrFutureBlock
+}
+```
+
+This bounds future claims but does **not** fully eliminate slot-gaming. Without
+a pre-committed schedule, a proposer can still choose `header.Time` inside the
+admitted window and may land on a favorable in-turn slot.
 
 **Why complete elimination is impossible without a schedule**: eliminating slot
 gaming entirely requires a pre-committed leader schedule (as in Agave, where
 `sigverify_shreds.rs:36` rejects shreds whose leader pubkey does not match the
 scheduled leader for that slot). GTOS computes `inturn` on demand with no
-pre-committed schedule; a malicious proposer who happens to be in-turn for
-`slot(now)` or `slot(now)+1` legitimately earns `diffInTurn`. This is accepted
+pre-committed schedule; a malicious proposer who happens to be in-turn for a
+slot inside the admitted window can legitimately earn `diffInTurn`. This is accepted
 behaviour for ≤ 21 validators where fork convergence via TD is reliable.
 
 **M1 acknowledged**: Rule 1 prevents same-slot parent-child pairs only. Two
@@ -294,7 +292,8 @@ legitimately comes back into rotation after a slot skip is no longer blocked.
 | `consensus/dpos/dpos.go` | `Prepare()`: call `calcDifficultySlot` | H1 |
 | `consensus/dpos/dpos.go` | `CalcDifficulty()`: use slot-based inturn | H1 |
 | `consensus/dpos/dpos.go` | `Seal()`: **no change** — wiggle stays broadcast-only | C1 revised |
-| `consensus/dpos/dpos.go` | `verifyCascadingFields()`: slot increase + admissibility rules | C2, M2 |
+| `consensus/dpos/dpos.go` | `verifyCascadingFields()`: M2 guard + strict slot increase | C2, M2 |
+| `consensus/dpos/dpos.go` | `verifyHeader()`: keep single admissibility gate via `ErrFutureBlock` (`now+3×period`) | C2 |
 | `consensus/dpos/dpos.go` | `verifySeal()`: use `inturnSlot`, slot-keyed Recents | H1, M3 |
 | Tests | New cases: same-slot siblings, +2 slot jump, clock skew, recents with gaps | — |
 
@@ -305,7 +304,7 @@ legitimately comes back into rotation after a slot skip is no longer blocked.
 | Invariant | Mechanism |
 |---|---|
 | `slot(header) > slot(parent)` | Rule 1 in `verifyCascadingFields` |
-| `slot(header) ≤ slot(now) + 1` | Rule 2 (tightened admissibility) in `verifyCascadingFields` |
+| `header.Time ≤ now + 3×period` | Existing `ErrFutureBlock` in `verifyHeader` |
 | `header.Time ≥ genesis.Time` | M2 guard before any slot computation |
 | Out-of-turn and in-turn may share same slot (parentSlot+1); TD resolves fork | `diffInTurn` > `diffNoTurn` weighting; Seal() unchanged |
 | Difficulty consistent with slot-based inturn across all paths | `calcDifficultySlot` used everywhere |
@@ -363,7 +362,7 @@ occurs when the whole network is lagging. This is acceptable for ≤ 21 validato
 **Change to §9 table**: remove the `Seal()` re-stamp + re-sign row.
 **Change to §10 invariants**: remove "Out-of-turn slot = actual send slot" row.
 
-### 11.2 C2 Admissibility Rule — Valid but must be tightened to slot(now)+1
+### 11.2 C2 Admissibility Rule — Bounded, but not fully eliminated
 
 **Agave finding**: Agave has **no explicit future-slot time bound**. Future slots
 are rejected implicitly because `sigverify_shreds.rs:36` requires a known leader
@@ -376,9 +375,13 @@ freely chooses `header.Time` and therefore which slot they claim. This is the
 root of C2: within `[parent.Time + periodMs, now + 3×period]` a proposer can
 scan for a slot where they are `inturn`.
 
-**Fix**: tighten Rule 2 from `slot(now + 3×period)` to `slot(now) + 1`, reducing
-the gaming window from ~3 claimable slots to 1. See §6 for revised code.
-Complete elimination of gaming is impossible without a pre-committed schedule.
+**Current V2 stance**: keep a single admissibility bound via existing
+`ErrFutureBlock` (`header.Time <= now + 3×period`) and avoid introducing a
+stricter second local-clock check in `verifyCascadingFields`.
+
+This avoids over-tight clock coupling across validators. Residual gaming inside
+the admitted window remains and is explicitly accepted until a pre-committed
+leader schedule is added.
 
 ### 11.3 Recents Window — GTOS-specific, no Agave equivalent
 
@@ -421,7 +424,7 @@ require a voting mechanism that GTOS does not have. No change needed.
 | Aspect | Agave finding | Impact on SLOT_V2 |
 |---|---|---|
 | Re-stamp after delay | Agave never re-stamps; no out-of-turn concept | **Simplify C1 fix**: drop re-stamp; wiggle stays broadcast-only |
-| Future slot admissibility | Agave uses pre-committed schedule; leader cannot pick slot | **Tighten Rule 2**: bound to `slot(now)+1`; reduces gaming from ~3 slots to 1 |
+| Future slot admissibility | Agave uses pre-committed schedule; leader cannot pick slot | GTOS keeps `ErrFutureBlock` (`now+3×period`) bound; full C2 elimination deferred to schedule |
 | Consecutive leader slots | Agave allows 4 consecutive slots per leader | **No change**: GTOS Recents window is intentional stricter policy |
 | Out-of-turn concept | Does not exist in Agave | GTOS-specific Clique heritage; acceptable |
 | Slot strictly increasing | `parent < slot` at insertion — same as V2 | **Confirmed correct** |
@@ -436,25 +439,25 @@ Eight specific questions answered against Agave source (`ledger/src/blockstore.r
 `core/src/shred_fetch_stage.rs`, `runtime/src/stake_weighted_timestamp.rs`,
 `leader-schedule/src/lib.rs`).
 
-### 12.1 C2 Admissibility Rule — Tighten to slot(now)+1, do NOT remove
+### 12.1 C2 Admissibility Rule — Keep single bound, avoid stricter duplicate check
 
-**Earlier finding (revised)**: A previous draft of this section concluded that
-Rule 2 is "redundant with `ErrFutureBlock`" and should be removed. This was
-**incorrect**. Removing Rule 2 reopens C2 to a 3-slot gaming window:
+**Final finding**: `ErrFutureBlock` already provides the network time admissibility
+bound (`header.Time > now + 3×period` -> reject). Re-expressing the same limit as
+an extra slot rule in `verifyCascadingFields` is redundant.
 
-- `ErrFutureBlock` in `verifyHeader` rejects `header.Time > now + 3×period`.
-- This still permits a proposer to scan slots `[parentSlot+1, slot(now+3×period)]`
-  — up to 3 future slots — to find one where they are `inturn` and claim `diffInTurn`.
-- Simply enforcing `slot(header) ≤ slot(now + 3×period)` is the same constraint
-  as `ErrFutureBlock` expressed in slot units: indeed redundant, but REMOVING it
-  does not fix C2.
+Using a stricter secondary bound (for example `slot(now)+1`) introduces
+clock-coupling risk between validators and can reject otherwise admissible blocks
+under skew/jitter.
 
-**Correct action**: Keep Rule 2 but **tighten** the bound from `slot(now + 3×period)`
-to `slot(now) + 1`. This limits the scan to at most 1 future slot:
+**Correct action**: keep the single `ErrFutureBlock` bound and keep
+`verifyCascadingFields` focused on deterministic parent-relative checks:
 
 ```go
-// verifyCascadingFields — all three checks (M2 guard + Rule 1 + Rule 2 tightened)
-genesisTime := d.genesisTime   // cached in DPoS struct at startup (see §12.2)
+// verifyCascadingFields — M2 guard + Rule 1 only
+genesisTime, err := d.getGenesisTime(chain) // cached helper
+if err != nil {
+    return err
+}
 periodMs    := d.config.TargetBlockPeriodMs()
 
 // M2 guard
@@ -470,25 +473,17 @@ if headerSlot <= parentSlot {
     return errInvalidSlot
 }
 
-// Rule 2 (tightened): claimable slot ≤ slot(now) + 1
-nowMs := uint64(time.Now().UnixMilli())
-if nowMs >= genesisTime {
-    nowSlot := (nowMs - genesisTime) / periodMs
-    if headerSlot > nowSlot+1 {
-        return errInvalidSlot
-    }
-}
 ```
 
 **Agave comparison**: Agave's `verify_shred_slots()` checks `parent < slot` only
 because Agave's slot gaming is structurally impossible — `sigverify_shreds.rs:36`
 validates the shred signature against the **pre-scheduled** leader for that slot,
 so a proposer cannot benefit from picking a different slot. GTOS lacks a
-pre-committed schedule, making Rule 2 necessary.
+pre-committed schedule, so C2 is only bounded (not eliminated) in V2.
 
-**Residual risk**: with Rule 2 tightened, a validator is in-turn for `slot(now)+1`
-in 1/N of cases (e.g. 1/15 ≈ 6.7%). This is accepted; complete elimination
-requires a pre-committed schedule (future work, see §14.2).
+**Residual risk**: a validator can still search within the admitted future window
+(`now + 3×period`) for favorable in-turn slots. Complete elimination requires a
+pre-committed schedule (future work, see §14.2).
 
 ### 12.2 Genesis Time — Promote to Required Change (was Open Question)
 
@@ -496,24 +491,36 @@ requires a pre-committed schedule (future work, see §14.2).
 as a field in every `Bank` object, set once from genesis config and inherited by
 all child banks. This avoids any per-slot DB read.
 
-**Required change for GTOS**: cache genesis time in the `DPoS` struct at `New()`:
+**Required change for GTOS**: cache genesis time in the `DPoS` struct via a
+lazy helper (because `DPoS.New()` currently has no chain reader argument):
 
 ```go
 type DPoS struct {
     // ...
-    genesisTime uint64  // cached from genesis block header; set in New()
+    genesisTime     uint64
+    genesisTimeOnce sync.Once
+    genesisTimeErr  error
 }
 ```
 
-Set at engine creation:
+Set on first chain-aware call:
 ```go
-genesis := chain.GetHeaderByNumber(0)
-d.genesisTime = genesis.Time
+func (d *DPoS) getGenesisTime(chain consensus.ChainHeaderReader) (uint64, error) {
+    d.genesisTimeOnce.Do(func() {
+        g := chain.GetHeaderByNumber(0)
+        if g == nil {
+            d.genesisTimeErr = errors.New("dpos: missing genesis block")
+            return
+        }
+        d.genesisTime = g.Time
+    })
+    return d.genesisTime, d.genesisTimeErr
+}
 ```
 
 All call sites that previously called `chain.GetHeaderByNumber(0).Time` inline
-now reference `d.genesisTime`. This is required for correctness under concurrent
-header verification (`VerifyHeaders` spawns a goroutine per header).
+now reference `getGenesisTime(chain)`. This removes repeated header lookups from
+hot paths and keeps a single canonical source.
 
 **Update §9 table**: add this as a new required change row.
 
@@ -599,7 +606,7 @@ are sufficient:
 
 | Question | Finding | Action |
 |---|---|---|
-| C2 admissibility rule | Removing Rule 2 reopens 3-slot gaming window; tighten to `slot(now)+1` | **Keep Rule 2**, tighten bound from `now+3×period` to `now+1 slot` |
+| C2 admissibility rule | Single `ErrFutureBlock` bound is necessary; stricter duplicate bound increases clock-coupling risk | Keep only `ErrFutureBlock` as admissibility gate; document residual C2 risk |
 | Genesis time caching | Must cache in `DPoS` struct (Agave caches in every Bank) | **Promote to required change** |
 | inturn formula | Agave uses stake-weighted random; GTOS uses round-robin intentionally | Confirmed intentional difference; document |
 | Clock skew tolerance | Agave ±150%; GTOS 3×period is correctly stricter for controlled network | No change |
@@ -613,54 +620,45 @@ are sufficient:
 
 Four issues identified in a targeted review; all resolved above.
 
-### 13.1 C2 slot-gaming window still open (High)
+### 13.1 Avoid over-tight local-clock admissibility (High)
 
-**Issue**: Even with Rule 2 as originally written (`slot(now + 3×period)`), a
-proposer could scan up to 3 future slots to find one where they are `inturn` and
-claim `diffInTurn`. Neither the `ErrFutureBlock` bound nor Rule 2-as-was closed
-this. §12.1's earlier conclusion to "remove Rule 2" was wrong and would have made
-it worse.
+**Issue**: tightening admissibility to `slot(now)+1` can cause cross-node
+accept/reject divergence under normal clock skew and network jitter.
 
-**Fix**: Tighten Rule 2 to `slot(now) + 1`. Gaming window: 3 slots → 1 slot.
-Complete elimination deferred to pre-committed leader schedule (§14.2).
-See §6 (updated code) and §12.1 (updated analysis).
+**Fix**: remove the stricter duplicate bound from `verifyCascadingFields`; keep
+the single existing `ErrFutureBlock` bound (`now + 3×period`) in `verifyHeader`.
 
-### 13.2 Internal conflict: Rule 2 in §6 vs §12.1 (Medium)
+### 13.2 Genesis time source dual-spec (Medium)
 
-**Issue**: §6 added Rule 2 with a 3-slot bound. §12.1 (second-round) said
-"remove Rule 2 (redundant)". Both instructions coexisted in the document,
-producing an unimplementable dual-spec.
+**Issue**: one section used inline `chain.GetHeaderByNumber(0).Time`, another
+required cached `d.genesisTime`.
 
-**Fix**: §6 updated to tightened Rule 2 (`slot(now)+1`). §12.1 revised to
-"tighten, do NOT remove". Document now has a single consistent stance.
+**Fix**: unify on a lazy cached helper `getGenesisTime(chain)` and reference it
+consistently in code snippets.
 
-### 13.3 Recents eviction leaves stale entries on slot jumps (Medium)
+### 13.3 Interface mismatch in implementation notes (Medium)
 
-**Issue**: `apply()` evicted only `delete(snap.Recents, slot-limit)` — a single
-map entry. If slot advanced by a large jump (e.g., network partition followed by
-resync), entries for slots `[0, slot-limit-1]` all remained. Over time, the
-Recents map grew without bound and `verifySeal`'s linear scan became costly.
+**Issue**: previous text required setting genesis time in `DPoS.New()` and
+stated `VerifyHeaders` verifies each header in separate goroutines, both
+inconsistent with current GTOS code.
 
-**Fix**: Bulk evict all entries where `seenSlot ≤ slot - limit`.
-See §8 (updated `apply()` code).
+**Fix**: update notes to a lazy cache design compatible with current `New(config, db)`
+signature and remove the incorrect per-header goroutine claim.
 
-### 13.4 Agave citation bank.rs:2926 incorrect (Low-Medium)
+### 13.4 Recents eviction and Agave citation (Low-Medium)
 
-**Issue**: §11.1 cited `bank.rs:2926` as evidence that "Agave doesn't re-stamp
-timestamps after production." That line is an Alpenglow-specific Clock sysvar
-update function, not the general block timestamp generation path. Using it as a
-general-principle citation is inaccurate.
+**Issue**: stale Recents growth on slot jumps and inaccurate `bank.rs:2926`
+citation usage.
 
-**Fix**: Removed the specific line citation from §11.1. The finding itself
-(no re-stamp) is correct and now stated as a general architectural property:
-Agave has no out-of-turn concept, so no re-stamp is ever needed.
+**Fix**: keep bulk eviction in §8 and replace the citation with architecture-level
+reasoning in §11.1.
 
 ---
 
 ## 14. Open Questions (updated)
 
-1. **Genesis time**: now a **required change** (§12.2) — cache `d.genesisTime`
-   in `DPoS.New()`.
+1. **Genesis time implementation**: land the required §12.2 helper
+   `getGenesisTime(chain)` and switch all call sites to it.
 
 2. **Stake-weighted schedule**: once validators hold meaningfully different stake,
    replace round-robin with stake-proportional slot allocation (as in Agave:
