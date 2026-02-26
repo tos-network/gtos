@@ -69,8 +69,9 @@ At `periodMs=360`, `wiggle=720ms`:
 | US ↔ Asia-Pacific | ~130 ms | 81.9% | Usable |
 | US ↔ Australia | ~135 ms | 81.3% | Usable |
 
-**Hard limit**: one-way latency to a quorum of peers (`N/3 + 1` validators) must be **under 200 ms**.
+**Effective limit**: one-way latency to a quorum of peers (`N/3 + 1` validators) must be **under 200 ms**.
 Beyond that, in-turn win probability drops below 72% and fork rate rises sharply.
+See [Network Quality Requirements](#network-quality-requirements-soft-rule) below for the self-check procedure.
 
 All major global cloud regions are within the usable zone.
 
@@ -84,6 +85,24 @@ All major global cloud regions are within the usable zone.
 
 Validator nodes must have **inbound TCP reachable** on the P2P port from other validators.
 NAT without port forwarding will prevent inbound connections and degrade block propagation.
+
+### Network Quality Requirements (Soft Rule)
+
+To maintain healthy global block propagation and stable consensus, validator candidates MUST pass
+the following **network quality self-check** before registration:
+
+- **RTT requirement (soft rule):** median RTT to the network must be **≤ 200 ms**
+- Measurement method: run the official `validator-preflight` tool which probes multiple
+  well-known bootstrap / seed / active validator endpoints.
+- Evaluation:
+  - Use **median** RTT across targets (not the max), to avoid single-path outliers.
+  - Also report **p95** RTT for visibility (recommended p95 ≤ 350 ms).
+
+Notes:
+- RTT is a physical, peer-to-peer measurement and is **not enforced on-chain**.
+- Validators with consistently high RTT will be implicitly penalized by reduced in-turn success /
+  lower block production opportunities, and may be removed via governance if they degrade network
+  performance.
 
 ## 3. Consensus Timing Parameters
 
