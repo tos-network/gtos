@@ -225,7 +225,7 @@ EOF_VALIDATORS
 }
 
 write_genesis() {
-	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms
+	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms tos3_storage
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
 	ts_ms="$(date +%s%3N)"
 	v1="$(sed -n '1p' "${BASE_DIR}/validators.sorted")"
@@ -241,6 +241,9 @@ write_genesis() {
 	h2="${v2#0x}"
 	h3="${v3#0x}"
 	extra="0x${VANITY_HEX}${h1}${h2}${h3}"
+
+	# Generate TOS3 (ValidatorRegistryAddress) pre-seeded storage for DPoS epoch boundary.
+	tos3_storage="$(cd "${REPO_ROOT}" && go run ./scripts/gen_genesis_slots/main.go "${v1}" "${v2}" "${v3}")"
 
 	cat >"${genesis}" <<EOF_GENESIS
 {
@@ -263,7 +266,11 @@ write_genesis() {
   "alloc": {
     "${v1}": {"balance": "${FUNDED_BALANCE_HEX}"},
     "${v2}": {"balance": "${FUNDED_BALANCE_HEX}"},
-    "${v3}": {"balance": "${FUNDED_BALANCE_HEX}"}
+    "${v3}": {"balance": "${FUNDED_BALANCE_HEX}"},
+    "0x0000000000000000000000000000000000000000000000000000000000000003": {
+      "balance": "0x0",
+${tos3_storage}
+    }
   },
   "number": "0x0",
   "gasUsed": "0x0",

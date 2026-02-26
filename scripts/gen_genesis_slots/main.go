@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
@@ -35,10 +36,15 @@ func uint64Hash(n uint64) common.Hash {
 }
 
 func main() {
-	validators := []common.Address{
-		common.HexToAddress("0x2ebef96d0e91697a8fbbbec6f395ba63225c242352284f8dc23d8233e283604d"),
-		common.HexToAddress("0x40f89311f8940eb3baedd39188c9523d7e7fbf465bb548ec12c1d5fae5127c16"),
-		common.HexToAddress("0xb1d2e68375eaa9da8771fc43625bdb63972524525a0a553e6e3bd9d27bd1b3bb"),
+	var validators []common.Address
+	if len(os.Args) >= 2 {
+		// Accept addresses as command-line arguments: gen_genesis_slots <addr1> [addr2] ...
+		for _, arg := range os.Args[1:] {
+			validators = append(validators, common.HexToAddress(arg))
+		}
+	} else {
+		fmt.Fprintln(os.Stderr, "usage: gen_genesis_slots <addr1> [addr2] ...")
+		os.Exit(1)
 	}
 
 	oneTOS := new(big.Int).Mul(big.NewInt(1e9), big.NewInt(1e9)) // 1e18 wei = 1 TOS
@@ -59,8 +65,6 @@ func main() {
 		storage[validatorSlot(addr, "status").Hex()] = uint64Hash(1).Hex() // Active=1
 	}
 
-	out, _ := json.MarshalIndent(storage, "        ", "  ")
-	fmt.Printf("Storage slots for TOS3 (ValidatorRegistryAddress) — paste into genesis alloc:\n\n")
-	fmt.Printf("        \"storage\": %s\n", out)
-	fmt.Printf("\n// Total slots: %d\n", len(storage))
+	out, _ := json.MarshalIndent(storage, "      ", "  ")
+	fmt.Printf("      \"storage\": %s\n", out)
 }
