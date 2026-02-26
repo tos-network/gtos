@@ -283,7 +283,11 @@ init_datadirs() {
 	local genesis idx
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
 	for idx in 1 2 3; do
-		rm -rf "$(node_dir "${idx}")/gtos"
+		# Wipe chain state only; preserve nodekey so enode IDs stay stable.
+		rm -rf "$(node_dir "${idx}")/gtos/chaindata" \
+		       "$(node_dir "${idx}")/gtos/lightchaindata" \
+		       "$(node_dir "${idx}")/gtos/triecache" \
+		       "$(node_dir "${idx}")/gtos/nodes"
 		"${GTOS_BIN}" --datadir "$(node_dir "${idx}")" init "${genesis}" >"$(node_init_log "${idx}")" 2>&1
 	done
 }
@@ -484,16 +488,12 @@ wait_for_block_growth() {
 	return 1
 }
 
-assert_network_prepared() {
+assert_accounts_prepared() {
 	local idx addr
 	for idx in 1 2 3; do
-		if [[ ! -d "$(node_dir "${idx}")/gtos/chaindata" ]]; then
-			echo "node${idx} is not initialized. run: scripts/local_testnet_3nodes.sh setup" >&2
-			exit 1
-		fi
 		addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")" 2>/dev/null || true)"
 		if ! valid_addr "${addr}"; then
-			echo "node${idx} validator address missing/invalid. run setup again." >&2
+			echo "node${idx} validator address missing. run: scripts/local_testnet_3nodes.sh setup" >&2
 			exit 1
 		fi
 	done
@@ -521,6 +521,12 @@ refresh_mesh_artifacts() {
 
 start_nodes() {
 	assert_services_prepared
+	assert_accounts_prepared
+	# Write a fresh genesis (timestamp = now) and re-init chaindata so block 1
+	# lands in slot 1 with no startup offset.
+	write_genesis
+	init_datadirs
+	echo "genesis written: ${BASE_DIR}/genesis_testnet_3vals.json"
 	start_service_node 1
 	if ! wait_for_block_growth 1 120 2; then
 		echo "warning: node1 did not show solo block growth within timeout; continuing to start node2" >&2
@@ -666,11 +672,8 @@ setup_network() {
 	ensure_gtos_bin
 	ensure_passfile
 	write_validators_files
-	write_genesis
-	init_datadirs
-	echo "setup done:"
+	echo "setup done (accounts created; genesis written at start time):"
 	echo "  validators: ${BASE_DIR}/validator_accounts.txt"
-	echo "  genesis:    ${BASE_DIR}/genesis_testnet_3vals.json"
 }
 
 clean_network() {
@@ -683,7 +686,6 @@ clean_network() {
 case "${action}" in
 up)
 	setup_network
-	assert_network_prepared
 	start_nodes
 	verify_nodes
 	;;
@@ -694,19 +696,18 @@ start)
 	ensure_dirs
 	ensure_gtos_bin
 	ensure_passfile
-	assert_network_prepared
 	start_nodes
 	;;
 restart)
 	ensure_dirs
 	ensure_gtos_bin
-	assert_network_prepared
+	assert_accounts_prepared
 	restart_nodes
 	;;
 precollect-enode)
 	ensure_dirs
 	ensure_gtos_bin
-	assert_network_prepared
+	assert_accounts_prepared
 	precollect_enodes
 	;;
 verify)
