@@ -288,6 +288,7 @@ init_datadirs() {
 		       "$(node_dir "${idx}")/gtos/lightchaindata" \
 		       "$(node_dir "${idx}")/gtos/triecache" \
 		       "$(node_dir "${idx}")/gtos/nodes"
+		rm -f  "$(node_dir "${idx}")/gtos/transactions.rlp"
 		"${GTOS_BIN}" --datadir "$(node_dir "${idx}")" init "${genesis}" >"$(node_init_log "${idx}")" 2>&1
 	done
 }
@@ -522,6 +523,8 @@ refresh_mesh_artifacts() {
 start_nodes() {
 	assert_services_prepared
 	assert_accounts_prepared
+	# Stop any running nodes before wiping chaindata to avoid undefined behavior.
+	stop_nodes
 	# Write a fresh genesis (timestamp = now) and re-init chaindata so block 1
 	# lands in slot 1 with no startup offset.
 	write_genesis
