@@ -225,8 +225,9 @@ EOF_VALIDATORS
 }
 
 write_genesis() {
-	local v1 v2 v3 h1 h2 h3 extra genesis
+	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
+	ts_ms="$(date +%s%3N)"
 	v1="$(sed -n '1p' "${BASE_DIR}/validators.sorted")"
 	v2="$(sed -n '2p' "${BASE_DIR}/validators.sorted")"
 	v3="$(sed -n '3p' "${BASE_DIR}/validators.sorted")"
@@ -253,7 +254,7 @@ write_genesis() {
     }
   },
   "nonce": "0x676",
-  "timestamp": "0x0",
+  "timestamp": "$(printf '0x%x' "${ts_ms}")",
   "extraData": "${extra}",
   "gasLimit": "0x1c9c380",
   "difficulty": "0x1",
