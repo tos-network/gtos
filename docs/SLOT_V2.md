@@ -405,18 +405,187 @@ require a voting mechanism that GTOS does not have. No change needed.
 
 ---
 
-## 12. Open Questions (updated)
+## 12. Agave Second-Round Review
 
-1. **Genesis time helper**: `chain.GetHeaderByNumber(0)` may incur a DB read on
-   every `verifyCascadingFields` call. Cache it in the `DPoS` struct at startup.
+Eight specific questions answered against Agave source (`ledger/src/blockstore.rs`,
+`runtime/src/bank.rs`, `runtime/src/leader_schedule_utils.rs`,
+`core/src/shred_fetch_stage.rs`, `runtime/src/stake_weighted_timestamp.rs`,
+`leader-schedule/src/lib.rs`).
+
+### 12.1 C2 Simplification — Slot admissibility rule is redundant
+
+**Finding**: The existing `verifyHeader()` already enforces:
+```go
+if header.Time > uint64(time.Now().UnixMilli()) + 3*d.config.TargetBlockPeriodMs() {
+    return consensus.ErrFutureBlock
+}
+```
+This bounds `header.Time` to `now + 3×period`, which **implies** `slot(header) ≤
+slot(now + 3×period)`. Rule 2 in `verifyCascadingFields` is therefore **redundant** —
+it re-checks the same constraint in slot units.
+
+**Action**: Remove Rule 2 from `verifyCascadingFields`. C2 is already handled by the
+existing `ErrFutureBlock` check. `verifyCascadingFields` only needs:
+- Rule 1: `headerSlot > parentSlot` (strict increase)
+- M2 guard: `header.Time >= genesisTime`
+
+`verifyCascadingFields` simplifies to:
+
+```go
+genesisTime := d.genesisTime   // cached in DPoS struct at startup (see §12.2)
+periodMs    := d.config.TargetBlockPeriodMs()
+
+// M2 guard
+if header.Time < genesisTime || parent.Time < genesisTime {
+    return errInvalidTimestamp
+}
+
+parentSlot := (parent.Time - genesisTime) / periodMs
+headerSlot := (header.Time - genesisTime) / periodMs
+
+// Rule 1 only
+if headerSlot <= parentSlot {
+    return errInvalidSlot
+}
+```
+
+**Agave comparison**: Agave's `verify_shred_slots()` also only checks `parent < slot`
+(one rule). Far-future filtering is done upstream at the fetch stage, not in the
+per-block verifier. SLOT_V2 now matches this layering.
+
+**Update §9 table**: remove `verifyCascadingFields` admissibility row; keep slot
+increase + M2 guard rows only.
+
+### 12.2 Genesis Time — Promote to Required Change (was Open Question)
+
+**Finding** (`bank.rs:466`, `bank.rs:1339`): Agave caches `genesis_creation_time`
+as a field in every `Bank` object, set once from genesis config and inherited by
+all child banks. This avoids any per-slot DB read.
+
+**Required change for GTOS**: cache genesis time in the `DPoS` struct at `New()`:
+
+```go
+type DPoS struct {
+    // ...
+    genesisTime uint64  // cached from genesis block header; set in New()
+}
+```
+
+Set at engine creation:
+```go
+genesis := chain.GetHeaderByNumber(0)
+d.genesisTime = genesis.Time
+```
+
+All call sites that previously called `chain.GetHeaderByNumber(0).Time` inline
+now reference `d.genesisTime`. This is required for correctness under concurrent
+header verification (`VerifyHeaders` spawns a goroutine per header).
+
+**Update §9 table**: add this as a new required change row.
+
+### 12.3 inturn Formula — Round-Robin vs Stake-Weighted
+
+**Finding** (`leader-schedule/src/lib.rs:40–65`): Agave uses **stake-weighted
+random sampling** seeded by epoch number, NOT `slot % count` round-robin. For
+equal-stake validators, the result is a pseudo-random interleaving (uniform
+distribution), still deterministic per epoch, but **not in address order**.
+
+**GTOS stance**: `validators[slot % count]` is intentionally simpler and correct
+for GTOS's current phase where all validators meet the same minimum stake
+threshold and hold equal or near-equal stake. Round-robin ensures strictly
+fair rotation; Agave's stake-weighted approach is needed only when allocating
+slots proportionally to stake. This difference is **intentional** and documented.
+
+**No change needed.** When stake-weighted schedule is adopted in future (Open
+Question §13.2), the algorithm will converge toward Agave's model.
+
+### 12.4 Clock Skew Tolerance — SLOT_V2 is appropriately stricter
+
+**Finding** (`stake_weighted_timestamp.rs:17-18`):
+```rust
+MAX_ALLOWABLE_DRIFT_PERCENTAGE_FAST: u32 = 25;   // timestamps faster than PoH
+MAX_ALLOWABLE_DRIFT_PERCENTAGE_SLOW_V2: u32 = 150; // timestamps slower than PoH
+```
+At slot 10 with 400ms slots, SLOW drift = ±150% × 4s = ±6s = **±15 slots**.
+Agave is extremely lenient because it runs a global, permissionless validator set
+where clock skew can be significant.
+
+**GTOS**: `ErrFutureBlock` at `now + 3×period = 1080ms` (≈3 slots) is much
+stricter, appropriate for a controlled validator set where validators MUST run
+NTP (see `docs/VALIDATOR_NODES.md §5`, requirement: clock skew < 50ms). No change.
+
+### 12.5 Epoch Boundary — Same Validator Across Boundary is Expected
+
+**Finding** (`leader_schedule_cache.rs:71-82`): At epoch boundary, Agave computes
+a completely new leader schedule for the new epoch. However, because of modulo
+arithmetic, the same validator **can** be in-turn for the last slot of epoch N
+and the first slot of epoch N+1. Agave has no code preventing this; it is
+considered normal behavior.
+
+**GTOS**: The same property holds with `slot % count`. If the validator set is
+unchanged across the boundary, the rotation continues seamlessly. If the set
+changes (epoch update in `apply()`), the new count changes the modulo result,
+so boundary coincidences are rare. No special handling needed.
+
+**Confirmed: no change needed.**
+
+### 12.6 Recents Window Safety — N/3+1 Formula Confirmed
+
+**Finding** (Agave has no Recents window — `NUM_CONSECUTIVE_LEADER_SLOTS=4`
+allows consecutive same-leader slots): GTOS's `validators/3 + 1` is a stronger
+fairness guarantee. Safety rationale:
+
+- Window size = `N/3 + 1` slots: at most `N/3` validators can have signed recently.
+- At least `2N/3` validators remain available → **liveness guaranteed**.
+- Prevents a single validator from sealing consecutive blocks even if in-turn
+  repeatedly (e.g., during validator set shrinkage).
+
+For 15 validators: window = 6 slots × 360ms = **2.16 seconds**. Correct and safe.
+The slot-keyed change (M3) preserves this safety property after slot skips.
+
+**Confirmed: M3 fix (slot-keyed Recents) is correct.**
+
+### 12.7 verifyCascadingFields Completeness
+
+**Finding**: Agave separates validation into three layers:
+1. Fetch stage: `slot > last_known_slot + max(500, 2×epoch_slots)` → drop
+2. Blockstore: `parent < slot && parent >= root` → reject
+3. Replay stage: timestamps, votes, stake-weighted clock
+
+SLOT_V2 consolidates layers 1+2 into `verifyCascadingFields`. This is correct
+for GTOS's architecture (no separate fetch/blockstore/replay split). The checks
+are sufficient:
+- M2 guard replaces Rust's `saturating_*` arithmetic safety
+- Rule 1 (`headerSlot > parentSlot`) replaces Agave's `parent < slot`
+- `ErrFutureBlock` in `verifyHeader` replaces Agave's fetch-stage distance filter
+
+**No missing checks identified.**
+
+### 12.8 Summary — Second Round
+
+| Question | Finding | Action |
+|---|---|---|
+| C2 admissibility rule | Redundant with existing `ErrFutureBlock` in `verifyHeader` | **Remove Rule 2** from `verifyCascadingFields` |
+| Genesis time caching | Must cache in `DPoS` struct (Agave caches in every Bank) | **Promote to required change** |
+| inturn formula | Agave uses stake-weighted random; GTOS uses round-robin intentionally | Confirmed intentional difference; document |
+| Clock skew tolerance | Agave ±150%; GTOS 3×period is correctly stricter for controlled network | No change |
+| Epoch boundary crossing | Same validator at boundary is normal in both | No change |
+| Recents N/3+1 safety | Well-founded; M3 slot-keyed fix is correct | Confirmed |
+| verifyCascadingFields | All necessary checks present; no missing checks | Confirmed |
+
+---
+
+## 13. Open Questions (updated)
+
+1. **Genesis time**: now a **required change** (§12.2) — cache `d.genesisTime`
+   in `DPoS.New()`.
 
 2. **Stake-weighted schedule**: once validators hold meaningfully different stake,
-   replace round-robin with stake-proportional slot allocation (as in Agave).
-   Agave uses `NUM_CONSECUTIVE_LEADER_SLOTS = 4` within a weighted epoch schedule;
-   GTOS can adopt a similar epoch-scoped pre-computed schedule.
+   replace round-robin with stake-proportional slot allocation (as in Agave:
+   `WeightedU64Index` seeded by epoch, `NUM_CONSECUTIVE_LEADER_SLOTS = 4`).
 
-3. **Equivocation evidence**: Agave records same-slot blocks with different content
-   as provable equivocation (`store_duplicate_slot`). GTOS currently relies on fork
-   resolution via TD. Equivocation slashing is a future governance feature.
+3. **Equivocation evidence**: Agave records same-slot conflicting blocks as
+   provable equivocation (`store_duplicate_slot`, `blockstore.rs:1989`). GTOS
+   relies on TD fork resolution. Slashing on equivocation is a future feature.
 
 4. **On-chain slot sysvar**: deferred until TOS has contract execution.
