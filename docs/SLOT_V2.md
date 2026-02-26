@@ -483,7 +483,7 @@ pre-committed schedule, so C2 is only bounded (not eliminated) in V2.
 
 **Residual risk**: a validator can still search within the admitted future window
 (`now + 3×period`) for favorable in-turn slots. Complete elimination requires a
-pre-committed schedule (future work, see §14.2).
+pre-committed schedule (future work, see §15.2).
 
 ### 12.2 Genesis Time — Promote to Required Change (was Open Question)
 
@@ -538,7 +538,7 @@ fair rotation; Agave's stake-weighted approach is needed only when allocating
 slots proportionally to stake. This difference is **intentional** and documented.
 
 **No change needed.** When stake-weighted schedule is adopted in future (Open
-Question §14.2), the algorithm will converge toward Agave's model.
+Question §15.2), the algorithm will converge toward Agave's model.
 
 ### 12.4 Clock Skew Tolerance — SLOT_V2 is appropriately stricter
 
@@ -655,7 +655,117 @@ reasoning in §11.1.
 
 ---
 
-## 14. Open Questions (updated)
+## 14. Agave Fourth-Round Review
+
+Eight specific questions answered against Agave source (`ledger/src/sigverify_shreds.rs`,
+`core/src/shred_fetch_stage.rs`, `runtime/src/bank.rs`, `consensus/tower_storage.rs`,
+`leader-schedule/src/lib.rs`).
+
+### 14.1 Rule 2 / Fetch-stage — Confirmed: single ErrFutureBlock is correct
+
+**Q1 finding** (`core/src/shred_fetch_stage.rs:147`):
+```rust
+let max_slot = last_slot + MAX_SHRED_DISTANCE_MINIMUM.max(2 * slots_per_epoch);
+```
+Agave's fetch-stage distance filter is `last_slot + max(500, 2×slots_per_epoch)`.
+With 8192 slots/epoch and 400ms slots this is **~16 slots (~6.5 s)** ahead. GTOS's
+`ErrFutureBlock` at `now + 3×period = 1080ms ≈ 3 slots` is already **5× stricter**
+than Agave's equivalent filter. No further tightening is needed or beneficial.
+
+`sigverify_shreds.rs:36` verifies leader pubkey against a pre-committed schedule —
+structurally impossible to replicate in GTOS without a leader schedule.
+
+**Confirmed**: `ErrFutureBlock` alone is the correct single admissibility bound.
+Adding a stricter wall-clock slot check would risk divergent accept/reject under
+NTP jitter (50ms skew ÷ 360ms period = 14% disagreement probability at boundaries).
+
+### 14.2 Recents — Confirmed efficient and correct (Q2, Q7)
+
+**Q2 finding**: Agave has no recency window at all (`NUM_CONSECUTIVE_LEADER_SLOTS = 4`
+in `leader_schedule_utils.rs`). GTOS's N/3+1 window is Clique-heritage, intentionally
+stricter. The bulk-evict loop in §8 is O(window-size) ≤ O(7) for N=21, negligible
+per block.
+
+**Q7 finding**: Recents formula `if slot < limit || seenSlot > slot-limit` is correct
+for all N ≥ 3 (matches Clique heritage). Liveness guaranteed: at most N/3 validators
+blocked at any time, ≥ 2N/3 always available.
+
+### 14.3 Snapshot backward-compatibility — New actionable finding (Q5)
+
+**Finding**: When `GenesisTime` and `PeriodMs` are added to `Snapshot` struct and
+serialised to JSON, snapshots loaded from an **existing DB** (written before this
+change) will deserialise with `GenesisTime = 0` and `PeriodMs = 0` (Go zero-value
+defaults). Any subsequent call to `apply()` that reads `snap.genesisTime` will
+compute `slot = header.Time / 0` (division by zero) or `slot = header.Time` (wrong).
+
+**Required fix**: on `loadSnapshot()`, patch zero-valued genesis fields before returning:
+
+```go
+func loadSnapshot(config *params.DPoSConfig, sigcache *lru.ARCCache,
+    db ethdb.KeyValueStore, hash common.Hash,
+    genesisTime uint64) (*Snapshot, error) {
+    // ... (existing DB read + JSON unmarshal) ...
+
+    // Patch fields missing from pre-migration snapshots.
+    if snap.GenesisTime == 0 {
+        snap.GenesisTime = genesisTime
+    }
+    if snap.PeriodMs == 0 {
+        snap.PeriodMs = config.TargetBlockPeriodMs()
+    }
+    return snap, nil
+}
+```
+
+The `genesisTime` argument is supplied by the caller (which already has the chain
+reader and can call `d.getGenesisTime(chain)`). This is a **required migration
+step** — without it, the first `apply()` on a loaded snapshot will panic or
+compute wrong slots.
+
+### 14.4 calcDifficultySlot call sites — All confirmed (Q4)
+
+**Q4 finding** (grepping `consensus/dpos/dpos.go`):
+
+| Line | Current call | Must change to |
+|---|---|---|
+| `dpos.go:449` | `snap.inturn(number, signer)` in `verifySeal` | `snap.inturnSlot(slot, signer)` |
+| `dpos.go:589` | `calcDifficulty(snap, v)` in `Prepare()` | `calcDifficultySlot(snap, header.Time, genesisTime, periodMs, v)` |
+| `dpos.go:764` | `calcDifficulty(snap, v)` in `CalcDifficulty()` | `calcDifficultySlot(snap, parent.Time+periodMs, genesisTime, periodMs, v)` |
+| `dpos.go:768` | `snap.inturn(snap.Number+1, v)` inside `calcDifficulty()` helper | Remove helper; inline `snap.inturnSlot()` in each caller |
+
+No circular dependency: `Prepare()` sets `header.Time` first (from wall clock), then
+calls `calcDifficultySlot(header.Time, ...)`. The difficulty is derived from the
+already-frozen timestamp, not the reverse.
+
+### 14.5 timestamp→slot inversion — Confirmed intentional (Q8)
+
+**Q8 finding**: Agave's canonical direction is **slot → timestamp** (slot is primary,
+derived from PoH; timestamp is stake-weighted median validated against slot estimate).
+GTOS's direction is **timestamp → slot** (`header.Time` is primary; slot computed
+from it).
+
+This inversion is structurally necessary: GTOS has no PoH and no pre-committed
+schedule. The proposer sets `header.Time` at `Prepare()` time (wall clock), and slot
+is derived from that. The admission bounds (`ErrFutureBlock` + parent-interval check)
+prevent the timestamp from being arbitrary. This is **intentional and safe** for
+GTOS's architecture.
+
+### 14.6 Summary — Fourth Round
+
+| Question | Finding | Action |
+|---|---|---|
+| Q1 Rule 2 bound | Agave fetch-stage = 16 slots; GTOS 3 slots already 5× stricter | Confirmed: `ErrFutureBlock` only; no slot(now)+1 |
+| Q2 Recents bulk evict | O(window) ≤ O(7) per block; Agave has no equivalent | Confirmed correct and efficient |
+| Q3 nowMs < genesisTime | Moot — no wall-clock slot check in verifyCascadingFields | N/A |
+| Q4 calcDifficultySlot sites | 4 call sites identified; no circular dependency | Add to §9 change table |
+| Q5 Snapshot compat | Old DB snapshots have GenesisTime=0, PeriodMs=0 → panic on apply | **Required**: patch on loadSnapshot |
+| Q6 Epoch boundary | Round-robin recomputes per snapshot state; past slots unaffected | Confirmed safe |
+| Q7 Recents N=3 | Formula matches Clique; liveness guaranteed | Confirmed |
+| Q8 timestamp inversion | GTOS timestamp→slot vs Agave slot→timestamp; intentional given no PoH | Confirmed acceptable |
+
+---
+
+## 15. Open Questions (updated)
 
 1. **Genesis time implementation**: land the required §12.2 helper
    `getGenesisTime(chain)` and switch all call sites to it.
@@ -669,3 +779,8 @@ reasoning in §11.1.
    relies on TD fork resolution. Slashing on equivocation is a future feature.
 
 4. **On-chain slot sysvar**: deferred until TOS has contract execution.
+
+5. **Snapshot DB migration**: patch `loadSnapshot()` to supply `GenesisTime` and
+   `PeriodMs` from engine config when deserialising pre-migration snapshots (§14.3).
+   Required before shipping the slot implementation to any node that has an
+   existing chain DB.
