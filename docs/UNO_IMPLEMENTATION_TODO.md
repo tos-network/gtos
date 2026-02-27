@@ -50,7 +50,7 @@ Target: XELIS-style versioned account-balance semantics (adapted to GTOS state m
 - [x] UNO state fields exist (`uno_ct_commitment`, `uno_ct_handle`, `uno_version`).
 - [x] Strict length/type validation in read/write helpers.
 - [x] Enforce signer source key (`signerType == elgamal`) for UNO accounts.
-- [/] Define and enforce `uno_version` monotonic transitions in all mutation paths.
+- [x] Define and enforce `uno_version` monotonic transitions in all mutation paths (overflow guard pre-write in all 3 actions; `TestUNOVersionOverflowRejectedInExecution` covers shield/transfer-sender/transfer-receiver/unshield with no-mutation assertion).
 - [x] Add reorg/re-import tests for version consistency (`TestUNOReorgReimportVersionConsistency` covers reorg away/back and re-import invariants for `uno_version`/nonce).
 
 DoD:
@@ -65,7 +65,7 @@ transcript-bound proofs + source balance transition correctness + range constrai
 
 - [x] UNO router path and action dispatch are live.
 - [x] `UNO_TRANSFER` self-transfer guard added (txpool + execution); state-write semantics verified.
-- [/] `UNO_UNSHIELD` full transition semantics still in progress.
+- [x] `UNO_UNSHIELD` full transition semantics: gas charge, version-overflow guard, SubCiphertexts delta, transcript-bound proof verify, ciphertext+version state write, public AddBalance — all implemented and tested (proof-failure/no-state-write + version-overflow/no-state-write).
 - [/] Bind proofs to full chain context transcript:
   - [x] `chainId`
   - [x] `actionTag`
@@ -134,7 +134,7 @@ DoD:
 - [/] Crypto vector tests (fixed C vectors done; Rust differential pending).
 
 ### 7.2 Core
-- [/] Shield/transfer/unshield transition tests are partial.
+- [x] Shield/transfer/unshield transition tests: proof-failure/no-state-write (all 3) + version-overflow/no-state-write (all 3 actions, sender+receiver for transfer) + nonce-replay rejection + reorg/re-import consistency. Success-path (CGO only, differential vectors pending).
 - [/] Nonce/replay rejection matrix (execution-path replay tests added: same-action and cross-action same-nonce rejection for UNO actions; txpool/execution matrix includes nonce-too-low + invalid-envelope/unsupported-action parity and is still broadening).
 - [x] Invalid proof rejection baseline exists.
 
