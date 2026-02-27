@@ -156,11 +156,11 @@ DoD:
 
 ## 8. Security Review Gates
 
-- [ ] Consensus divergence audit (txpool vs execution vs import).
-- [ ] Transcript binding audit (replay/cross-action/cross-chain).
-- [ ] Malformed point/proof handling audit.
+- [x] Consensus divergence audit (txpool vs execution vs import) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
+- [x] Transcript binding audit (replay/cross-action/cross-chain) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
+- [x] Malformed point/proof handling audit completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [ ] Gas griefing audit for expensive verify paths.
-- [ ] Counter bounds audit (`amount`, `uno_version`, nonce coupling).
+- [x] Counter bounds audit (`amount`, `uno_version`, nonce coupling) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [ ] Signer rotation and key-loss behavior documented.
 
 DoD:
