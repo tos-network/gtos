@@ -159,7 +159,7 @@ DoD:
 - [x] Consensus divergence audit (txpool vs execution vs import) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [x] Transcript binding audit (replay/cross-action/cross-chain) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [x] Malformed point/proof handling audit completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
-- [ ] Gas griefing audit for expensive verify paths.
+- [/] Gas griefing audit for expensive verify paths (benchmark baseline + runner landed: `core/uno_gas_griefing_bench_test.go`, `scripts/uno_gas_griefing_audit.sh`; threshold/SLO definition pending).
 - [x] Counter bounds audit (`amount`, `uno_version`, nonce coupling) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [x] Signer rotation and key-loss behavior documented in `docs/UNO_SECURITY_GATES.md`.
 
