@@ -35,8 +35,8 @@ Target: stable Go API over imported C primitives with deterministic error mappin
 - [x] Create `crypto/uno/` package.
 - [x] Ciphertext operations wired (`Encrypt`, add/sub ct, add/sub amount, compress/decompress).
 - [x] Proof verification wrappers wired (`CiphertextValidity`, `CommitmentEq`, `RangeProof` verify).
-- [/] Strict Go error mapping for every C return code.
-- [ ] Deterministic vector tests against known Rust/C vectors.
+- [x] Strict Go error mapping for every C return code.
+- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors added; Rust differential still pending).
 
 DoD:
 - `go test ./crypto/uno/...` passes with reproducible vectors and explicit error-class assertions.
@@ -129,7 +129,7 @@ DoD:
 - [x] Payload codec tests.
 - [x] UNO state slot tests.
 - [ ] Transcript domain-separation tests.
-- [ ] Crypto vector tests (Rust/C differential).
+- [/] Crypto vector tests (fixed C vectors done; Rust differential pending).
 
 ### 7.2 Core
 - [/] Shield/transfer/unshield transition tests are partial.

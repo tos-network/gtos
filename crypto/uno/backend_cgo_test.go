@@ -4,6 +4,7 @@ package uno
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"testing"
 )
@@ -106,5 +107,86 @@ func TestEncryptWithOpeningConsistencyWithCommitmentAndHandle(t *testing.T) {
 	}
 	if !bytes.Equal(ct[32:], handle) {
 		t.Fatal("ciphertext handle does not match derived decrypt handle")
+	}
+}
+
+func TestDeterministicVectorsWithOpening(t *testing.T) {
+	tests := []struct {
+		name          string
+		privHex       string
+		openingHex    string
+		amount        uint64
+		wantPubHex    string
+		wantComHex    string
+		wantHandleHex string
+		wantCtHex     string
+	}{
+		{
+			name:          "v1_small",
+			privHex:       "0700000000000000000000000000000000000000000000000000000000000000",
+			openingHex:    "0100000000000000000000000000000000000000000000000000000000000000",
+			amount:        9,
+			wantPubHex:    "c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
+			wantComHex:    "485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234",
+			wantHandleHex: "c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
+			wantCtHex:     "485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
+		},
+		{
+			name:          "v2_medium",
+			privHex:       "2a00000000000000000000000000000000000000000000000000000000000000",
+			openingHex:    "0500000000000000000000000000000000000000000000000000000000000000",
+			amount:        123456,
+			wantPubHex:    "a669f6823d30d946754e8876ef9176f2687653b0346dea026d1347f19756ac4d",
+			wantComHex:    "fcc46ed0de317fc075efd3f9f38beaf7d0cd3c44da2ad2f8b3ec44d6fce25f3f",
+			wantHandleHex: "d22a6b009c78a404981d98e3fff81308dc62389d0e97aade7456f22f16029454",
+			wantCtHex:     "fcc46ed0de317fc075efd3f9f38beaf7d0cd3c44da2ad2f8b3ec44d6fce25f3fd22a6b009c78a404981d98e3fff81308dc62389d0e97aade7456f22f16029454",
+		},
+	}
+
+	mustDecode := func(h string) []byte {
+		b, err := hex.DecodeString(h)
+		if err != nil {
+			t.Fatalf("decode hex %q: %v", h, err)
+		}
+		return b
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			priv := mustDecode(tc.privHex)
+			opening := mustDecode(tc.openingHex)
+
+			pub, err := PublicKeyFromPrivate(priv)
+			if err != nil {
+				t.Fatalf("PublicKeyFromPrivate: %v", err)
+			}
+			if !bytes.Equal(pub, mustDecode(tc.wantPubHex)) {
+				t.Fatalf("pub mismatch: got=%x want=%s", pub, tc.wantPubHex)
+			}
+
+			commitment, err := PedersenCommitmentWithOpening(opening, tc.amount)
+			if err != nil {
+				t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+			}
+			if !bytes.Equal(commitment, mustDecode(tc.wantComHex)) {
+				t.Fatalf("commitment mismatch: got=%x want=%s", commitment, tc.wantComHex)
+			}
+
+			handle, err := DecryptHandleWithOpening(pub, opening)
+			if err != nil {
+				t.Fatalf("DecryptHandleWithOpening: %v", err)
+			}
+			if !bytes.Equal(handle, mustDecode(tc.wantHandleHex)) {
+				t.Fatalf("handle mismatch: got=%x want=%s", handle, tc.wantHandleHex)
+			}
+
+			ct, err := EncryptWithOpening(pub, tc.amount, opening)
+			if err != nil {
+				t.Fatalf("EncryptWithOpening: %v", err)
+			}
+			if !bytes.Equal(ct, mustDecode(tc.wantCtHex)) {
+				t.Fatalf("ciphertext mismatch: got=%x want=%s", ct, tc.wantCtHex)
+			}
+		})
 	}
 }
