@@ -8,6 +8,9 @@
   - `Account.balance` remains plaintext and fully functional.
   - Public transfers and existing GTOS tx routes continue to work.
 - Add a second ledger field: `pbalance` (encrypted balance).
+- Reuse account signer metadata for privacy public keys:
+  - private-balance accounts must use canonical `signerType = elgamal` (Ristretto255-backed).
+  - no separate per-account privacy key registry in MVP.
 - Support private value transfer in account model (no note/nullifier set):
   - `shield`: public -> private
   - `pbalanceTransfer`: private -> private
@@ -37,10 +40,11 @@ GTOS does not rely on EVM contract execution for user calldata paths. PBalance i
   - `if to == params.PrivacyRouterAddress { vmerr = st.applyPBalance(msg) }`
 
 Action set:
-- `PBALANCE_SET_KEY`
 - `PBALANCE_SHIELD`
 - `PBALANCE_TRANSFER`
 - `PBALANCE_UNSHIELD`
+
+Signer setup is done via existing account-signer flows (for example `ACCOUNT_SET_SIGNER`), not a pbalance-specific action.
 
 ---
 
@@ -67,18 +71,22 @@ This follows account-balance privacy instead of note/nullifier privacy.
 Stored under owner account address in StateDB slots.
 
 Required fields (native asset only in MVP):
-- `pkey_exists` (bool)
-- `pkey_bytes` (compressed public key)
 - `pbalance_ct_commitment` (32 bytes compressed)
 - `pbalance_ct_handle` (32 bytes compressed)
 - `pbalance_version` (uint64, monotonic)
+
+Key source (not in pbalance slots):
+- Read from GTOS account signer state.
+- Canonical signer type must be `elgamal` for private-balance actions.
+- `elgamal` signer public key is used as the ciphertext destination/source key.
 
 Recommended slot namespace prefix:
 - `gtos.pbalance.<field>`
 
 ## 3.2 Invariants
 For each account:
-- If `pkey_exists == false`, private transfer to this account is disallowed.
+- Any pbalance mutation requires signer metadata to exist and `signerType == elgamal`.
+- `PBALANCE_TRANSFER` requires both sender and receiver to have `signerType == elgamal`.
 - `pbalance_version` increments whenever `pbalance` mutates.
 - Ciphertext values are only mutated through verified PBalance actions.
 
@@ -95,32 +103,25 @@ Use binary envelope (`RLP` + fixed prefix), not JSON.
   - `body` (bytes)
 
 Action IDs:
-- `0x01 = PBALANCE_SET_KEY`
+- `0x01 = reserved` (unused in this design revision)
 - `0x02 = PBALANCE_SHIELD`
 - `0x03 = PBALANCE_TRANSFER`
 - `0x04 = PBALANCE_UNSHIELD`
 
-## 4.2 PBALANCE_SET_KEY
-Body:
-- `pkey` (compressed pubkey bytes)
-
-Rules:
-- sender sets or rotates own private key metadata.
-- `msg.Value` must be 0.
-
-## 4.3 PBALANCE_SHIELD
+## 4.2 PBALANCE_SHIELD
 Body:
 - `amount` (u64)
 - `newSenderCiphertext` (`C,D`)
 - `proofBundle`
 
 Rules:
+- sender `signerType == elgamal`
 - `amount > 0`
 - deduct `amount` from public balance (or require equivalent value path)
 - credit encrypted value into sender `pbalance`
 - proof verifies transition from old sender ciphertext -> new sender ciphertext
 
-## 4.4 PBALANCE_TRANSFER
+## 4.3 PBALANCE_TRANSFER
 Body:
 - `to` (address)
 - `amount` (private witness, not required public in final form)
@@ -130,12 +131,13 @@ Body:
 - optional `encryptedMemo`
 
 Rules:
-- sender and receiver `pkey_exists == true`
+- sender and receiver account signer type must both be `elgamal`
+- sender/receiver ElGamal pubkeys are loaded from account signer state
 - verify proofs and update:
   - sender `pbalance := newSenderCiphertext`
   - receiver `pbalance := receiver_old + receiverCiphertextDelta`
 
-## 4.5 PBALANCE_UNSHIELD
+## 4.4 PBALANCE_UNSHIELD
 Body:
 - `to` (address)
 - `amount` (public in MVP)
@@ -143,6 +145,7 @@ Body:
 - `proofBundle`
 
 Rules:
+- sender `signerType == elgamal`
 - verify sender encrypted balance decrease is valid
 - credit `to` public balance by `amount`
 
@@ -153,11 +156,13 @@ Rules:
 For all PBalance actions:
 1. Standard GTOS pre-checks (nonce, gas, signature, sender).
 2. Decode payload with strict size checks.
-3. Load sender/receiver pbalance state.
-4. Build canonical proof transcript context.
-5. Verify `proofBundle`.
-6. Apply deterministic state updates.
-7. Increment `pbalance_version` for modified accounts.
+3. Load sender account signer metadata and require `signerType == elgamal`.
+4. For transfer, load receiver account signer metadata and require `signerType == elgamal`.
+5. Load sender/receiver pbalance state.
+6. Build canonical proof transcript context.
+7. Verify `proofBundle`.
+8. Apply deterministic state updates.
+9. Increment `pbalance_version` for modified accounts.
 
 `proofBundle` must bind at least:
 - `chainId`
@@ -190,19 +195,21 @@ Result:
 
 If chain wants to pre-allocate private balances at genesis:
 
-1. Define recipients and their private public keys (`pkey`).
-2. For each recipient, compute initial ciphertext representing allocated amount.
-3. Write into genesis state for each account:
-- `pkey_exists = true`
-- `pkey_bytes = ...`
-- `pbalance_ct_commitment = ...`
-- `pbalance_ct_handle = ...`
-- `pbalance_version = 0`
-4. If funds should originate from protocol reserve, mirror total accounting rule in genesis spec.
+1. Define recipients and their ElGamal (Ristretto255-backed) public keys.
+2. For each recipient, set account signer metadata:
+   - `signerType = elgamal`
+   - `signerValue = compressed ElGamal pubkey`
+3. For each recipient, compute initial ciphertext representing allocated amount.
+4. Write into genesis state for each account:
+   - `pbalance_ct_commitment = ...`
+   - `pbalance_ct_handle = ...`
+   - `pbalance_version = 0`
+5. If funds should originate from protocol reserve, mirror total accounting rule in genesis spec.
 
 How A/B know they received private funds:
 - wallet reads account `pbalance` ciphertext from chain
-- wallet uses its private key to decrypt locally
+- wallet uses the private key corresponding to its `elgamal` account signer pubkey
+- the same keypair is used for account signer identity and private-balance decryption
 - wallet displays plaintext private balance
 
 No note scanning/nullifier indexing is required for this model.
@@ -215,7 +222,6 @@ Gas remains public and deterministic.
 
 Suggested constants:
 - `PBalanceBaseGas`
-- `PBalanceSetKeyGas`
 - `PBalanceShieldGas`
 - `PBalanceTransferGas`
 - `PBalanceUnshieldGas`
@@ -270,7 +276,6 @@ Create `core/pbalance/`:
 
 ### Step 5: RPC and tooling
 - `internal/tosapi/api.go`
-  - `tos_setPBalanceKey`
   - `tos_pbalanceShield`
   - `tos_pbalanceTransfer`
   - `tos_pbalanceUnshield`
@@ -297,6 +302,8 @@ Create `core/pbalance/`:
 
 - Enforce strict payload/proof size limits before proof verification.
 - Reject zero or malformed ciphertext elements.
+- Reject pbalance actions if account signer type is not canonical `elgamal`.
+- For transfers, reject if receiver signer is missing or non-`elgamal`.
 - Bind nonce + chainId + action in proof transcript.
 - No partial writes on verification failure.
 - Track deterministic ordering in state updates.
@@ -309,6 +316,7 @@ Create `core/pbalance/`:
 
 - asset set: native TOS only
 - public gas, private amount semantics
+- private-balance eligible accounts: signer type `elgamal` only
 - serialized PBalance execution path
 - one receiver per transfer tx
 - fixed-size proof bundle per action class
