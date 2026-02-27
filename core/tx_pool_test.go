@@ -266,6 +266,12 @@ func testSetElgamalSigner(pool *TxPool, addr common.Address, pub []byte) {
 	pool.mu.Unlock()
 }
 
+func testSetBalanceExact(pool *TxPool, addr common.Address, amount *big.Int) {
+	pool.mu.Lock()
+	pool.currentState.SetBalance(addr, new(big.Int).Set(amount))
+	pool.mu.Unlock()
+}
+
 func testSetUNOVersion(pool *TxPool, addr common.Address, version uint64) {
 	pool.mu.Lock()
 	st := coreuno.GetAccountState(pool.currentState, addr)
@@ -513,7 +519,9 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 		t.Fatalf("EncodeEnvelope: %v", err)
 	}
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, wire)
-	testAddBalance(pool, from, big.NewInt(1_000_000))
+	// Balance must exceed gas-cost + shield-amount so the balance guard does not
+	// fire before the proof-shape check; use 2× the gas allowance.
+	testAddBalance(pool, from, big.NewInt(2_000_000))
 	testSetElgamalSigner(pool, from, pub)
 
 	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
@@ -524,16 +532,39 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 func TestTxPoolUNOShieldRejectsInsufficientPublicBalance(t *testing.T) {
 	t.Parallel()
 
-	pool, _ := setupTxPool()
-	defer pool.Stop()
+	t.Run("amount exceeds balance", func(t *testing.T) {
+		pool, _ := setupTxPool()
+		defer pool.Stop()
 
-	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, math.MaxUint64))
-	testAddBalance(pool, from, big.NewInt(1_000_000))
-	testSetElgamalSigner(pool, from, pub)
+		tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, math.MaxUint64))
+		testAddBalance(pool, from, big.NewInt(1_000_000))
+		testSetElgamalSigner(pool, from, pub)
 
-	if err := pool.AddRemote(tx); !errors.Is(err, ErrInsufficientFundsForTransfer) {
-		t.Fatalf("expected %v, got %v", ErrInsufficientFundsForTransfer, err)
-	}
+		if err := pool.AddRemote(tx); !errors.Is(err, ErrInsufficientFundsForTransfer) {
+			t.Fatalf("expected %v, got %v", ErrInsufficientFundsForTransfer, err)
+		}
+	})
+
+	// Verify that the check is gas+amount, not just amount.
+	// Balance exactly covers gas cost but not gas+shield: must be rejected.
+	t.Run("amount plus gas exceeds balance", func(t *testing.T) {
+		pool, _ := setupTxPool()
+		defer pool.Stop()
+
+		const gas = uint64(1_000_000)
+		const shieldAmount = uint64(1)
+		tx, from, pub := testUNOElgamalTx(t, 0, gas, testUNOShieldWire(t, shieldAmount))
+		// Add balance equal to tx.Cost() only (gas × price, value=0): one wei short of gas+shield.
+		gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gas), params.GTOSPrice())
+		pool.mu.Lock()
+		pool.currentState.AddBalance(from, gasCost)
+		pool.mu.Unlock()
+		testSetElgamalSigner(pool, from, pub)
+
+		if err := pool.AddRemote(tx); !errors.Is(err, ErrInsufficientFundsForTransfer) {
+			t.Fatalf("expected %v, got %v", ErrInsufficientFundsForTransfer, err)
+		}
+	})
 }
 
 func TestTxPoolUNORejectsVersionOverflow(t *testing.T) {
@@ -595,6 +626,91 @@ func TestTxPoolUNORejectsVersionOverflow(t *testing.T) {
 			t.Fatalf("expected %v, got %v", coreuno.ErrVersionOverflow, err)
 		}
 	})
+}
+
+func TestUNOTxPoolExecutionRejectParityShieldInsufficientBalance(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, 1))
+	testSetElgamalSigner(pool, from, pub)
+	// Balance equals gas cost; shield amount makes execution and txpool both reject.
+	testSetBalanceExact(pool, from, tx.Cost())
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrInsufficientFundsForTransfer) {
+		t.Fatalf("txpool expected %v, got %v", ErrInsufficientFundsForTransfer, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Set(tx.Cost()))
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, ErrInsufficientFundsForTransfer) {
+		t.Fatalf("execution expected %v, got %v", ErrInsufficientFundsForTransfer, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityTransferReceiverVersionOverflow(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	receiverPriv, err := accountsigner.GenerateElgamalPrivateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateElgamalPrivateKey(receiver): %v", err)
+	}
+	receiverPub, err := accountsigner.PublicKeyFromElgamalPrivate(receiverPriv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromElgamalPrivate(receiver): %v", err)
+	}
+	receiver, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, receiverPub)
+	if err != nil {
+		t.Fatalf("AddressFromSigner(receiver): %v", err)
+	}
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOTransferWire(t, receiver))
+	testSetElgamalSigner(pool, from, pub)
+	testSetElgamalSigner(pool, receiver, receiverPub)
+	testSetUNOVersion(pool, receiver, math.MaxUint64)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrVersionOverflow) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrVersionOverflow, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	setupElgamalSigner(t, execState, receiver, receiverPub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	coreuno.SetAccountState(execState, receiver, coreuno.AccountState{Version: math.MaxUint64})
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrVersionOverflow) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrVersionOverflow, res.Err)
+	}
 }
 
 func TestTransactionQueue(t *testing.T) {

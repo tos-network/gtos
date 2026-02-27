@@ -664,7 +664,8 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
 			return 0, uno.ErrVersionOverflow
 		}
-		if statedb.GetBalance(from).Cmp(new(big.Int).SetUint64(payload.Amount)) < 0 {
+		shieldCost := new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(payload.Amount))
+		if statedb.GetBalance(from).Cmp(shieldCost) < 0 {
 			return 0, ErrInsufficientFundsForTransfer
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
