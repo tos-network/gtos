@@ -169,26 +169,3 @@ DoD:
 DoD:
 - Security checklist signed off before enabling UNO on shared networks.
 
----
-
-## 9. Rollout Plan
-
-- [ ] Phase A: compile-time guarded, local network only.
-- [ ] Phase B: devnet soak with UNO transaction load and fault injection.
-- [ ] Phase C: public testnet trial with monitoring and replay drills.
-- [ ] Phase D: mainnet decision gate.
-
-Exit criteria:
-- No consensus split.
-- No nondeterministic failures.
-- Stable CPU/memory under sustained UNO workload.
-
----
-
-## 10. Ownership Board
-
-- [ ] Crypto wrappers owner:
-- [ ] Core transition owner:
-- [ ] Txpool/parity owner:
-- [ ] Wallet/tooling owner:
-- [ ] Security review owner:
