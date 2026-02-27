@@ -88,7 +88,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
 - [x] Consensus-critical semantic checks mirrored: sender/receiver version overflow (all 3 actions) and combined gas+shield-amount balance guard for Shield.
-- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for nonce-too-low, shield insufficient-balance, transfer receiver version-overflow, unshield sender version-overflow, and transfer receiver missing-signer; broader accept/reject matrix still pending).
+- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for nonce-too-low, shield insufficient-balance, transfer receiver version-overflow, unshield sender version-overflow, transfer receiver missing-signer, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
 
 DoD:
 - Same tx is accepted/rejected for the same reason by both paths.
@@ -133,7 +133,7 @@ DoD:
 
 ### 7.2 Core
 - [/] Shield/transfer/unshield transition tests are partial.
-- [ ] Nonce/replay rejection matrix.
+- [/] Nonce/replay rejection matrix (execution-path replay tests added: same-action and cross-action same-nonce rejection for UNO actions; txpool/execution matrix includes nonce-too-low parity and is still broadening).
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
@@ -142,8 +142,8 @@ DoD:
 - [ ] Reorg/re-import determinism for UNO blocks.
 
 ### 7.4 Fuzz / Robustness
-- [ ] Payload decoder fuzzing.
-- [ ] Proof blob parser fuzzing.
+- [x] Payload decoder fuzzing.
+- [x] Proof blob parser fuzzing.
 - [ ] Cross-implementation differential checks (GTOS vs reference vectors).
 
 DoD:

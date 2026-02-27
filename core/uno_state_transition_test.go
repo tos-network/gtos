@@ -174,3 +174,125 @@ func TestUNOUnshieldProofFailureHasNoStateWrite(t *testing.T) {
 		t.Fatalf("unexpected receiver public balance mutation: got=%v want=%v", st.GetBalance(recv), recvBefore)
 	}
 }
+
+func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+	from := common.HexToAddress("0x4001")
+	recv := common.HexToAddress("0x4002")
+	to := params.PrivacyRouterAddress
+
+	makeShieldData := func(t *testing.T) []byte {
+		t.Helper()
+		body, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
+			Amount:      1,
+			NewSender:   makeValidCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+			ProofBundle: make([]byte, coreuno.ShieldProofSize),
+		})
+		if err != nil {
+			t.Fatalf("EncodeShieldPayload: %v", err)
+		}
+		data, err := coreuno.EncodeEnvelope(coreuno.ActionShield, body)
+		if err != nil {
+			t.Fatalf("EncodeEnvelope(shield): %v", err)
+		}
+		return data
+	}
+	makeTransferData := func(t *testing.T) []byte {
+		t.Helper()
+		body, err := coreuno.EncodeTransferPayload(coreuno.TransferPayload{
+			To:            recv,
+			NewSender:     makeValidCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+			ReceiverDelta: makeValidCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+			ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		})
+		if err != nil {
+			t.Fatalf("EncodeTransferPayload: %v", err)
+		}
+		data, err := coreuno.EncodeEnvelope(coreuno.ActionTransfer, body)
+		if err != nil {
+			t.Fatalf("EncodeEnvelope(transfer): %v", err)
+		}
+		return data
+	}
+	makeUnshieldData := func(t *testing.T) []byte {
+		t.Helper()
+		proof := make([]byte, coreuno.BalanceProofSize)
+		proof[7] = 1
+		body, err := coreuno.EncodeUnshieldPayload(coreuno.UnshieldPayload{
+			To:          recv,
+			Amount:      1,
+			NewSender:   makeValidCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+			ProofBundle: proof,
+		})
+		if err != nil {
+			t.Fatalf("EncodeUnshieldPayload: %v", err)
+		}
+		data, err := coreuno.EncodeEnvelope(coreuno.ActionUnshield, body)
+		if err != nil {
+			t.Fatalf("EncodeEnvelope(unshield): %v", err)
+		}
+		return data
+	}
+
+	t.Run("same-action replay nonce low", func(t *testing.T) {
+		tests := []struct {
+			name string
+			data func(*testing.T) []byte
+		}{
+			{name: "shield", data: makeShieldData},
+			{name: "transfer", data: makeTransferData},
+			{name: "unshield", data: makeUnshieldData},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				st := newTTLDeterminismState(t)
+				st.SetBalance(from, big.NewInt(1_000_000))
+				setupElgamalSigner(t, st, from, ristretto255.NewGeneratorElement().Bytes())
+				setupElgamalSigner(t, st, recv, ristretto255.NewIdentityElement().Add(ristretto255.NewGeneratorElement(), ristretto255.NewGeneratorElement()).Bytes())
+
+				msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), tc.data(t), nil, false)
+
+				gp1 := new(GasPool).AddGas(msg.Gas())
+				res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp1, st)
+				if err != nil {
+					t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
+				}
+				if !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
+					t.Fatalf("first ApplyMessage expected proof-level failure, got %v", res.Err)
+				}
+
+				gp2 := new(GasPool).AddGas(msg.Gas())
+				_, err = ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp2, st)
+				if !errors.Is(err, ErrNonceTooLow) {
+					t.Fatalf("second ApplyMessage expected %v, got %v", ErrNonceTooLow, err)
+				}
+			})
+		}
+	})
+
+	t.Run("cross-action replay nonce low", func(t *testing.T) {
+		st := newTTLDeterminismState(t)
+		st.SetBalance(from, big.NewInt(1_000_000))
+		setupElgamalSigner(t, st, from, ristretto255.NewGeneratorElement().Bytes())
+		setupElgamalSigner(t, st, recv, ristretto255.NewIdentityElement().Add(ristretto255.NewGeneratorElement(), ristretto255.NewGeneratorElement()).Bytes())
+
+		first := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), makeShieldData(t), nil, false)
+		secondDifferentAction := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), makeTransferData(t), nil, false)
+
+		gp1 := new(GasPool).AddGas(first.Gas())
+		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, first, gp1, st)
+		if err != nil {
+			t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
+		}
+		if !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
+			t.Fatalf("first ApplyMessage expected proof-level failure, got %v", res.Err)
+		}
+
+		gp2 := new(GasPool).AddGas(secondDifferentAction.Gas())
+		_, err = ApplyMessage(ttlBlockContext(1, coinbase), cfg, secondDifferentAction, gp2, st)
+		if !errors.Is(err, ErrNonceTooLow) {
+			t.Fatalf("second ApplyMessage expected %v, got %v", ErrNonceTooLow, err)
+		}
+	})
+}
