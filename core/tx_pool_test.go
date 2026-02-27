@@ -713,6 +713,112 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverVersionOverflow(t *testin
 	}
 }
 
+func TestUNOTxPoolExecutionRejectParityUnshieldSenderVersionOverflow(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	to := common.HexToAddress("0x4321")
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOUnshieldWire(t, to, 1))
+	testSetElgamalSigner(pool, from, pub)
+	testSetUNOVersion(pool, from, math.MaxUint64)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrVersionOverflow) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrVersionOverflow, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	coreuno.SetAccountState(execState, from, coreuno.AccountState{Version: math.MaxUint64})
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrVersionOverflow) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrVersionOverflow, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityTransferReceiverMissingSigner(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	receiver := common.HexToAddress("0x1234")
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOTransferWire(t, receiver))
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrSignerNotConfigured, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrSignerNotConfigured, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityNonceTooLow(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, 1))
+	testSetElgamalSigner(pool, from, pub)
+	sufficient := new(big.Int).Add(tx.Cost(), big.NewInt(100))
+	testSetBalanceExact(pool, from, sufficient)
+	testSetNonce(pool, from, 1)
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrNonceTooLow) {
+		t.Fatalf("txpool expected %v, got %v", ErrNonceTooLow, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Set(sufficient))
+	execState.SetNonce(from, 1)
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if !errors.Is(err, ErrNonceTooLow) {
+		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
+	}
+}
+
 func TestTransactionQueue(t *testing.T) {
 	t.Parallel()
 
