@@ -138,13 +138,13 @@ DoD:
 - [x] Crypto vector tests (fixed C vectors done; Rust/XELIS ciphertext-op differential done; proof-context binding differential done — cross-implementation byte-level proof parity deferred: GTOS C uses `balance-proof` domain separator vs xelis Rust `balance_proof`, incompatible wire formats).
 
 ### 7.2 Core
-- [x] Shield/transfer/unshield transition tests: proof-failure/no-state-write (all 3) + version-overflow/no-state-write (all 3 actions, sender+receiver for transfer) + nonce-replay rejection + reorg/re-import consistency. Success-path (CGO only, differential vectors pending).
+- [x] Shield/transfer/unshield transition tests: proof-failure/no-state-write (all 3) + version-overflow/no-state-write (all 3 actions, sender+receiver for transfer) + nonce-replay rejection + reorg/re-import consistency. Success-path CGO coverage includes `TestUNOLifecycleReorgAndReimportDeterminism` and `TestUNOGenesisPreallocReorgLifecycle`.
 - [x] Nonce/replay rejection matrix: execution-path same-action and cross-action same-nonce replay for all 3 actions; txpool/execution nonce-too-low parity for Shield, Transfer (with receiver elgamal signer precondition), and Unshield.
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
-- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing and builder->CLI->RPC wiring are in place and e2e path is validated (`shield -> transfer -> unshield`, all receipts `0x1`) with artifacts under `/data/gtos/uno_e2e/run_20260227_101711_v2`; remaining work is long-duration repeated stability evidence.
-- [/] Genesis preallocation decryptability checks for recipients. Baseline completed on local testnet (recipient receives private amount, spends part via unshield, and retains residual UNO balance); reorg-drill coverage for this specific lifecycle remains.
+- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing and builder->CLI->RPC wiring are in place and e2e path is validated (`shield -> transfer -> unshield`, all receipts `0x1`) with artifacts under `/data/gtos/uno_e2e/run_20260227_101711_v2`; repeat-run harness `scripts/uno_e2e_soak.sh` is landed (smoke artifact: `/data/gtos/uno_e2e/run_20260227_104230_soak1`), remaining work is long-duration repeated stability evidence.
+- [x] Genesis preallocation decryptability checks for recipients. Reorg-drill lifecycle coverage is now in `TestUNOGenesisPreallocReorgLifecycle` (decrypt at genesis prealloc, post-unshield residual, reorg-away rollback, reorg-back recovery) and `TestUNOLifecycleReorgAndReimportDeterminism`.
 - [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
 ### 7.4 Fuzz / Robustness
