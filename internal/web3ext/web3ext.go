@@ -790,6 +790,12 @@ web3._extend({
 			params: 2
 		}),
 		new web3._extend.Method({
+			name: 'unoBalance',
+			call: 'personal_unoBalance',
+			params: 4,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null, null, web3._extend.formatters.inputBlockNumberFormatter]
+		}),
+		new web3._extend.Method({
 			name: 'sign',
 			call: 'personal_sign',
 			params: 3,

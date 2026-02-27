@@ -1,11 +1,13 @@
 package tosapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	stdmath "math"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 
@@ -21,8 +23,8 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
-	cryptouno "github.com/tos-network/gtos/crypto/uno"
 	"github.com/tos-network/gtos/crypto"
+	cryptouno "github.com/tos-network/gtos/crypto/uno"
 	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
@@ -339,6 +341,9 @@ func (s *PersonalAccountAPI) NewAccount(password string) (common.Address, error)
 
 // fetchKeystore retrieves the encrypted keystore from the account manager.
 func fetchKeystore(am *accounts.Manager) (*keystore.KeyStore, error) {
+	if am == nil {
+		return nil, errors.New("account manager unavailable")
+	}
 	if ks := am.Backends(keystore.KeyStoreType); len(ks) > 0 {
 		return ks[0].(*keystore.KeyStore), nil
 	}
@@ -397,6 +402,116 @@ func (s *PersonalAccountAPI) LockAccount(addr common.Address) bool {
 		return ks.Lock(addr) == nil
 	}
 	return false
+}
+
+// UnoBalance decrypts the UNO ElGamal balance for a local keystore account,
+// using the account password (not raw private key) and the chain state at the
+// requested block.
+//
+// RPC: personal_unoBalance(address, password, maxAmount?, block?)
+func (s *PersonalAccountAPI) UnoBalance(
+	ctx context.Context,
+	address common.Address,
+	password string,
+	maxAmount *hexutil.Uint64,
+	blockNrOrHash *rpc.BlockNumberOrHash,
+) (*RPCUNODecryptResult, error) {
+	if address == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("address", "must not be zero address")
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("personal_unoBalance")
+	}
+
+	effectiveMax := uint64(1_000_000_000)
+	if maxAmount != nil {
+		effectiveMax = uint64(*maxAmount)
+	}
+
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "uno state not found"}
+	}
+
+	onChainPub, err := coreuno.RequireElgamalSigner(st, address)
+	if err != nil {
+		return nil, fmt.Errorf("uno signer check failed: %w", err)
+	}
+	ks, err := fetchKeystore(s.am)
+	if err != nil {
+		return nil, err
+	}
+
+	acc, err := ks.Find(accounts.Account{Address: address})
+	if err != nil {
+		return nil, err
+	}
+	keyJSON, err := os.ReadFile(acc.URL.Path)
+	if err != nil {
+		return nil, err
+	}
+	key, err := keystore.DecryptKey(keyJSON, password)
+	if err != nil {
+		return nil, err
+	}
+	signerType, err := accountsigner.CanonicalSignerType(key.SignerType)
+	if err != nil {
+		return nil, err
+	}
+	if signerType != accountsigner.SignerTypeElgamal {
+		return nil, fmt.Errorf("account key is %q, want %q", signerType, accountsigner.SignerTypeElgamal)
+	}
+	if len(key.ElgamalPrivateKey) != 32 {
+		return nil, fmt.Errorf("invalid elgamal private key length: %d", len(key.ElgamalPrivateKey))
+	}
+	privKey := append([]byte(nil), key.ElgamalPrivateKey...)
+	for i := range key.ElgamalPrivateKey {
+		key.ElgamalPrivateKey[i] = 0
+	}
+	defer func() {
+		for i := range privKey {
+			privKey[i] = 0
+		}
+	}()
+
+	localPub, err := accountsigner.PublicKeyFromElgamalPrivate(privKey)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(localPub, onChainPub) {
+		return nil, errors.New("local key does not match on-chain signer")
+	}
+
+	accountState := coreuno.GetAccountState(st, address)
+	var ct64 [64]byte
+	copy(ct64[:32], accountState.Ciphertext.Commitment[:])
+	copy(ct64[32:], accountState.Ciphertext.Handle[:])
+
+	msgPoint, err := cryptouno.DecryptToPoint(privKey, ct64[:])
+	if err != nil {
+		return nil, fmt.Errorf("uno decrypt failed: %w", err)
+	}
+	balance, found, err := cryptouno.SolveDiscreteLog(msgPoint, effectiveMax)
+	if err != nil {
+		return nil, fmt.Errorf("uno ecdlp failed: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("balance exceeds maxAmount; retry with larger maxAmount")
+	}
+
+	return &RPCUNODecryptResult{
+		Address:     address,
+		Balance:     hexutil.Uint64(balance),
+		Version:     hexutil.Uint64(accountState.Version),
+		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
+	}, nil
 }
 
 // signTransaction sets defaults and signs the given transaction
@@ -1950,7 +2065,7 @@ type RPCUNOCiphertextResult struct {
 
 type RPCUNODecryptResult struct {
 	Address     common.Address `json:"address"`
-	Balance     hexutil.Uint64 `json:"balance"`     // TOS units (not wei)
+	Balance     hexutil.Uint64 `json:"balance"` // TOS units (not wei)
 	Version     hexutil.Uint64 `json:"version"`
 	BlockNumber hexutil.Uint64 `json:"blockNumber"`
 }
