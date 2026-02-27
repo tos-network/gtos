@@ -17,11 +17,16 @@ var _ = (*genesisAccountMarshaling)(nil)
 // MarshalJSON marshals as JSON.
 func (g GenesisAccount) MarshalJSON() ([]byte, error) {
 	type GenesisAccount struct {
-		Code       hexutil.Bytes               `json:"code,omitempty"`
-		Storage    map[storageJSON]storageJSON `json:"storage,omitempty"`
-		Balance    *math.HexOrDecimal256       `json:"balance" gencodec:"required"`
-		Nonce      math.HexOrDecimal64         `json:"nonce,omitempty"`
-		PrivateKey hexutil.Bytes               `json:"secretKey,omitempty"`
+		Code          hexutil.Bytes               `json:"code,omitempty"`
+		Storage       map[storageJSON]storageJSON `json:"storage,omitempty"`
+		Balance       *math.HexOrDecimal256       `json:"balance" gencodec:"required"`
+		Nonce         math.HexOrDecimal64         `json:"nonce,omitempty"`
+		PrivateKey    hexutil.Bytes               `json:"secretKey,omitempty"`
+		SignerType    string                      `json:"signerType,omitempty"`
+		SignerValue   string                      `json:"signerValue,omitempty"`
+		UNOCommitment hexutil.Bytes               `json:"uno_ct_commitment,omitempty"`
+		UNOHandle     hexutil.Bytes               `json:"uno_ct_handle,omitempty"`
+		UNOVersion    math.HexOrDecimal64         `json:"uno_version,omitempty"`
 	}
 	var enc GenesisAccount
 	enc.Code = g.Code
@@ -34,17 +39,27 @@ func (g GenesisAccount) MarshalJSON() ([]byte, error) {
 	enc.Balance = (*math.HexOrDecimal256)(g.Balance)
 	enc.Nonce = math.HexOrDecimal64(g.Nonce)
 	enc.PrivateKey = g.PrivateKey
+	enc.SignerType = g.SignerType
+	enc.SignerValue = g.SignerValue
+	enc.UNOCommitment = g.UNOCommitment
+	enc.UNOHandle = g.UNOHandle
+	enc.UNOVersion = math.HexOrDecimal64(g.UNOVersion)
 	return json.Marshal(&enc)
 }
 
 // UnmarshalJSON unmarshals from JSON.
 func (g *GenesisAccount) UnmarshalJSON(input []byte) error {
 	type GenesisAccount struct {
-		Code       *hexutil.Bytes              `json:"code,omitempty"`
-		Storage    map[storageJSON]storageJSON `json:"storage,omitempty"`
-		Balance    *math.HexOrDecimal256       `json:"balance" gencodec:"required"`
-		Nonce      *math.HexOrDecimal64        `json:"nonce,omitempty"`
-		PrivateKey *hexutil.Bytes              `json:"secretKey,omitempty"`
+		Code          *hexutil.Bytes              `json:"code,omitempty"`
+		Storage       map[storageJSON]storageJSON `json:"storage,omitempty"`
+		Balance       *math.HexOrDecimal256       `json:"balance" gencodec:"required"`
+		Nonce         *math.HexOrDecimal64        `json:"nonce,omitempty"`
+		PrivateKey    *hexutil.Bytes              `json:"secretKey,omitempty"`
+		SignerType    *string                     `json:"signerType,omitempty"`
+		SignerValue   *string                     `json:"signerValue,omitempty"`
+		UNOCommitment *hexutil.Bytes              `json:"uno_ct_commitment,omitempty"`
+		UNOHandle     *hexutil.Bytes              `json:"uno_ct_handle,omitempty"`
+		UNOVersion    *math.HexOrDecimal64        `json:"uno_version,omitempty"`
 	}
 	var dec GenesisAccount
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -68,6 +83,21 @@ func (g *GenesisAccount) UnmarshalJSON(input []byte) error {
 	}
 	if dec.PrivateKey != nil {
 		g.PrivateKey = *dec.PrivateKey
+	}
+	if dec.SignerType != nil {
+		g.SignerType = *dec.SignerType
+	}
+	if dec.SignerValue != nil {
+		g.SignerValue = *dec.SignerValue
+	}
+	if dec.UNOCommitment != nil {
+		g.UNOCommitment = *dec.UNOCommitment
+	}
+	if dec.UNOHandle != nil {
+		g.UNOHandle = *dec.UNOHandle
+	}
+	if dec.UNOVersion != nil {
+		g.UNOVersion = uint64(*dec.UNOVersion)
 	}
 	return nil
 }

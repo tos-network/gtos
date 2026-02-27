@@ -108,9 +108,9 @@ DoD:
 
 ## 5. TxPool and Precheck Alignment
 
-- [ ] Add txpool precheck path for UNO payload parse and basic constraints.
-- [ ] Mirror consensus-critical checks in txpool (no consensus divergence).
-- [ ] Add max payload/proof size guards before heavy crypto.
+- [x] Add txpool precheck path for UNO payload parse and basic constraints.
+- [/] Mirror consensus-critical checks in txpool (no consensus divergence; transcript/proof semantics still execution-only).
+- [x] Add max payload/proof size guards before heavy crypto.
 
 DoD:
 - Same tx accepted/rejected consistently by txpool and block execution.
@@ -120,7 +120,7 @@ DoD:
 ## 6. Parallel Executor Safety
 
 - [x] In `core/parallel/analyze.go`, serialize UNO txs via shared conflict marker.
-- [ ] Add parity tests: serial vs parallel same receipts/logs/state root.
+- [/] Add parity tests: serial vs parallel same receipts/logs/state root (batch-vs-per-tx parity with UNO added).
 
 DoD:
 - No state-root mismatch between serial and parallel execution for mixed blocks.
@@ -129,26 +129,27 @@ DoD:
 
 ## 7. Genesis and Chain Config Support
 
-- [ ] Add genesis loader support for UNO initial state:
-  - [ ] `uno_ct_commitment`
-  - [ ] `uno_ct_handle`
-  - [ ] `uno_version`
-- [ ] Validate preallocated UNO accounts must have `elgamal` signer metadata.
-- [ ] Add genesis validation errors with actionable messages.
+- [/] Add genesis loader support for UNO initial state:
+  - [x] `uno_ct_commitment`
+  - [x] `uno_ct_handle`
+  - [x] `uno_version`
+- [x] Validate preallocated UNO accounts must have `elgamal` signer metadata.
+- [x] Add genesis validation errors with actionable messages.
+- [x] Add optional genesis signer shortcut fields (`signerType`, `signerValue`) for UNO bootstrap.
 
 DoD:
-- Devnet/testnet genesis can preallocate UNO balances and boot successfully.
+- Devnet/testnet genesis can preallocate UNO balances and boot successfully (integration pending).
 
 ---
 
 ## 8. RPC and Tooling
 
-- [ ] Add RPC methods:
-  - [ ] `tos_unoShield`
-  - [ ] `tos_unoTransfer`
-  - [ ] `tos_unoUnshield`
-  - [ ] `tos_getUNOCiphertext`
-- [ ] Add request/response schema validation.
+- [/] Add RPC methods:
+  - [x] `tos_unoShield`
+  - [x] `tos_unoTransfer`
+  - [x] `tos_unoUnshield`
+  - [x] `tos_getUNOCiphertext`
+- [/] Add request/response schema validation.
 - [ ] Provide wallet-side decrypt workflow (local only).
 
 DoD:

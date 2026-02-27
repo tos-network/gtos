@@ -14,6 +14,7 @@ import (
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -599,6 +600,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if err != nil {
 		return ErrInvalidSender
 	}
+	extraGas, err := validateUNOTxPrecheck(tx, from, pool.currentState)
+	if err != nil {
+		return err
+	}
 	// Drop non-local transactions under our own minimal accepted tx price or tip
 	if !local && tx.GasTipCapIntCmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
@@ -620,7 +625,79 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if tx.Gas() < intrGas {
 		return ErrIntrinsicGas
 	}
+	if extraGas > 0 {
+		if math.MaxUint64-intrGas < extraGas {
+			return ErrGasUintOverflow
+		}
+		if tx.Gas() < intrGas+extraGas {
+			return ErrIntrinsicGas
+		}
+	}
 	return nil
+}
+
+func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *state.StateDB) (uint64, error) {
+	to := tx.To()
+	if to == nil || *to != params.PrivacyRouterAddress {
+		return 0, nil
+	}
+	if tx.Value().Sign() != 0 {
+		return 0, ErrContractNotSupported
+	}
+	data := tx.Data()
+	if len(data) == 0 || len(data) > params.UNOMaxPayloadBytes {
+		return 0, ErrContractNotSupported
+	}
+	env, err := uno.DecodeEnvelope(data)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := uno.RequireElgamalSigner(statedb, from); err != nil {
+		return 0, err
+	}
+	switch env.Action {
+	case uno.ActionShield:
+		payload, err := uno.DecodeShieldPayload(env.Body)
+		if err != nil {
+			return 0, err
+		}
+		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return 0, ErrContractNotSupported
+		}
+		if err := uno.ValidateShieldProofBundleShape(payload.ProofBundle); err != nil {
+			return 0, err
+		}
+		return params.UNOBaseGas + params.UNOShieldGas, nil
+	case uno.ActionTransfer:
+		payload, err := uno.DecodeTransferPayload(env.Body)
+		if err != nil {
+			return 0, err
+		}
+		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return 0, ErrContractNotSupported
+		}
+		if err := uno.ValidateTransferProofBundleShape(payload.ProofBundle); err != nil {
+			return 0, err
+		}
+		if _, err := uno.RequireElgamalSigner(statedb, payload.To); err != nil {
+			return 0, err
+		}
+		return params.UNOBaseGas + params.UNOTransferGas, nil
+	case uno.ActionUnshield:
+		payload, err := uno.DecodeUnshieldPayload(env.Body)
+		if err != nil {
+			return 0, err
+		}
+		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return 0, ErrContractNotSupported
+		}
+		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
+			return 0, err
+		}
+		return params.UNOBaseGas + params.UNOUnshieldGas, nil
+	default:
+		return 0, ErrContractNotSupported
+	}
 }
 
 // add validates a transaction and inserts it into the non-executable queue for later

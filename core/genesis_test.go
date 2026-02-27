@@ -17,14 +17,20 @@
 package core
 
 import (
+	"errors"
 	"math/big"
 	"reflect"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
+	coreuno "github.com/tos-network/gtos/core/uno"
+	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/tosdb"
 )
@@ -307,5 +313,74 @@ func TestDeveloperGenesisBlockMsPeriodConfig(t *testing.T) {
 	}
 	if got := genesisSec.Config.DPoS.PeriodMs; got != 1000 {
 		t.Fatalf("unexpected periodMs for second-aligned dev genesis: have %d want %d", got, 1000)
+	}
+}
+
+func TestGenesisAllocUNORequiresElgamalSigner(t *testing.T) {
+	addr := common.HexToAddress("0x1001")
+	alloc := GenesisAlloc{
+		addr: {
+			Balance:       big.NewInt(1),
+			UNOCommitment: make([]byte, coreuno.CiphertextSize),
+			UNOHandle:     make([]byte, coreuno.CiphertextSize),
+		},
+	}
+	_, err := alloc.deriveHash()
+	if err == nil {
+		t.Fatalf("expected uno signer validation error")
+	}
+	if !errors.Is(err, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGenesisAllocUNOWithSignerFields(t *testing.T) {
+	addr := common.HexToAddress("0x2001")
+	pub := ristretto255.NewGeneratorElement().Bytes()
+
+	var commitment [coreuno.CiphertextSize]byte
+	var handle [coreuno.CiphertextSize]byte
+	copy(commitment[:], pub)
+	copy(handle[:], ristretto255.NewIdentityElement().Bytes())
+
+	alloc := GenesisAlloc{
+		addr: {
+			Balance:       big.NewInt(10),
+			SignerType:    "ElGamal",
+			SignerValue:   hexutil.Encode(pub),
+			UNOCommitment: commitment[:],
+			UNOHandle:     handle[:],
+			UNOVersion:    7,
+		},
+	}
+	db := rawdb.NewMemoryDatabase()
+	if err := alloc.flush(db); err != nil {
+		t.Fatalf("alloc.flush: %v", err)
+	}
+
+	root, err := alloc.deriveHash()
+	if err != nil {
+		t.Fatalf("alloc.deriveHash: %v", err)
+	}
+	statedb, err := state.New(root, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("state.New: %v", err)
+	}
+	gotType, gotValue, ok := accountsigner.Get(statedb, addr)
+	if !ok {
+		t.Fatalf("signer metadata not written")
+	}
+	if gotType != accountsigner.SignerTypeElgamal {
+		t.Fatalf("unexpected signer type: %s", gotType)
+	}
+	if gotValue != hexutil.Encode(pub) {
+		t.Fatalf("unexpected signer value: %s", gotValue)
+	}
+	unoState := coreuno.GetAccountState(statedb, addr)
+	if unoState.Version != 7 {
+		t.Fatalf("unexpected uno version: %d", unoState.Version)
+	}
+	if unoState.Ciphertext.Commitment != commitment || unoState.Ciphertext.Handle != handle {
+		t.Fatalf("unexpected uno ciphertext")
 	}
 }

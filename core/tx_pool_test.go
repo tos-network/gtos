@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/ecdsa"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,11 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
@@ -254,6 +259,84 @@ func testSetNonce(pool *TxPool, addr common.Address, nonce uint64) {
 	pool.mu.Unlock()
 }
 
+func testSetElgamalSigner(pool *TxPool, addr common.Address, pub []byte) {
+	pool.mu.Lock()
+	accountsigner.Set(pool.currentState, addr, accountsigner.SignerTypeElgamal, hexutil.Encode(pub))
+	pool.mu.Unlock()
+}
+
+func testUNOCiphertext(commitment, handle []byte) coreuno.Ciphertext {
+	var ct coreuno.Ciphertext
+	copy(ct.Commitment[:], commitment)
+	copy(ct.Handle[:], handle)
+	return ct
+}
+
+func testUNOShieldWire(t *testing.T, amount uint64) []byte {
+	t.Helper()
+	payload, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
+		Amount:      amount,
+		NewSender:   testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ProofBundle: make([]byte, coreuno.ShieldProofSize),
+	})
+	if err != nil {
+		t.Fatalf("EncodeShieldPayload: %v", err)
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionShield, payload)
+	if err != nil {
+		t.Fatalf("EncodeEnvelope: %v", err)
+	}
+	return wire
+}
+
+func testUNOTx(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64, data []byte) *types.Transaction {
+	t.Helper()
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	tx, err := signTestSignerTx(signer, key, nonce, params.PrivacyRouterAddress, big.NewInt(0), gas, big.NewInt(1), data)
+	if err != nil {
+		t.Fatalf("signTestSignerTx: %v", err)
+	}
+	return tx
+}
+
+func testUNOElgamalTx(t *testing.T, nonce uint64, gas uint64, data []byte) (*types.Transaction, common.Address, []byte) {
+	t.Helper()
+	priv, err := accountsigner.GenerateElgamalPrivateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateElgamalPrivateKey: %v", err)
+	}
+	pub, err := accountsigner.PublicKeyFromElgamalPrivate(priv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromElgamalPrivate: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, pub)
+	if err != nil {
+		t.Fatalf("AddressFromSigner: %v", err)
+	}
+	to := params.PrivacyRouterAddress
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    params.TestChainConfig.ChainID,
+		Nonce:      nonce,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        gas,
+		Data:       common.CopyBytes(data),
+		From:       from,
+		SignerType: accountsigner.SignerTypeElgamal,
+	})
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	hash := signer.Hash(tx)
+	sig, err := accountsigner.SignElgamalHash(priv, hash)
+	if err != nil {
+		t.Fatalf("SignElgamalHash: %v", err)
+	}
+	signed, err := tx.WithSignature(signer, sig)
+	if err != nil {
+		t.Fatalf("WithSignature: %v", err)
+	}
+	return signed, from, pub
+}
+
 func TestInvalidTransactions(t *testing.T) {
 	t.Parallel()
 
@@ -288,6 +371,108 @@ func TestInvalidTransactions(t *testing.T) {
 	}
 	if err := pool.AddLocal(tx); err != nil {
 		t.Error("expected", nil, "got", err)
+	}
+}
+
+func TestTxPoolUNORejectsInvalidEnvelope(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	tx := testUNOTx(t, key, 0, 500_000, []byte("bad"))
+	from, _ := deriveSender(tx)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
+		t.Fatalf("expected %v, got %v", coreuno.ErrInvalidPayload, err)
+	}
+}
+
+func TestTxPoolUNORejectsMissingSenderSigner(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	tx := testUNOTx(t, key, 0, 600_000, testUNOShieldWire(t, 1))
+	from, _ := deriveSender(tx)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("expected %v, got %v", coreuno.ErrSignerNotConfigured, err)
+	}
+}
+
+func TestTxPoolUNORejectsLowGasForExtra(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 60_000, testUNOShieldWire(t, 1))
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetElgamalSigner(pool, from, pub)
+
+	if err := pool.AddRemote(tx); !errors.Is(err, ErrIntrinsicGas) {
+		t.Fatalf("expected %v, got %v", ErrIntrinsicGas, err)
+	}
+}
+
+func TestTxPoolUNOTransferRejectsReceiverWithoutSigner(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	receiver := common.HexToAddress("0x1234")
+	payload, err := coreuno.EncodeTransferPayload(coreuno.TransferPayload{
+		To:            receiver,
+		NewSender:     testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ReceiverDelta: testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+	})
+	if err != nil {
+		t.Fatalf("EncodeTransferPayload: %v", err)
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionTransfer, payload)
+	if err != nil {
+		t.Fatalf("EncodeEnvelope: %v", err)
+	}
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, wire)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetElgamalSigner(pool, from, pub)
+
+	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("expected %v, got %v", coreuno.ErrSignerNotConfigured, err)
+	}
+}
+
+func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	// Shield requires fixed-size proof (96 bytes); use malformed 95-byte proof.
+	payload, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
+		Amount:      1,
+		NewSender:   testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ProofBundle: make([]byte, coreuno.ShieldProofSize-1),
+	})
+	if err != nil {
+		t.Fatalf("EncodeShieldPayload: %v", err)
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionShield, payload)
+	if err != nil {
+		t.Fatalf("EncodeEnvelope: %v", err)
+	}
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, wire)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetElgamalSigner(pool, from, pub)
+
+	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
+		t.Fatalf("expected %v, got %v", coreuno.ErrInvalidPayload, err)
 	}
 }
 

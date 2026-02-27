@@ -105,3 +105,21 @@ func decodeUnshieldProofBundle(bundle []byte) (unshieldProofBundleParts, error) 
 	}
 	return unshieldProofBundleParts{balance: balance}, nil
 }
+
+// ValidateShieldProofBundleShape validates shield proof blob size/encoding shape.
+func ValidateShieldProofBundleShape(bundle []byte) error {
+	_, err := decodeShieldProofBundle(bundle)
+	return err
+}
+
+// ValidateTransferProofBundleShape validates transfer proof blob size/encoding shape.
+func ValidateTransferProofBundleShape(bundle []byte) error {
+	_, err := decodeTransferProofBundle(bundle)
+	return err
+}
+
+// ValidateUnshieldProofBundleShape validates unshield proof blob size/encoding shape.
+func ValidateUnshieldProofBundleShape(bundle []byte) error {
+	_, err := decodeUnshieldProofBundle(bundle)
+	return err
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/kvstore"
@@ -1908,6 +1909,44 @@ type RPCKVMetaResult struct {
 	Expired   bool           `json:"expired"`
 }
 
+type RPCUNOShieldArgs struct {
+	RPCTxCommonArgs
+	Amount              hexutil.Uint64 `json:"amount"`
+	NewSenderCommitment hexutil.Bytes  `json:"newSenderCommitment"`
+	NewSenderHandle     hexutil.Bytes  `json:"newSenderHandle"`
+	ProofBundle         hexutil.Bytes  `json:"proofBundle"`
+	EncryptedMemo       hexutil.Bytes  `json:"encryptedMemo,omitempty"`
+}
+
+type RPCUNOTransferArgs struct {
+	RPCTxCommonArgs
+	To                      common.Address `json:"to"`
+	NewSenderCommitment     hexutil.Bytes  `json:"newSenderCommitment"`
+	NewSenderHandle         hexutil.Bytes  `json:"newSenderHandle"`
+	ReceiverDeltaCommitment hexutil.Bytes  `json:"receiverDeltaCommitment"`
+	ReceiverDeltaHandle     hexutil.Bytes  `json:"receiverDeltaHandle"`
+	ProofBundle             hexutil.Bytes  `json:"proofBundle"`
+	EncryptedMemo           hexutil.Bytes  `json:"encryptedMemo,omitempty"`
+}
+
+type RPCUNOUnshieldArgs struct {
+	RPCTxCommonArgs
+	To                  common.Address `json:"to"`
+	Amount              hexutil.Uint64 `json:"amount"`
+	NewSenderCommitment hexutil.Bytes  `json:"newSenderCommitment"`
+	NewSenderHandle     hexutil.Bytes  `json:"newSenderHandle"`
+	ProofBundle         hexutil.Bytes  `json:"proofBundle"`
+	EncryptedMemo       hexutil.Bytes  `json:"encryptedMemo,omitempty"`
+}
+
+type RPCUNOCiphertextResult struct {
+	Address     common.Address `json:"address"`
+	Commitment  hexutil.Bytes  `json:"commitment"`
+	Handle      hexutil.Bytes  `json:"handle"`
+	Version     hexutil.Uint64 `json:"version"`
+	BlockNumber hexutil.Uint64 `json:"blockNumber"`
+}
+
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -2152,6 +2191,56 @@ func estimateSystemActionGas(payload []byte) (uint64, error) {
 	return intrinsic + params.SysActionGas, nil
 }
 
+func makeUNOCiphertext(commitment, handle hexutil.Bytes, commitmentField, handleField string) (coreuno.Ciphertext, error) {
+	if len(commitment) != coreuno.CiphertextSize {
+		return coreuno.Ciphertext{}, newRPCInvalidParamsError(commitmentField, "must be 32 bytes")
+	}
+	if len(handle) != coreuno.CiphertextSize {
+		return coreuno.Ciphertext{}, newRPCInvalidParamsError(handleField, "must be 32 bytes")
+	}
+	var out coreuno.Ciphertext
+	copy(out.Commitment[:], commitment)
+	copy(out.Handle[:], handle)
+	return out, nil
+}
+
+func estimateUNOGas(payload []byte, extra uint64) (uint64, error) {
+	intrinsic, err := core.IntrinsicGas(payload, nil, false, true, true)
+	if err != nil {
+		return 0, err
+	}
+	if stdmath.MaxUint64-intrinsic < extra {
+		return 0, fmt.Errorf("uno gas overflows")
+	}
+	return intrinsic + extra, nil
+}
+
+func buildUNOTxArgs(ctx context.Context, s *TOSAPI, from common.Address, nonce *hexutil.Uint64, gas *hexutil.Uint64, payload []byte, extraGas uint64) (*TransactionArgs, error) {
+	to := params.PrivacyRouterAddress
+	input := hexutil.Bytes(payload)
+	zero := hexutil.Big{}
+	txArgs := &TransactionArgs{
+		From:  &from,
+		To:    &to,
+		Gas:   gas,
+		Value: &zero,
+		Nonce: nonce,
+		Input: &input,
+	}
+	if txArgs.Gas == nil {
+		estimate, err := estimateUNOGas(payload, extraGas)
+		if err != nil {
+			return nil, err
+		}
+		g := hexutil.Uint64(estimate)
+		txArgs.Gas = &g
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
 	normalizedType, _, normalizedValue, err := accountsigner.NormalizeSigner(args.SignerType, args.SignerValue)
 	if err != nil {
@@ -2382,6 +2471,162 @@ func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, err
 	return SubmitTransaction(ctx, s.b, signed)
 }
 
+func (s *TOSAPI) UnoShield(ctx context.Context, args RPCUNOShieldArgs) (common.Hash, error) {
+	if args.From == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if uint64(args.Amount) == 0 {
+		return common.Hash{}, newRPCInvalidParamsError("amount", "must be greater than zero")
+	}
+	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
+	}
+	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
+	if err != nil {
+		return common.Hash{}, err
+	}
+	body, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
+		Amount:        uint64(args.Amount),
+		NewSender:     newSender,
+		ProofBundle:   common.CopyBytes(args.ProofBundle),
+		EncryptedMemo: common.CopyBytes(args.EncryptedMemo),
+	})
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno shield payload")
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionShield, body)
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno shield envelope")
+	}
+	if len(wire) > params.UNOMaxPayloadBytes {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "uno payload too large")
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_unoShield")
+	}
+	txArgs, err := buildUNOTxArgs(ctx, s, args.From, args.Nonce, args.Gas, wire, params.UNOBaseGas+params.UNOShieldGas)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) UnoTransfer(ctx context.Context, args RPCUNOTransferArgs) (common.Hash, error) {
+	if args.From == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if args.To == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("to", "must not be zero address")
+	}
+	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
+	}
+	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
+	if err != nil {
+		return common.Hash{}, err
+	}
+	receiverDelta, err := makeUNOCiphertext(args.ReceiverDeltaCommitment, args.ReceiverDeltaHandle, "receiverDeltaCommitment", "receiverDeltaHandle")
+	if err != nil {
+		return common.Hash{}, err
+	}
+	body, err := coreuno.EncodeTransferPayload(coreuno.TransferPayload{
+		To:            args.To,
+		NewSender:     newSender,
+		ReceiverDelta: receiverDelta,
+		ProofBundle:   common.CopyBytes(args.ProofBundle),
+		EncryptedMemo: common.CopyBytes(args.EncryptedMemo),
+	})
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno transfer payload")
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionTransfer, body)
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno transfer envelope")
+	}
+	if len(wire) > params.UNOMaxPayloadBytes {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "uno payload too large")
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_unoTransfer")
+	}
+	txArgs, err := buildUNOTxArgs(ctx, s, args.From, args.Nonce, args.Gas, wire, params.UNOBaseGas+params.UNOTransferGas)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) UnoUnshield(ctx context.Context, args RPCUNOUnshieldArgs) (common.Hash, error) {
+	if args.From == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if args.To == (common.Address{}) {
+		return common.Hash{}, newRPCInvalidParamsError("to", "must not be zero address")
+	}
+	if uint64(args.Amount) == 0 {
+		return common.Hash{}, newRPCInvalidParamsError("amount", "must be greater than zero")
+	}
+	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
+	}
+	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
+	if err != nil {
+		return common.Hash{}, err
+	}
+	body, err := coreuno.EncodeUnshieldPayload(coreuno.UnshieldPayload{
+		To:            args.To,
+		Amount:        uint64(args.Amount),
+		NewSender:     newSender,
+		ProofBundle:   common.CopyBytes(args.ProofBundle),
+		EncryptedMemo: common.CopyBytes(args.EncryptedMemo),
+	})
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno unshield payload")
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionUnshield, body)
+	if err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "invalid uno unshield envelope")
+	}
+	if len(wire) > params.UNOMaxPayloadBytes {
+		return common.Hash{}, newRPCInvalidParamsError("payload", "uno payload too large")
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_unoUnshield")
+	}
+	txArgs, err := buildUNOTxArgs(ctx, s, args.From, args.Nonce, args.Gas, wire, params.UNOBaseGas+params.UNOUnshieldGas)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
 func (s *TOSAPI) GetKV(ctx context.Context, from common.Address, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {
 	if from == (common.Address{}) {
 		return nil, newRPCInvalidParamsError("from", "must not be zero address")
@@ -2445,5 +2690,33 @@ func (s *TOSAPI) GetKVMeta(ctx context.Context, from common.Address, namespace s
 		CreatedAt: hexutil.Uint64(meta.CreatedAt),
 		ExpireAt:  hexutil.Uint64(meta.ExpireAt),
 		Expired:   false, // record is live; expired records are filtered by GetMeta
+	}, nil
+}
+
+func (s *TOSAPI) GetUNOCiphertext(ctx context.Context, address common.Address, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCUNOCiphertextResult, error) {
+	if address == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("address", "must not be zero address")
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_getUNOCiphertext")
+	}
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "uno state not found"}
+	}
+	accountState := coreuno.GetAccountState(state, address)
+	return &RPCUNOCiphertextResult{
+		Address:     address,
+		Commitment:  hexutil.Bytes(accountState.Ciphertext.Commitment[:]),
+		Handle:      hexutil.Bytes(accountState.Ciphertext.Handle[:]),
+		Version:     hexutil.Uint64(accountState.Version),
+		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
 	}, nil
 }

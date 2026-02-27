@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core"
+	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 )
@@ -198,6 +199,154 @@ func TestPutKVValidation(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrNotImplemented {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotImplemented)
+	}
+}
+
+func TestUNOShieldValidation(t *testing.T) {
+	api := &TOSAPI{}
+	from := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	ct32 := make(hexutil.Bytes, coreuno.CiphertextSize)
+	proof := make(hexutil.Bytes, coreuno.ShieldProofSize)
+
+	_, err := api.UnoShield(context.Background(), RPCUNOShieldArgs{
+		Amount:              1,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for from")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoShield(context.Background(), RPCUNOShieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		Amount:              0,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for amount")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoShield(context.Background(), RPCUNOShieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		Amount:              1,
+		NewSenderCommitment: hexutil.Bytes{0x01},
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for commitment length")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoShield(context.Background(), RPCUNOShieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		Amount:              1,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected not-implemented error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrNotImplemented {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUNOTransferValidation(t *testing.T) {
+	api := &TOSAPI{}
+	from := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	to := common.HexToAddress("0x62251343c13f20572df0356edfb4fe5de578cf17243e5fb56aa8f5ce898ca2a4")
+	ct32 := make(hexutil.Bytes, coreuno.CiphertextSize)
+	proof := make(hexutil.Bytes, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize)
+
+	_, err := api.UnoTransfer(context.Background(), RPCUNOTransferArgs{
+		RPCTxCommonArgs:         RPCTxCommonArgs{From: from},
+		To:                      common.Address{},
+		NewSenderCommitment:     ct32,
+		NewSenderHandle:         ct32,
+		ReceiverDeltaCommitment: ct32,
+		ReceiverDeltaHandle:     ct32,
+		ProofBundle:             proof,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for to")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoTransfer(context.Background(), RPCUNOTransferArgs{
+		RPCTxCommonArgs:         RPCTxCommonArgs{From: from},
+		To:                      to,
+		NewSenderCommitment:     ct32,
+		NewSenderHandle:         ct32,
+		ReceiverDeltaCommitment: ct32,
+		ReceiverDeltaHandle:     ct32,
+		ProofBundle:             proof,
+	})
+	if err == nil {
+		t.Fatalf("expected not-implemented error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrNotImplemented {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUNOUnshieldValidation(t *testing.T) {
+	api := &TOSAPI{}
+	from := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	to := common.HexToAddress("0x62251343c13f20572df0356edfb4fe5de578cf17243e5fb56aa8f5ce898ca2a4")
+	ct32 := make(hexutil.Bytes, coreuno.CiphertextSize)
+	proof := make(hexutil.Bytes, coreuno.BalanceProofSize)
+
+	_, err := api.UnoUnshield(context.Background(), RPCUNOUnshieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		To:                  to,
+		Amount:              0,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for amount")
+	}
+	rpcErr, ok := err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoUnshield(context.Background(), RPCUNOUnshieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		To:                  to,
+		Amount:              1,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         proof,
+	})
+	if err == nil {
+		t.Fatalf("expected not-implemented error")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrNotImplemented {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
