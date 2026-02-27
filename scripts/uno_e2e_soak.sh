@@ -14,6 +14,8 @@ ITERATIONS="${ITERATIONS:-20}"
 SHIELD_AMOUNT="${SHIELD_AMOUNT:-4}"
 TRANSFER_AMOUNT="${TRANSFER_AMOUNT:-2}"
 UNSHIELD_AMOUNT="${UNSHIELD_AMOUNT:-1}"
+AUTO_FUND_A="${AUTO_FUND_A:-1}"
+AUTO_FUND_AMOUNT="${AUTO_FUND_AMOUNT:-10}"
 CONFIRM_TIMEOUT_SEC="${CONFIRM_TIMEOUT_SEC:-120}"
 POLL_SEC="${POLL_SEC:-1}"
 MAX_BALANCE_SEARCH="${MAX_BALANCE_SEARCH:-1000000000}"
@@ -38,6 +40,9 @@ Options:
   --shield <n>              shield amount per cycle (default: 4)
   --transfer <n>            transfer amount per cycle (default: 2)
   --unshield <n>            unshield amount per cycle (default: 1)
+  --auto-fund-a             auto fund A public balance from B when A cannot shield
+  --no-auto-fund-a          disable auto funding
+  --auto-fund-amount <n>    public top-up amount per trigger, in TOS units (default: 10)
   --confirm-timeout <sec>   tx receipt timeout (default: 120)
   --poll <sec>              polling interval for receipts (default: 1)
   --max-balance <n>         toskey uno-balance max-amount (default: 1000000000)
@@ -46,7 +51,8 @@ Options:
 
 Environment overrides:
   TOSKEY_BIN GTOS_BIN RPC_URL UNLOCK_IPC PASSFILE ITERATIONS SHIELD_AMOUNT TRANSFER_AMOUNT
-  UNSHIELD_AMOUNT CONFIRM_TIMEOUT_SEC POLL_SEC MAX_BALANCE_SEARCH OUT_DIR
+  UNSHIELD_AMOUNT AUTO_FUND_A AUTO_FUND_AMOUNT CONFIRM_TIMEOUT_SEC POLL_SEC
+  MAX_BALANCE_SEARCH OUT_DIR
 EOF
 }
 
@@ -86,6 +92,18 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--unshield)
 		UNSHIELD_AMOUNT="$2"
+		shift 2
+		;;
+	--auto-fund-a)
+		AUTO_FUND_A=1
+		shift
+		;;
+	--no-auto-fund-a)
+		AUTO_FUND_A=0
+		shift
+		;;
+	--auto-fund-amount)
+		AUTO_FUND_AMOUNT="$2"
 		shift 2
 		;;
 	--confirm-timeout)
@@ -139,6 +157,9 @@ require_cmd python3
 
 if (( SHIELD_AMOUNT == 0 || TRANSFER_AMOUNT == 0 || UNSHIELD_AMOUNT == 0 )); then
 	fail "amounts must be > 0"
+fi
+if (( AUTO_FUND_A != 0 && AUTO_FUND_AMOUNT == 0 )); then
+	fail "--auto-fund-amount must be > 0 when auto-fund is enabled"
 fi
 
 mkdir -p "${OUT_DIR}"
@@ -205,6 +226,40 @@ print(int(sys.argv[1], 16))
 PY
 }
 
+dec_to_hex() {
+	local dec="$1"
+	python3 - "${dec}" <<'PY'
+import sys
+print(hex(int(sys.argv[1])))
+PY
+}
+
+rpc_get_balance_dec() {
+	local addr="$1"
+	local out hex
+	out="$(rpc_result "tos_getBalance" "[\"${addr}\",\"latest\"]")"
+	hex="$(python3 - "${out}" <<'PY'
+import json, sys
+print(json.loads(sys.argv[1]))
+PY
+)"
+	python3 - "${hex}" <<'PY'
+import sys
+print(int(sys.argv[1], 16))
+PY
+}
+
+dec_lt() {
+	local a="$1"
+	local b="$2"
+	python3 - "${a}" "${b}" <<'PY'
+import sys
+a = int(sys.argv[1])
+b = int(sys.argv[2])
+print("1" if a < b else "0")
+PY
+}
+
 address_from_keyfile() {
 	local keyfile="$1"
 	local out
@@ -267,24 +322,54 @@ submit_uno_tx() {
 	local to_addr="${3:-}"
 	local amount="$4"
 	local out txhash
+	local rc=0
 
 	case "${mode}" in
 	shield)
-		out="$("${TOSKEY_BIN}" uno-shield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --amount "${amount}" "${keyfile}")"
+		out="$("${TOSKEY_BIN}" uno-shield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	transfer)
-		out="$("${TOSKEY_BIN}" uno-transfer --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}")"
+		out="$("${TOSKEY_BIN}" uno-transfer --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	unshield)
-		out="$("${TOSKEY_BIN}" uno-unshield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}")"
+		out="$("${TOSKEY_BIN}" uno-unshield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	*)
 		fail "unknown mode: ${mode}"
 		;;
 	esac
+	if (( rc != 0 )); then
+		fail "${mode} command failed: ${out}"
+	fi
 
 	txhash="$(json_get "${out}" "txHash")"
 	[[ "${txhash}" =~ ^0x[0-9a-fA-F]{64}$ ]] || fail "failed to parse txHash from ${mode}: ${out}"
+	echo "${txhash}"
+}
+
+send_public_transfer() {
+	local from_addr="$1"
+	local to_addr="$2"
+	local signer_type="$3"
+	local value_hex="$4"
+	local out txhash
+	out="$(rpc_call "tos_sendTransaction" "[{\"from\":\"${from_addr}\",\"to\":\"${to_addr}\",\"value\":\"${value_hex}\",\"signerType\":\"${signer_type}\"}]")"
+	if ! txhash="$(python3 - "${out}" <<'PY'
+import json, sys
+resp = json.loads(sys.argv[1])
+if "error" in resp:
+    raise SystemExit(f"rpc send tx error: {resp['error']}")
+v = resp.get("result")
+if isinstance(v, str) and v.startswith("0x"):
+    print(v)
+else:
+    raise SystemExit("unexpected tos_sendTransaction result")
+PY
+	)"; then
+		fail "public transfer failed: ${txhash:-unknown error}"
+	fi
+	[[ "${txhash}" =~ ^0x[0-9a-fA-F]{64}$ ]] || fail "invalid public transfer tx hash: ${txhash}"
+	wait_receipt_ok "${txhash}" "${CONFIRM_TIMEOUT_SEC}"
 	echo "${txhash}"
 }
 
@@ -299,6 +384,7 @@ echo "key A: ${KEY_A} (${A_ADDR})"
 echo "key B: ${KEY_B} (${B_ADDR})"
 echo "iterations: ${ITERATIONS}"
 echo "amounts: shield=${SHIELD_AMOUNT}, transfer=${TRANSFER_AMOUNT}, unshield=${UNSHIELD_AMOUNT}"
+echo "auto-fund A: ${AUTO_FUND_A} (amount=${AUTO_FUND_AMOUNT} TOS)"
 echo "out dir: ${OUT_DIR}"
 
 echo "iter,block,a_before,a_after,b_before,b_after,tx_shield,tx_transfer,tx_unshield" >"${CSV_FILE}"
@@ -308,6 +394,37 @@ for ((i = 1; i <= ITERATIONS; i++)); do
 	echo "==> iteration ${i}/${ITERATIONS}"
 	unlock_account "${A_ADDR}"
 	unlock_account "${B_ADDR}"
+	if (( AUTO_FUND_A != 0 )); then
+		a_pub_wei="$(rpc_get_balance_dec "${A_ADDR}")"
+		need_wei="$(python3 - "${SHIELD_AMOUNT}" <<'PY'
+import sys
+print(int(sys.argv[1]) * 10**18)
+PY
+)"
+		if [[ "$(dec_lt "${a_pub_wei}" "${need_wei}")" == "1" ]]; then
+			b_pub_wei="$(rpc_get_balance_dec "${B_ADDR}")"
+			read -r fund_wei fund_tos_display <<<"$(python3 - "${AUTO_FUND_AMOUNT}" "${a_pub_wei}" "${need_wei}" <<'PY'
+import sys
+base_tos = int(sys.argv[1])
+a_pub = int(sys.argv[2])
+need = int(sys.argv[3])
+base = base_tos * 10**18
+shortage = max(0, need - a_pub)
+buffer = 10**16  # 0.01 TOS safety margin
+fund = max(base, shortage + buffer)
+tos_display = fund / 10**18
+print(fund, tos_display)
+PY
+)"
+			if [[ "$(dec_lt "${b_pub_wei}" "${fund_wei}")" == "1" ]]; then
+				fail "auto-fund requested but B public balance is too low (have ${b_pub_wei} wei, need >= ${fund_wei} wei)"
+			fi
+			fund_hex="$(dec_to_hex "${fund_wei}")"
+			echo "A public balance too low for shield (${a_pub_wei} < ${need_wei}), funding from B: ${fund_tos_display} TOS"
+			tx_fund="$(send_public_transfer "${B_ADDR}" "${A_ADDR}" "elgamal" "${fund_hex}")"
+			echo "fund tx: ${tx_fund}"
+		fi
+	fi
 
 	a_before_json="$(uno_balance_json "${KEY_A}")"
 	b_before_json="$(uno_balance_json "${KEY_B}")"

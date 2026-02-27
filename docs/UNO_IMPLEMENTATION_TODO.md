@@ -143,7 +143,7 @@ DoD:
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
-- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing and builder->CLI->RPC wiring are in place and e2e path is validated (`shield -> transfer -> unshield`, all receipts `0x1`) with artifacts under `/data/gtos/uno_e2e/run_20260227_101711_v2`; repeat-run harness `scripts/uno_e2e_soak.sh` is landed (smoke artifact: `/data/gtos/uno_e2e/run_20260227_104230_soak1`), remaining work is long-duration repeated stability evidence.
+- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing and builder->CLI->RPC wiring are in place and e2e path is validated (`shield -> transfer -> unshield`, all receipts `0x1`) with artifacts under `/data/gtos/uno_e2e/run_20260227_101711_v2`; repeat-run harness `scripts/uno_e2e_soak.sh` is landed (auto-fund + receipt gating, smoke artifact: `/data/gtos/uno_e2e/run_20260227_104612_soak1`), remaining work is long-duration repeated stability evidence.
 - [x] Genesis preallocation decryptability checks for recipients. Reorg-drill lifecycle coverage is now in `TestUNOGenesisPreallocReorgLifecycle` (decrypt at genesis prealloc, post-unshield residual, reorg-away rollback, reorg-back recovery) and `TestUNOLifecycleReorgAndReimportDeterminism`.
 - [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
