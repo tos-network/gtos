@@ -66,7 +66,7 @@ transcript-bound proofs + source balance transition correctness + range constrai
 - [x] UNO router path and action dispatch are live.
 - [x] `UNO_TRANSFER` self-transfer guard added (txpool + execution); state-write semantics verified.
 - [x] `UNO_UNSHIELD` full transition semantics: gas charge, version-overflow guard, SubCiphertexts delta, transcript-bound proof verify, ciphertext+version state write, public AddBalance — all implemented and tested (proof-failure/no-state-write + version-overflow/no-state-write).
-- [/] Bind proofs to full chain context transcript:
+- [x] Bind proofs to full chain context transcript:
   - [x] `chainId`
   - [x] `actionTag`
   - [x] `from`
@@ -88,7 +88,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
 - [x] Consensus-critical semantic checks mirrored: sender/receiver version overflow (all 3 actions) and combined gas+shield-amount balance guard for Shield.
-- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, low-gas, nonzero-value, shield insufficient-balance, shield/transfer/unshield oversized-proof-bundle, sender signer missing/type-mismatch, shield/transfer(sender+receiver)/unshield sender version-overflow, transfer receiver missing-signer, shield-zero-amount, transfer/unshield-zero-receiver, transfer-self-transfer, unshield-zero-amount, shield/transfer/unshield malformed-ciphertext decode, shield/transfer/unshield empty-proof-bundle, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
+- [x] Explicit parity tests: invalid-envelope/unsupported-action, empty-UNO-payload, nonce-too-low, low-gas, nonzero-value, shield insufficient-balance, shield/transfer/unshield oversized-proof-bundle, sender signer missing/type-mismatch, shield/transfer(sender+receiver)/unshield sender version-overflow, transfer receiver missing-signer, transfer receiver signer-type-mismatch, shield-zero-amount, transfer/unshield-zero-receiver, transfer-self-transfer, unshield-zero-amount, shield/transfer/unshield malformed-ciphertext decode, shield/transfer/unshield empty-proof-bundle, and shield/transfer/unshield invalid-proof-shape.
 
 DoD:
 - Same tx is accepted/rejected for the same reason by both paths.
@@ -116,7 +116,8 @@ Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 - [x] RPC actions live: `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext`.
 - [x] Amount unit fixed: 1 UNO = 1 TOS (wei conversion only at public-balance boundary; ECDLP range is now feasible).
 - [x] `tos_unoDecryptBalance` RPC: reads ciphertext from state, decrypts with private key, solves ECDLP with BSGS (`crypto/uno/ecdlp.go`).
-- [ ] Nonce/version-aware local state update and rollback handling.
+- [x] `tos_unoBalance` RPC: decrypts balance using already-unlocked keystore account (private key never crosses RPC wire).
+- [x] `toskey uno-balance` CLI: local keyfile decrypt + `tos_getUNOCiphertext` + ECDLP in-process; private key never leaves the machine.
 - [ ] Nonce/version-aware local state update and rollback handling.
 - [ ] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation.
 

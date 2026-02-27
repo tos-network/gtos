@@ -531,6 +531,15 @@ func testUNOUnsupportedActionWire(t *testing.T) []byte {
 	return append([]byte(coreuno.PayloadPrefix), raw...)
 }
 
+func testUNOOversizedPayloadWire() []byte {
+	blob := make([]byte, params.UNOMaxPayloadBytes+1)
+	copy(blob, []byte(coreuno.PayloadPrefix))
+	for i := len(coreuno.PayloadPrefix); i < len(blob); i++ {
+		blob[i] = byte(i)
+	}
+	return blob
+}
+
 func testUNOShieldWireZeroAmount(t *testing.T) []byte {
 	t.Helper()
 	type ciphertextRLP struct {
@@ -1537,6 +1546,56 @@ func TestUNOTxPoolExecutionRejectParityUnsupportedAction(t *testing.T) {
 	}
 }
 
+func TestUNOTxPoolExecutionRejectParityEmptyPayload(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, nil)
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrContractNotSupported) {
+		t.Fatalf("txpool expected %v, got %v", ErrContractNotSupported, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, ErrContractNotSupported) {
+		t.Fatalf("execution expected %v, got %v", ErrContractNotSupported, res.Err)
+	}
+}
+
+func TestUNOTxPoolRejectOversizedPayloadByGlobalTxSizeCap(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOOversizedPayloadWire())
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrOversizedData) {
+		t.Fatalf("txpool expected %v, got %v", ErrOversizedData, txpoolErr)
+	}
+}
+
 func TestUNOTxPoolExecutionRejectParitySenderSignerTypeMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -2231,6 +2290,49 @@ func TestUNOTxPoolExecutionRejectParityUnshieldZeroAmount(t *testing.T) {
 	}
 	if !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
 		t.Fatalf("execution expected %v, got %v", coreuno.ErrInvalidPayload, res.Err)
+	}
+}
+
+// TestUNOTxPoolExecutionRejectParityTransferReceiverSignerTypeMismatch verifies
+// that a Transfer to a receiver whose signer metadata exists but is not elgamal
+// (secp256k1 in this case) is rejected with ErrSignerTypeMismatch by both the
+// txpool precheck and the execution path.
+func TestUNOTxPoolExecutionRejectParityTransferReceiverSignerTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	// Use the pool's secp256k1 key address as receiver so we can attach
+	// secp256k1 signer metadata — the wrong type for a UNO Transfer.
+	receiver := crypto.PubkeyToAddress(key.PublicKey)
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOTransferWire(t, receiver))
+	testSetElgamalSigner(pool, from, pub)
+	testSetSecp256k1Signer(pool, receiver, crypto.FromECDSAPub(&key.PublicKey))
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrSignerTypeMismatch) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrSignerTypeMismatch, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	testSetSecp256k1SignerInState(execState, receiver, crypto.FromECDSAPub(&key.PublicKey))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrSignerTypeMismatch) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrSignerTypeMismatch, res.Err)
 	}
 }
 
