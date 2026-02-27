@@ -3,11 +3,11 @@ package uno
 import "github.com/tos-network/gtos/common"
 
 const (
-	PayloadPrefix = "GTOSUNO1"
+	PayloadPrefix = ProtocolPayloadPrefix
 
-	ActionShield   uint8 = 0x02
-	ActionTransfer uint8 = 0x03
-	ActionUnshield uint8 = 0x04
+	ActionShield   uint8 = ActionIDShield
+	ActionTransfer uint8 = ActionIDTransfer
+	ActionUnshield uint8 = ActionIDUnshield
 
 	CiphertextSize = 32
 )

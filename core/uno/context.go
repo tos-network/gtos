@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	unoContextVersion byte = 1
-	unoNativeAssetTag byte = 0
+	unoContextVersion = TranscriptContextVersion
+	unoNativeAssetTag = TranscriptNativeAssetTag
 )
 
 func appendU8(dst []byte, v byte) []byte {

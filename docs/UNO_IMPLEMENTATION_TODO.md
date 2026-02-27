@@ -18,10 +18,10 @@ Status legend:
 
 ## 0. Alignment Baseline and Freeze
 
-- [ ] Freeze canonical transcript labels/domains for GTOS UNO v1.
-- [ ] Freeze action wire IDs and field ordering for UNO payloads.
-- [ ] Freeze GTOS/XELIS semantic mapping table (same meaning, different wire allowed).
-- [ ] Add one source-of-truth constants block for all transcript tags and separators.
+- [x] Freeze canonical transcript labels/domains for GTOS UNO v1 (`core/uno/protocol_constants.go`, `docs/UNO_PROTOCOL_FREEZE.md`).
+- [x] Freeze action wire IDs and field ordering for UNO payloads (golden wire vectors in `core/uno/protocol_constants_test.go` + `FrozenPayloadFieldOrder`).
+- [x] Freeze GTOS/XELIS semantic mapping table (same meaning, different wire allowed) in `docs/UNO_PROTOCOL_FREEZE.md`.
+- [x] Add one source-of-truth constants block for all transcript tags and separators (`core/uno/protocol_constants.go`).
 
 DoD:
 - All proof builders/verifiers import a single constants source.
@@ -130,7 +130,7 @@ DoD:
 ### 7.1 Unit
 - [x] Payload codec tests.
 - [x] UNO state slot tests.
-- [/] Transcript domain-separation tests (context serialization/layout tests landed; prover/verifier differential vectors still pending).
+- [/] Transcript domain-separation tests (context serialization/layout + field-diff matrices + protocol-freeze constants/wire golden tests landed; prover/verifier differential vectors still pending).
 - [/] Crypto vector tests (fixed C vectors done; Rust differential pending).
 
 ### 7.2 Core
