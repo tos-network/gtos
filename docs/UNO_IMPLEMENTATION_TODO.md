@@ -118,7 +118,7 @@ Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 - [x] `tos_unoDecryptBalance` RPC: reads ciphertext from state, decrypts with private key, solves ECDLP with BSGS (`crypto/uno/ecdlp.go`).
 - [x] `tos_unoBalance` RPC: decrypts balance using already-unlocked keystore account (private key never crosses RPC wire).
 - [x] `toskey uno-balance` CLI: local keyfile decrypt + `tos_getUNOCiphertext` + ECDLP in-process; private key never leaves the machine.
-- [ ] Nonce/version-aware local state update and rollback handling.
+- [x] Nonce/version-aware local state update and rollback handling (`toskey uno-balance --track-state`, `--track-accept-reorg`; tracker tests in `internal/unotracker/state_test.go`).
 - [ ] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation.
 
 DoD:

@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/cmd/utils"
 	"github.com/tos-network/gtos/common/hexutil"
 	cryptouno "github.com/tos-network/gtos/crypto/uno"
+	"github.com/tos-network/gtos/internal/unotracker"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/urfave/cli/v2"
 )
@@ -29,6 +30,15 @@ var (
 		Name:  "block",
 		Usage: "block number or tag (latest, earliest, pending)",
 		Value: "latest",
+	}
+	unoTrackStateFlag = &cli.StringFlag{
+		Name:  "track-state",
+		Usage: "optional path to local UNO state tracker file (version/block monotonic checks)",
+	}
+	unoTrackAcceptReorgFlag = &cli.BoolFlag{
+		Name:  "track-accept-reorg",
+		Usage: "accept backward block/version transitions and overwrite tracker state",
+		Value: false,
 	}
 )
 
@@ -58,6 +68,8 @@ Example:
 		rpcURLFlag,
 		maxAmountFlag,
 		blockFlag,
+		unoTrackStateFlag,
+		unoTrackAcceptReorgFlag,
 	},
 	Action: func(ctx *cli.Context) error {
 		// 1. Read keyfile.
@@ -136,6 +148,33 @@ Example:
 			Balance:     balance,
 			Version:     uint64(ct.Version),
 			BlockNumber: uint64(ct.BlockNumber),
+		}
+
+		trackPath := ctx.String(unoTrackStateFlag.Name)
+		if trackPath != "" {
+			if blockArg != "latest" {
+				utils.Fatalf("--track-state requires --block latest, got %q", blockArg)
+			}
+			prev, err := unotracker.Load(trackPath)
+			if err != nil {
+				utils.Fatalf("Failed to load tracker state: %v", err)
+			}
+			if err := unotracker.Validate(prev, unotracker.State{
+				Address:     out.Address,
+				Balance:     out.Balance,
+				Version:     out.Version,
+				BlockNumber: out.BlockNumber,
+			}, ctx.Bool(unoTrackAcceptReorgFlag.Name)); err != nil {
+				utils.Fatalf("Tracker validation failed: %v", err)
+			}
+			if err := unotracker.Save(trackPath, unotracker.State{
+				Address:     out.Address,
+				Balance:     out.Balance,
+				Version:     out.Version,
+				BlockNumber: out.BlockNumber,
+			}); err != nil {
+				utils.Fatalf("Failed to persist tracker state: %v", err)
+			}
 		}
 		if ctx.Bool(jsonFlag.Name) {
 			mustPrintJSON(out)
