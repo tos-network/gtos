@@ -31,7 +31,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/tosdb"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/light"
@@ -43,7 +42,6 @@ type LesApiBackend struct {
 	extRPCEnabled       bool
 	allowUnprotectedTxs bool
 	les                 *LightEthereum
-	gpo                 *gasprice.Oracle
 }
 
 func (b *LesApiBackend) ChainConfig() *params.ChainConfig {
@@ -253,12 +251,36 @@ func (b *LesApiBackend) ProtocolVersion() int {
 	return b.les.LesVersion() + 10000
 }
 
-func (b *LesApiBackend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	return b.gpo.SuggestTipCap(ctx)
+func (b *LesApiBackend) SuggestGasTipCap(_ context.Context) (*big.Int, error) {
+	return params.GTOSPrice(), nil
 }
 
-func (b *LesApiBackend) FeeHistory(ctx context.Context, blockCount int, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (firstBlock *big.Int, reward [][]*big.Int, baseFee []*big.Int, gasUsedRatio []float64, err error) {
-	return b.gpo.FeeHistory(ctx, blockCount, lastBlock, rewardPercentiles)
+func (b *LesApiBackend) FeeHistory(_ context.Context, blockCount int, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (firstBlock *big.Int, reward [][]*big.Int, baseFee []*big.Int, gasUsedRatio []float64, err error) {
+	if blockCount < 0 {
+		return nil, nil, nil, nil, errors.New("invalid blockCount")
+	}
+	if blockCount == 0 {
+		blockCount = 1
+	}
+	fixed := params.GTOSPrice()
+	if lastBlock >= 0 {
+		firstBlock = big.NewInt(int64(lastBlock))
+	} else {
+		firstBlock = new(big.Int).SetUint64(b.les.blockchain.CurrentHeader().Number.Uint64())
+	}
+	reward = make([][]*big.Int, blockCount)
+	for i := range reward {
+		reward[i] = make([]*big.Int, len(rewardPercentiles))
+		for j := range reward[i] {
+			reward[i][j] = new(big.Int).Set(fixed)
+		}
+	}
+	baseFee = make([]*big.Int, blockCount+1)
+	for i := range baseFee {
+		baseFee[i] = new(big.Int)
+	}
+	gasUsedRatio = make([]float64, blockCount)
+	return firstBlock, reward, baseFee, gasUsedRatio, nil
 }
 
 func (b *LesApiBackend) ChainDb() tosdb.Database {

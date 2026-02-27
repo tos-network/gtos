@@ -32,7 +32,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/tos/tosconfig"
-	"github.com/tos-network/gtos/tos/gasprice"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/tosapi"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
@@ -175,9 +174,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*LightEthereum, error) {
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
 
-	leth.ApiBackend = &LesApiBackend{stack.Config().ExtRPCEnabled(), false, leth, nil}
-	gpoParams := gasprice.Config{}
-	leth.ApiBackend.gpo = gasprice.NewOracle(leth.ApiBackend, gpoParams)
+	leth.ApiBackend = &LesApiBackend{stack.Config().ExtRPCEnabled(), false, leth}
 
 	leth.handler = newClientHandler(config.UltraLightServers, config.UltraLightFraction, checkpoint, leth)
 	if leth.handler.ulc != nil {
