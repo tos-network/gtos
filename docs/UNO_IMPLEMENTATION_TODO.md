@@ -88,7 +88,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
 - [x] Consensus-critical semantic checks mirrored: sender/receiver version overflow (all 3 actions) and combined gas+shield-amount balance guard for Shield.
-- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, shield insufficient-balance, transfer receiver version-overflow, unshield sender version-overflow, transfer receiver missing-signer, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
+- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, shield insufficient-balance, sender signer missing/type-mismatch, transfer receiver version-overflow, unshield sender version-overflow, transfer receiver missing-signer, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
 
 DoD:
 - Same tx is accepted/rejected for the same reason by both paths.

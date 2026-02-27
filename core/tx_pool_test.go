@@ -267,6 +267,20 @@ func testSetElgamalSigner(pool *TxPool, addr common.Address, pub []byte) {
 	pool.mu.Unlock()
 }
 
+func testSetSecp256k1SignerInState(st *state.StateDB, addr common.Address, pubUncompressed []byte) {
+	_, _, normalized, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeSecp256k1, hexutil.Encode(pubUncompressed))
+	if err != nil {
+		panic(err)
+	}
+	accountsigner.Set(st, addr, accountsigner.SignerTypeSecp256k1, normalized)
+}
+
+func testSetSecp256k1Signer(pool *TxPool, addr common.Address, pubUncompressed []byte) {
+	pool.mu.Lock()
+	testSetSecp256k1SignerInState(pool.currentState, addr, pubUncompressed)
+	pool.mu.Unlock()
+}
+
 func testSetBalanceExact(pool *TxPool, addr common.Address, amount *big.Int) {
 	pool.mu.Lock()
 	pool.currentState.SetBalance(addr, new(big.Int).Set(amount))
@@ -1077,6 +1091,76 @@ func TestUNOTxPoolExecutionRejectParityUnsupportedAction(t *testing.T) {
 	}
 	if !errors.Is(res.Err, coreuno.ErrUnsupportedAction) {
 		t.Fatalf("execution expected %v, got %v", coreuno.ErrUnsupportedAction, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParitySenderSignerTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	tx := testUNOTx(t, key, 0, 1_000_000, testUNOShieldWire(t, 1))
+	from, _ := deriveSender(tx)
+	testSetSecp256k1Signer(pool, from, crypto.FromECDSAPub(&key.PublicKey))
+	// Balance is enough for gas + 1 TOS shield amount.
+	testSetBalanceExact(pool, from, new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS)))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrSignerTypeMismatch) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrSignerTypeMismatch, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	testSetSecp256k1SignerInState(execState, from, crypto.FromECDSAPub(&key.PublicKey))
+	execState.SetBalance(from, new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS)))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrSignerTypeMismatch) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrSignerTypeMismatch, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityMissingSenderSigner(t *testing.T) {
+	t.Parallel()
+
+	pool, key := setupTxPool()
+	defer pool.Stop()
+
+	tx := testUNOTx(t, key, 0, 1_000_000, testUNOShieldWire(t, 1))
+	from, _ := deriveSender(tx)
+	// No signer metadata for sender account.
+	testSetBalanceExact(pool, from, new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS)))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrSignerNotConfigured, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	execState.SetBalance(from, new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS)))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrSignerNotConfigured) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrSignerNotConfigured, res.Err)
 	}
 }
 
