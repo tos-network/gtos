@@ -670,7 +670,7 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 			return 0, ErrInsufficientFundsForTransfer
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, ErrContractNotSupported
+			return 0, uno.ErrInvalidPayload
 		}
 		if err := uno.ValidateShieldProofBundleShape(payload.ProofBundle); err != nil {
 			return 0, err
@@ -682,7 +682,7 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 			return 0, err
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, ErrContractNotSupported
+			return 0, uno.ErrInvalidPayload
 		}
 		if err := uno.ValidateTransferProofBundleShape(payload.ProofBundle); err != nil {
 			return 0, err
@@ -702,7 +702,7 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 			return 0, err
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, ErrContractNotSupported
+			return 0, uno.ErrInvalidPayload
 		}
 		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
 			return 0, err
