@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -265,6 +266,14 @@ func testSetElgamalSigner(pool *TxPool, addr common.Address, pub []byte) {
 	pool.mu.Unlock()
 }
 
+func testSetUNOVersion(pool *TxPool, addr common.Address, version uint64) {
+	pool.mu.Lock()
+	st := coreuno.GetAccountState(pool.currentState, addr)
+	st.Version = version
+	coreuno.SetAccountState(pool.currentState, addr, st)
+	pool.mu.Unlock()
+}
+
 func testUNOCiphertext(commitment, handle []byte) coreuno.Ciphertext {
 	var ct coreuno.Ciphertext
 	copy(ct.Commitment[:], commitment)
@@ -283,6 +292,42 @@ func testUNOShieldWire(t *testing.T, amount uint64) []byte {
 		t.Fatalf("EncodeShieldPayload: %v", err)
 	}
 	wire, err := coreuno.EncodeEnvelope(coreuno.ActionShield, payload)
+	if err != nil {
+		t.Fatalf("EncodeEnvelope: %v", err)
+	}
+	return wire
+}
+
+func testUNOTransferWire(t *testing.T, to common.Address) []byte {
+	t.Helper()
+	payload, err := coreuno.EncodeTransferPayload(coreuno.TransferPayload{
+		To:            to,
+		NewSender:     testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ReceiverDelta: testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+	})
+	if err != nil {
+		t.Fatalf("EncodeTransferPayload: %v", err)
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionTransfer, payload)
+	if err != nil {
+		t.Fatalf("EncodeEnvelope: %v", err)
+	}
+	return wire
+}
+
+func testUNOUnshieldWire(t *testing.T, to common.Address, amount uint64) []byte {
+	t.Helper()
+	payload, err := coreuno.EncodeUnshieldPayload(coreuno.UnshieldPayload{
+		To:          to,
+		Amount:      amount,
+		NewSender:   testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
+		ProofBundle: make([]byte, coreuno.BalanceProofSize),
+	})
+	if err != nil {
+		t.Fatalf("EncodeUnshieldPayload: %v", err)
+	}
+	wire, err := coreuno.EncodeEnvelope(coreuno.ActionUnshield, payload)
 	if err != nil {
 		t.Fatalf("EncodeEnvelope: %v", err)
 	}
@@ -474,6 +519,82 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
 		t.Fatalf("expected %v, got %v", coreuno.ErrInvalidPayload, err)
 	}
+}
+
+func TestTxPoolUNOShieldRejectsInsufficientPublicBalance(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, math.MaxUint64))
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetElgamalSigner(pool, from, pub)
+
+	if err := pool.AddRemote(tx); !errors.Is(err, ErrInsufficientFundsForTransfer) {
+		t.Fatalf("expected %v, got %v", ErrInsufficientFundsForTransfer, err)
+	}
+}
+
+func TestTxPoolUNORejectsVersionOverflow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("shield sender overflow", func(t *testing.T) {
+		pool, _ := setupTxPool()
+		defer pool.Stop()
+
+		tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, 1))
+		testAddBalance(pool, from, big.NewInt(1_000_000))
+		testSetElgamalSigner(pool, from, pub)
+		testSetUNOVersion(pool, from, math.MaxUint64)
+
+		if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrVersionOverflow) {
+			t.Fatalf("expected %v, got %v", coreuno.ErrVersionOverflow, err)
+		}
+	})
+
+	t.Run("transfer receiver overflow", func(t *testing.T) {
+		pool, _ := setupTxPool()
+		defer pool.Stop()
+
+		receiverPriv, err := accountsigner.GenerateElgamalPrivateKey(crand.Reader)
+		if err != nil {
+			t.Fatalf("GenerateElgamalPrivateKey(receiver): %v", err)
+		}
+		receiverPub, err := accountsigner.PublicKeyFromElgamalPrivate(receiverPriv)
+		if err != nil {
+			t.Fatalf("PublicKeyFromElgamalPrivate(receiver): %v", err)
+		}
+		receiver, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, receiverPub)
+		if err != nil {
+			t.Fatalf("AddressFromSigner(receiver): %v", err)
+		}
+
+		tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOTransferWire(t, receiver))
+		testAddBalance(pool, from, big.NewInt(1_000_000))
+		testSetElgamalSigner(pool, from, pub)
+		testSetElgamalSigner(pool, receiver, receiverPub)
+		testSetUNOVersion(pool, receiver, math.MaxUint64)
+
+		if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrVersionOverflow) {
+			t.Fatalf("expected %v, got %v", coreuno.ErrVersionOverflow, err)
+		}
+	})
+
+	t.Run("unshield sender overflow", func(t *testing.T) {
+		pool, _ := setupTxPool()
+		defer pool.Stop()
+
+		to := common.HexToAddress("0x4321")
+		tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOUnshieldWire(t, to, 1))
+		testAddBalance(pool, from, big.NewInt(1_000_000))
+		testSetElgamalSigner(pool, from, pub)
+		testSetUNOVersion(pool, from, math.MaxUint64)
+
+		if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrVersionOverflow) {
+			t.Fatalf("expected %v, got %v", coreuno.ErrVersionOverflow, err)
+		}
+	})
 }
 
 func TestTransactionQueue(t *testing.T) {

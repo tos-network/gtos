@@ -661,6 +661,12 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		if err != nil {
 			return 0, err
 		}
+		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
+			return 0, uno.ErrVersionOverflow
+		}
+		if statedb.GetBalance(from).Cmp(new(big.Int).SetUint64(payload.Amount)) < 0 {
+			return 0, ErrInsufficientFundsForTransfer
+		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return 0, ErrContractNotSupported
 		}
@@ -682,6 +688,11 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		if _, err := uno.RequireElgamalSigner(statedb, payload.To); err != nil {
 			return 0, err
 		}
+		senderState := uno.GetAccountState(statedb, from)
+		receiverState := uno.GetAccountState(statedb, payload.To)
+		if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
+			return 0, uno.ErrVersionOverflow
+		}
 		return params.UNOBaseGas + params.UNOTransferGas, nil
 	case uno.ActionUnshield:
 		payload, err := uno.DecodeUnshieldPayload(env.Body)
@@ -693,6 +704,9 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		}
 		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
 			return 0, err
+		}
+		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
+			return 0, uno.ErrVersionOverflow
 		}
 		return params.UNOBaseGas + params.UNOUnshieldGas, nil
 	default:

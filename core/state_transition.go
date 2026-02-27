@@ -408,8 +408,15 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
 			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 		}
-		// Shield has no on-chain receiver; use zero address in context.
-		shieldCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), common.Address{})
+		senderState := uno.GetAccountState(st.state, msg.From())
+		shieldCtx := uno.BuildUNOShieldTranscriptContext(
+			st.chainConfig.ChainID,
+			msg.From(),
+			msg.Nonce(),
+			payload.Amount,
+			senderState.Ciphertext,
+			payload.NewSender,
+		)
 		if err := uno.VerifyShieldProofBundleWithContext(
 			payload.ProofBundle,
 			payload.NewSender.Commitment[:],
@@ -421,7 +428,6 @@ func (st *StateTransition) applyUNO(msg Message) error {
 			return err
 		}
 
-		senderState := uno.GetAccountState(st.state, msg.From())
 		nextSenderCiphertext, err := uno.AddCiphertexts(senderState.Ciphertext, payload.NewSender)
 		if err != nil {
 			return err
@@ -459,7 +465,16 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil {
 			return err
 		}
-		transferCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), payload.To)
+		transferCtx := uno.BuildUNOTransferTranscriptContext(
+			st.chainConfig.ChainID,
+			msg.From(),
+			payload.To,
+			msg.Nonce(),
+			senderState.Ciphertext,
+			payload.NewSender,
+			receiverState.Ciphertext,
+			payload.ReceiverDelta,
+		)
 		if err := uno.VerifyTransferProofBundleWithContext(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey, transferCtx); err != nil {
 			return err
 		}
@@ -494,7 +509,15 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil {
 			return err
 		}
-		unshieldCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), payload.To)
+		unshieldCtx := uno.BuildUNOUnshieldTranscriptContext(
+			st.chainConfig.ChainID,
+			msg.From(),
+			payload.To,
+			msg.Nonce(),
+			payload.Amount,
+			senderState.Ciphertext,
+			payload.NewSender,
+		)
 		if err := uno.VerifyUnshieldProofBundleWithContext(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount, unshieldCtx); err != nil {
 			return err
 		}

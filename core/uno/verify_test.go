@@ -20,6 +20,21 @@ func TestVerifyShieldProofBundleBackendUnavailable(t *testing.T) {
 	}
 }
 
+func TestVerifyShieldProofBundleWithContextBackendUnavailable(t *testing.T) {
+	proof := make([]byte, ShieldProofSize)
+	commitment := make([]byte, 32)
+	handle := make([]byte, 32)
+	pubkey := make([]byte, 32)
+	ctx := make([]byte, 83)
+	err := VerifyShieldProofBundleWithContext(proof, commitment, handle, pubkey, 1, ctx)
+	if err == nil {
+		t.Fatalf("expected verification error")
+	}
+	if !errors.Is(err, ErrProofNotImplemented) && !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("expected ErrProofNotImplemented or ErrInvalidPayload, got %v", err)
+	}
+}
+
 func TestDecodeCTValidityProofBundleLength(t *testing.T) {
 	if _, err := decodeCTValidityProofBundle(make([]byte, CTValidityProofSizeT0), false); err != nil {
 		t.Fatalf("unexpected error for T0 length: %v", err)
@@ -99,10 +114,29 @@ func TestVerifyTransferProofBundleRejectsMismatchedCommitment(t *testing.T) {
 	}
 }
 
+func TestVerifyTransferProofBundleWithContextRejectsMismatchedCommitment(t *testing.T) {
+	var senderDelta Ciphertext
+	var receiverDelta Ciphertext
+	senderDelta.Commitment[0] = 0x01
+	receiverDelta.Commitment[0] = 0x02
+	bundle := make([]byte, CTValidityProofSizeT1+BalanceProofSize)
+	if err := VerifyTransferProofBundleWithContext(bundle, senderDelta, receiverDelta, make([]byte, 32), make([]byte, 32), make([]byte, 83)); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("expected ErrInvalidPayload, got %v", err)
+	}
+}
+
 func TestVerifyUnshieldProofBundleAmountMismatch(t *testing.T) {
 	bundle := make([]byte, BalanceProofSize)
 	binary.BigEndian.PutUint64(bundle[:8], 7)
 	if err := VerifyUnshieldProofBundle(bundle, Ciphertext{}, make([]byte, 32), 8); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("expected ErrInvalidPayload, got %v", err)
+	}
+}
+
+func TestVerifyUnshieldProofBundleWithContextAmountMismatch(t *testing.T) {
+	bundle := make([]byte, BalanceProofSize)
+	binary.BigEndian.PutUint64(bundle[:8], 7)
+	if err := VerifyUnshieldProofBundleWithContext(bundle, Ciphertext{}, make([]byte, 32), 8, make([]byte, 83)); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatalf("expected ErrInvalidPayload, got %v", err)
 	}
 }

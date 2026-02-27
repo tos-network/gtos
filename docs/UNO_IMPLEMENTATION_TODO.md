@@ -66,14 +66,14 @@ transcript-bound proofs + source balance transition correctness + range constrai
 - [x] UNO router path and action dispatch are live.
 - [/] `UNO_TRANSFER` full transition semantics still in progress.
 - [/] `UNO_UNSHIELD` full transition semantics still in progress.
-- [ ] Bind proofs to full chain context transcript:
-  - [ ] `chainId`
-  - [ ] `actionTag`
-  - [ ] `from`
-  - [ ] `to` (if applicable)
-  - [ ] sender nonce
-  - [ ] old/new commitments and handles
-  - [ ] native asset constant
+- [/] Bind proofs to full chain context transcript:
+  - [x] `chainId`
+  - [x] `actionTag`
+  - [x] `from`
+  - [x] `to` (if applicable)
+  - [x] sender nonce
+  - [x] old/new commitments and handles
+  - [x] native asset constant
 - [ ] Ensure replay-hardening matrix is complete (cross-chain, cross-action, cross-tx-context).
 
 DoD:
@@ -87,7 +87,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
-- [/] Consensus-critical semantic checks mirrored incompletely.
+- [/] Consensus-critical semantic checks mirrored incompletely (sender/receiver UNO version overflow and shield public-balance checks are mirrored; proof verification still execution-only).
 - [ ] Add explicit parity tests for accept/reject reasons between txpool and execution.
 
 DoD:
@@ -128,7 +128,7 @@ DoD:
 ### 7.1 Unit
 - [x] Payload codec tests.
 - [x] UNO state slot tests.
-- [ ] Transcript domain-separation tests.
+- [/] Transcript domain-separation tests (context serialization/layout tests landed; prover/verifier differential vectors still pending).
 - [/] Crypto vector tests (fixed C vectors done; Rust differential pending).
 
 ### 7.2 Core
