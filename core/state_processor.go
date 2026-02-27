@@ -137,6 +137,7 @@ func ExecuteTransactions(
 
 // TxAsMessageWithAccountSigner converts a transaction to a Message using the
 // account-based signer (resolves sender from state for SignerTx types).
+// For non-SignerTx types (legacy, EIP-2930, EIP-1559), falls back to ECDSA recovery.
 func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, baseFee *big.Int, statedb *state.StateDB) (types.Message, error) {
 	txPrice := new(big.Int).Set(tx.TxPrice())
 	gasFeeCap := new(big.Int).Set(tx.GasFeeCap())
@@ -144,7 +145,15 @@ func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, ba
 	if baseFee != nil {
 		txPrice = cmath.BigMin(new(big.Int).Add(gasTipCap, baseFee), gasFeeCap)
 	}
-	from, err := ResolveSender(tx, signer, statedb)
+	var (
+		from common.Address
+		err  error
+	)
+	if tx.Type() == types.SignerTxType {
+		from, err = ResolveSender(tx, signer, statedb)
+	} else {
+		from, err = types.Sender(signer, tx)
+	}
 	if err != nil {
 		return types.Message{}, err
 	}

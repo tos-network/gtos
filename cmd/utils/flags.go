@@ -49,6 +49,7 @@ import (
 	"github.com/tos-network/gtos/p2p/netutil"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/les"
 	"github.com/tos-network/gtos/tos"
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/filters"
@@ -1686,14 +1687,21 @@ func SetDNSDiscoveryDefaults(cfg *tosconfig.Config, genesis common.Hash) {
 // node is running as a light client.
 func RegisterTOSService(stack *node.Node, cfg *tosconfig.Config) (tosapi.Backend, *tos.TOS) {
 	if cfg.SyncMode == downloader.LightSync {
-		Fatalf("light sync mode is not supported in gtos consensus-layer profile")
+		backend, err := les.New(stack, cfg)
+		if err != nil {
+			Fatalf("Failed to register the Ethereum service: %v", err)
+		}
+		return backend.ApiBackend, nil
 	}
 	backend, err := tos.New(stack, cfg)
 	if err != nil {
-		Fatalf("Failed to register the TOS service: %v", err)
+		Fatalf("Failed to register the Ethereum service: %v", err)
 	}
 	if cfg.LightServ > 0 {
-		log.Warn("Ignoring light server setting in gtos consensus-layer profile", "light.serve", cfg.LightServ)
+		_, err := les.NewLesServer(stack, backend, cfg)
+		if err != nil {
+			Fatalf("Failed to create the LES server: %v", err)
+		}
 	}
 	return backend.APIBackend, backend
 }

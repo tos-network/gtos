@@ -94,8 +94,12 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 		if err != nil {
 			return common.Address{}, err
 		}
-		if recovered != from {
+		// Zero explicit from is treated as "not set" (compatibility with NewTransaction constructor).
+		if from != (common.Address{}) && recovered != from {
 			return common.Address{}, fmt.Errorf("%w: expected %s got %s", ErrAccountSignerMismatch, from.Hex(), recovered.Hex())
+		}
+		if from == (common.Address{}) {
+			from = recovered
 		}
 		cfgType, cfgValue, configured := accountsigner.Get(statedb, from)
 		if !configured {

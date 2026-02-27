@@ -66,7 +66,16 @@ var (
 		utils.GCModeFlag,
 		utils.SnapshotFlag,
 		utils.TxLookupLimitFlag,
+		utils.LightServeFlag,
+		utils.LightIngressFlag,
+		utils.LightEgressFlag,
+		utils.LightMaxPeersFlag,
+		utils.LightNoPruneFlag,
 		utils.LightKDFFlag,
+		utils.UltraLightServersFlag,
+		utils.UltraLightFractionFlag,
+		utils.UltraLightOnlyAnnounceFlag,
+		utils.LightNoSyncServeFlag,
 		utils.TOSRequiredBlocksFlag,
 		utils.LegacyWhitelistFlag,
 		utils.BloomFilterSizeFlag,
@@ -251,12 +260,17 @@ func prepare(ctx *cli.Context) {
 		log.Info("Starting GTOS on TOS mainnet...")
 	}
 	// If we're on mainnet without --cache specified, bump default cache allowance.
-	if !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
+	if ctx.String(utils.SyncModeFlag.Name) != "light" && !ctx.IsSet(utils.CacheFlag.Name) && !ctx.IsSet(utils.NetworkIdFlag.Name) {
 		// Make sure we're not on developer mode.
 		if !ctx.Bool(utils.DeveloperFlag.Name) && !ctx.Bool(utils.TestnetFlag.Name) {
 			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)
 			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096))
 		}
+	}
+	// If we're running a light client on any network, drop the cache to some meaningfully low amount
+	if ctx.String(utils.SyncModeFlag.Name) == "light" && !ctx.IsSet(utils.CacheFlag.Name) {
+		log.Info("Dropping default light client cache", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 128)
+		ctx.Set(utils.CacheFlag.Name, strconv.Itoa(128))
 	}
 
 	// Start metrics export if enabled
@@ -361,6 +375,10 @@ func startNode(ctx *cli.Context, stack *node.Node, backend tosapi.Backend, isCon
 
 	// Start auxiliary services if enabled
 	if ctx.Bool(utils.MiningEnabledFlag.Name) || ctx.Bool(utils.DeveloperFlag.Name) {
+		// Mining only makes sense if a full Ethereum node is running
+		if ctx.String(utils.SyncModeFlag.Name) == "light" {
+			utils.Fatalf("Light clients do not support mining")
+		}
 		tosBackend, ok := backend.(*tos.TOSAPIBackend)
 		if !ok {
 			utils.Fatalf("TOS service not running")

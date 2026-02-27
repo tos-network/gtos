@@ -115,6 +115,14 @@ var NetworkNames = map[string]string{
 	TestnetChainConfig.ChainID.String(): "testnet",
 }
 
+// CheckpointOracleConfig represents a set of checkpoint contract (which acts as
+// an oracle) config used for light client checkpoint syncing.
+type CheckpointOracleConfig struct {
+	Address   common.Address   `json:"address"`
+	Signers   []common.Address `json:"signers"`
+	Threshold uint64           `json:"threshold"`
+}
+
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
 // BloomTrie) associated with the appropriate section index and head hash. It is
 // used to start light syncing from this checkpoint and avoid downloading the
@@ -398,6 +406,12 @@ type Rules struct {
 }
 
 // Rules ensures c's ChainID is not nil.
+// IsIstanbul returns true always — GTOS treats all blocks as post-Istanbul.
+func (c *ChainConfig) IsIstanbul(_ *big.Int) bool { return true }
+
+// IsBerlin returns true always — GTOS treats all blocks as post-Berlin.
+func (c *ChainConfig) IsBerlin(_ *big.Int) bool { return true }
+
 func (c *ChainConfig) Rules(_ *big.Int, isMerge bool) Rules {
 	chainID := c.ChainID
 	if chainID == nil {
