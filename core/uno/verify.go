@@ -66,6 +66,80 @@ func VerifyRangeProofBundle(bundle []byte, commitments []byte, bitLengths []byte
 	return mapCryptoVerifyError(cryptouno.VerifyRangeProof(proof, commitments, bitLengths, batchLen))
 }
 
+// VerifyShieldProofBundleWithContext verifies a Shield proof bundle with chain
+// context bound into the Merlin transcript for replay hardening.
+func VerifyShieldProofBundleWithContext(bundle []byte, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+	proof, err := decodeShieldProofBundle(bundle)
+	if err != nil {
+		return err
+	}
+	return mapCryptoVerifyError(cryptouno.VerifyShieldProofWithContext(proof, commitment, receiverHandle, receiverPubkey, amount, ctx))
+}
+
+// VerifyTransferProofBundleWithContext verifies a Transfer proof bundle with
+// chain context bound into the Merlin transcript for replay hardening.
+func VerifyTransferProofBundleWithContext(bundle []byte, senderDelta, receiverDelta Ciphertext, senderPubkey, receiverPubkey []byte, ctx []byte) error {
+	parts, err := decodeTransferProofBundle(bundle)
+	if err != nil {
+		return err
+	}
+	if senderDelta.Commitment != receiverDelta.Commitment {
+		return ErrInvalidPayload
+	}
+	if err := mapCryptoVerifyError(cryptouno.VerifyCTValidityProofWithContext(
+		parts.ctValidity,
+		receiverDelta.Commitment[:],
+		senderDelta.Handle[:],
+		receiverDelta.Handle[:],
+		senderPubkey,
+		receiverPubkey,
+		true,
+		ctx,
+	)); err != nil {
+		return err
+	}
+	if err := mapCryptoVerifyError(cryptouno.VerifyBalanceProofWithContext(
+		parts.balance,
+		senderPubkey,
+		ciphertextToBytes(senderDelta),
+		ctx,
+	)); err != nil {
+		return err
+	}
+	if len(parts.rangeProof) == 0 {
+		return nil
+	}
+	// Range proofs are self-contained; no chain context injection needed.
+	return mapCryptoVerifyError(cryptouno.VerifyRangeProof(
+		parts.rangeProof,
+		receiverDelta.Commitment[:],
+		[]byte{64},
+		1,
+	))
+}
+
+// VerifyUnshieldProofBundleWithContext verifies an Unshield proof bundle with
+// chain context bound into the Merlin transcript for replay hardening.
+func VerifyUnshieldProofBundleWithContext(bundle []byte, senderDelta Ciphertext, senderPubkey []byte, amount uint64, ctx []byte) error {
+	parts, err := decodeUnshieldProofBundle(bundle)
+	if err != nil {
+		return err
+	}
+	proofAmount, err := decodeBalanceProofAmount(parts.balance)
+	if err != nil {
+		return err
+	}
+	if proofAmount != amount {
+		return ErrInvalidPayload
+	}
+	return mapCryptoVerifyError(cryptouno.VerifyBalanceProofWithContext(
+		parts.balance,
+		senderPubkey,
+		ciphertextToBytes(senderDelta),
+		ctx,
+	))
+}
+
 func VerifyTransferProofBundle(bundle []byte, senderDelta, receiverDelta Ciphertext, senderPubkey, receiverPubkey []byte) error {
 	parts, err := decodeTransferProofBundle(bundle)
 	if err != nil {

@@ -23,14 +23,20 @@ type openingVectorCase struct {
 }
 
 type ctOpsVectorCase struct {
-	PrivHex        string `json:"priv_hex"`
-	PubHex         string `json:"pub_hex"`
-	Opening1Hex    string `json:"opening1_hex"`
-	Opening2Hex    string `json:"opening2_hex"`
-	Ct9Hex         string `json:"ct9_hex"`
-	Ct4Hex         string `json:"ct4_hex"`
-	AddHex         string `json:"add_hex"`
-	AddAmountHex   string `json:"add_amount_hex"`
+	PrivHex         string `json:"priv_hex"`
+	PubHex          string `json:"pub_hex"`
+	Opening1Hex     string `json:"opening1_hex"`
+	Opening2Hex     string `json:"opening2_hex"`
+	Ct9Hex          string `json:"ct9_hex"`
+	Ct4Hex          string `json:"ct4_hex"`
+	AddHex          string `json:"add_hex"`
+	AddAmountHex    string `json:"add_amount_hex"`
+	Scalar5Hex      string `json:"scalar5_hex"`
+	Scalar2Hex      string `json:"scalar2_hex"`
+	AddScalarHex    string `json:"add_scalar_hex"`
+	SubScalarHex    string `json:"sub_scalar_hex"`
+	MulScalarHex    string `json:"mul_scalar_hex"`
+	ZeroHex         string `json:"zero_hex"`
 	DecryptPointHex string `json:"decrypt_point_hex"`
 }
 
@@ -260,6 +266,15 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 		t.Fatalf("add amount mismatch: got=%x want=%x", addAmt, wantAddAmt)
 	}
 
+	addScalar, err := AddScalarCompressed(ct9, mustDecodeHex(t, fx.CtOps.Scalar5Hex))
+	if err != nil {
+		t.Fatalf("AddScalarCompressed: %v", err)
+	}
+	wantAddScalar := mustDecodeHex(t, fx.CtOps.AddScalarHex)
+	if !bytes.Equal(addScalar, wantAddScalar) {
+		t.Fatalf("add scalar mismatch: got=%x want=%x", addScalar, wantAddScalar)
+	}
+
 	subAmt, err := SubAmountCompressed(addAmt, 5)
 	if err != nil {
 		t.Fatalf("SubAmountCompressed: %v", err)
@@ -267,6 +282,24 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	wantSubAmt := wantCt9
 	if !bytes.Equal(subAmt, wantSubAmt) {
 		t.Fatalf("sub amount mismatch: got=%x want=%x", subAmt, wantSubAmt)
+	}
+
+	subScalar, err := SubScalarCompressed(addScalar, mustDecodeHex(t, fx.CtOps.Scalar5Hex))
+	if err != nil {
+		t.Fatalf("SubScalarCompressed: %v", err)
+	}
+	wantSubScalar := mustDecodeHex(t, fx.CtOps.SubScalarHex)
+	if !bytes.Equal(subScalar, wantSubScalar) {
+		t.Fatalf("sub scalar mismatch: got=%x want=%x", subScalar, wantSubScalar)
+	}
+
+	mulScalar, err := MulScalarCompressed(ct9, mustDecodeHex(t, fx.CtOps.Scalar2Hex))
+	if err != nil {
+		t.Fatalf("MulScalarCompressed: %v", err)
+	}
+	wantMulScalar := mustDecodeHex(t, fx.CtOps.MulScalarHex)
+	if !bytes.Equal(mulScalar, wantMulScalar) {
+		t.Fatalf("mul scalar mismatch: got=%x want=%x", mulScalar, wantMulScalar)
 	}
 
 	pt9, err := DecryptToPoint(priv, ct9)
@@ -295,6 +328,20 @@ func TestInvalidInputMappingWithCgo(t *testing.T) {
 			name: "SubAmountCompressed bad len",
 			fn: func() error {
 				_, err := SubAmountCompressed(make([]byte, 65), 1)
+				return err
+			},
+		},
+		{
+			name: "AddScalarCompressed bad scalar len",
+			fn: func() error {
+				_, err := AddScalarCompressed(make([]byte, 64), make([]byte, 31))
+				return err
+			},
+		},
+		{
+			name: "MulScalarCompressed bad ct len",
+			fn: func() error {
+				_, err := MulScalarCompressed(make([]byte, 63), make([]byte, 32))
 				return err
 			},
 		},
@@ -348,6 +395,77 @@ func TestInvalidInputMappingWithCgo(t *testing.T) {
 				t.Fatalf("expected ErrInvalidInput, got %v", err)
 			}
 		})
+	}
+}
+
+func TestScalarOpsConsistencyWithCgo(t *testing.T) {
+	fx := loadFixture(t)
+	priv := bytes.Repeat([]byte{1}, 32)
+	pub, err := PublicKeyFromPrivate(priv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromPrivate: %v", err)
+	}
+	ct, err := Encrypt(pub, 9)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	scalarFive := mustDecodeHex(t, fx.CtOps.Scalar5Hex)
+	scalarTwo := mustDecodeHex(t, fx.CtOps.Scalar2Hex)
+
+	byScalar, err := AddScalarCompressed(ct, scalarFive)
+	if err != nil {
+		t.Fatalf("AddScalarCompressed: %v", err)
+	}
+	byAmount, err := AddAmountCompressed(ct, 5)
+	if err != nil {
+		t.Fatalf("AddAmountCompressed: %v", err)
+	}
+	normScalar, err := NormalizeCompressed(byScalar)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(scalar): %v", err)
+	}
+	normAmount, err := NormalizeCompressed(byAmount)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(amount): %v", err)
+	}
+	if !bytes.Equal(normScalar, normAmount) {
+		t.Fatal("add scalar and add amount mismatch")
+	}
+
+	back, err := SubScalarCompressed(byScalar, scalarFive)
+	if err != nil {
+		t.Fatalf("SubScalarCompressed: %v", err)
+	}
+	normBack, err := NormalizeCompressed(back)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(back): %v", err)
+	}
+	normOrig, err := NormalizeCompressed(ct)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(orig): %v", err)
+	}
+	if !bytes.Equal(normBack, normOrig) {
+		t.Fatal("sub scalar did not revert add scalar")
+	}
+
+	doubled, err := AddCompressedCiphertexts(ct, ct)
+	if err != nil {
+		t.Fatalf("AddCompressedCiphertexts: %v", err)
+	}
+	multiplied, err := MulScalarCompressed(ct, scalarTwo)
+	if err != nil {
+		t.Fatalf("MulScalarCompressed: %v", err)
+	}
+	normDouble, err := NormalizeCompressed(doubled)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(double): %v", err)
+	}
+	normMul, err := NormalizeCompressed(multiplied)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(mul): %v", err)
+	}
+	if !bytes.Equal(normDouble, normMul) {
+		t.Fatal("mul scalar(2) and ciphertext doubling mismatch")
 	}
 }
 
@@ -405,5 +523,83 @@ func TestGeneratedOpeningAndKeypairConsistency(t *testing.T) {
 	}
 	if !bytes.Equal(ct, ctByOpening) {
 		t.Fatal("EncryptWithGeneratedOpening mismatch with EncryptWithOpening")
+	}
+
+	addrMainnet, err := PublicKeyToAddress(pub, true)
+	if err != nil {
+		t.Fatalf("PublicKeyToAddress(mainnet): %v", err)
+	}
+	addrMainnet2, err := PublicKeyToAddress(pub, true)
+	if err != nil {
+		t.Fatalf("PublicKeyToAddress(mainnet second): %v", err)
+	}
+	if addrMainnet == "" || addrMainnet != addrMainnet2 {
+		t.Fatal("mainnet address must be non-empty and deterministic")
+	}
+	addrTestnet, err := PublicKeyToAddress(pub, false)
+	if err != nil {
+		t.Fatalf("PublicKeyToAddress(testnet): %v", err)
+	}
+	if addrTestnet == "" {
+		t.Fatal("testnet address must be non-empty")
+	}
+	if addrMainnet == addrTestnet {
+		t.Fatal("mainnet and testnet addresses should differ")
+	}
+}
+
+func TestZeroCiphertextPropertiesWithCgo(t *testing.T) {
+	fx := loadFixture(t)
+	zero, err := ZeroCiphertextCompressed()
+	if err != nil {
+		t.Fatalf("ZeroCiphertextCompressed: %v", err)
+	}
+	if len(zero) != 64 {
+		t.Fatalf("unexpected zero ciphertext length %d", len(zero))
+	}
+	normZero, err := NormalizeCompressed(zero)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(zero): %v", err)
+	}
+	if !bytes.Equal(zero, normZero) {
+		t.Fatal("zero ciphertext should already be normalized")
+	}
+	wantZero := mustDecodeHex(t, fx.CtOps.ZeroHex)
+	if !bytes.Equal(zero, wantZero) {
+		t.Fatalf("zero ciphertext mismatch: got=%x want=%x", zero, wantZero)
+	}
+
+	priv := bytes.Repeat([]byte{1}, 32)
+	pub, err := PublicKeyFromPrivate(priv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromPrivate: %v", err)
+	}
+	ct, err := Encrypt(pub, 11)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	add, err := AddCompressedCiphertexts(ct, zero)
+	if err != nil {
+		t.Fatalf("AddCompressedCiphertexts(ct, zero): %v", err)
+	}
+	sub, err := SubCompressedCiphertexts(ct, zero)
+	if err != nil {
+		t.Fatalf("SubCompressedCiphertexts(ct, zero): %v", err)
+	}
+	normCt, err := NormalizeCompressed(ct)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(ct): %v", err)
+	}
+	normAdd, err := NormalizeCompressed(add)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(add): %v", err)
+	}
+	normSub, err := NormalizeCompressed(sub)
+	if err != nil {
+		t.Fatalf("NormalizeCompressed(sub): %v", err)
+	}
+	if !bytes.Equal(normCt, normAdd) || !bytes.Equal(normCt, normSub) {
+		t.Fatal("zero ciphertext identity property failed")
 	}
 }

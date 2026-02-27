@@ -46,6 +46,38 @@ func NormalizeCompressed(in64 []byte) ([]byte, error) {
 	return out, nil
 }
 
+func ZeroCiphertextCompressed() ([]byte, error) {
+	out, err := ed25519.ElgamalCTZeroCompressed()
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func AddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	out, err := ed25519.ElgamalCTAddScalarCompressed(in64, scalar32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func SubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	out, err := ed25519.ElgamalCTSubScalarCompressed(in64, scalar32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func MulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	out, err := ed25519.ElgamalCTMulScalarCompressed(in64, scalar32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
 func PublicKeyFromPrivate(priv32 []byte) ([]byte, error) {
 	out, err := ed25519.ElgamalPublicKeyFromPrivate(priv32)
 	if err != nil {
@@ -82,6 +114,14 @@ func DecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	out, err := ed25519.ElgamalDecryptToPoint(priv32, ct64)
 	if err != nil {
 		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func PublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
+	out, err := ed25519.ElgamalPublicKeyToAddress(pub32, mainnet)
+	if err != nil {
+		return "", mapBackendError(err)
 	}
 	return out, nil
 }

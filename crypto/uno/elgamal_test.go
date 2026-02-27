@@ -23,6 +23,22 @@ func TestElgamalCompressedOpsDefaultBuild(t *testing.T) {
 	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidProof) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
 		t.Fatalf("unexpected normalize error: %v", err)
 	}
+	_, err = ZeroCiphertextCompressed()
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected zero-ciphertext error: %v", err)
+	}
+	_, err = AddScalarCompressed(a, make([]byte, 32))
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected add-scalar error: %v", err)
+	}
+	_, err = SubScalarCompressed(a, make([]byte, 32))
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected sub-scalar error: %v", err)
+	}
+	_, err = MulScalarCompressed(a, make([]byte, 32))
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected mul-scalar error: %v", err)
+	}
 
 	priv := make([]byte, 32)
 	pub, err := PublicKeyFromPrivate(priv)
@@ -63,5 +79,10 @@ func TestElgamalCompressedOpsDefaultBuild(t *testing.T) {
 	_, err = DecryptToPoint(make([]byte, 32), make([]byte, 64))
 	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidProof) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
 		t.Fatalf("unexpected decrypt error: %v", err)
+	}
+
+	_, err = PublicKeyToAddress(make([]byte, 32), true)
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) && !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("unexpected publickey-to-address error: %v", err)
 	}
 }

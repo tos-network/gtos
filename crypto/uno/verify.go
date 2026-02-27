@@ -21,8 +21,16 @@ func VerifyShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byt
 	return mapBackendError(ed25519.VerifyUNOShieldProof(proof96, commitment, receiverHandle, receiverPubkey, amount))
 }
 
+func VerifyShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+	return mapBackendError(ed25519.VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey, amount, ctx))
+}
+
 func VerifyCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
 	return mapBackendError(ed25519.VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey, txVersionT1))
+}
+
+func VerifyCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
+	return mapBackendError(ed25519.VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey, txVersionT1, ctx))
 }
 
 func VerifyCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
@@ -31,6 +39,10 @@ func VerifyCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destina
 
 func VerifyBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	return mapBackendError(ed25519.VerifyUNOBalanceProof(proof, publicKey, sourceCiphertext64))
+}
+
+func VerifyBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	return mapBackendError(ed25519.VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64, ctx))
 }
 
 func VerifyRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {

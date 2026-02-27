@@ -20,6 +20,79 @@ package ed25519
 #include "./libed25519/at_rangeproofs.c"
 #include "./libed25519/at_uno_proofs.c"
 
+// gtos_uno_transcript_append_ctx appends canonical chain context bytes to an
+// already-initialised Merlin transcript. This binds the proof to the specific
+// chain, action type, sender, and receiver, preventing cross-chain and
+// cross-action replay. The label "chain-ctx" must match the prover.
+static void gtos_uno_transcript_append_ctx(at_merlin_transcript_t *t,
+                                           const unsigned char *ctx,
+                                           size_t ctx_sz) {
+  if (ctx && ctx_sz > 0) {
+    at_merlin_transcript_append_message(t,
+        AT_MERLIN_LITERAL("chain-ctx"),
+        ctx, (uint)ctx_sz);
+  }
+}
+
+static int gtos_uno_verify_shield_ctx(const unsigned char *proof96,
+                                      const unsigned char *commitment,
+                                      const unsigned char *receiver_handle,
+                                      const unsigned char *receiver_pubkey,
+                                      unsigned long amount,
+                                      const unsigned char *ctx,
+                                      size_t ctx_sz) {
+  at_shield_proof_t proof;
+  if (at_shield_proof_parse(proof96, &proof) != 0) {
+    return -1;
+  }
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_SHIELD_PROOF_DOMAIN));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  return at_shield_proof_verify(&proof, commitment, receiver_handle, receiver_pubkey, amount, &transcript);
+}
+
+static int gtos_uno_verify_ct_validity_ctx(const unsigned char *proof,
+                                           size_t proof_sz,
+                                           const unsigned char *commitment,
+                                           const unsigned char *sender_handle,
+                                           const unsigned char *receiver_handle,
+                                           const unsigned char *sender_pubkey,
+                                           const unsigned char *receiver_pubkey,
+                                           int tx_version_t1,
+                                           const unsigned char *ctx,
+                                           size_t ctx_sz) {
+  at_ct_validity_proof_t parsed;
+  unsigned long bytes_read = 0;
+  if (at_ct_validity_proof_parse(proof, (ulong)proof_sz, tx_version_t1, &parsed, &bytes_read) != 0) {
+    return -1;
+  }
+  if (bytes_read != (unsigned long)proof_sz) {
+    return -1;
+  }
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_CT_VALIDITY_DOMAIN));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  return at_ct_validity_proof_verify(&parsed, commitment, sender_handle, receiver_handle, sender_pubkey, receiver_pubkey, tx_version_t1, &transcript);
+}
+
+static int gtos_uno_verify_balance_ctx(const unsigned char *proof,
+                                       size_t proof_sz,
+                                       const unsigned char *public_key,
+                                       const unsigned char *source_ciphertext64,
+                                       const unsigned char *ctx,
+                                       size_t ctx_sz) {
+  at_balance_proof_t parsed;
+  if (at_balance_proof_parse(proof, (ulong)proof_sz, &parsed) != 0) {
+    return -1;
+  }
+  at_merlin_transcript_t transcript;
+  at_uno_batch_collector_t collector;
+  at_uno_batch_collector_init(&collector);
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL("balance_proof"));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  return at_balance_proof_pre_verify(&parsed, public_key, source_ciphertext64, &transcript, &collector);
+}
+
 static int gtos_uno_verify_shield(const unsigned char *proof96,
                                   const unsigned char *commitment,
                                   const unsigned char *receiver_handle,
@@ -119,6 +192,58 @@ static int gtos_elgamal_ct_normalize_compressed(unsigned char *out64, const unsi
     return -1;
   }
   at_elgamal_ct_compress(out64, &ct);
+  return 0;
+}
+
+static int gtos_elgamal_ct_zero_compressed(unsigned char *out64) {
+  at_elgamal_ct_t ct;
+  at_elgamal_ct_set_zero(&ct);
+  at_elgamal_ct_compress(out64, &ct);
+  return 0;
+}
+
+static int gtos_elgamal_ct_add_scalar_compressed(unsigned char *out64,
+                                                 const unsigned char *in64,
+                                                 const unsigned char *scalar32) {
+  at_elgamal_ct_t in_ct;
+  at_elgamal_ct_t out_ct;
+  if (at_elgamal_ct_decompress(&in_ct, in64) != 0) {
+    return -1;
+  }
+  if (at_elgamal_ct_add_scalar(&out_ct, &in_ct, scalar32) != 0) {
+    return -1;
+  }
+  at_elgamal_ct_compress(out64, &out_ct);
+  return 0;
+}
+
+static int gtos_elgamal_ct_sub_scalar_compressed(unsigned char *out64,
+                                                 const unsigned char *in64,
+                                                 const unsigned char *scalar32) {
+  at_elgamal_ct_t in_ct;
+  at_elgamal_ct_t out_ct;
+  if (at_elgamal_ct_decompress(&in_ct, in64) != 0) {
+    return -1;
+  }
+  if (at_elgamal_ct_sub_scalar(&out_ct, &in_ct, scalar32) != 0) {
+    return -1;
+  }
+  at_elgamal_ct_compress(out64, &out_ct);
+  return 0;
+}
+
+static int gtos_elgamal_ct_mul_scalar_compressed(unsigned char *out64,
+                                                 const unsigned char *in64,
+                                                 const unsigned char *scalar32) {
+  at_elgamal_ct_t in_ct;
+  at_elgamal_ct_t out_ct;
+  if (at_elgamal_ct_decompress(&in_ct, in64) != 0) {
+    return -1;
+  }
+  if (at_elgamal_ct_mul_scalar(&out_ct, &in_ct, scalar32) != 0) {
+    return -1;
+  }
+  at_elgamal_ct_compress(out64, &out_ct);
   return 0;
 }
 
@@ -249,6 +374,15 @@ static int gtos_elgamal_decrypt_to_point(unsigned char *out32, const unsigned ch
   return at_elgamal_private_key_decrypt_to_point(out32, &priv, &ct);
 }
 
+static int gtos_elgamal_public_key_to_address(char *out,
+                                              size_t out_sz,
+                                              int mainnet,
+                                              const unsigned char *pub32) {
+  at_elgamal_public_key_t pub;
+  at_memcpy(pub.bytes, pub32, 32);
+  return at_elgamal_public_key_to_address(out, (ulong)out_sz, mainnet, &pub);
+}
+
 static int gtos_uno_verify_rangeproof(const unsigned char *proof,
                                       size_t proof_sz,
                                       const unsigned char *commitments,
@@ -320,6 +454,7 @@ import "C"
 
 import (
 	_ "github.com/tos-network/gtos/crypto/libsha3"
+	"strings"
 	"unsafe"
 )
 
@@ -361,6 +496,83 @@ func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, s
 		(*C.uchar)(unsafe.Pointer(&senderPubkey[0])),
 		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
 		t1,
+	) != 0 {
+		return ErrUNOInvalidProof
+	}
+	return nil
+}
+
+func VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+	if len(proof96) != 96 || len(commitment) != 32 || len(receiverHandle) != 32 || len(receiverPubkey) != 32 {
+		return ErrUNOInvalidInput
+	}
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_verify_shield_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof96[0])),
+		(*C.uchar)(unsafe.Pointer(&commitment[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverHandle[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
+		C.ulong(amount),
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return ErrUNOInvalidProof
+	}
+	return nil
+}
+
+func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
+	if len(proof) == 0 || len(commitment) != 32 || len(senderHandle) != 32 || len(receiverHandle) != 32 || len(senderPubkey) != 32 || len(receiverPubkey) != 32 {
+		return ErrUNOInvalidInput
+	}
+	wantLen := 128
+	t1 := C.int(0)
+	if txVersionT1 {
+		wantLen = 160
+		t1 = 1
+	}
+	if len(proof) != wantLen {
+		return ErrUNOInvalidInput
+	}
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_verify_ct_validity_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		C.size_t(len(proof)),
+		(*C.uchar)(unsafe.Pointer(&commitment[0])),
+		(*C.uchar)(unsafe.Pointer(&senderHandle[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverHandle[0])),
+		(*C.uchar)(unsafe.Pointer(&senderPubkey[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
+		t1,
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return ErrUNOInvalidProof
+	}
+	return nil
+}
+
+func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	if len(proof) != 200 || len(publicKey) != 32 || len(sourceCiphertext64) != 64 {
+		return ErrUNOInvalidInput
+	}
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_verify_balance_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		C.size_t(len(proof)),
+		(*C.uchar)(unsafe.Pointer(&publicKey[0])),
+		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
+		ctxPtr,
+		C.size_t(len(ctx)),
 	) != 0 {
 		return ErrUNOInvalidProof
 	}
@@ -435,6 +647,61 @@ func ElgamalCTNormalizeCompressed(in64 []byte) ([]byte, error) {
 	if C.gtos_elgamal_ct_normalize_compressed(
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalCTZeroCompressed() ([]byte, error) {
+	out := make([]byte, 64)
+	if C.gtos_elgamal_ct_zero_compressed(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalCTAddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	if len(in64) != 64 || len(scalar32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 64)
+	if C.gtos_elgamal_ct_add_scalar_compressed(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&in64[0])),
+		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalCTSubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	if len(in64) != 64 || len(scalar32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 64)
+	if C.gtos_elgamal_ct_sub_scalar_compressed(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&in64[0])),
+		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalCTMulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	if len(in64) != 64 || len(scalar32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 64)
+	if C.gtos_elgamal_ct_mul_scalar_compressed(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&in64[0])),
+		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
 	) != 0 {
 		return nil, ErrUNOOperationFailed
 	}
@@ -630,4 +897,28 @@ func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 		return nil, ErrUNOOperationFailed
 	}
 	return out, nil
+}
+
+func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
+	if len(pub32) != 32 {
+		return "", ErrUNOInvalidInput
+	}
+	out := make([]byte, 128)
+	net := C.int(0)
+	if mainnet {
+		net = 1
+	}
+	if C.gtos_elgamal_public_key_to_address(
+		(*C.char)(unsafe.Pointer(&out[0])),
+		C.size_t(len(out)),
+		net,
+		(*C.uchar)(unsafe.Pointer(&pub32[0])),
+	) != 0 {
+		return "", ErrUNOOperationFailed
+	}
+	s := C.GoString((*C.char)(unsafe.Pointer(&out[0])))
+	if strings.TrimSpace(s) == "" {
+		return "", ErrUNOOperationFailed
+	}
+	return s, nil
 }

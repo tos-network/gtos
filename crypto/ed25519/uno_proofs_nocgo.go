@@ -11,6 +11,16 @@ func VerifyUNOShieldProof(proof96, commitment, receiverHandle, receiverPubkey []
 	return ErrUNOBackendUnavailable
 }
 
+func VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+	_ = proof96
+	_ = commitment
+	_ = receiverHandle
+	_ = receiverPubkey
+	_ = amount
+	_ = ctx
+	return ErrUNOBackendUnavailable
+}
+
 func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
 	_ = proof
 	_ = commitment
@@ -19,6 +29,18 @@ func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, s
 	_ = senderPubkey
 	_ = receiverPubkey
 	_ = txVersionT1
+	return ErrUNOBackendUnavailable
+}
+
+func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
+	_ = proof
+	_ = commitment
+	_ = senderHandle
+	_ = receiverHandle
+	_ = senderPubkey
+	_ = receiverPubkey
+	_ = txVersionT1
+	_ = ctx
 	return ErrUNOBackendUnavailable
 }
 
@@ -51,6 +73,28 @@ func ElgamalCTNormalizeCompressed(in64 []byte) ([]byte, error) {
 	return nil, ErrUNOBackendUnavailable
 }
 
+func ElgamalCTZeroCompressed() ([]byte, error) {
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalCTAddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	_ = in64
+	_ = scalar32
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalCTSubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	_ = in64
+	_ = scalar32
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalCTMulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
+	_ = in64
+	_ = scalar32
+	return nil, ErrUNOBackendUnavailable
+}
+
 func VerifyUNOCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
 	_ = proof192
 	_ = sourcePubkey
@@ -63,6 +107,14 @@ func VerifyUNOBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	_ = proof
 	_ = publicKey
 	_ = sourceCiphertext64
+	return ErrUNOBackendUnavailable
+}
+
+func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	_ = proof
+	_ = publicKey
+	_ = sourceCiphertext64
+	_ = ctx
 	return ErrUNOBackendUnavailable
 }
 
@@ -127,4 +179,10 @@ func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	_ = priv32
 	_ = ct64
 	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
+	_ = pub32
+	_ = mainnet
+	return "", ErrUNOBackendUnavailable
 }

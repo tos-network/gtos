@@ -408,12 +408,15 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
 			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 		}
-		if err := uno.VerifyShieldProofBundle(
+		// Shield has no on-chain receiver; use zero address in context.
+		shieldCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), common.Address{})
+		if err := uno.VerifyShieldProofBundleWithContext(
 			payload.ProofBundle,
 			payload.NewSender.Commitment[:],
 			payload.NewSender.Handle[:],
 			senderPubkey,
 			payload.Amount,
+			shieldCtx,
 		); err != nil {
 			return err
 		}
@@ -456,7 +459,8 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil {
 			return err
 		}
-		if err := uno.VerifyTransferProofBundle(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey); err != nil {
+		transferCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), payload.To)
+		if err := uno.VerifyTransferProofBundleWithContext(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey, transferCtx); err != nil {
 			return err
 		}
 		nextReceiverCiphertext, err := uno.AddCiphertexts(receiverState.Ciphertext, payload.ReceiverDelta)
@@ -490,7 +494,8 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil {
 			return err
 		}
-		if err := uno.VerifyUnshieldProofBundle(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount); err != nil {
+		unshieldCtx := uno.BuildUNOTranscriptContext(st.chainConfig.ChainID, env.Action, msg.From(), payload.To)
+		if err := uno.VerifyUnshieldProofBundleWithContext(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount, unshieldCtx); err != nil {
 			return err
 		}
 
