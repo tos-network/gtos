@@ -340,3 +340,60 @@ func TestInvalidInputMappingWithCgo(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratedOpeningAndKeypairConsistency(t *testing.T) {
+	opening, err := GenerateOpening()
+	if err != nil {
+		t.Fatalf("GenerateOpening: %v", err)
+	}
+	if len(opening) != 32 {
+		t.Fatalf("unexpected opening length: %d", len(opening))
+	}
+	allZero := true
+	for _, b := range opening {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		t.Fatal("generated opening must be non-zero")
+	}
+
+	amount := uint64(777)
+	commitment, opening2, err := CommitmentNew(amount)
+	if err != nil {
+		t.Fatalf("CommitmentNew: %v", err)
+	}
+	commitmentByOpening, err := PedersenCommitmentWithOpening(opening2, amount)
+	if err != nil {
+		t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+	}
+	if !bytes.Equal(commitment, commitmentByOpening) {
+		t.Fatal("CommitmentNew mismatch with CommitmentWithOpening")
+	}
+
+	pub, priv, err := GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	derivedPub, err := PublicKeyFromPrivate(priv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromPrivate: %v", err)
+	}
+	if !bytes.Equal(pub, derivedPub) {
+		t.Fatal("generated keypair pubkey mismatch with derived pubkey")
+	}
+
+	ct, opening3, err := EncryptWithGeneratedOpening(pub, amount)
+	if err != nil {
+		t.Fatalf("EncryptWithGeneratedOpening: %v", err)
+	}
+	ctByOpening, err := EncryptWithOpening(pub, amount, opening3)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening: %v", err)
+	}
+	if !bytes.Equal(ct, ctByOpening) {
+		t.Fatal("EncryptWithGeneratedOpening mismatch with EncryptWithOpening")
+	}
+}

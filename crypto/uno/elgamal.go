@@ -62,6 +62,22 @@ func Encrypt(pub32 []byte, amount uint64) ([]byte, error) {
 	return out, nil
 }
 
+func GenerateOpening() ([]byte, error) {
+	out, err := ed25519.PedersenOpeningGenerate()
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func CommitmentNew(amount uint64) (commitment32 []byte, opening32 []byte, err error) {
+	commitment32, opening32, err = ed25519.PedersenCommitmentNew(amount)
+	if err != nil {
+		return nil, nil, mapBackendError(err)
+	}
+	return commitment32, opening32, nil
+}
+
 func DecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	out, err := ed25519.ElgamalDecryptToPoint(priv32, ct64)
 	if err != nil {
@@ -92,6 +108,22 @@ func EncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, 
 		return nil, mapBackendError(err)
 	}
 	return out, nil
+}
+
+func EncryptWithGeneratedOpening(pub32 []byte, amount uint64) (ct64 []byte, opening32 []byte, err error) {
+	ct64, opening32, err = ed25519.ElgamalEncryptWithGeneratedOpening(pub32, amount)
+	if err != nil {
+		return nil, nil, mapBackendError(err)
+	}
+	return ct64, opening32, nil
+}
+
+func GenerateKeypair() (pub32 []byte, priv32 []byte, err error) {
+	pub32, priv32, err = ed25519.ElgamalKeypairGenerate()
+	if err != nil {
+		return nil, nil, mapBackendError(err)
+	}
+	return pub32, priv32, nil
 }
 
 func mapBackendError(err error) error {

@@ -40,6 +40,26 @@ func TestElgamalCompressedOpsDefaultBuild(t *testing.T) {
 		t.Fatalf("unexpected encrypt error: %v", err)
 	}
 
+	_, _, err = CommitmentNew(1)
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected commitment-new error: %v", err)
+	}
+
+	_, err = GenerateOpening()
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected opening-generate error: %v", err)
+	}
+
+	_, _, err = EncryptWithGeneratedOpening(make([]byte, 32), 1)
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) && !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("unexpected encrypt-with-generated-opening error: %v", err)
+	}
+
+	_, _, err = GenerateKeypair()
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrOperationFailed) {
+		t.Fatalf("unexpected keypair-generate error: %v", err)
+	}
+
 	_, err = DecryptToPoint(make([]byte, 32), make([]byte, 64))
 	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidProof) && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrOperationFailed) {
 		t.Fatalf("unexpected decrypt error: %v", err)
