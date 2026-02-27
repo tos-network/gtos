@@ -28,6 +28,7 @@ build/_vendor/pkg
 /build/bin/
 /gtos
 /gtos*.zip
+/ci
 
 # travis
 profile.tmp

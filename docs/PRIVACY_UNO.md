@@ -252,12 +252,12 @@ Later optimization:
 
 ## 10. GTOS Implementation Plan
 
-### Step 1: Params
+### Step 1: Params (`DONE`)
 - `params/tos_params.go`
   - add `PrivacyRouterAddress`
   - add gas and limit constants for UNO
 
-### Step 2: Core UNO package
+### Step 2: Core UNO package (`DONE`)
 Create `core/uno/`:
 - `codec.go` (payload encode/decode)
 - `state.go` (slot derivation and read/write)
@@ -265,16 +265,16 @@ Create `core/uno/`:
 - `verify.go` (verification entrypoint)
 - `errors.go`
 
-### Step 3: State transition integration
+### Step 3: State transition integration (`IN PROGRESS`)
 - `core/state_transition.go`
   - add `applyUNO`
   - add per-action handlers
 
-### Step 4: Parallel conflict integration
+### Step 4: Parallel conflict integration (`DONE`)
 - `core/parallel/analyze.go`
   - MVP serialization rule for all UNO txs
 
-### Step 5: RPC and tooling
+### Step 5: RPC and tooling (`IN PROGRESS`)
 - `internal/tosapi/api.go`
   - `tos_unoShield`
   - `tos_unoTransfer`
@@ -283,7 +283,7 @@ Create `core/uno/`:
 - wallet-side SDK/CLI:
   - decrypt ciphertext to plaintext balance locally
 
-### Step 6: Tests
+### Step 6: Tests (`IN PROGRESS`)
 - Unit tests:
   - payload codec, slot layout, transcript domain separation
 - Core tests:
@@ -295,6 +295,15 @@ Create `core/uno/`:
 - Integration tests:
   - 3-node DPoS testnet private transfer flow
   - genesis pre-allocation to A/B decryptable by wallets
+
+### Status Snapshot (2026-02-27)
+- `DONE`: UNO params/constants and `PrivacyRouterAddress` are live.
+- `DONE`: `core/uno` codec/state/proof-shape verify scaffolding is live.
+- `DONE`: UNO route is wired in `state_transition` and parallel analyzer serialization is active.
+- `DONE`: Genesis supports UNO pre-allocation (`uno_ct_commitment`, `uno_ct_handle`, `uno_version`) and optional signer bootstrap fields (`signerType`, `signerValue`) with `elgamal` validation.
+- `DONE`: RPC methods `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext` are implemented with validation tests.
+- `IN PROGRESS`: transcript binding to chain context and replay-hardening test matrix.
+- `IN PROGRESS`: end-to-end UNO integration flow on 3-node local DPoS.
 
 ---
 

@@ -28,18 +28,18 @@ DoD:
 
 Target: expose stable Go APIs over existing `libed25519` UNO C primitives.
 
-- [/] Create `crypto/uno/` package.
-- [ ] Add cgo wrappers for ElGamal ciphertext operations:
+- [x] Create `crypto/uno/` package.
+- [x] Add cgo wrappers for ElGamal ciphertext operations:
   - [x] `Encrypt` (adapter wired)
   - [x] `Add/Sub ciphertext` (C wrapper + Go adapter wired)
   - [x] `Add/Sub amount` (C wrapper + Go adapter wired)
   - [x] `Compress/Decompress` (normalize roundtrip wrapper wired)
-- [ ] Add wrappers for proof parsing/verification:
+- [x] Add wrappers for proof parsing/verification:
   - [x] `CiphertextValidityProof` (verify wrapper wired)
   - [x] `CommitmentEqProof` (verify wrapper wired)
   - [x] `RangeProof verify` (adapter wired; consensus integration pending)
 - [x] Add transcript helper wrappers required by proof verification.
-- [ ] Define strict Go error mapping for all C return codes.
+- [/] Define strict Go error mapping for all C return codes.
 
 Reference:
 - `~/avatar/src/uno/at_uno_balance.c`
@@ -87,8 +87,8 @@ DoD:
 
 ## 4. Consensus Path Integration
 
-- [/] Add `PrivacyRouterAddress` and UNO gas constants to params.
-- [/] Route in `core/state_transition.go`:
+- [x] Add `PrivacyRouterAddress` and UNO gas constants to params.
+- [x] Route in `core/state_transition.go`:
   - [x] `to == PrivacyRouterAddress` -> `applyUNO`
 - [/] Implement `applyUNO` action handlers:
   - [x] `applyUNOShield` (proof verify path + state mutation baseline)
@@ -129,7 +129,7 @@ DoD:
 
 ## 7. Genesis and Chain Config Support
 
-- [/] Add genesis loader support for UNO initial state:
+- [x] Add genesis loader support for UNO initial state:
   - [x] `uno_ct_commitment`
   - [x] `uno_ct_handle`
   - [x] `uno_version`
@@ -144,7 +144,7 @@ DoD:
 
 ## 8. RPC and Tooling
 
-- [/] Add RPC methods:
+- [x] Add RPC methods:
   - [x] `tos_unoShield`
   - [x] `tos_unoTransfer`
   - [x] `tos_unoUnshield`
@@ -160,17 +160,17 @@ DoD:
 ## 9. Testing Matrix
 
 ### 9.1 Unit
-- [ ] Codec tests (valid/invalid/canonical).
-- [ ] UNO state slot tests.
+- [x] Codec tests (valid/invalid/canonical).
+- [x] UNO state slot tests.
 - [ ] Crypto wrapper tests (vector-based).
 - [ ] Transcript domain-separation tests.
 
 ### 9.2 Core
-- [ ] `UNO_SHIELD` state transition tests.
-- [ ] `UNO_TRANSFER` state transition tests.
-- [ ] `UNO_UNSHIELD` state transition tests.
+- [/] `UNO_SHIELD` state transition tests.
+- [/] `UNO_TRANSFER` state transition tests.
+- [/] `UNO_UNSHIELD` state transition tests.
 - [ ] Nonce/replay rejection tests.
-- [ ] Invalid proof rejection tests.
+- [x] Invalid proof rejection tests.
 
 ### 9.3 Integration
 - [ ] 3-node local DPoS UNO transfer scenario.
