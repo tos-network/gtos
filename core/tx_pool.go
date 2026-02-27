@@ -681,6 +681,9 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		if err != nil {
 			return 0, err
 		}
+		if payload.To == from {
+			return 0, uno.ErrInvalidPayload
+		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return 0, uno.ErrInvalidPayload
 		}

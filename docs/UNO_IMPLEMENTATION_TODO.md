@@ -51,7 +51,7 @@ Target: XELIS-style versioned account-balance semantics (adapted to GTOS state m
 - [x] Strict length/type validation in read/write helpers.
 - [x] Enforce signer source key (`signerType == elgamal`) for UNO accounts.
 - [/] Define and enforce `uno_version` monotonic transitions in all mutation paths.
-- [ ] Add reorg/re-import tests for version consistency.
+- [x] Add reorg/re-import tests for version consistency (`TestUNOReorgReimportVersionConsistency` covers reorg away/back and re-import invariants for `uno_version`/nonce).
 
 DoD:
 - Version monotonicity and deterministic re-execution are proven by tests.
@@ -64,7 +64,7 @@ Target: converge to XELIS-style transaction verification flow:
 transcript-bound proofs + source balance transition correctness + range constraints.
 
 - [x] UNO router path and action dispatch are live.
-- [/] `UNO_TRANSFER` full transition semantics still in progress.
+- [x] `UNO_TRANSFER` self-transfer guard added (txpool + execution); state-write semantics verified.
 - [/] `UNO_UNSHIELD` full transition semantics still in progress.
 - [/] Bind proofs to full chain context transcript:
   - [x] `chainId`
@@ -74,7 +74,7 @@ transcript-bound proofs + source balance transition correctness + range constrai
   - [x] sender nonce
   - [x] old/new commitments and handles
   - [x] native asset constant
-- [ ] Ensure replay-hardening matrix is complete (cross-chain, cross-action, cross-tx-context).
+- [x] Ensure replay-hardening matrix is complete (cross-chain/cross-action tests + tx-context field-diff matrix in `core/uno/context_test.go` for shield/transfer/unshield).
 
 DoD:
 - Block import path performs deterministic, context-bound verification for all three UNO actions.
@@ -88,7 +88,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
 - [x] Consensus-critical semantic checks mirrored: sender/receiver version overflow (all 3 actions) and combined gas+shield-amount balance guard for Shield.
-- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, low-gas, nonzero-value, shield insufficient-balance, oversized-proof-bundle, sender signer missing/type-mismatch, shield/transfer(sender+receiver)/unshield sender version-overflow, transfer receiver missing-signer, shield-zero-amount, transfer/unshield-zero-receiver, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
+- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, low-gas, nonzero-value, shield insufficient-balance, oversized-proof-bundle, sender signer missing/type-mismatch, shield/transfer(sender+receiver)/unshield sender version-overflow, transfer receiver missing-signer, shield-zero-amount, transfer/unshield-zero-receiver, transfer-self-transfer, unshield-zero-amount, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
 
 DoD:
 - Same tx is accepted/rejected for the same reason by both paths.
@@ -141,7 +141,7 @@ DoD:
 ### 7.3 Integration
 - [ ] 3-node local DPoS UNO scenario (stable repeated run).
 - [ ] Genesis preallocation decryptability checks for recipients.
-- [ ] Reorg/re-import determinism for UNO blocks.
+- [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
 ### 7.4 Fuzz / Robustness
 - [x] Payload decoder fuzzing.

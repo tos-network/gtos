@@ -447,6 +447,9 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return uno.ErrInvalidPayload
 		}
+		if payload.To == msg.From() {
+			return uno.ErrInvalidPayload
+		}
 		receiverPubkey, err := uno.RequireElgamalSigner(st.state, payload.To)
 		if err != nil {
 			return err
