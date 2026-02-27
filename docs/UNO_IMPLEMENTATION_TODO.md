@@ -36,7 +36,7 @@ Target: stable Go API over imported C primitives with deterministic error mappin
 - [x] Ciphertext operations wired (`Encrypt`, add/sub ct, add/sub amount/scalar, zero ct, opening/keypair helpers, normalize/compress paths).
 - [x] Proof verification wrappers wired (`CiphertextValidity`, `CommitmentEq`, `RangeProof` verify).
 - [x] Strict Go error mapping for every C return code.
-- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors for encrypt/opening/ct-ops incl. scalar ops/zero/decrypt-point added and externalized in `crypto/uno/testdata/ed25519c_vectors.json`; Rust differential still pending).
+- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors landed; Rust/XELIS differential ciphertext-op vectors landed in `crypto/uno/testdata/xelis_vectors.json` + `TestXelisDifferentialCiphertextOpsVectors`; proof-vector differential still pending).
 
 DoD:
 - `go test ./crypto/uno/...` passes with reproducible vectors and explicit error-class assertions.
@@ -147,7 +147,7 @@ DoD:
 ### 7.4 Fuzz / Robustness
 - [x] Payload decoder fuzzing.
 - [x] Proof blob parser fuzzing.
-- [ ] Cross-implementation differential checks (GTOS vs reference vectors).
+- [/] Cross-implementation differential checks (GTOS vs reference vectors) now include XELIS ciphertext-op differential vectors; proof-vector differential remains.
 
 DoD:
 - New suites are deterministic and green in CI.

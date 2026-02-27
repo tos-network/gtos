@@ -45,6 +45,19 @@ type deterministicFixture struct {
 	CtOps       ctOpsVectorCase     `json:"ct_ops"`
 }
 
+func loadXelisCtOpsFixture(t *testing.T) ctOpsVectorCase {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/xelis_vectors.json")
+	if err != nil {
+		t.Fatalf("read xelis fixture: %v", err)
+	}
+	var fx ctOpsVectorCase
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatalf("unmarshal xelis fixture: %v", err)
+	}
+	return fx
+}
+
 func mustDecodeHex(t *testing.T, h string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(h)
@@ -309,6 +322,96 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	wantPt9 := mustDecodeHex(t, fx.CtOps.DecryptPointHex)
 	if !bytes.Equal(pt9, wantPt9) {
 		t.Fatalf("decrypt point mismatch: got=%x want=%x", pt9, wantPt9)
+	}
+}
+
+func TestXelisDifferentialCiphertextOpsVectors(t *testing.T) {
+	fx := loadXelisCtOpsFixture(t)
+	priv := mustDecodeHex(t, fx.PrivHex)
+	wantPub := mustDecodeHex(t, fx.PubHex)
+	opening1 := mustDecodeHex(t, fx.Opening1Hex)
+	opening2 := mustDecodeHex(t, fx.Opening2Hex)
+
+	pub, err := PublicKeyFromPrivate(priv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromPrivate: %v", err)
+	}
+	if !bytes.Equal(pub, wantPub) {
+		t.Fatalf("pub mismatch: got=%x want=%x", pub, wantPub)
+	}
+
+	ct9, err := EncryptWithOpening(pub, 9, opening1)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening(ct9): %v", err)
+	}
+	wantCt9 := mustDecodeHex(t, fx.Ct9Hex)
+	if !bytes.Equal(ct9, wantCt9) {
+		t.Fatalf("ct9 mismatch: got=%x want=%x", ct9, wantCt9)
+	}
+
+	ct4, err := EncryptWithOpening(pub, 4, opening2)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening(ct4): %v", err)
+	}
+	wantCt4 := mustDecodeHex(t, fx.Ct4Hex)
+	if !bytes.Equal(ct4, wantCt4) {
+		t.Fatalf("ct4 mismatch: got=%x want=%x", ct4, wantCt4)
+	}
+
+	add, err := AddCompressedCiphertexts(ct9, ct4)
+	if err != nil {
+		t.Fatalf("AddCompressedCiphertexts: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.AddHex); !bytes.Equal(add, want) {
+		t.Fatalf("add mismatch: got=%x want=%x", add, want)
+	}
+
+	addAmt, err := AddAmountCompressed(ct9, 5)
+	if err != nil {
+		t.Fatalf("AddAmountCompressed: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.AddAmountHex); !bytes.Equal(addAmt, want) {
+		t.Fatalf("add amount mismatch: got=%x want=%x", addAmt, want)
+	}
+
+	addScalar, err := AddScalarCompressed(ct9, mustDecodeHex(t, fx.Scalar5Hex))
+	if err != nil {
+		t.Fatalf("AddScalarCompressed: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.AddScalarHex); !bytes.Equal(addScalar, want) {
+		t.Fatalf("add scalar mismatch: got=%x want=%x", addScalar, want)
+	}
+
+	subScalar, err := SubScalarCompressed(ct9, mustDecodeHex(t, fx.Scalar2Hex))
+	if err != nil {
+		t.Fatalf("SubScalarCompressed: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.SubScalarHex); !bytes.Equal(subScalar, want) {
+		t.Fatalf("sub scalar mismatch: got=%x want=%x", subScalar, want)
+	}
+
+	mulScalar, err := MulScalarCompressed(ct9, mustDecodeHex(t, fx.Scalar2Hex))
+	if err != nil {
+		t.Fatalf("MulScalarCompressed: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.MulScalarHex); !bytes.Equal(mulScalar, want) {
+		t.Fatalf("mul scalar mismatch: got=%x want=%x", mulScalar, want)
+	}
+
+	zero, err := ZeroCiphertextCompressed()
+	if err != nil {
+		t.Fatalf("ZeroCiphertextCompressed: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.ZeroHex); !bytes.Equal(zero, want) {
+		t.Fatalf("zero mismatch: got=%x want=%x", zero, want)
+	}
+
+	decryptedPoint, err := DecryptToPoint(priv, ct9)
+	if err != nil {
+		t.Fatalf("DecryptToPoint: %v", err)
+	}
+	if want := mustDecodeHex(t, fx.DecryptPointHex); !bytes.Equal(decryptedPoint, want) {
+		t.Fatalf("decrypt point mismatch: got=%x want=%x", decryptedPoint, want)
 	}
 }
 
