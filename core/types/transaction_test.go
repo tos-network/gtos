@@ -331,6 +331,39 @@ func TestTransactionTimeSort(t *testing.T) {
 	}
 }
 
+func TestTransactionsByPriceAndNonceNonSecpSenderHint(t *testing.T) {
+	signer := NewReplayProtectedSigner(common.Big1)
+	from := common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508")
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+
+	tx := NewTx(&SignerTx{
+		ChainID:    common.Big1,
+		Nonce:      0,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        21000,
+		Data:       nil,
+		From:       from,
+		SignerType: "elgamal",
+	})
+	groups := map[common.Address]Transactions{
+		from: {tx},
+	}
+
+	txset := NewTransactionsByPriceAndNonce(signer, groups, nil)
+	head := txset.Peek()
+	if head == nil {
+		t.Fatalf("expected non-secp tx to be retained in selection heap")
+	}
+	if got := txSenderHint(signer, head); got != from {
+		t.Fatalf("sender hint mismatch: got %s want %s", got.Hex(), from.Hex())
+	}
+	txset.Shift()
+	if txset.Peek() != nil {
+		t.Fatalf("expected empty tx set after shifting single tx")
+	}
+}
+
 // TestTransactionCoding tests serializing/de-serializing to/from rlp and JSON.
 func TestTransactionCoding(t *testing.T) {
 	t.Skip("legacy/accesslist coding matrix removed in signer-tx-only mode")

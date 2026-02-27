@@ -449,6 +449,359 @@ static int gtos_uno_verify_rangeproof(const unsigned char *proof,
 
   return at_rangeproofs_verify(&range_proof, &ipp_proof, commitments, bit_lengths, batch_len, &transcript);
 }
+
+static void gtos_uno_u64_to_le_scalar(unsigned char out32[32], unsigned long amount) {
+  at_memset(out32, 0, 32);
+  for (int i = 0; i < 8; i++) {
+    out32[i] = (unsigned char)(amount >> (8 * i));
+  }
+}
+
+static void gtos_uno_u64_to_be8(unsigned char out8[8], unsigned long amount) {
+  out8[0] = (unsigned char)(amount >> 56);
+  out8[1] = (unsigned char)(amount >> 48);
+  out8[2] = (unsigned char)(amount >> 40);
+  out8[3] = (unsigned char)(amount >> 32);
+  out8[4] = (unsigned char)(amount >> 24);
+  out8[5] = (unsigned char)(amount >> 16);
+  out8[6] = (unsigned char)(amount >> 8);
+  out8[7] = (unsigned char)(amount);
+}
+
+static int gtos_uno_scalar_is_zero(const unsigned char s[32]) {
+  unsigned char acc = 0;
+  for (int i = 0; i < 32; i++) {
+    acc |= s[i];
+  }
+  return acc == 0;
+}
+
+static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
+                                             const unsigned char source_privkey32[32],
+                                             const unsigned char source_pubkey32[32],
+                                             const unsigned char source_ciphertext64[64],
+                                             const unsigned char destination_commitment32[32],
+                                             unsigned long amount,
+                                             const unsigned char opening32[32],
+                                             at_merlin_transcript_t *transcript) {
+  if (!proof192_out || !source_privkey32 || !source_pubkey32 || !source_ciphertext64 || !destination_commitment32 || !opening32 || !transcript) {
+    return -1;
+  }
+  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_uno_scalar_is_zero(source_privkey32)) {
+    return -1;
+  }
+  if (!at_curve25519_scalar_validate(opening32)) {
+    return -1;
+  }
+
+  at_pedersen_opening_t opening;
+  at_memcpy(opening.bytes, opening32, 32);
+  at_elgamal_compressed_commitment_t expected_commitment;
+  if (at_pedersen_commitment_new_with_opening(&expected_commitment, amount, &opening) != 0) {
+    return -1;
+  }
+  if (at_memcmp(expected_commitment.bytes, destination_commitment32, 32) != 0) {
+    return -1;
+  }
+
+  at_ristretto255_point_t p_source[1], d_source[1], g_point[1], h_point[1];
+  if (!at_ristretto255_point_frombytes(p_source, source_pubkey32)) return -1;
+  if (!at_ristretto255_point_frombytes(d_source, source_ciphertext64 + 32)) return -1;
+  if (!at_ristretto255_point_frombytes(g_point, AT_RISTRETTO_BASEPOINT_COMPRESSED)) return -1;
+  if (!at_ristretto255_point_frombytes(h_point, AT_PEDERSEN_H_COMPRESSED)) return -1;
+
+  at_pedersen_opening_t y_s, y_x, y_r;
+  if (at_pedersen_opening_generate(&y_s) != 0 ||
+      at_pedersen_opening_generate(&y_x) != 0 ||
+      at_pedersen_opening_generate(&y_r) != 0) {
+    return -1;
+  }
+
+  at_ristretto255_point_t y0[1], y1[1], y2[1];
+  at_ristretto255_point_t yx_g[1], ys_d[1], yr_h[1];
+  at_ristretto255_scalar_mul(y0, y_s.bytes, p_source);
+  at_ristretto255_scalar_mul(yx_g, y_x.bytes, g_point);
+  at_ristretto255_scalar_mul(ys_d, y_s.bytes, d_source);
+  at_ristretto255_point_add(y1, yx_g, ys_d);
+  at_ristretto255_scalar_mul(yr_h, y_r.bytes, h_point);
+  at_ristretto255_point_add(y2, yx_g, yr_h);
+
+  unsigned char Y0[32], Y1[32], Y2[32];
+  at_ristretto255_point_tobytes(Y0, y0);
+  at_ristretto255_point_tobytes(Y1, y1);
+  at_ristretto255_point_tobytes(Y2, y2);
+
+  at_merlin_transcript_append_message(transcript,
+    AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
+    (unsigned char const *)AT_EQ_PROOF_DOMAIN,
+    sizeof(AT_EQ_PROOF_DOMAIN) - 1);
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_0), Y0, 32);
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_1), Y1, 32);
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_2), Y2, 32);
+
+  unsigned char c[32];
+  merlin_challenge_scalar(transcript, AT_PROOF_LABEL_CHALLENGE, c);
+
+  unsigned char x_scalar[32];
+  gtos_uno_u64_to_le_scalar(x_scalar, amount);
+  unsigned char z_s[32], z_x[32], z_r[32];
+  at_curve25519_scalar_muladd(z_s, c, source_privkey32, y_s.bytes);
+  at_curve25519_scalar_muladd(z_x, c, x_scalar, y_x.bytes);
+  at_curve25519_scalar_muladd(z_r, c, opening32, y_r.bytes);
+
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Z_S), z_s, 32);
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Z_X), z_x, 32);
+  at_merlin_transcript_append_message(transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Z_R), z_r, 32);
+  unsigned char finalize[32];
+  merlin_challenge_scalar(transcript, AT_PROOF_LABEL_FINALIZE, finalize);
+
+  at_memcpy(proof192_out + 0, Y0, 32);
+  at_memcpy(proof192_out + 32, Y1, 32);
+  at_memcpy(proof192_out + 64, Y2, 32);
+  at_memcpy(proof192_out + 96, z_s, 32);
+  at_memcpy(proof192_out + 128, z_x, 32);
+  at_memcpy(proof192_out + 160, z_r, 32);
+  return 0;
+}
+
+static int gtos_uno_prove_shield_ctx(unsigned char proof96_out[96],
+                                     unsigned char commitment32_out[32],
+                                     unsigned char receiver_handle32_out[32],
+                                     const unsigned char receiver_pubkey32[32],
+                                     unsigned long amount,
+                                     const unsigned char opening32[32],
+                                     const unsigned char *ctx,
+                                     size_t ctx_sz) {
+  if (!proof96_out || !commitment32_out || !receiver_handle32_out || !receiver_pubkey32 || !opening32) {
+    return -1;
+  }
+  if (!at_curve25519_scalar_validate(opening32)) {
+    return -1;
+  }
+
+  at_pedersen_opening_t opening;
+  at_memcpy(opening.bytes, opening32, 32);
+  at_elgamal_public_key_t receiver_pub;
+  at_memcpy(receiver_pub.bytes, receiver_pubkey32, 32);
+
+  at_elgamal_compressed_commitment_t commitment;
+  at_elgamal_compressed_handle_t receiver_handle;
+  if (at_pedersen_commitment_new_with_opening(&commitment, amount, &opening) != 0) return -1;
+  if (at_elgamal_decrypt_handle(&receiver_handle, &receiver_pub, &opening) != 0) return -1;
+
+  at_ristretto255_point_t H[1], P[1];
+  if (!at_ristretto255_point_frombytes(H, AT_PEDERSEN_H_COMPRESSED)) return -1;
+  if (!at_ristretto255_point_frombytes(P, receiver_pubkey32)) return -1;
+
+  at_pedersen_opening_t k;
+  if (at_pedersen_opening_generate(&k) != 0) return -1;
+
+  at_ristretto255_point_t YH[1], YP[1];
+  at_ristretto255_scalar_mul(YH, k.bytes, H);
+  at_ristretto255_scalar_mul(YP, k.bytes, P);
+
+  unsigned char Y_H[32], Y_P[32];
+  at_ristretto255_point_tobytes(Y_H, YH);
+  at_ristretto255_point_tobytes(Y_P, YP);
+
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_SHIELD_PROOF_DOMAIN));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  at_merlin_transcript_append_message(&transcript,
+    AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
+    (unsigned char const *)AT_SHIELD_PROOF_DOMAIN,
+    sizeof(AT_SHIELD_PROOF_DOMAIN) - 1);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_H), Y_H, 32);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_P), Y_P, 32);
+
+  unsigned char challenge[64];
+  at_merlin_transcript_challenge_bytes(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_CHALLENGE), challenge, 64);
+  unsigned char finalize[64];
+  at_merlin_transcript_challenge_bytes(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_FINALIZE), finalize, 64);
+
+  unsigned char c[32], z[32];
+  at_curve25519_scalar_reduce(c, challenge);
+  at_curve25519_scalar_muladd(z, c, opening32, k.bytes);
+
+  at_memcpy(proof96_out + 0, Y_H, 32);
+  at_memcpy(proof96_out + 32, Y_P, 32);
+  at_memcpy(proof96_out + 64, z, 32);
+  at_memcpy(commitment32_out, commitment.bytes, 32);
+  at_memcpy(receiver_handle32_out, receiver_handle.bytes, 32);
+  return 0;
+}
+
+static int gtos_uno_prove_ct_validity_ctx(unsigned char *proof_out,
+                                          size_t proof_sz,
+                                          unsigned char commitment32_out[32],
+                                          unsigned char sender_handle32_out[32],
+                                          unsigned char receiver_handle32_out[32],
+                                          const unsigned char sender_pubkey32[32],
+                                          const unsigned char receiver_pubkey32[32],
+                                          unsigned long amount,
+                                          const unsigned char opening32[32],
+                                          int tx_version_t1,
+                                          const unsigned char *ctx,
+                                          size_t ctx_sz) {
+  if (!proof_out || !commitment32_out || !sender_handle32_out || !receiver_handle32_out ||
+      !sender_pubkey32 || !receiver_pubkey32 || !opening32) {
+    return -1;
+  }
+  size_t want = tx_version_t1 ? 160UL : 128UL;
+  if (proof_sz != want) {
+    return -1;
+  }
+  if (!at_curve25519_scalar_validate(opening32)) {
+    return -1;
+  }
+
+  at_pedersen_opening_t opening;
+  at_memcpy(opening.bytes, opening32, 32);
+  at_elgamal_public_key_t sender_pub, receiver_pub;
+  at_memcpy(sender_pub.bytes, sender_pubkey32, 32);
+  at_memcpy(receiver_pub.bytes, receiver_pubkey32, 32);
+
+  at_elgamal_compressed_commitment_t commitment;
+  at_elgamal_compressed_handle_t sender_handle, receiver_handle;
+  if (at_pedersen_commitment_new_with_opening(&commitment, amount, &opening) != 0) return -1;
+  if (at_elgamal_decrypt_handle(&sender_handle, &sender_pub, &opening) != 0) return -1;
+  if (at_elgamal_decrypt_handle(&receiver_handle, &receiver_pub, &opening) != 0) return -1;
+
+  at_ristretto255_point_t G[1], H[1], P_sender[1], P_receiver[1];
+  if (!at_ristretto255_point_frombytes(G, AT_RISTRETTO_BASEPOINT_COMPRESSED)) return -1;
+  if (!at_ristretto255_point_frombytes(H, AT_PEDERSEN_H_COMPRESSED)) return -1;
+  if (!at_ristretto255_point_frombytes(P_sender, sender_pubkey32)) return -1;
+  if (!at_ristretto255_point_frombytes(P_receiver, receiver_pubkey32)) return -1;
+
+  at_pedersen_opening_t y_r, y_x;
+  if (at_pedersen_opening_generate(&y_r) != 0 || at_pedersen_opening_generate(&y_x) != 0) {
+    return -1;
+  }
+
+  at_ristretto255_point_t y0[1], y1[1], y2[1], yx_g[1], yr_h[1];
+  at_ristretto255_scalar_mul(yx_g, y_x.bytes, G);
+  at_ristretto255_scalar_mul(yr_h, y_r.bytes, H);
+  at_ristretto255_point_add(y0, yx_g, yr_h);
+  at_ristretto255_scalar_mul(y1, y_r.bytes, P_receiver);
+  if (tx_version_t1) {
+    at_ristretto255_scalar_mul(y2, y_r.bytes, P_sender);
+  }
+
+  unsigned char Y0[32], Y1[32], Y2[32];
+  at_ristretto255_point_tobytes(Y0, y0);
+  at_ristretto255_point_tobytes(Y1, y1);
+  if (tx_version_t1) {
+    at_ristretto255_point_tobytes(Y2, y2);
+  }
+
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_CT_VALIDITY_DOMAIN));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  at_merlin_transcript_append_message(&transcript,
+    AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
+    (unsigned char const *)AT_CT_VALIDITY_DOMAIN,
+    sizeof(AT_CT_VALIDITY_DOMAIN) - 1);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_0), Y0, 32);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_1), Y1, 32);
+  if (tx_version_t1) {
+    at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_Y_2), Y2, 32);
+  }
+
+  unsigned char challenge[64];
+  at_merlin_transcript_challenge_bytes(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_CHALLENGE), challenge, 64);
+  unsigned char finalize[64];
+  at_merlin_transcript_challenge_bytes(&transcript, AT_MERLIN_LITERAL(AT_PROOF_LABEL_FINALIZE), finalize, 64);
+
+  unsigned char c[32], z_r[32], z_x[32], x_scalar[32];
+  at_curve25519_scalar_reduce(c, challenge);
+  gtos_uno_u64_to_le_scalar(x_scalar, amount);
+  at_curve25519_scalar_muladd(z_r, c, opening32, y_r.bytes);
+  at_curve25519_scalar_muladd(z_x, c, x_scalar, y_x.bytes);
+
+  at_memcpy(proof_out + 0, Y0, 32);
+  at_memcpy(proof_out + 32, Y1, 32);
+  if (tx_version_t1) {
+    at_memcpy(proof_out + 64, Y2, 32);
+    at_memcpy(proof_out + 96, z_r, 32);
+    at_memcpy(proof_out + 128, z_x, 32);
+  } else {
+    at_memcpy(proof_out + 64, z_r, 32);
+    at_memcpy(proof_out + 96, z_x, 32);
+  }
+
+  at_memcpy(commitment32_out, commitment.bytes, 32);
+  at_memcpy(sender_handle32_out, sender_handle.bytes, 32);
+  at_memcpy(receiver_handle32_out, receiver_handle.bytes, 32);
+  return 0;
+}
+
+static int gtos_uno_prove_balance_ctx(unsigned char proof200_out[200],
+                                      const unsigned char source_privkey32[32],
+                                      const unsigned char source_ciphertext64[64],
+                                      unsigned long amount,
+                                      const unsigned char *ctx,
+                                      size_t ctx_sz) {
+  if (!proof200_out || !source_privkey32 || !source_ciphertext64) {
+    return -1;
+  }
+  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_uno_scalar_is_zero(source_privkey32)) {
+    return -1;
+  }
+
+  at_elgamal_private_key_t source_priv;
+  at_memcpy(source_priv.bytes, source_privkey32, 32);
+  at_elgamal_public_key_t source_pub;
+  if (at_elgamal_public_key_from_private(&source_pub, &source_priv) != 0) {
+    return -1;
+  }
+
+  at_pedersen_opening_t opening_one;
+  at_memset(opening_one.bytes, 0, 32);
+  opening_one.bytes[0] = 1u;
+
+  at_elgamal_compressed_ciphertext_t amount_ct;
+  if (at_elgamal_encrypt_with_opening(&amount_ct, &source_pub, amount, &opening_one) != 0) {
+    return -1;
+  }
+  at_elgamal_compressed_ciphertext_t zeroed;
+  if (at_elgamal_ct_sub_compressed(zeroed.bytes, source_ciphertext64, amount_ct.bytes) != 0) {
+    return -1;
+  }
+  at_elgamal_compressed_commitment_t destination_commitment;
+  if (at_pedersen_commitment_new_with_opening(&destination_commitment, 0UL, &opening_one) != 0) {
+    return -1;
+  }
+
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL("balance_proof"));
+  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  at_merlin_transcript_append_message(&transcript,
+    AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
+    (unsigned char const *)AT_BALANCE_PROOF_DOMAIN,
+    sizeof(AT_BALANCE_PROOF_DOMAIN) - 1);
+
+  unsigned char amount_be[8];
+  gtos_uno_u64_to_be8(amount_be, amount);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL("amount"), amount_be, 8);
+  at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL("source_ct"), source_ciphertext64, 64);
+
+  unsigned char eq_proof[192];
+  if (gtos_uno_prove_commitment_eq_into(
+      eq_proof,
+      source_privkey32,
+      source_pub.bytes,
+      zeroed.bytes,
+      destination_commitment.bytes,
+      0UL,
+      opening_one.bytes,
+      &transcript) != 0) {
+    return -1;
+  }
+
+  at_memcpy(proof200_out + 0, amount_be, 8);
+  at_memcpy(proof200_out + 8, eq_proof, 192);
+  return 0;
+}
 */
 import "C"
 
@@ -577,6 +930,103 @@ func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byt
 		return ErrUNOInvalidProof
 	}
 	return nil
+}
+
+func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+	if len(receiverPubkey) != 32 || len(opening32) != 32 {
+		return nil, nil, nil, ErrUNOInvalidInput
+	}
+	proof96 = make([]byte, 96)
+	commitment32 = make([]byte, 32)
+	receiverHandle32 = make([]byte, 32)
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_prove_shield_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof96[0])),
+		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverHandle32[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
+		C.ulong(amount),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return nil, nil, nil, ErrUNOOperationFailed
+	}
+	return proof96, commitment32, receiverHandle32, nil
+}
+
+func ProveUNOShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+	return ProveUNOShieldProofWithContext(receiverPubkey, amount, opening32, nil)
+}
+
+func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+	if len(senderPubkey) != 32 || len(receiverPubkey) != 32 || len(opening32) != 32 {
+		return nil, nil, nil, nil, ErrUNOInvalidInput
+	}
+	proofLen := 128
+	t1 := C.int(0)
+	if txVersionT1 {
+		proofLen = 160
+		t1 = 1
+	}
+	proof = make([]byte, proofLen)
+	commitment32 = make([]byte, 32)
+	senderHandle32 = make([]byte, 32)
+	receiverHandle32 = make([]byte, 32)
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_prove_ct_validity_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		C.size_t(len(proof)),
+		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
+		(*C.uchar)(unsafe.Pointer(&senderHandle32[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverHandle32[0])),
+		(*C.uchar)(unsafe.Pointer(&senderPubkey[0])),
+		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
+		C.ulong(amount),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
+		t1,
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return nil, nil, nil, nil, ErrUNOOperationFailed
+	}
+	return proof, commitment32, senderHandle32, receiverHandle32, nil
+}
+
+func ProveUNOCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+	return ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey, amount, opening32, txVersionT1, nil)
+}
+
+func ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
+	if len(sourcePrivkey32) != 32 || len(sourceCiphertext64) != 64 {
+		return nil, ErrUNOInvalidInput
+	}
+	proof := make([]byte, 200)
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_uno_prove_balance_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		(*C.uchar)(unsafe.Pointer(&sourcePrivkey32[0])),
+		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
+		C.ulong(amount),
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return proof, nil
+}
+
+func ProveUNOBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
+	return ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64, amount, nil)
 }
 
 func ElgamalCTAddCompressed(a64, b64 []byte) ([]byte, error) {

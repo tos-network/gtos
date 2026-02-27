@@ -118,6 +118,55 @@ func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byt
 	return ErrUNOBackendUnavailable
 }
 
+func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+	_ = receiverPubkey
+	_ = amount
+	_ = opening32
+	_ = ctx
+	return nil, nil, nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+	_ = receiverPubkey
+	_ = amount
+	_ = opening32
+	return nil, nil, nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+	_ = senderPubkey
+	_ = receiverPubkey
+	_ = amount
+	_ = opening32
+	_ = txVersionT1
+	_ = ctx
+	return nil, nil, nil, nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+	_ = senderPubkey
+	_ = receiverPubkey
+	_ = amount
+	_ = opening32
+	_ = txVersionT1
+	return nil, nil, nil, nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
+	_ = sourcePrivkey32
+	_ = sourceCiphertext64
+	_ = amount
+	_ = ctx
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
+	_ = sourcePrivkey32
+	_ = sourceCiphertext64
+	_ = amount
+	return nil, ErrUNOBackendUnavailable
+}
+
 func VerifyUNORangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	_ = proof
 	_ = commitments

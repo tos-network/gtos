@@ -501,7 +501,7 @@ func (s *PersonalAccountAPI) Sign(ctx context.Context, data hexutil.Bytes, addr 
 }
 
 // EcRecover returns the address for the account that was used to create the signature.
-// Note, this function is compatible with tos_sign (legacy eth_sign) and personal_sign.
+// Note, this function is compatible with tos_sign (legacy tos_sign) and personal_sign.
 // As such it recovers
 // the address of:
 // hash = keccak256("\x19Tosnetwk Signed Message:\n"${message length}${message})
@@ -2227,13 +2227,15 @@ func buildUNOTxArgs(ctx context.Context, s *TOSAPI, from common.Address, nonce *
 	to := params.PrivacyRouterAddress
 	input := hexutil.Bytes(payload)
 	zero := hexutil.Big{}
+	signerType := accountsigner.SignerTypeElgamal
 	txArgs := &TransactionArgs{
-		From:  &from,
-		To:    &to,
-		Gas:   gas,
-		Value: &zero,
-		Nonce: nonce,
-		Input: &input,
+		From:       &from,
+		To:         &to,
+		Gas:        gas,
+		Value:      &zero,
+		Nonce:      nonce,
+		Input:      &input,
+		SignerType: &signerType,
 	}
 	if txArgs.Gas == nil {
 		estimate, err := estimateUNOGas(payload, extraGas)

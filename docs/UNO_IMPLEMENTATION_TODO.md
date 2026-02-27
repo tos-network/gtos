@@ -122,7 +122,7 @@ Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 - [x] Proof builder/prover path landed:
   - [x] `crypto/uno` prover wrappers (`ProveShieldProof*`, `ProveCTValidityProof*`, `ProveBalanceProof*`).
   - [x] `core/uno` action builders (`BuildShieldPayloadProof`, `BuildTransferPayloadProof`, `BuildUnshieldPayloadProof`) that bind transcript context and emit payload-ready proof bundles.
-- [ ] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation.
+- [x] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation (validated on local 3-node DPoS with `toskey uno-shield|uno-transfer|uno-unshield`; evidence under `/data/gtos/uno_e2e/run_20260227_101711_v2`).
 
 DoD:
 - Local wallet tooling can track/decrypt UNO state reliably across new blocks and reorgs.
@@ -143,8 +143,8 @@ DoD:
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
-- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing is now in-tree (`crypto/uno` + `core/uno`) and builder->CLI->RPC wiring is in place (`toskey uno-shield|uno-transfer|uno-unshield` -> `tos_uno*` RPC); next step is capturing stable run evidence on local testnet.
-- [ ] Genesis preallocation decryptability checks for recipients. **BLOCKED (current):** depends on successful UNO transfer/unshield flows and recipient-side lifecycle assertions after inclusion/reorg.
+- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing and builder->CLI->RPC wiring are in place and e2e path is validated (`shield -> transfer -> unshield`, all receipts `0x1`) with artifacts under `/data/gtos/uno_e2e/run_20260227_101711_v2`; remaining work is long-duration repeated stability evidence.
+- [/] Genesis preallocation decryptability checks for recipients. Baseline completed on local testnet (recipient receives private amount, spends part via unshield, and retains residual UNO balance); reorg-drill coverage for this specific lifecycle remains.
 - [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
 ### 7.4 Fuzz / Robustness

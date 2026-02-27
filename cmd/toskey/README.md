@@ -56,6 +56,44 @@ To sign a message contained in a file, use the --msgfile flag.
 Change the password of a keyfile.
 use the `--newpasswordfile` to point to the new password file.
 
+### `toskey uno-balance <keyfile>`
+
+Decrypt the UNO encrypted balance locally from on-chain ciphertext via RPC.
+
+Example:
+
+- `toskey uno-balance --rpc http://127.0.0.1:8545 ./key.json`
+
+### `toskey uno-shield --amount <n> <keyfile>`
+
+Build UNO shield proof locally from the keyfile and submit transaction via `tos_unoShield`.
+
+Example:
+
+- `toskey uno-shield --rpc http://127.0.0.1:8545 --amount 10 ./key.json`
+
+### `toskey uno-transfer --to <addr> --amount <n> <keyfile>`
+
+Build UNO transfer proof locally and submit transaction via `tos_unoTransfer`.
+
+Example:
+
+- `toskey uno-transfer --rpc http://127.0.0.1:8545 --to 0x... --amount 3 ./key.json`
+
+### `toskey uno-unshield --to <addr> --amount <n> <keyfile>`
+
+Build UNO unshield proof locally and submit transaction via `tos_unoUnshield`.
+
+Example:
+
+- `toskey uno-unshield --rpc http://127.0.0.1:8545 --to 0x... --amount 2 ./key.json`
+
+UNO tx command notes:
+
+- Requires an `elgamal` keyfile.
+- Proof construction uses local cryptography; build `toskey` with CGO + `ed25519c`.
+- By default it refuses building when sender has pending tx (`latest nonce != pending nonce`) to avoid stale proof context; use `--allow-pending` only if you understand the risk.
+
 
 ## Passwords
 

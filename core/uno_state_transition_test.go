@@ -447,8 +447,8 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 				if err != nil {
 					t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
 				}
-				if !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
-					t.Fatalf("first ApplyMessage expected proof-level failure, got %v", res.Err)
+				if res.Err != nil && !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
+					t.Fatalf("first ApplyMessage expected success or proof-level failure, got %v", res.Err)
 				}
 
 				gp2 := new(GasPool).AddGas(msg.Gas())
@@ -474,8 +474,8 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
 		}
-		if !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
-			t.Fatalf("first ApplyMessage expected proof-level failure, got %v", res.Err)
+		if res.Err != nil && !errors.Is(res.Err, coreuno.ErrProofNotImplemented) && !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
+			t.Fatalf("first ApplyMessage expected success or proof-level failure, got %v", res.Err)
 		}
 
 		gp2 := new(GasPool).AddGas(secondDifferentAction.Gas())

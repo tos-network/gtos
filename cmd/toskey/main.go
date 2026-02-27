@@ -27,6 +27,9 @@ func init() {
 		commandSignMessage,
 		commandVerifyMessage,
 		commandUnoBalance,
+		commandUnoShield,
+		commandUnoTransfer,
+		commandUnoUnshield,
 	}
 }
 

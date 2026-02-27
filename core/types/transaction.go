@@ -498,6 +498,18 @@ func (s *TxByPriceAndTime) Pop() interface{} {
 	return x
 }
 
+// txSenderHint returns the signer-derived sender when available and falls back
+// to explicit SignerTx.from for non-secp256k1 signer types.
+func txSenderHint(signer Signer, tx *Transaction) common.Address {
+	if from, err := Sender(signer, tx); err == nil {
+		return from
+	}
+	if explicitFrom, ok := tx.SignerFrom(); ok {
+		return explicitFrom
+	}
+	return common.Address{}
+}
+
 // TransactionsByPriceAndNonce represents a set of transactions that can return
 // transactions in a profit-maximizing sorted order, while supporting removing
 // entire batches of transactions for non-executable accounts.
@@ -517,10 +529,10 @@ func NewTransactionsByPriceAndNonce(signer Signer, txs map[common.Address]Transa
 	// Initialize a price and received time based heap with the head transactions
 	heads := make(TxByPriceAndTime, 0, len(txs))
 	for from, accTxs := range txs {
-		acc, _ := Sender(signer, accTxs[0])
+		acc := txSenderHint(signer, accTxs[0])
 		wrapped, err := NewTxWithMinerFee(accTxs[0], baseFee)
-		// Remove transaction if sender doesn't match from, or if wrapping fails.
-		if acc != from || err != nil {
+		// Remove transaction if sender is unknown/mismatched, or if wrapping fails.
+		if acc == (common.Address{}) || acc != from || err != nil {
 			delete(txs, from)
 			continue
 		}
@@ -548,7 +560,11 @@ func (t *TransactionsByPriceAndNonce) Peek() *Transaction {
 
 // Shift replaces the current best head with the next one from the same account.
 func (t *TransactionsByPriceAndNonce) Shift() {
-	acc, _ := Sender(t.signer, t.heads[0].tx)
+	acc := txSenderHint(t.signer, t.heads[0].tx)
+	if acc == (common.Address{}) {
+		heap.Pop(&t.heads)
+		return
+	}
 	if txs, ok := t.txs[acc]; ok && len(txs) > 0 {
 		if wrapped, err := NewTxWithMinerFee(txs[0], t.baseFee); err == nil {
 			t.heads[0], t.txs[acc] = wrapped, txs[1:]
