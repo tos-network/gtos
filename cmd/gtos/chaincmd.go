@@ -17,7 +17,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/internal/flags"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -388,14 +387,11 @@ func parseDumpConfig(ctx *cli.Context, stack *node.Node) (*state.DumpConfig, tos
 	startArg := common.FromHex(ctx.String(utils.StartKeyFlag.Name))
 	var start common.Hash
 	switch len(startArg) {
-	case 0: // common.Hash
-	case 32:
+	case 0: // use zero hash (start from beginning)
+	case common.HashLength:
 		start = common.BytesToHash(startArg)
-	case 20:
-		start = crypto.Keccak256Hash(startArg)
-		log.Info("Converting start-address to hash", "address", common.BytesToAddress(startArg), "hash", start.Hex())
 	default:
-		return nil, nil, common.Hash{}, fmt.Errorf("invalid start argument: %x. 20 or 32 hex-encoded bytes required", startArg)
+		return nil, nil, common.Hash{}, fmt.Errorf("invalid start argument: %x. %d hex-encoded bytes required", startArg, common.HashLength)
 	}
 	var conf = &state.DumpConfig{
 		SkipCode:          ctx.Bool(utils.ExcludeCodeFlag.Name),

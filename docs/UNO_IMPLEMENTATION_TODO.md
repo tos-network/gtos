@@ -116,7 +116,7 @@ Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 - [x] RPC actions live: `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext`.
 - [x] Amount unit fixed: 1 UNO = 1 TOS (wei conversion only at public-balance boundary; ECDLP range is now feasible).
 - [x] `tos_unoDecryptBalance` RPC: reads ciphertext from state, decrypts with private key, solves ECDLP with BSGS (`crypto/uno/ecdlp.go`).
-- [x] `tos_unoBalance` RPC: decrypts balance using already-unlocked keystore account (private key never crosses RPC wire).
+- [x] `personal_unoBalance` RPC: decrypts balance using local keystore + password (no raw private key over RPC wire).
 - [x] `toskey uno-balance` CLI: local keyfile decrypt + `tos_getUNOCiphertext` + ECDLP in-process; private key never leaves the machine.
 - [x] Nonce/version-aware local state update and rollback handling (`toskey uno-balance --track-state`, `--track-accept-reorg`; tracker tests in `internal/unotracker/state_test.go`).
 - [x] Proof builder/prover path landed:
@@ -168,4 +168,3 @@ DoD:
 
 DoD:
 - Security checklist signed off before enabling UNO on shared networks.
-
