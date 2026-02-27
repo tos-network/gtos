@@ -101,7 +101,7 @@ Target: preserve deterministic state root/receipts/log ordering with UNO enabled
 
 - [x] UNO conflict marker in parallel analyzer is present (serialized UNO lane).
 - [/] Serial/parallel parity coverage with UNO still incomplete.
-- [ ] Add mixed-block parity tests: plain transfer + system action + UNO actions.
+- [x] Add mixed-block parity tests: plain transfer + system action + UNO actions.
 - [ ] Add stress parity test with repeated randomized UNO action batches.
 
 DoD:
