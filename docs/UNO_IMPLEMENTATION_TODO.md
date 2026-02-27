@@ -161,7 +161,7 @@ DoD:
 - [x] Malformed point/proof handling audit completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
 - [ ] Gas griefing audit for expensive verify paths.
 - [x] Counter bounds audit (`amount`, `uno_version`, nonce coupling) completed; evidence tracked in `docs/UNO_SECURITY_GATES.md`.
-- [ ] Signer rotation and key-loss behavior documented.
+- [x] Signer rotation and key-loss behavior documented in `docs/UNO_SECURITY_GATES.md`.
 
 DoD:
 - Security checklist signed off before enabling UNO on shared networks.

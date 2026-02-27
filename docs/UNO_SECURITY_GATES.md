@@ -78,8 +78,30 @@ Evidence:
 
 ## Gate 6: Signer rotation and key-loss behavior documented
 
-Status: `PENDING`
+Status: `DONE`
 
-Pending work:
-- Document operational workflow for `ACCOUNT_SET_SIGNER` with UNO accounts.
-- Define recovery and monitoring playbook for signer loss/rotation.
+Operational workflow:
+- UNO accounts must keep `signerType == elgamal` to submit UNO transactions.
+- Rotation is executed via `ACCOUNT_SET_SIGNER` system action (on-chain metadata update).
+- Safe rotation procedure:
+  1. Quiesce outgoing UNO txs for the account.
+  2. Wait until all pending txs from the account are finalized.
+  3. Submit `ACCOUNT_SET_SIGNER` to the new ElGamal public key.
+  4. Verify signer metadata via state/RPC before resuming UNO tx submission.
+
+Behavioral guarantees:
+- If signer type is rotated away from ElGamal, UNO txpool/execution reject with signer mismatch/not-configured errors.
+- Existing UNO ciphertext state (`commitment`, `handle`, `version`) is not mutated by signer metadata updates alone.
+- Version overflow and malformed-proof/ciphertext checks remain unchanged across rotations.
+
+Key-loss behavior:
+- Loss of ElGamal private key prevents proving/decrypting for that account; encrypted balance is operationally frozen.
+- Current protocol has no trustless key-recovery primitive for UNO ciphertext ownership transfer.
+- Recommended operational control:
+  - keep encrypted backups / HSM custody for active UNO keys
+  - pre-rotation drills on dev/test environments
+  - alerting on unexpected `ACCOUNT_SET_SIGNER` events
+
+Evidence pointers:
+- signer mismatch/not-configured parity tests in `core/tx_pool_test.go`
+- replay/reorg/version invariants in `core/uno_state_transition_test.go` and `core/uno_reorg_test.go`
