@@ -1,82 +1,90 @@
 # TOS
 
-**Autonomous agent economy on verifiable shared memory.**
+**The first blockchain to unify speed, privacy, and easy smart contracts.**
 
-TOS is a DPoS chain built for AI agents to share state, coordinate work, and settle value without a central orchestrator.
+TOS is a DPoS chain where 360ms blocks, built-in encrypted balances, and on-chain logic live together — no trade-offs, no layer juggling.
 
-## Positioning
+---
 
-### 1) Brand Narrative
+## The Problem With Every Other Chain
 
-**The world's first autonomous agent economy runs on shared memory.**
+Existing blockchains force you to choose:
 
-### 2) Product Definition
+- **Fast chains** sacrifice privacy and trust-minimized execution
+- **Privacy chains** are slow, complex, and require specialized tooling
+- **Smart contract chains** leak every state change to the public and hit throughput walls
 
-TOS is a **verifiable shared memory + coordination + settlement layer** for multi-model agent systems.
+TOS is built from the ground up to remove this trade-off.
 
-- Verifiable shared memory: signed, consensus-verified state
-- Coordination layer: shared namespaces for cross-agent workflows
-- Settlement layer: native TOS payments between agent accounts
+---
 
-### 3) Capability Proof
+## Speed
 
-- `360ms` target block interval (`dpos.periodMs=360`)
-- Deterministic TTL by block height (`expire_block = current_block + ttl`)
-- No VM: agents execute off-chain, chain stores commitments/state
-- Rolling history window: `200` finalized blocks
-- State snapshot interval: every `1000` blocks
-- Account/tx signer support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
-- Consensus block seal: configurable via `config.dpos.sealSignerType` (`ed25519` default, `secp256k1` supported)
+- `360ms` target block interval, DPoS consensus
+- Parallel transaction execution — independent txs run concurrently within each block
+- Rolling `200`-block finalized history window — nodes stay lean
+- Configurable seal signer: `ed25519` (default), `secp256k1`
 
-## Why TOS
+## Privacy
 
-Most agent stacks can call tools, but they still fail on shared truth:
+UNO is TOS's native privacy layer — encrypted balances on the base chain, no bridges, no L2.
 
-- no durable cross-session memory across models
-- no deterministic state freshness lifecycle
-- no tamper-evident audit trail for collaboration
-- no native machine-to-machine settlement primitive
+- Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
+- Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
+- Three operations: `UNO_SHIELD` (public → private), `UNO_TRANSFER` (private → private), `UNO_UNSHIELD` (private → public)
+- Decrypt your own balance locally with `personal_unoBalance` — private key never leaves your machine
+- Chain-bound proofs: every proof is committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
 
-TOS solves this with two TTL-native storage primitives and on-chain settlement.
+## Smart Contracts
 
-## Core Primitives
+TOS contracts are first-class on-chain logic — fast to write, cheap to run, no Solidity required.
 
-### `code_put_ttl`
+- System actions dispatch to native handlers at fixed addresses — deterministic, auditable, gas-efficient
+- `code_put_ttl`: deploy executable logic metadata with an expiry (`tos_setCode`)
+- `kv_put_ttl`: write structured state with TTL (`tos_putKV`) — entries expire automatically, no manual cleanup
+- Multi-signer accounts: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal` — one chain for every key type
 
-Write agent-defined executable logic metadata with TTL (`tos_setCode`).
+---
 
-### `kv_put_ttl`
+## Architecture at a Glance
 
-Write structured key/value state with TTL (`tos_putKV`).
+```
+┌─────────────────────────────────────────┐
+│               Applications              │
+│    (wallets, agents, dapps, scripts)    │
+└────────────────────┬────────────────────┘
+                     │ JSON-RPC / IPC
+┌────────────────────▼────────────────────┐
+│              TOS Node (gtos)            │
+│                                         │
+│  ┌──────────┐  ┌───────┐  ┌─────────┐  │
+│  │   DPoS   │  │  UNO  │  │ System  │  │
+│  │ 360ms    │  │Privacy│  │ Actions │  │
+│  │ Consensus│  │Layer  │  │(kv/code)│  │
+│  └──────────┘  └───────┘  └─────────┘  │
+│                                         │
+│  ┌─────────────────────────────────┐    │
+│  │   Parallel Tx Executor (DAG)    │    │
+│  └─────────────────────────────────┘    │
+└─────────────────────────────────────────┘
+```
 
-### Native TOS payments
+---
 
-Agents hold balances, sign transactions, and settle task rewards/fees on-chain.
+## Quick Start
 
-## System Model
+```bash
+# Build
+go build ./cmd/gtos
 
-- **Agent = runtime**: reasoning/execution stays in the agent process
-- **Chain = truth layer**: only state commitments and economic settlement are on-chain
-- **TTL = lifecycle control**: expired entries become unreadable and are pruned deterministically
+# Start a node (example)
+gtos --datadir /data/tos --networkid 1666 console
 
-This design keeps operation predictable while preserving auditability and interoperability.
+# Check your private UNO balance
+> personal.unoBalance("0x<your-address>", "your-password")
+```
 
-## Current Status (2026-02-24)
-
-- Protocol freeze: `DONE`
-- DPoS + signer/account foundation: `DONE`
-- TTL code storage: `DONE`
-- TTL KV storage: `DONE`
-- Hardening + production baseline: `IN_PROGRESS` (24h soak evidence capture pending)
-- Agent economy layer conventions/SDK/interoperability: `PLANNED`
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for full acceptance criteria.
-
-## What TOS Is Not
-
-- Not a general-purpose smart contract VM chain
-- Not an archive-node-heavy storage network
-- Not a replacement for model/tool execution runtime
+---
 
 ## License
 
