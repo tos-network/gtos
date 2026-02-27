@@ -281,24 +281,6 @@ func (ks *KeyStore) SignHash(a accounts.Account, hash []byte) ([]byte, error) {
 	return crypto.Sign(hash, unlockedKey.PrivateKey)
 }
 
-// ElgamalPrivateKey returns a copy of the 32-byte ElGamal private key for an
-// already-unlocked account. Returns ErrLocked if not unlocked, or an error if
-// the account is not an ElGamal-type account.
-func (ks *KeyStore) ElgamalPrivateKey(a accounts.Account) ([]byte, error) {
-	ks.mu.RLock()
-	defer ks.mu.RUnlock()
-	u, found := ks.unlocked[a.Address]
-	if !found {
-		return nil, ErrLocked
-	}
-	if len(u.Key.ElgamalPrivateKey) != 32 {
-		return nil, errors.New("keystore: account is not an ElGamal account")
-	}
-	out := make([]byte, 32)
-	copy(out, u.Key.ElgamalPrivateKey)
-	return out, nil
-}
-
 func signDPoSHashWithKeyMaterial(key *Key, hash []byte) ([]byte, error) {
 	if key == nil {
 		return nil, ErrUnsupportedSigningKey
