@@ -1357,6 +1357,90 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLow(t *testing.T) {
 	}
 }
 
+func TestUNOTxPoolExecutionRejectParityNonceTooLowTransfer(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	// Receiver must have an elgamal signer set up so that the receiver-signer
+	// precheck passes and nonce-too-low is the sole rejection reason.
+	receiverPriv, err := accountsigner.GenerateElgamalPrivateKey(crand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateElgamalPrivateKey: %v", err)
+	}
+	receiverPub, err := accountsigner.PublicKeyFromElgamalPrivate(receiverPriv)
+	if err != nil {
+		t.Fatalf("PublicKeyFromElgamalPrivate: %v", err)
+	}
+	receiver, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeElgamal, receiverPub)
+	if err != nil {
+		t.Fatalf("AddressFromSigner: %v", err)
+	}
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOTransferWire(t, receiver))
+	testSetElgamalSigner(pool, from, pub)
+	testSetElgamalSigner(pool, receiver, receiverPub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetNonce(pool, from, 1)
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrNonceTooLow) {
+		t.Fatalf("txpool expected %v, got %v", ErrNonceTooLow, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	setupElgamalSigner(t, execState, receiver, receiverPub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetNonce(from, 1)
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if !errors.Is(err, ErrNonceTooLow) {
+		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityNonceTooLowUnshield(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	recipient := common.HexToAddress("0x5002")
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOUnshieldWire(t, recipient, 1))
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetNonce(pool, from, 1)
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, ErrNonceTooLow) {
+		t.Fatalf("txpool expected %v, got %v", ErrNonceTooLow, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetNonce(from, 1)
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if !errors.Is(err, ErrNonceTooLow) {
+		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
+	}
+}
+
 func TestUNOTxPoolExecutionRejectParityShieldInvalidProofShape(t *testing.T) {
 	t.Parallel()
 

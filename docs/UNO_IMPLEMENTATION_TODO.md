@@ -119,6 +119,9 @@ Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 - [x] `tos_unoBalance` RPC: decrypts balance using already-unlocked keystore account (private key never crosses RPC wire).
 - [x] `toskey uno-balance` CLI: local keyfile decrypt + `tos_getUNOCiphertext` + ECDLP in-process; private key never leaves the machine.
 - [x] Nonce/version-aware local state update and rollback handling (`toskey uno-balance --track-state`, `--track-accept-reorg`; tracker tests in `internal/unotracker/state_test.go`).
+- [x] Proof builder/prover path landed:
+  - [x] `crypto/uno` prover wrappers (`ProveShieldProof*`, `ProveCTValidityProof*`, `ProveBalanceProof*`).
+  - [x] `core/uno` action builders (`BuildShieldPayloadProof`, `BuildTransferPayloadProof`, `BuildUnshieldPayloadProof`) that bind transcript context and emit payload-ready proof bundles.
 - [ ] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation.
 
 DoD:
@@ -136,11 +139,11 @@ DoD:
 
 ### 7.2 Core
 - [x] Shield/transfer/unshield transition tests: proof-failure/no-state-write (all 3) + version-overflow/no-state-write (all 3 actions, sender+receiver for transfer) + nonce-replay rejection + reorg/re-import consistency. Success-path (CGO only, differential vectors pending).
-- [/] Nonce/replay rejection matrix (execution-path replay tests added: same-action and cross-action same-nonce rejection for UNO actions; txpool/execution matrix includes nonce-too-low + invalid-envelope/unsupported-action parity and is still broadening).
+- [x] Nonce/replay rejection matrix: execution-path same-action and cross-action same-nonce replay for all 3 actions; txpool/execution nonce-too-low parity for Shield, Transfer (with receiver elgamal signer precondition), and Unshield.
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
-- [ ] 3-node local DPoS UNO scenario (stable repeated run). **BLOCKED (current):** no UNO proof builder/prover path in GTOS wallet/tooling; `tos_unoShield/Transfer/Unshield` can assemble tx payloads but execution still rejects on proof verification. Attempted path: local testnet + UNO RPC submission; result is deterministic proof-verify failure before state mutation. Next unblocked task: implement proof generation pipeline, then re-run 3-node scenario.
+- [/] 3-node local DPoS UNO scenario (stable repeated run). Prover/builder plumbing is now in-tree (`crypto/uno` + `core/uno`) and builder->CLI->RPC wiring is in place (`toskey uno-shield|uno-transfer|uno-unshield` -> `tos_uno*` RPC); next step is capturing stable run evidence on local testnet.
 - [ ] Genesis preallocation decryptability checks for recipients. **BLOCKED (current):** depends on successful UNO transfer/unshield flows and recipient-side lifecycle assertions after inclusion/reorg.
 - [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
