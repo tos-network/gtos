@@ -5,9 +5,64 @@ package uno
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 )
+
+type openingVectorCase struct {
+	Name          string `json:"name"`
+	PrivHex       string `json:"priv_hex"`
+	OpeningHex    string `json:"opening_hex"`
+	Amount        uint64 `json:"amount"`
+	WantPubHex    string `json:"want_pub_hex"`
+	WantComHex    string `json:"want_com_hex"`
+	WantHandleHex string `json:"want_handle_hex"`
+	WantCtHex     string `json:"want_ct_hex"`
+}
+
+type ctOpsVectorCase struct {
+	PrivHex        string `json:"priv_hex"`
+	PubHex         string `json:"pub_hex"`
+	Opening1Hex    string `json:"opening1_hex"`
+	Opening2Hex    string `json:"opening2_hex"`
+	Ct9Hex         string `json:"ct9_hex"`
+	Ct4Hex         string `json:"ct4_hex"`
+	AddHex         string `json:"add_hex"`
+	AddAmountHex   string `json:"add_amount_hex"`
+	DecryptPointHex string `json:"decrypt_point_hex"`
+}
+
+type deterministicFixture struct {
+	WithOpening []openingVectorCase `json:"with_opening"`
+	CtOps       ctOpsVectorCase     `json:"ct_ops"`
+}
+
+func mustDecodeHex(t *testing.T, h string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		t.Fatalf("decode hex %q: %v", h, err)
+	}
+	return b
+}
+
+func loadFixture(t *testing.T) deterministicFixture {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/ed25519c_vectors.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fx deterministicFixture
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	if len(fx.WithOpening) == 0 {
+		t.Fatal("fixture has no with_opening vectors")
+	}
+	return fx
+}
 
 func TestBackendEnabledWithCgo(t *testing.T) {
 	if !BackendEnabled() {
@@ -111,105 +166,60 @@ func TestEncryptWithOpeningConsistencyWithCommitmentAndHandle(t *testing.T) {
 }
 
 func TestDeterministicVectorsWithOpening(t *testing.T) {
-	tests := []struct {
-		name          string
-		privHex       string
-		openingHex    string
-		amount        uint64
-		wantPubHex    string
-		wantComHex    string
-		wantHandleHex string
-		wantCtHex     string
-	}{
-		{
-			name:          "v1_small",
-			privHex:       "0700000000000000000000000000000000000000000000000000000000000000",
-			openingHex:    "0100000000000000000000000000000000000000000000000000000000000000",
-			amount:        9,
-			wantPubHex:    "c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
-			wantComHex:    "485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234",
-			wantHandleHex: "c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
-			wantCtHex:     "485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531",
-		},
-		{
-			name:          "v2_medium",
-			privHex:       "2a00000000000000000000000000000000000000000000000000000000000000",
-			openingHex:    "0500000000000000000000000000000000000000000000000000000000000000",
-			amount:        123456,
-			wantPubHex:    "a669f6823d30d946754e8876ef9176f2687653b0346dea026d1347f19756ac4d",
-			wantComHex:    "fcc46ed0de317fc075efd3f9f38beaf7d0cd3c44da2ad2f8b3ec44d6fce25f3f",
-			wantHandleHex: "d22a6b009c78a404981d98e3fff81308dc62389d0e97aade7456f22f16029454",
-			wantCtHex:     "fcc46ed0de317fc075efd3f9f38beaf7d0cd3c44da2ad2f8b3ec44d6fce25f3fd22a6b009c78a404981d98e3fff81308dc62389d0e97aade7456f22f16029454",
-		},
-	}
+	fx := loadFixture(t)
 
-	mustDecode := func(h string) []byte {
-		b, err := hex.DecodeString(h)
-		if err != nil {
-			t.Fatalf("decode hex %q: %v", h, err)
-		}
-		return b
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			priv := mustDecode(tc.privHex)
-			opening := mustDecode(tc.openingHex)
+	for _, tc := range fx.WithOpening {
+		t.Run(tc.Name, func(t *testing.T) {
+			priv := mustDecodeHex(t, tc.PrivHex)
+			opening := mustDecodeHex(t, tc.OpeningHex)
 
 			pub, err := PublicKeyFromPrivate(priv)
 			if err != nil {
 				t.Fatalf("PublicKeyFromPrivate: %v", err)
 			}
-			if !bytes.Equal(pub, mustDecode(tc.wantPubHex)) {
-				t.Fatalf("pub mismatch: got=%x want=%s", pub, tc.wantPubHex)
+			if !bytes.Equal(pub, mustDecodeHex(t, tc.WantPubHex)) {
+				t.Fatalf("pub mismatch: got=%x want=%s", pub, tc.WantPubHex)
 			}
 
-			commitment, err := PedersenCommitmentWithOpening(opening, tc.amount)
+			commitment, err := PedersenCommitmentWithOpening(opening, tc.Amount)
 			if err != nil {
 				t.Fatalf("PedersenCommitmentWithOpening: %v", err)
 			}
-			if !bytes.Equal(commitment, mustDecode(tc.wantComHex)) {
-				t.Fatalf("commitment mismatch: got=%x want=%s", commitment, tc.wantComHex)
+			if !bytes.Equal(commitment, mustDecodeHex(t, tc.WantComHex)) {
+				t.Fatalf("commitment mismatch: got=%x want=%s", commitment, tc.WantComHex)
 			}
 
 			handle, err := DecryptHandleWithOpening(pub, opening)
 			if err != nil {
 				t.Fatalf("DecryptHandleWithOpening: %v", err)
 			}
-			if !bytes.Equal(handle, mustDecode(tc.wantHandleHex)) {
-				t.Fatalf("handle mismatch: got=%x want=%s", handle, tc.wantHandleHex)
+			if !bytes.Equal(handle, mustDecodeHex(t, tc.WantHandleHex)) {
+				t.Fatalf("handle mismatch: got=%x want=%s", handle, tc.WantHandleHex)
 			}
 
-			ct, err := EncryptWithOpening(pub, tc.amount, opening)
+			ct, err := EncryptWithOpening(pub, tc.Amount, opening)
 			if err != nil {
 				t.Fatalf("EncryptWithOpening: %v", err)
 			}
-			if !bytes.Equal(ct, mustDecode(tc.wantCtHex)) {
-				t.Fatalf("ciphertext mismatch: got=%x want=%s", ct, tc.wantCtHex)
+			if !bytes.Equal(ct, mustDecodeHex(t, tc.WantCtHex)) {
+				t.Fatalf("ciphertext mismatch: got=%x want=%s", ct, tc.WantCtHex)
 			}
 		})
 	}
 }
 
 func TestDeterministicCiphertextOpsVectors(t *testing.T) {
-	mustDecode := func(h string) []byte {
-		b, err := hex.DecodeString(h)
-		if err != nil {
-			t.Fatalf("decode hex %q: %v", h, err)
-		}
-		return b
-	}
-
-	priv := mustDecode("0700000000000000000000000000000000000000000000000000000000000000")
-	pub := mustDecode("c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
-	opening1 := mustDecode("0100000000000000000000000000000000000000000000000000000000000000")
-	opening2 := mustDecode("0200000000000000000000000000000000000000000000000000000000000000")
+	fx := loadFixture(t)
+	priv := mustDecodeHex(t, fx.CtOps.PrivHex)
+	pub := mustDecodeHex(t, fx.CtOps.PubHex)
+	opening1 := mustDecodeHex(t, fx.CtOps.Opening1Hex)
+	opening2 := mustDecodeHex(t, fx.CtOps.Opening2Hex)
 
 	ct9, err := EncryptWithOpening(pub, 9, opening1)
 	if err != nil {
 		t.Fatalf("EncryptWithOpening(ct9): %v", err)
 	}
-	wantCt9 := mustDecode("485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
+	wantCt9 := mustDecodeHex(t, fx.CtOps.Ct9Hex)
 	if !bytes.Equal(ct9, wantCt9) {
 		t.Fatalf("ct9 mismatch: got=%x want=%x", ct9, wantCt9)
 	}
@@ -218,7 +228,7 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncryptWithOpening(ct4): %v", err)
 	}
-	wantCt4 := mustDecode("a8120bd846409b9cd05484fb4e4ad9164403c5c336bb3c73711a15600347643c0a67051ab56fcf02b7de56858d012e03d82747cb68db686b8a6f39d7803dd171")
+	wantCt4 := mustDecodeHex(t, fx.CtOps.Ct4Hex)
 	if !bytes.Equal(ct4, wantCt4) {
 		t.Fatalf("ct4 mismatch: got=%x want=%x", ct4, wantCt4)
 	}
@@ -227,7 +237,7 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCompressedCiphertexts: %v", err)
 	}
-	wantAdd := mustDecode("32999ad04a8694a5fd9f8fc482616a58cb8b4e00c9364b8ef5afb8984d2e1105a80c1de72744dff71267b31ecfab429a389867cffef87d454e9a25a826b85201")
+	wantAdd := mustDecodeHex(t, fx.CtOps.AddHex)
 	if !bytes.Equal(add, wantAdd) {
 		t.Fatalf("add mismatch: got=%x want=%x", add, wantAdd)
 	}
@@ -245,7 +255,7 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddAmountCompressed: %v", err)
 	}
-	wantAddAmt := mustDecode("bc6fd951b233d678ef33178250394a64357a5ea3900ec5ca368cb9a2b94f4f5cc236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
+	wantAddAmt := mustDecodeHex(t, fx.CtOps.AddAmountHex)
 	if !bytes.Equal(addAmt, wantAddAmt) {
 		t.Fatalf("add amount mismatch: got=%x want=%x", addAmt, wantAddAmt)
 	}
@@ -263,7 +273,7 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecryptToPoint: %v", err)
 	}
-	wantPt9 := mustDecode("02622ace8f7303a31cafc63f8fc48fdc16e1c8c8d234b2f0d6685282a9076031")
+	wantPt9 := mustDecodeHex(t, fx.CtOps.DecryptPointHex)
 	if !bytes.Equal(pt9, wantPt9) {
 		t.Fatalf("decrypt point mismatch: got=%x want=%x", pt9, wantPt9)
 	}
