@@ -404,11 +404,15 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		}
 		st.gas -= chargeGas
 
+		senderState := uno.GetAccountState(st.state, msg.From())
+		if senderState.Version == math.MaxUint64 {
+			return uno.ErrVersionOverflow
+		}
+
 		amount := new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS))
 		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
 			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 		}
-		senderState := uno.GetAccountState(st.state, msg.From())
 		shieldCtx := uno.BuildUNOShieldTranscriptContext(
 			st.chainConfig.ChainID,
 			msg.From(),
@@ -431,9 +435,6 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		nextSenderCiphertext, err := uno.AddCiphertexts(senderState.Ciphertext, payload.NewSender)
 		if err != nil {
 			return err
-		}
-		if senderState.Version == math.MaxUint64 {
-			return uno.ErrVersionOverflow
 		}
 
 		st.state.SubBalance(msg.From(), amount)
