@@ -289,8 +289,146 @@ Expected:
 **Nodes fail to connect (peers = 0)**
 - Check `bootnodes.csv`, `static-nodes.json` on each node, and that ports `30311–30313` are reachable between nodes.
 
-## 10. References
+## 10. UNO Initial Balance Preallocation
+
+GTOS supports pre-seeding encrypted UNO balances at genesis for ElGamal accounts.
+This allows you to allocate private balances to specific addresses without requiring
+them to submit a `UNO_SHIELD` transaction first.
+
+### 10.1 Prerequisites
+
+A UNO genesis prealloc entry requires:
+
+1. **`signerType: "elgamal"`** — the account must use an ElGamal key as its signer.
+2. **`signerValue`** — the 32-byte ElGamal public key (hex, with `0x` prefix).
+3. **`uno_ct_commitment`** — the 32-byte Pedersen commitment of the ciphertext (hex).
+4. **`uno_ct_handle`** — the 32-byte handle (ephemeral ECDH key) of the ciphertext (hex).
+5. **`uno_version`** (optional) — initial version counter; defaults to `0`.
+
+The ciphertext is a Twisted ElGamal encryption of the initial balance under the
+account's public key. Amounts are in **TOS units** (1 UNO unit = 1 TOS; not wei).
+
+### 10.2 Generating the Ciphertext
+
+Use `scripts/gen_genesis_uno_ct/main.go` (requires CGO + the `ed25519c` C library):
+
+```bash
+go run -tags cgo,ed25519c ./scripts/gen_genesis_uno_ct/main.go <pubkey-hex> <amount>
+```
+
+Arguments:
+- `pubkey-hex` — the 32-byte ElGamal public key (from `toskey inspect <keyfile>`, field `PublicKey`), with or without `0x`.
+- `amount` — the initial UNO balance in TOS units (integer).
+
+Output: a JSON fragment ready to merge into the genesis `alloc` entry.
+
+**Important:** `Encrypt` uses a random opening scalar each time, so the output differs
+on every run. Generate once, pin the values, and use the same genesis file on all nodes.
+
+### 10.3 Concrete Example (Testnet Accounts A and B)
+
+The current testnet genesis at `/data/gtos/genesis_testnet_3vals.json` includes two
+ElGamal accounts without UNO pre-seeding. To add initial UNO balances:
+
+**Account A**
+- Address: `0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1`
+- Public key (from `toskey inspect`): `8cf9d0e10b0ec9a16b87b2d6c284c637fb6f8fceb93bcf112d4fcd4a055b4705`
+
+```bash
+go run -tags cgo,ed25519c ./scripts/gen_genesis_uno_ct/main.go \
+  8cf9d0e10b0ec9a16b87b2d6c284c637fb6f8fceb93bcf112d4fcd4a055b4705 100
+```
+
+Example output (values are random each run — generate once and pin):
+
+```json
+{
+  "uno_ct_commitment": "0x7a830967555d77b8683f6f600db27a23d24c289152f8cef0e122df4873c2ac7d",
+  "uno_ct_handle":     "0x58cc4f49a93ac9f1477d3a384ea04e592abfb0e1f75ce819448f6fb746938070",
+  "uno_version":       0
+}
+```
+
+**Account B**
+- Address: `0x25e8750786adb41f9725d7bfc8deC9De30521661C53750b142A8EbfA68B85BbE`
+- Public key: `74b3528ccece09228323cd9e6067499a8fdff33cd4c545859cc17027885d5276`
+
+```bash
+go run -tags cgo,ed25519c ./scripts/gen_genesis_uno_ct/main.go \
+  74b3528ccece09228323cd9e6067499a8fdff33cd4c545859cc17027885d5276 50
+```
+
+### 10.4 Genesis Alloc Entry Layout
+
+Merge the generated values into the account's alloc entry alongside the existing
+`balance`, `signerType`, and `signerValue` fields:
+
+```json
+"0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1": {
+  "balance":          "0x8ac7230489e80000",
+  "signerType":       "elgamal",
+  "signerValue":      "0x8cf9d0e10b0ec9a16b87b2d6c284c637fb6f8fceb93bcf112d4fcd4a055b4705",
+  "uno_ct_commitment":"0x7a830967555d77b8683f6f600db27a23d24c289152f8cef0e122df4873c2ac7d",
+  "uno_ct_handle":    "0x58cc4f49a93ac9f1477d3a384ea04e592abfb0e1f75ce819448f6fb746938070",
+  "uno_version":      0
+}
+```
+
+Rules enforced by `gtos init`:
+- Both `uno_ct_commitment` and `uno_ct_handle` must be present together (or both absent).
+- Both must be exactly 32 bytes.
+- The account must have `signerType: "elgamal"` and a valid `signerValue` in the same alloc entry.
+- Missing either field while the other is present is a fatal genesis error.
+
+### 10.5 Verifying the Prealloc After Startup
+
+**Using the node RPC** (requires the account to be unlocked first):
+
+```bash
+# Unlock the account
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","method":"personal_unlockAccount",
+    "params":["0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1","<password>",300],
+    "id":1
+  }'
+
+# Decrypt the UNO balance
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","method":"tos_unoBalance",
+    "params":["0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1",null,"latest"],
+    "id":2
+  }'
+```
+
+Expected response: `"balance": "0x64"` (= 100 in hex = 100 TOS).
+
+**Using `toskey` (private key never leaves the machine)**:
+
+```bash
+./build/bin/toskey uno-balance \
+  --rpc http://127.0.0.1:8545 \
+  /data/gtos/uno_e2e/keys/uno_a.json
+# UNO balance: 100 TOS (version 0, block 0)
+```
+
+### 10.6 Interaction with UNO_SHIELD / UNO_UNSHIELD
+
+A genesis prealloc UNO balance behaves identically to a balance acquired via
+`UNO_SHIELD`:
+
+- The account can immediately submit `UNO_TRANSFER` or `UNO_UNSHIELD` transactions
+  without needing to `UNO_SHIELD` first.
+- `UNO_UNSHIELD` increments `uno_version` and credits native TOS to the recipient.
+- After a reorg that removes post-genesis blocks, the ciphertext reverts to the
+  genesis-seeded values (verified by `TestUNOGenesisPreallocReorgLifecycle`).
+
+## 11. References
 
 - DPoS validator slots layout: [DPOS_GENESIS_VALIDATOR_SLOTS.md](./DPOS_GENESIS_VALIDATOR_SLOTS.md)
 - 3-node systemd deployment: [LOCAL_TESTNET_3NODES_SYSTEMD.md](./LOCAL_TESTNET_3NODES_SYSTEMD.md)
 - Automation script: `scripts/local_testnet_3nodes.sh`
+- UNO ciphertext generator: `scripts/gen_genesis_uno_ct/main.go`
