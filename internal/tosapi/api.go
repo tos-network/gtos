@@ -21,6 +21,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
+	cryptouno "github.com/tos-network/gtos/crypto/uno"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
@@ -1947,6 +1948,13 @@ type RPCUNOCiphertextResult struct {
 	BlockNumber hexutil.Uint64 `json:"blockNumber"`
 }
 
+type RPCUNODecryptResult struct {
+	Address     common.Address `json:"address"`
+	Balance     hexutil.Uint64 `json:"balance"`     // TOS units (not wei)
+	Version     hexutil.Uint64 `json:"version"`
+	BlockNumber hexutil.Uint64 `json:"blockNumber"`
+}
+
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -2725,6 +2733,69 @@ func (s *TOSAPI) GetUNOCiphertext(ctx context.Context, address common.Address, b
 		Address:     address,
 		Commitment:  hexutil.Bytes(accountState.Ciphertext.Commitment[:]),
 		Handle:      hexutil.Bytes(accountState.Ciphertext.Handle[:]),
+		Version:     hexutil.Uint64(accountState.Version),
+		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
+	}, nil
+}
+
+// UnoDecryptBalance decrypts the UNO ElGamal balance at address using the
+// provided 32-byte ElGamal private key. maxAmount bounds the ECDLP search
+// space (default 1_000_000_000 TOS). Call only on a local trusted node.
+func (s *TOSAPI) UnoDecryptBalance(
+	ctx context.Context,
+	address common.Address,
+	privKey hexutil.Bytes,
+	maxAmount *hexutil.Uint64,
+	blockNrOrHash *rpc.BlockNumberOrHash,
+) (*RPCUNODecryptResult, error) {
+	if address == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("address", "must not be zero address")
+	}
+	if len(privKey) != 32 {
+		return nil, newRPCInvalidParamsError("privKey", "must be exactly 32 bytes")
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_unoDecryptBalance")
+	}
+
+	effectiveMax := uint64(1_000_000_000)
+	if maxAmount != nil {
+		effectiveMax = uint64(*maxAmount)
+	}
+
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "uno state not found"}
+	}
+
+	accountState := coreuno.GetAccountState(st, address)
+	var ct64 [64]byte
+	copy(ct64[:32], accountState.Ciphertext.Commitment[:])
+	copy(ct64[32:], accountState.Ciphertext.Handle[:])
+
+	msgPoint, err := cryptouno.DecryptToPoint(privKey, ct64[:])
+	if err != nil {
+		return nil, fmt.Errorf("uno decrypt failed: %w", err)
+	}
+
+	balance, found, err := cryptouno.SolveDiscreteLog(msgPoint, effectiveMax)
+	if err != nil {
+		return nil, fmt.Errorf("uno ecdlp failed: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("balance exceeds maxAmount; retry with larger maxAmount")
+	}
+
+	return &RPCUNODecryptResult{
+		Address:     address,
+		Balance:     hexutil.Uint64(balance),
 		Version:     hexutil.Uint64(accountState.Version),
 		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
 	}, nil
