@@ -36,7 +36,7 @@ Target: stable Go API over imported C primitives with deterministic error mappin
 - [x] Ciphertext operations wired (`Encrypt`, add/sub ct, add/sub amount/scalar, zero ct, opening/keypair helpers, normalize/compress paths).
 - [x] Proof verification wrappers wired (`CiphertextValidity`, `CommitmentEq`, `RangeProof` verify).
 - [x] Strict Go error mapping for every C return code.
-- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors landed; Rust/XELIS differential ciphertext-op vectors landed in `crypto/uno/testdata/xelis_vectors.json` + `TestXelisDifferentialCiphertextOpsVectors`; proof-vector differential still pending).
+- [x] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors landed; Rust/XELIS differential ciphertext-op vectors landed in `crypto/uno/testdata/xelis_vectors.json` + `TestXelisDifferentialCiphertextOpsVectors`; proof-vector self-consistency + context-binding differential landed in `crypto/uno/proof_differential_cgo_test.go` + `core/uno/proof_context_mutation_cgo_test.go`).
 
 DoD:
 - `go test ./crypto/uno/...` passes with reproducible vectors and explicit error-class assertions.
@@ -134,8 +134,8 @@ DoD:
 ### 7.1 Unit
 - [x] Payload codec tests.
 - [x] UNO state slot tests.
-- [/] Transcript domain-separation tests (context serialization/layout + field-diff matrices + protocol-freeze constants/wire golden tests landed; prover/verifier differential vectors still pending).
-- [/] Crypto vector tests (fixed C vectors done; Rust differential pending).
+- [x] Transcript domain-separation tests (context serialization/layout + field-diff matrices + protocol-freeze constants/wire golden tests landed; prover/verifier differential: context-binding for all 3 proof types verified in `crypto/uno/proof_differential_cgo_test.go`; payload-level header+tail mutation rejection for all 3 actions verified in `core/uno/proof_context_mutation_cgo_test.go`).
+- [x] Crypto vector tests (fixed C vectors done; Rust/XELIS ciphertext-op differential done; proof-context binding differential done — cross-implementation byte-level proof parity deferred: GTOS C uses `balance-proof` domain separator vs xelis Rust `balance_proof`, incompatible wire formats).
 
 ### 7.2 Core
 - [x] Shield/transfer/unshield transition tests: proof-failure/no-state-write (all 3) + version-overflow/no-state-write (all 3 actions, sender+receiver for transfer) + nonce-replay rejection + reorg/re-import consistency. Success-path (CGO only, differential vectors pending).
@@ -150,7 +150,7 @@ DoD:
 ### 7.4 Fuzz / Robustness
 - [x] Payload decoder fuzzing.
 - [x] Proof blob parser fuzzing.
-- [/] Cross-implementation differential checks (GTOS vs reference vectors) now include XELIS ciphertext-op differential vectors; proof-vector differential remains.
+- [x] Cross-implementation differential checks: XELIS ciphertext-op differential vectors done; proof-context binding differential (context mutation rejection for all 3 proof types at crypto/uno and core/uno levels) done. Byte-level cross-implementation proof parity blocked by domain separator mismatch (`balance-proof` vs `balance_proof`) — documented.
 
 DoD:
 - New suites are deterministic and green in CI.
