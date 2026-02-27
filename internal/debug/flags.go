@@ -24,7 +24,6 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/fjl/memsize/memsizeui"
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-isatty"
 	"github.com/tos-network/gtos/internal/flags"
@@ -34,7 +33,22 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var Memsize memsizeui.Handler
+// Memsize is a no-op memory-size profiling handler.
+// The fjl/memsize package uses //go:linkname to access runtime-internal
+// symbols that are no longer accessible in Go 1.24+. This stub preserves
+// the public API without importing that dependency.
+var Memsize memsizeHandler
+
+// memsizeHandler satisfies the interface previously provided by memsizeui.Handler.
+type memsizeHandler struct{}
+
+// Add is a no-op; objects are not registered for memory scanning.
+func (h *memsizeHandler) Add(_ string, _ interface{}) {}
+
+// ServeHTTP responds with 404; the /memsize/ debug endpoint is disabled.
+func (h *memsizeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	http.NotFound(w, r)
+}
 
 var (
 	verbosityFlag = &cli.IntFlag{

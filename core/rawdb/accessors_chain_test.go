@@ -393,7 +393,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 		t.Fatalf("no receipts returned")
 	} else {
 		if err := checkReceiptsRLP(rs, receipts); err != nil {
-			t.Fatalf(err.Error())
+			t.Fatal(err)
 		}
 	}
 	// Delete the body and ensure that the receipts are no longer returned (metadata can't be recomputed)
@@ -410,7 +410,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 		rawReceiptsWant[i] = cp
 	}
 	if err := checkReceiptsRLP(ReadRawReceipts(db, hash, 0), rawReceiptsWant); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 	// Sanity check that body alone without the receipt is a full purge
 	WriteBody(db, hash, 0, body)
