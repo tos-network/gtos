@@ -140,8 +140,8 @@ DoD:
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
-- [ ] 3-node local DPoS UNO scenario (stable repeated run).
-- [ ] Genesis preallocation decryptability checks for recipients.
+- [ ] 3-node local DPoS UNO scenario (stable repeated run). **BLOCKED (current):** no UNO proof builder/prover path in GTOS wallet/tooling; `tos_unoShield/Transfer/Unshield` can assemble tx payloads but execution still rejects on proof verification. Attempted path: local testnet + UNO RPC submission; result is deterministic proof-verify failure before state mutation. Next unblocked task: implement proof generation pipeline, then re-run 3-node scenario.
+- [ ] Genesis preallocation decryptability checks for recipients. **BLOCKED (current):** depends on successful UNO transfer/unshield flows and recipient-side lifecycle assertions after inclusion/reorg.
 - [x] Reorg/re-import determinism for UNO blocks (`TestUNOReorgReimportVersionConsistency`).
 
 ### 7.4 Fuzz / Robustness

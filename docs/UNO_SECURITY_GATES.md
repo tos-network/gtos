@@ -2,6 +2,9 @@
 
 This file records gate-by-gate evidence for UNO rollout readiness.
 
+Execution helper:
+- `scripts/uno_security_gate.sh`
+
 ## Gate 1: Consensus divergence audit (txpool vs execution vs import)
 
 Status: `DONE`
