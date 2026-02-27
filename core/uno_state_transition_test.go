@@ -33,7 +33,8 @@ func TestUNOShieldProofFailureHasNoStateWrite(t *testing.T) {
 	coinbase := common.HexToAddress("0xC0FFEE")
 	from := common.HexToAddress("0x1001")
 	to := params.PrivacyRouterAddress
-	st.SetBalance(from, big.NewInt(1_000_000))
+	// Shield amount=10 TOS; balance must be ≥ 10 TOS (10×1e18 wei) for CanTransfer to pass.
+	st.SetBalance(from, new(big.Int).Mul(big.NewInt(11), new(big.Int).SetUint64(params.TOS)))
 
 	pub := ristretto255.NewGeneratorElement().Bytes()
 	setupElgamalSigner(t, st, from, pub)
@@ -247,7 +248,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				st := newTTLDeterminismState(t)
-				st.SetBalance(from, big.NewInt(1_000_000))
+				st.SetBalance(from, new(big.Int).Mul(big.NewInt(2), new(big.Int).SetUint64(params.TOS)))
 				setupElgamalSigner(t, st, from, ristretto255.NewGeneratorElement().Bytes())
 				setupElgamalSigner(t, st, recv, ristretto255.NewIdentityElement().Add(ristretto255.NewGeneratorElement(), ristretto255.NewGeneratorElement()).Bytes())
 
@@ -273,7 +274,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 
 	t.Run("cross-action replay nonce low", func(t *testing.T) {
 		st := newTTLDeterminismState(t)
-		st.SetBalance(from, big.NewInt(1_000_000))
+		st.SetBalance(from, new(big.Int).Mul(big.NewInt(2), new(big.Int).SetUint64(params.TOS)))
 		setupElgamalSigner(t, st, from, ristretto255.NewGeneratorElement().Bytes())
 		setupElgamalSigner(t, st, recv, ristretto255.NewIdentityElement().Add(ristretto255.NewGeneratorElement(), ristretto255.NewGeneratorElement()).Bytes())
 

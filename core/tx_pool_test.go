@@ -24,6 +24,7 @@ import (
 	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/trie"
 )
 
@@ -394,6 +395,22 @@ func testUNOUnshieldWireMalformedProof(t *testing.T, to common.Address, amount u
 	return wire
 }
 
+func testUNOUnsupportedActionWire(t *testing.T) []byte {
+	t.Helper()
+	type envelope struct {
+		Action uint8
+		Body   []byte
+	}
+	raw, err := rlp.EncodeToBytes(&envelope{
+		Action: 0xFF,
+		Body:   []byte{0x01, 0x02},
+	})
+	if err != nil {
+		t.Fatalf("rlp.EncodeToBytes unsupported action envelope: %v", err)
+	}
+	return append([]byte(coreuno.PayloadPrefix), raw...)
+}
+
 func testUNOTx(t *testing.T, key *ecdsa.PrivateKey, nonce uint64, gas uint64, data []byte) *types.Transaction {
 	t.Helper()
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
@@ -516,7 +533,7 @@ func TestTxPoolUNORejectsLowGasForExtra(t *testing.T) {
 	defer pool.Stop()
 
 	tx, from, pub := testUNOElgamalTx(t, 0, 60_000, testUNOShieldWire(t, 1))
-	testAddBalance(pool, from, big.NewInt(1_000_000))
+	testSetBalanceExact(pool, from, big.NewInt(2_000_000_000_000_000_000)) // 2 TOS raw wei
 	testSetElgamalSigner(pool, from, pub)
 
 	if err := pool.AddRemote(tx); !errors.Is(err, ErrIntrinsicGas) {
@@ -573,9 +590,9 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 		t.Fatalf("EncodeEnvelope: %v", err)
 	}
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, wire)
-	// Balance must exceed gas-cost + shield-amount so the balance guard does not
-	// fire before the proof-shape check; use 2× the gas allowance.
-	testAddBalance(pool, from, big.NewInt(2_000_000))
+	// Balance must exceed gas-cost + shield-amount (1 TOS) so the balance guard
+	// does not fire before the proof-shape check; use 2 TOS raw wei.
+	testSetBalanceExact(pool, from, big.NewInt(2_000_000_000_000_000_000)) // 2 TOS raw wei
 	testSetElgamalSigner(pool, from, pub)
 
 	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
@@ -608,7 +625,7 @@ func TestTxPoolUNOShieldRejectsInsufficientPublicBalance(t *testing.T) {
 		const gas = uint64(1_000_000)
 		const shieldAmount = uint64(1)
 		tx, from, pub := testUNOElgamalTx(t, 0, gas, testUNOShieldWire(t, shieldAmount))
-		// Add balance equal to tx.Cost() only (gas × price, value=0): one wei short of gas+shield.
+		// Add balance equal to tx.Cost() only (gas × price, value=0): 1 TOS (shield amount) short of gas+shield.
 		gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gas), params.GTOSPrice())
 		pool.mu.Lock()
 		pool.currentState.AddBalance(from, gasCost)
@@ -847,7 +864,8 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLow(t *testing.T) {
 
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWire(t, 1))
 	testSetElgamalSigner(pool, from, pub)
-	sufficient := new(big.Int).Add(tx.Cost(), big.NewInt(100))
+	sufficient := new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS))
+	sufficient.Add(sufficient, big.NewInt(100))
 	testSetBalanceExact(pool, from, sufficient)
 	testSetNonce(pool, from, 1)
 
@@ -882,7 +900,9 @@ func TestUNOTxPoolExecutionRejectParityShieldInvalidProofShape(t *testing.T) {
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWireMalformedProof(t, 1))
 	testSetElgamalSigner(pool, from, pub)
 	// Ensure proof-shape rejection is hit before balance guard.
-	testAddBalance(pool, from, big.NewInt(2_000_000))
+	minBalance := new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS))
+	minBalance.Add(minBalance, big.NewInt(1))
+	testSetBalanceExact(pool, from, minBalance)
 
 	txpoolErr := pool.AddRemote(tx)
 	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
@@ -891,7 +911,7 @@ func TestUNOTxPoolExecutionRejectParityShieldInvalidProofShape(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(2_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Set(minBalance))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -989,6 +1009,74 @@ func TestUNOTxPoolExecutionRejectParityUnshieldInvalidProofShape(t *testing.T) {
 	}
 	if !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
 		t.Fatalf("execution expected %v, got %v", coreuno.ErrInvalidPayload, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityInvalidEnvelope(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, []byte("bad"))
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrInvalidPayload) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrInvalidPayload, res.Err)
+	}
+}
+
+func TestUNOTxPoolExecutionRejectParityUnsupportedAction(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOUnsupportedActionWire(t))
+	testSetElgamalSigner(pool, from, pub)
+	testAddBalance(pool, from, big.NewInt(1_000_000))
+
+	txpoolErr := pool.AddRemote(tx)
+	if !errors.Is(txpoolErr, coreuno.ErrUnsupportedAction) {
+		t.Fatalf("txpool expected %v, got %v", coreuno.ErrUnsupportedAction, txpoolErr)
+	}
+
+	execState := newTTLDeterminismState(t)
+	setupElgamalSigner(t, execState, from, pub)
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
+	if err != nil {
+		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
+	}
+	gp := new(GasPool).AddGas(tx.Gas())
+	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	if !errors.Is(res.Err, coreuno.ErrUnsupportedAction) {
+		t.Fatalf("execution expected %v, got %v", coreuno.ErrUnsupportedAction, res.Err)
 	}
 }
 

@@ -385,7 +385,7 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	}
 	env, err := uno.DecodeEnvelope(st.data)
 	if err != nil {
-		return ErrContractNotSupported
+		return err
 	}
 	senderPubkey, err := uno.RequireElgamalSigner(st.state, msg.From())
 	if err != nil {
@@ -396,7 +396,7 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	case uno.ActionShield:
 		payload, err := uno.DecodeShieldPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return ErrContractNotSupported
+			return uno.ErrInvalidPayload
 		}
 		chargeGas := params.UNOBaseGas + params.UNOShieldGas
 		if st.gas < chargeGas {
@@ -404,7 +404,7 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		}
 		st.gas -= chargeGas
 
-		amount := new(big.Int).SetUint64(payload.Amount)
+		amount := new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS))
 		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
 			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 		}
@@ -444,7 +444,7 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	case uno.ActionTransfer:
 		payload, err := uno.DecodeTransferPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return ErrContractNotSupported
+			return uno.ErrInvalidPayload
 		}
 		receiverPubkey, err := uno.RequireElgamalSigner(st.state, payload.To)
 		if err != nil {
@@ -493,7 +493,7 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	case uno.ActionUnshield:
 		payload, err := uno.DecodeUnshieldPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return ErrContractNotSupported
+			return uno.ErrInvalidPayload
 		}
 		chargeGas := params.UNOBaseGas + params.UNOUnshieldGas
 		if st.gas < chargeGas {
@@ -525,10 +525,10 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		senderState.Ciphertext = payload.NewSender
 		senderState.Version++
 		uno.SetAccountState(st.state, msg.From(), senderState)
-		st.state.AddBalance(payload.To, new(big.Int).SetUint64(payload.Amount))
+		st.state.AddBalance(payload.To, new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS)))
 		return nil
 	default:
-		return ErrContractNotSupported
+		return uno.ErrUnsupportedAction
 	}
 }
 

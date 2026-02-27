@@ -88,7 +88,7 @@ Target: no acceptance divergence between txpool precheck and execution path.
 - [x] UNO payload decode and signer checks in txpool are present.
 - [x] Payload/proof shape and size guards are present.
 - [x] Consensus-critical semantic checks mirrored: sender/receiver version overflow (all 3 actions) and combined gas+shield-amount balance guard for Shield.
-- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for nonce-too-low, shield insufficient-balance, transfer receiver version-overflow, unshield sender version-overflow, transfer receiver missing-signer, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
+- [/] Explicit parity tests partially done (added txpool-vs-execution parity tests for invalid-envelope/unsupported-action, nonce-too-low, shield insufficient-balance, transfer receiver version-overflow, unshield sender version-overflow, transfer receiver missing-signer, and shield/transfer/unshield invalid-proof-shape; broader accept/reject matrix still pending).
 
 DoD:
 - Same tx is accepted/rejected for the same reason by both paths.
@@ -114,7 +114,9 @@ DoD:
 Target: move toward XELIS-like wallet flow for encrypted balance lifecycle.
 
 - [x] RPC actions live: `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext`.
-- [ ] Local wallet decrypt/update flow for UNO balances.
+- [x] Amount unit fixed: 1 UNO = 1 TOS (wei conversion only at public-balance boundary; ECDLP range is now feasible).
+- [x] `tos_unoDecryptBalance` RPC: reads ciphertext from state, decrypts with private key, solves ECDLP with BSGS (`crypto/uno/ecdlp.go`).
+- [ ] Nonce/version-aware local state update and rollback handling.
 - [ ] Nonce/version-aware local state update and rollback handling.
 - [ ] End-to-end user flow: genesis preallocation -> transfer -> unshield -> balance reconciliation.
 
@@ -133,7 +135,7 @@ DoD:
 
 ### 7.2 Core
 - [/] Shield/transfer/unshield transition tests are partial.
-- [/] Nonce/replay rejection matrix (execution-path replay tests added: same-action and cross-action same-nonce rejection for UNO actions; txpool/execution matrix includes nonce-too-low parity and is still broadening).
+- [/] Nonce/replay rejection matrix (execution-path replay tests added: same-action and cross-action same-nonce rejection for UNO actions; txpool/execution matrix includes nonce-too-low + invalid-envelope/unsupported-action parity and is still broadening).
 - [x] Invalid proof rejection baseline exists.
 
 ### 7.3 Integration
