@@ -1,24 +1,24 @@
-# GTOS Genesis 配置指南（DPoS）
+# GTOS Genesis Configuration Guide (DPoS)
 
-本文给出 GTOS DPoS 的 `genesis.json` 完整配置方法，基于：
+This guide covers the complete `genesis.json` configuration for a GTOS DPoS network, based on:
 
 - [DPOS_GENESIS_VALIDATOR_SLOTS.md](./DPOS_GENESIS_VALIDATOR_SLOTS.md)
-- 当前机器上正在运行的 3 节点 testnet 实例参数
+- The 3-node testnet instance currently running on this machine
 
-## 1. 本文覆盖内容
+## 1. Scope
 
-- 如何构造可用的 GTOS DPoS genesis
-- 如何在创世块预写 TOS3（验证者注册表）slots
-- 如何用同一 genesis 初始化 3 个节点
-- 如何在启动后验证 genesis 是否正确
+- How to construct a valid GTOS DPoS genesis
+- How to pre-seed the TOS3 (validator registry) storage slots at genesis
+- How to initialize 3 nodes from the same genesis
+- How to verify the genesis is correctly applied after startup
 
-## 2. `~/data` 与 `/data` 路径说明
+## 2. Data Directory Paths
 
-当前机器的真实 testnet 数据目录是：
+The canonical testnet data directory on this machine is:
 
 - `/data/gtos`
 
-如果你希望使用 `~/data` 路径，可以通过脚本覆盖 `BASE_DIR`：
+To use a `~/data` path instead, override `BASE_DIR` when invoking the script:
 
 ```bash
 cd ~/gtos
@@ -26,79 +26,81 @@ mkdir -p ~/data/gtos
 BASE_DIR=~/data/gtos scripts/local_testnet_3nodes.sh setup
 ```
 
-下文示例统一写 `~/data/gtos`，若你的运行目录是 `/data/gtos`，直接替换前缀即可。
+The examples below use `~/data/gtos`. Replace the prefix with `/data/gtos` if that is your actual data directory.
 
-## 3. Genesis 必要字段（DPoS）
+## 3. Required Genesis Fields (DPoS)
 
-GTOS DPoS genesis 至少应包含：
+A valid GTOS DPoS genesis must contain at minimum:
 
 - `config.chainId`
 - `config.dpos.periodMs`
 - `config.dpos.epoch`
 - `config.dpos.maxValidators`
 - `config.dpos.sealSignerType`
-- `extraData`（32-byte vanity + 初始验证者地址串）
-- `alloc`（账户初始余额）
-- TOS3（`0x...0003`）的验证者注册表 storage
+- `extraData` — 32-byte vanity followed by the sorted initial validator addresses (concatenated, no `0x`)
+- `alloc` — initial account balances
+- TOS3 (`0x...0003`) validator registry storage slots
 
-注意：
+Notes:
 
-- GTOS 地址长度是 32 字节（`0x` + 64 hex）。
-- 如果创世时 TOS3 没有预置验证者 slots，链可能在 epoch 边界停产。
+- GTOS addresses are 32 bytes (`0x` + 64 hex characters).
+- If TOS3 validator slots are not pre-seeded at genesis, the chain will stall at the first epoch boundary.
 
-## 4. 推荐方法：脚本自动生成
+## 4. Recommended Method: Script-Based Generation
 
-使用 `scripts/local_testnet_3nodes.sh`。
+Use `scripts/local_testnet_3nodes.sh`.
 
-### 4.1 生成账户 + genesis + init
+### 4.1 Generate Accounts, Genesis, and Initialize
 
 ```bash
 cd ~/gtos
 BASE_DIR=~/data/gtos scripts/local_testnet_3nodes.sh setup
 ```
 
-这一步会自动完成：
+This command automatically:
 
-- 创建/复用 node1/node2/node3 的验证者账户
-- 生成 `genesis_testnet_3vals.json`
-- 对 3 个 datadir 执行 `gtos init`
+- Creates or reuses validator accounts for node1, node2, and node3
+- Generates `genesis_testnet_3vals.json`
+- Runs `gtos init` for all three data directories
 
-关键输出：
+Key output files:
 
 - `~/data/gtos/validator_accounts.txt`
 - `~/data/gtos/validators.sorted`
 - `~/data/gtos/genesis_testnet_3vals.json`
 
-### 4.2（可选）预采集 enode 与 peers 文件
+### 4.2 (Optional) Pre-Collect Enode Addresses and Peer Files
 
 ```bash
 cd ~/gtos
 BASE_DIR=~/data/gtos scripts/local_testnet_3nodes.sh precollect-enode
 ```
 
-输出：
+Output:
 
 - `~/data/gtos/node_enodes.txt`
 - `~/data/gtos/bootnodes.csv`
 - `~/data/gtos/node{1,2,3}/gtos/static-nodes.json`
 
-## 5. 手工方法（从零构造）
+## 5. Manual Method (Building from Scratch)
 
-### 5.1 确定 DPoS 参数
+### 5.1 Choose DPoS Parameters
 
-示例参数：
+Example parameters:
 
-- `chainId = 1666`
-- `periodMs = 360`
-- `epoch = 1667`
-- `maxValidators = 15`
-- `sealSignerType = "ed25519"`
+| Parameter        | Value       |
+|-----------------|-------------|
+| `chainId`       | `1666`      |
+| `periodMs`      | `360`       |
+| `epoch`         | `1667`      |
+| `maxValidators` | `15`        |
+| `sealSignerType`| `"ed25519"` |
 
-### 5.2 准备验证者地址
+### 5.2 Prepare Validator Addresses
 
-准备 3 个 32-byte 地址，并按字典序排序（用于 `extraData` 与 `validatorList`）。
+Obtain 3 or more 32-byte validator addresses. Sort them lexicographically — this order is used in both `extraData` and the `validatorList` storage slots.
 
-### 5.3 生成 TOS3 storage slots
+### 5.3 Generate TOS3 Storage Slots
 
 ```bash
 cd ~/gtos
@@ -106,64 +108,65 @@ go run ./scripts/gen_genesis_slots/main.go \
   <validator1> <validator2> <validator3>
 ```
 
-该命令会输出可直接粘贴到 genesis 的 `"storage"` JSON，包含：
+This prints a `"storage"` JSON fragment ready to paste into the genesis `alloc` entry for TOS3. It includes:
 
 - `validatorCount`
-- `validatorList[i]`
-- `selfStake`
-- `registered`
+- `validatorList[i]` (one entry per validator)
+- `selfStake` (initial stake per validator)
+- `registered` flag
 - `status`
 
-### 5.4 构造 `extraData`
+### 5.4 Construct `extraData`
 
-`extraData` 格式：
+The `extraData` field layout:
 
-- 32-byte vanity（可全 0）
-- 后接排序后的验证者地址（去掉 `0x`，直接拼接）
+```
+[ 32 bytes vanity (may be all zeros) ][ validator1_bytes ][ validator2_bytes ][ validator3_bytes ]
+```
 
-### 5.5 组装 genesis
+Concatenate the sorted validator addresses directly (without `0x` prefixes). The result is a hex string of length `64 + N*64` characters (plus the leading `0x`).
 
-- 把验证者账户写入 `alloc` 并给初始余额
-- 把 TOS3 账户（`0x...0003`）写入 `alloc`，并填入步骤 5.3 的 `storage`
+### 5.5 Assemble the Genesis
 
-## 6. 当前 testnet 实例（真实值示例）
+- Add each validator address to `alloc` with an initial balance.
+- Add the TOS3 address (`0x0000...0003`) to `alloc` with `"balance": "0x0"` and the `storage` map produced in step 5.3.
 
-来源：`/data/gtos`。
+## 6. Live Testnet Reference (Concrete Values)
 
-### 6.1 当前验证者集合（已排序）
+Source: `/data/gtos`.
 
-来自 `/data/gtos/validators.sorted`：
+### 6.1 Current Validator Set (Sorted)
+
+From `/data/gtos/validators.sorted`:
 
 - `0x116935ffb42c06360f8d7f78c8107f5b14b43400e7da9e71082a81db08b87c44`
 - `0x15f0aeb8f7a7562b8fcbeba8845518bd5c1d93c76ecf0756cfe3e9a96e2343bc`
 - `0x89ecd491f12a6b43d7fbb8aff4dab13aeb47eaae43211d21299d246b40643c28`
 
-### 6.2 当前 DPoS 配置
+### 6.2 DPoS Configuration
 
-来自 `/data/gtos/genesis_testnet_3vals.json`：
+From `/data/gtos/genesis_testnet_3vals.json`:
 
-- `chainId: 1666`
-- `periodMs: 360`
-- `epoch: 1667`
-- `maxValidators: 15`
-- `sealSignerType: ed25519`
-- `gasLimit: 0x1c9c380`
+| Field            | Value         |
+|-----------------|---------------|
+| `chainId`       | `1666`        |
+| `periodMs`      | `360`         |
+| `epoch`         | `1667`        |
+| `maxValidators` | `15`          |
+| `sealSignerType`| `ed25519`     |
+| `gasLimit`      | `0x1c9c380`   |
 
-### 6.3 当前 testnet 的 enode/端口（运行中实例）
+### 6.3 Enode Addresses and Ports (Running Instance)
 
-来自 `/data/gtos/node_enodes.txt` 与 systemd：
+From `/data/gtos/node_enodes.txt` and systemd:
 
-- node1: `enode://9c7e161d30c346e136c2d3706d734085a62d066c67db33e1d6c7d6fa044a08e33b3bc198886f7e5caa9bae693c22b29606673745d1e2fab6e707f3110b52eeec@127.0.0.1:30311`
-- node2: `enode://15e124f7f7d42cbab626d31617e1b132acaac9fbe7e8994d5735c9d769a5f1a801450c1d039a02eff24902321b0426f13b8dd323fc707cef60b7c8b2ad7af0f4@127.0.0.1:30312`
-- node3: `enode://86af05fe22d851eb5bb53e9810e4a6fce2777736e29cf44622b5488532bdbd2f66e9d45f5cc60d5df8594bc5ab0697c21bb2b4e2103b4e1199245616820de171@127.0.0.1:30313`
+| Node  | Enode                                                                                                                                       | P2P Port | HTTP RPC |
+|-------|---------------------------------------------------------------------------------------------------------------------------------------------|----------|----------|
+| node1 | `enode://9c7e161d30c346e136c2d3706d734085a62d066c67db33e1d6c7d6fa044a08e33b3bc198886f7e5caa9bae693c22b29606673745d1e2fab6e707f3110b52eeec@127.0.0.1:30311` | 30311 | 8545 |
+| node2 | `enode://15e124f7f7d42cbab626d31617e1b132acaac9fbe7e8994d5735c9d769a5f1a801450c1d039a02eff24902321b0426f13b8dd323fc707cef60b7c8b2ad7af0f4@127.0.0.1:30312` | 30312 | 8547 |
+| node3 | `enode://86af05fe22d851eb5bb53e9810e4a6fce2777736e29cf44622b5488532bdbd2f66e9d45f5cc60d5df8594bc5ab0697c21bb2b4e2103b4e1199245616820de171@127.0.0.1:30313` | 30313 | 8549 |
 
-HTTP RPC 端口：
-
-- node1: `8545`
-- node2: `8547`
-- node3: `8549`
-
-### 6.4 完整 genesis 示例（同参数）
+### 6.4 Complete Genesis Example
 
 ```json
 {
@@ -212,15 +215,15 @@ HTTP RPC 端口：
 }
 ```
 
-## 7. 初始化与启动
+## 7. Initialization and Startup
 
-假设 3 个数据目录：
+Assuming three data directories:
 
 - `~/data/gtos/node1`
 - `~/data/gtos/node2`
 - `~/data/gtos/node3`
 
-统一初始化：
+Initialize all three from the same genesis:
 
 ```bash
 ~/gtos/build/bin/gtos --datadir ~/data/gtos/node1 init ~/data/gtos/genesis_testnet_3vals.json
@@ -228,18 +231,18 @@ HTTP RPC 端口：
 ~/gtos/build/bin/gtos --datadir ~/data/gtos/node3 init ~/data/gtos/genesis_testnet_3vals.json
 ```
 
-如果你使用 systemd：
+If you are using systemd:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl start gtos-node1 gtos-node2 gtos-node3
 ```
 
-完整服务部署见：[LOCAL_TESTNET_3NODES_SYSTEMD.md](./LOCAL_TESTNET_3NODES_SYSTEMD.md)
+For full systemd service deployment, see: [LOCAL_TESTNET_3NODES_SYSTEMD.md](./LOCAL_TESTNET_3NODES_SYSTEMD.md)
 
-## 8. 启动后校验
+## 8. Post-Startup Verification
 
-### 8.1 校验 TOS3 的 validatorCount
+### 8.1 Verify the TOS3 Validator Count
 
 ```bash
 curl -s -X POST http://127.0.0.1:8545 \
@@ -256,9 +259,9 @@ curl -s -X POST http://127.0.0.1:8545 \
   }'
 ```
 
-期望返回十六进制 `0x...03`（即验证者数量为 3）。
+Expected response: a hex value of `0x...03` (validator count = 3).
 
-### 8.2 校验网络状态
+### 8.2 Verify Network Status
 
 ```bash
 cd ~/gtos
@@ -266,28 +269,28 @@ BASE_DIR=~/data/gtos scripts/local_testnet_3nodes.sh status
 BASE_DIR=~/data/gtos scripts/local_testnet_3nodes.sh verify
 ```
 
-期望：
+Expected:
 
-- 3 节点都在运行
-- peerCount > 0
-- 区块高度持续增长
-- miner/validator 有轮转
+- All 3 nodes are running
+- `peerCount > 0` on each node
+- Block height is increasing
+- Validator rotation is occurring across nodes
 
-## 9. 常见故障
+## 9. Common Issues
 
-- **epoch 边界停产（无新块）**
-  - 原因：genesis 未预置 TOS3 validator slots
-  - 处理：重跑 `scripts/gen_genesis_slots/main.go`，重建 genesis，清库后重新 init
+**Chain stalls at epoch boundary (no new blocks)**
+- Cause: TOS3 validator slots were not pre-seeded in the genesis.
+- Fix: Re-run `scripts/gen_genesis_slots/main.go`, rebuild the genesis file, wipe `chaindata`, and re-initialize all nodes.
 
-- **节点间 genesis 不一致**
-  - 原因：不同节点 init 了不同内容的 genesis 文件
-  - 处理：统一一个 `genesis_testnet_3vals.json`，清理 chaindata 后全部重 init
+**Genesis mismatch between nodes**
+- Cause: Different nodes were initialized from different genesis files.
+- Fix: Use a single canonical `genesis_testnet_3vals.json` for all nodes. Wipe `chaindata` on all nodes and re-initialize.
 
-- **节点互联失败（peers=0）**
-  - 检查 `bootnodes.csv`、`static-nodes.json`、端口 `30311-30313`
+**Nodes fail to connect (peers = 0)**
+- Check `bootnodes.csv`, `static-nodes.json` on each node, and that ports `30311–30313` are reachable between nodes.
 
-## 10. 参考文档
+## 10. References
 
-- DPoS validator slots： [DPOS_GENESIS_VALIDATOR_SLOTS.md](./DPOS_GENESIS_VALIDATOR_SLOTS.md)
-- 3 节点 systemd： [LOCAL_TESTNET_3NODES_SYSTEMD.md](./LOCAL_TESTNET_3NODES_SYSTEMD.md)
-- 自动化脚本： `scripts/local_testnet_3nodes.sh`
+- DPoS validator slots layout: [DPOS_GENESIS_VALIDATOR_SLOTS.md](./DPOS_GENESIS_VALIDATOR_SLOTS.md)
+- 3-node systemd deployment: [LOCAL_TESTNET_3NODES_SYSTEMD.md](./LOCAL_TESTNET_3NODES_SYSTEMD.md)
+- Automation script: `scripts/local_testnet_3nodes.sh`
