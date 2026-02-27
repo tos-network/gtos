@@ -24,6 +24,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
@@ -223,8 +224,9 @@ func (st *StateTransition) preCheck() error {
 //  1. Contract creation branch (To == nil): reserved for setCode payload transaction.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. KV router address (params.KVRouterAddress): parse tx.Data and apply KV put directly
-//  4. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  5. Transactions with non-empty data to other non-system addresses: rejected
+//  4. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
+//  5. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
+//  6. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
@@ -266,6 +268,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			vmerr = execErr
 		} else if toAddr == params.KVRouterAddress {
 			vmerr = st.applyKVPut(msg)
+		} else if toAddr == params.PrivacyRouterAddress {
+			vmerr = st.applyUNO(msg)
 		} else {
 			// Check sender has enough balance for value transfer
 			if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
@@ -370,6 +374,134 @@ func (st *StateTransition) applyKVPut(msg Message) error {
 	st.gas -= ttlGas
 	kvstore.Put(st.state, msg.From(), payload.Namespace, payload.Key, payload.Value, currentBlock, currentBlock+payload.TTL)
 	return nil
+}
+
+func (st *StateTransition) applyUNO(msg Message) error {
+	if msg.Value() != nil && msg.Value().Sign() != 0 {
+		return ErrContractNotSupported
+	}
+	if len(st.data) == 0 || len(st.data) > params.UNOMaxPayloadBytes {
+		return ErrContractNotSupported
+	}
+	env, err := uno.DecodeEnvelope(st.data)
+	if err != nil {
+		return ErrContractNotSupported
+	}
+	senderPubkey, err := uno.RequireElgamalSigner(st.state, msg.From())
+	if err != nil {
+		return err
+	}
+
+	switch env.Action {
+	case uno.ActionShield:
+		payload, err := uno.DecodeShieldPayload(env.Body)
+		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return ErrContractNotSupported
+		}
+		chargeGas := params.UNOBaseGas + params.UNOShieldGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
+		amount := new(big.Int).SetUint64(payload.Amount)
+		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
+			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+		}
+		if err := uno.VerifyShieldProofBundle(
+			payload.ProofBundle,
+			payload.NewSender.Commitment[:],
+			payload.NewSender.Handle[:],
+			senderPubkey,
+			payload.Amount,
+		); err != nil {
+			return err
+		}
+
+		senderState := uno.GetAccountState(st.state, msg.From())
+		nextSenderCiphertext, err := uno.AddCiphertexts(senderState.Ciphertext, payload.NewSender)
+		if err != nil {
+			return err
+		}
+		if senderState.Version == math.MaxUint64 {
+			return uno.ErrVersionOverflow
+		}
+
+		st.state.SubBalance(msg.From(), amount)
+		senderState.Ciphertext = nextSenderCiphertext
+		senderState.Version++
+		uno.SetAccountState(st.state, msg.From(), senderState)
+		return nil
+	case uno.ActionTransfer:
+		payload, err := uno.DecodeTransferPayload(env.Body)
+		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return ErrContractNotSupported
+		}
+		receiverPubkey, err := uno.RequireElgamalSigner(st.state, payload.To)
+		if err != nil {
+			return err
+		}
+		chargeGas := params.UNOBaseGas + params.UNOTransferGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
+		senderState := uno.GetAccountState(st.state, msg.From())
+		receiverState := uno.GetAccountState(st.state, payload.To)
+		if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
+			return uno.ErrVersionOverflow
+		}
+		senderDelta, err := uno.SubCiphertexts(senderState.Ciphertext, payload.NewSender)
+		if err != nil {
+			return err
+		}
+		if err := uno.VerifyTransferProofBundle(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey); err != nil {
+			return err
+		}
+		nextReceiverCiphertext, err := uno.AddCiphertexts(receiverState.Ciphertext, payload.ReceiverDelta)
+		if err != nil {
+			return err
+		}
+
+		senderState.Ciphertext = payload.NewSender
+		senderState.Version++
+		receiverState.Ciphertext = nextReceiverCiphertext
+		receiverState.Version++
+		uno.SetAccountState(st.state, msg.From(), senderState)
+		uno.SetAccountState(st.state, payload.To, receiverState)
+		return nil
+	case uno.ActionUnshield:
+		payload, err := uno.DecodeUnshieldPayload(env.Body)
+		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
+			return ErrContractNotSupported
+		}
+		chargeGas := params.UNOBaseGas + params.UNOUnshieldGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
+		senderState := uno.GetAccountState(st.state, msg.From())
+		if senderState.Version == math.MaxUint64 {
+			return uno.ErrVersionOverflow
+		}
+		senderDelta, err := uno.SubCiphertexts(senderState.Ciphertext, payload.NewSender)
+		if err != nil {
+			return err
+		}
+		if err := uno.VerifyUnshieldProofBundle(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount); err != nil {
+			return err
+		}
+
+		senderState.Ciphertext = payload.NewSender
+		senderState.Version++
+		uno.SetAccountState(st.state, msg.From(), senderState)
+		st.state.AddBalance(payload.To, new(big.Int).SetUint64(payload.Amount))
+		return nil
+	default:
+		return ErrContractNotSupported
+	}
 }
 
 func (st *StateTransition) refundGas(refundQuotient uint64) {

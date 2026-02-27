@@ -20,6 +20,9 @@ var (
 
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.
 	ValidatorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000003")
+
+	// PrivacyRouterAddress is the dedicated recipient for UNO private-balance transactions.
+	PrivacyRouterAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000004")
 )
 
 // DPoS validator stake and reward parameters.
@@ -31,6 +34,16 @@ var (
 // SysActionGas is the fixed gas cost charged for any system action transaction,
 // on top of the intrinsic gas.
 const SysActionGas uint64 = 100_000
+
+// UNO private-balance gas and payload bounds (MVP).
+const (
+	UNOBaseGas         uint64 = 150_000
+	UNOShieldGas       uint64 = 300_000
+	UNOTransferGas     uint64 = 500_000
+	UNOUnshieldGas     uint64 = 300_000
+	UNOMaxPayloadBytes        = 128 * 1024
+	UNOMaxProofBytes          = 96 * 1024
+)
 
 // GTOSPriceWei is the protocol-fixed tx price for GTOS transactions.
 // 0.043 gwei = 43,000,000 wei.

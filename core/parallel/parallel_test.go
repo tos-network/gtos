@@ -9,6 +9,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/kvstore"
@@ -48,6 +49,28 @@ func kvPutMsg(from common.Address, nonce uint64, ttl uint64) types.Message {
 	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
 		200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
 		data, nil, true)
+}
+
+func unoCipher(seed byte) uno.Ciphertext {
+	var out uno.Ciphertext
+	for i := 0; i < uno.CiphertextSize; i++ {
+		out.Commitment[i] = seed + byte(i)
+		out.Handle[i] = seed + 0x20 + byte(i)
+	}
+	return out
+}
+
+func unoMsg(from common.Address, nonce uint64) types.Message {
+	dst := params.PrivacyRouterAddress
+	shieldBody, _ := uno.EncodeShieldPayload(uno.ShieldPayload{
+		Amount:      1,
+		NewSender:   unoCipher(0x01),
+		ProofBundle: []byte{0x01},
+	})
+	wire, _ := uno.EncodeEnvelope(uno.ActionShield, shieldBody)
+	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
+		1_000_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
+		wire, nil, true)
 }
 
 // ─── AccessSet.Conflicts ─────────────────────────────────────────────────────
@@ -219,6 +242,27 @@ func TestAnalyzeTxKVDifferentSendersNoConflict(t *testing.T) {
 	d := AnalyzeTx(kvPutMsg(addr("0xD2"), 0, 200))
 	if c.Conflicts(&d) {
 		t.Error("KV puts from different senders should not conflict (different TTL, lazy expiry)")
+	}
+}
+
+func TestAnalyzeTxUNO(t *testing.T) {
+	sender := addr("0x71")
+	msg := unoMsg(sender, 0)
+	as := AnalyzeTx(msg)
+
+	if _, ok := as.WriteAddrs[sender]; !ok {
+		t.Error("sender should be in WriteAddrs for UNO")
+	}
+	if _, ok := as.WriteAddrs[params.PrivacyRouterAddress]; !ok {
+		t.Error("PrivacyRouterAddress should be in WriteAddrs for UNO")
+	}
+}
+
+func TestAnalyzeTxUNOSerializedAcrossSenders(t *testing.T) {
+	a := AnalyzeTx(unoMsg(addr("0x7201"), 0))
+	b := AnalyzeTx(unoMsg(addr("0x7202"), 0))
+	if !a.Conflicts(&b) {
+		t.Error("UNO txs should conflict via shared PrivacyRouterAddress")
 	}
 }
 

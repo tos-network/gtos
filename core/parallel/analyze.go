@@ -36,6 +36,10 @@ func AnalyzeTx(msg types.Message) AccessSet {
 	case params.KVRouterAddress:
 		// KV Put: writes sender KV slots only.
 
+	case params.PrivacyRouterAddress:
+		// UNO transactions are serialized in MVP for deterministic proof/state handling.
+		as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
+
 	default:
 		// Plain TOS transfer: writes recipient balance.
 		as.WriteAddrs[*to] = struct{}{}
