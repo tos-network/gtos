@@ -36,7 +36,7 @@ Target: stable Go API over imported C primitives with deterministic error mappin
 - [x] Ciphertext operations wired (`Encrypt`, add/sub ct, add/sub amount, compress/decompress).
 - [x] Proof verification wrappers wired (`CiphertextValidity`, `CommitmentEq`, `RangeProof` verify).
 - [x] Strict Go error mapping for every C return code.
-- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors added; Rust differential still pending).
+- [/] Deterministic vector tests against known Rust/C vectors (C-side fixed vectors for encrypt/opening/ct-ops/decrypt-point added; Rust differential still pending).
 
 DoD:
 - `go test ./crypto/uno/...` passes with reproducible vectors and explicit error-class assertions.

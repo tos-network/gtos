@@ -190,3 +190,153 @@ func TestDeterministicVectorsWithOpening(t *testing.T) {
 		})
 	}
 }
+
+func TestDeterministicCiphertextOpsVectors(t *testing.T) {
+	mustDecode := func(h string) []byte {
+		b, err := hex.DecodeString(h)
+		if err != nil {
+			t.Fatalf("decode hex %q: %v", h, err)
+		}
+		return b
+	}
+
+	priv := mustDecode("0700000000000000000000000000000000000000000000000000000000000000")
+	pub := mustDecode("c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
+	opening1 := mustDecode("0100000000000000000000000000000000000000000000000000000000000000")
+	opening2 := mustDecode("0200000000000000000000000000000000000000000000000000000000000000")
+
+	ct9, err := EncryptWithOpening(pub, 9, opening1)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening(ct9): %v", err)
+	}
+	wantCt9 := mustDecode("485a24569a15c2abc6d5b0703e281a8b3410a0a43a99740827dc644a399b2234c236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
+	if !bytes.Equal(ct9, wantCt9) {
+		t.Fatalf("ct9 mismatch: got=%x want=%x", ct9, wantCt9)
+	}
+
+	ct4, err := EncryptWithOpening(pub, 4, opening2)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening(ct4): %v", err)
+	}
+	wantCt4 := mustDecode("a8120bd846409b9cd05484fb4e4ad9164403c5c336bb3c73711a15600347643c0a67051ab56fcf02b7de56858d012e03d82747cb68db686b8a6f39d7803dd171")
+	if !bytes.Equal(ct4, wantCt4) {
+		t.Fatalf("ct4 mismatch: got=%x want=%x", ct4, wantCt4)
+	}
+
+	add, err := AddCompressedCiphertexts(ct9, ct4)
+	if err != nil {
+		t.Fatalf("AddCompressedCiphertexts: %v", err)
+	}
+	wantAdd := mustDecode("32999ad04a8694a5fd9f8fc482616a58cb8b4e00c9364b8ef5afb8984d2e1105a80c1de72744dff71267b31ecfab429a389867cffef87d454e9a25a826b85201")
+	if !bytes.Equal(add, wantAdd) {
+		t.Fatalf("add mismatch: got=%x want=%x", add, wantAdd)
+	}
+
+	sub, err := SubCompressedCiphertexts(add, ct4)
+	if err != nil {
+		t.Fatalf("SubCompressedCiphertexts: %v", err)
+	}
+	wantSub := wantCt9
+	if !bytes.Equal(sub, wantSub) {
+		t.Fatalf("sub mismatch: got=%x want=%x", sub, wantSub)
+	}
+
+	addAmt, err := AddAmountCompressed(ct9, 5)
+	if err != nil {
+		t.Fatalf("AddAmountCompressed: %v", err)
+	}
+	wantAddAmt := mustDecode("bc6fd951b233d678ef33178250394a64357a5ea3900ec5ca368cb9a2b94f4f5cc236d1e09a12adc6dc4b857420e7dbef41e4553cc06168495b941398bee59531")
+	if !bytes.Equal(addAmt, wantAddAmt) {
+		t.Fatalf("add amount mismatch: got=%x want=%x", addAmt, wantAddAmt)
+	}
+
+	subAmt, err := SubAmountCompressed(addAmt, 5)
+	if err != nil {
+		t.Fatalf("SubAmountCompressed: %v", err)
+	}
+	wantSubAmt := wantCt9
+	if !bytes.Equal(subAmt, wantSubAmt) {
+		t.Fatalf("sub amount mismatch: got=%x want=%x", subAmt, wantSubAmt)
+	}
+
+	pt9, err := DecryptToPoint(priv, ct9)
+	if err != nil {
+		t.Fatalf("DecryptToPoint: %v", err)
+	}
+	wantPt9 := mustDecode("02622ace8f7303a31cafc63f8fc48fdc16e1c8c8d234b2f0d6685282a9076031")
+	if !bytes.Equal(pt9, wantPt9) {
+		t.Fatalf("decrypt point mismatch: got=%x want=%x", pt9, wantPt9)
+	}
+}
+
+func TestInvalidInputMappingWithCgo(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{
+			name: "AddCompressedCiphertexts bad len",
+			fn: func() error {
+				_, err := AddCompressedCiphertexts(make([]byte, 63), make([]byte, 64))
+				return err
+			},
+		},
+		{
+			name: "SubAmountCompressed bad len",
+			fn: func() error {
+				_, err := SubAmountCompressed(make([]byte, 65), 1)
+				return err
+			},
+		},
+		{
+			name: "PublicKeyFromPrivate bad len",
+			fn: func() error {
+				_, err := PublicKeyFromPrivate(make([]byte, 31))
+				return err
+			},
+		},
+		{
+			name: "EncryptWithOpening bad pub",
+			fn: func() error {
+				_, err := EncryptWithOpening(make([]byte, 31), 1, make([]byte, 32))
+				return err
+			},
+		},
+		{
+			name: "EncryptWithOpening bad opening",
+			fn: func() error {
+				_, err := EncryptWithOpening(make([]byte, 32), 1, make([]byte, 31))
+				return err
+			},
+		},
+		{
+			name: "PedersenCommitmentWithOpening bad len",
+			fn: func() error {
+				_, err := PedersenCommitmentWithOpening(make([]byte, 31), 1)
+				return err
+			},
+		},
+		{
+			name: "DecryptHandleWithOpening bad len",
+			fn: func() error {
+				_, err := DecryptHandleWithOpening(make([]byte, 32), make([]byte, 31))
+				return err
+			},
+		},
+		{
+			name: "VerifyShieldProof bad len",
+			fn: func() error {
+				return VerifyShieldProof(make([]byte, 95), make([]byte, 32), make([]byte, 32), make([]byte, 32), 1)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fn()
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expected ErrInvalidInput, got %v", err)
+			}
+		})
+	}
+}
