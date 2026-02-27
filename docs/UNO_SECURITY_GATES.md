@@ -55,11 +55,19 @@ Evidence:
 
 ## Gate 4: Gas griefing audit for expensive verify paths
 
-Status: `PENDING`
+Status: `IN PROGRESS`
 
-Pending work:
-- Add profiling/bench evidence under adversarial proof-bundle mixes.
-- Define max verify budget targets and failure thresholds for devnet soak.
+Current evidence:
+- Bench baselines for shield reject paths:
+  - `BenchmarkUNOShieldInvalidProofShape`
+  - `BenchmarkUNOShieldInvalidProofVerifyPath`
+  - file: `core/uno_gas_griefing_bench_test.go`
+- Runner:
+  - `scripts/uno_gas_griefing_audit.sh`
+
+Remaining work:
+- Define explicit SLO/thresholds for max verify cost under adversarial mixes.
+- Extend from single-tx microbench to sustained block-level UNO load profiles.
 
 ## Gate 5: Counter bounds audit (`amount`, `uno_version`, nonce coupling)
 
