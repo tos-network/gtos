@@ -20,6 +20,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 func newSenderTestState(t *testing.T) *state.StateDB {
@@ -212,6 +213,131 @@ func TestResolveSenderEd25519(t *testing.T) {
 	}
 	if got != from {
 		t.Fatalf("unexpected sender have=%s want=%s", got.Hex(), from.Hex())
+	}
+}
+
+func TestResolveSenderSetSignerBootstrapEd25519(t *testing.T) {
+	st := newSenderTestState(t)
+	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	_, normalizedPub, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeEd25519, hexutil.Encode(pub))
+	if err != nil {
+		t.Fatalf("normalize signer failed: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeEd25519, normalizedPub)
+	if err != nil {
+		t.Fatalf("derive address failed: %v", err)
+	}
+
+	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
+		SignerType:  accountsigner.SignerTypeEd25519,
+		SignerValue: normalizedValue,
+	})
+	if err != nil {
+		t.Fatalf("failed to encode setSigner payload: %v", err)
+	}
+	to := params.SystemActionAddress
+	unsigned := types.NewTx(&types.SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      0,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        params.TxGas + params.SysActionGas,
+		Data:       payload,
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+	})
+	hash := chainSigner.Hash(unsigned)
+	sig := ed25519.Sign(priv, hash[:])
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(sig[:32]),
+		S:          new(big.Int).SetBytes(sig[32:]),
+	})
+
+	got, err := ResolveSender(tx, chainSigner, st)
+	if err != nil {
+		t.Fatalf("resolve sender failed: %v", err)
+	}
+	if got != from {
+		t.Fatalf("unexpected sender have=%s want=%s", got.Hex(), from.Hex())
+	}
+}
+
+func TestResolveSenderSetSignerBootstrapRejectsPayloadMismatch(t *testing.T) {
+	st := newSenderTestState(t)
+	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	_, normalizedPub, _, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeEd25519, hexutil.Encode(pub))
+	if err != nil {
+		t.Fatalf("normalize signer failed: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeEd25519, normalizedPub)
+	if err != nil {
+		t.Fatalf("derive address failed: %v", err)
+	}
+
+	otherPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate alternate ed25519 key: %v", err)
+	}
+	_, _, otherValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeEd25519, hexutil.Encode(otherPub))
+	if err != nil {
+		t.Fatalf("normalize alternate signer failed: %v", err)
+	}
+	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
+		SignerType:  accountsigner.SignerTypeEd25519,
+		SignerValue: otherValue,
+	})
+	if err != nil {
+		t.Fatalf("failed to encode setSigner payload: %v", err)
+	}
+	to := params.SystemActionAddress
+	unsigned := types.NewTx(&types.SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      0,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        params.TxGas + params.SysActionGas,
+		Data:       payload,
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+	})
+	hash := chainSigner.Hash(unsigned)
+	sig := ed25519.Sign(priv, hash[:])
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    unsigned.ChainId(),
+		Nonce:      unsigned.Nonce(),
+		To:         unsigned.To(),
+		Value:      unsigned.Value(),
+		Gas:        unsigned.Gas(),
+		Data:       unsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(sig[:32]),
+		S:          new(big.Int).SetBytes(sig[32:]),
+	})
+
+	_, err = ResolveSender(tx, chainSigner, st)
+	if !errors.Is(err, ErrInvalidAccountSignerSignature) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

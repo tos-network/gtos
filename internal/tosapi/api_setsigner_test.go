@@ -38,6 +38,9 @@ func TestBuildSetSignerTxBuildsSystemActionTx(t *testing.T) {
 	if tx.Value().Sign() != 0 {
 		t.Fatalf("expected zero value tx, got %s", tx.Value())
 	}
+	if signerType, ok := tx.SignerType(); !ok || signerType != accountsigner.SignerTypeEd25519 {
+		t.Fatalf("unexpected tx signerType: %q", signerType)
+	}
 	if tx.TxPrice().Cmp(params.GTOSPrice()) != 0 {
 		t.Fatalf("unexpected tx price: %s", tx.TxPrice())
 	}

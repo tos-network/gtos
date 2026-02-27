@@ -9,6 +9,8 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 var (
@@ -20,6 +22,41 @@ var (
 func txRawSig(tx *types.Transaction) (*big.Int, *big.Int, *big.Int) {
 	v, r, s := tx.RawSignatureValues()
 	return v, r, s
+}
+
+// tryResolveBootstrapSigner allows first-time non-secp signer binding via
+// ACCOUNT_SET_SIGNER when on-chain signer metadata is not configured yet.
+func tryResolveBootstrapSigner(tx *types.Transaction, from common.Address, normalizedSignerType string, txHash common.Hash, r, s *big.Int) (bool, error) {
+	to := tx.To()
+	if to == nil || *to != params.SystemActionAddress {
+		return false, nil
+	}
+	sa, err := sysaction.Decode(tx.Data())
+	if err != nil || sa.Action != sysaction.ActionAccountSetSigner {
+		return false, nil
+	}
+	var payload accountsigner.SetSignerPayload
+	if err := sysaction.DecodePayload(sa, &payload); err != nil {
+		return false, nil
+	}
+	payloadType, payloadPub, _, err := accountsigner.NormalizeSigner(payload.SignerType, payload.SignerValue)
+	if err != nil {
+		return false, nil
+	}
+	if payloadType != normalizedSignerType {
+		return false, ErrAccountSignerMismatch
+	}
+	if !accountsigner.VerifyRawSignature(payloadType, payloadPub, txHash, r, s) {
+		return false, ErrInvalidAccountSignerSignature
+	}
+	addrFromSigner, err := accountsigner.AddressFromSigner(payloadType, payloadPub)
+	if err != nil {
+		return false, err
+	}
+	if addrFromSigner != from {
+		return false, fmt.Errorf("%w: expected %s got %s", ErrAccountSignerMismatch, addrFromSigner.Hex(), from.Hex())
+	}
+	return true, nil
 }
 
 // ResolveSender derives tx sender with accountsigner metadata enforcement.
@@ -85,6 +122,13 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 	default:
 		cfgType, cfgValue, configured := accountsigner.Get(statedb, from)
 		if !configured {
+			bootstrapped, err := tryResolveBootstrapSigner(tx, from, normalizedSignerType, hash, r, s)
+			if err != nil {
+				return common.Address{}, err
+			}
+			if bootstrapped {
+				return from, nil
+			}
 			return common.Address{}, ErrAccountSignerMismatch
 		}
 		normType, normPub, _, err := accountsigner.NormalizeSigner(cfgType, cfgValue)

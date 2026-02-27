@@ -2256,6 +2256,20 @@ func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetS
 	if err != nil {
 		return nil, newRPCInvalidParamsError("signer", err.Error())
 	}
+	txSignerType := normalizedType
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		return nil, err
+	}
+	if state != nil {
+		if currentType, _, configured := accountsigner.Get(state, args.From); configured {
+			canonicalCurrent, canonErr := accountsigner.CanonicalSignerType(currentType)
+			if canonErr != nil {
+				return nil, newRPCInvalidParamsError("from", "invalid configured signer metadata")
+			}
+			txSignerType = canonicalCurrent
+		}
+	}
 	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
 		SignerType:  normalizedType,
 		SignerValue: normalizedValue,
@@ -2268,12 +2282,13 @@ func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetS
 	input := hexutil.Bytes(payload)
 	zero := hexutil.Big{}
 	txArgs := &TransactionArgs{
-		From:  &from,
-		To:    &to,
-		Gas:   args.Gas,
-		Value: &zero,
-		Nonce: args.Nonce,
-		Input: &input,
+		From:       &from,
+		To:         &to,
+		Gas:        args.Gas,
+		Value:      &zero,
+		Nonce:      args.Nonce,
+		Input:      &input,
+		SignerType: &txSignerType,
 	}
 	if txArgs.Gas == nil {
 		estimate, gasErr := estimateSystemActionGas(payload)
