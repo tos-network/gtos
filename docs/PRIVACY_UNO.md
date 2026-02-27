@@ -301,7 +301,7 @@ Create `core/uno/`:
 - `DONE`: `core/uno` codec/state/proof-shape verify scaffolding is live.
 - `DONE`: UNO route is wired in `state_transition` and parallel analyzer serialization is active.
 - `DONE`: Genesis supports UNO pre-allocation (`uno_ct_commitment`, `uno_ct_handle`, `uno_version`) and optional signer bootstrap fields (`signerType`, `signerValue`) with `elgamal` validation.
-- `DONE`: RPC methods `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext` are implemented with validation tests.
+- `DONE`: RPC methods `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext` are implemented, including proof-shape validation at RPC layer with tests.
 - `IN PROGRESS`: transcript binding to chain context and replay-hardening test matrix.
 - `IN PROGRESS`: end-to-end UNO integration flow on 3-node local DPoS.
 

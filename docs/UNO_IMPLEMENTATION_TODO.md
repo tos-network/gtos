@@ -149,7 +149,7 @@ DoD:
   - [x] `tos_unoTransfer`
   - [x] `tos_unoUnshield`
   - [x] `tos_getUNOCiphertext`
-- [/] Add request/response schema validation.
+- [x] Add request/response schema validation.
 - [ ] Provide wallet-side decrypt workflow (local only).
 
 DoD:

@@ -257,6 +257,21 @@ func TestUNOShieldValidation(t *testing.T) {
 		Amount:              1,
 		NewSenderCommitment: ct32,
 		NewSenderHandle:     ct32,
+		ProofBundle:         make(hexutil.Bytes, coreuno.ShieldProofSize-1),
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for malformed proof shape")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoShield(context.Background(), RPCUNOShieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		Amount:              1,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
 		ProofBundle:         proof,
 	})
 	if err == nil {
@@ -299,6 +314,23 @@ func TestUNOTransferValidation(t *testing.T) {
 		NewSenderHandle:         ct32,
 		ReceiverDeltaCommitment: ct32,
 		ReceiverDeltaHandle:     ct32,
+		ProofBundle:             make(hexutil.Bytes, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize-1),
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for malformed proof shape")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoTransfer(context.Background(), RPCUNOTransferArgs{
+		RPCTxCommonArgs:         RPCTxCommonArgs{From: from},
+		To:                      to,
+		NewSenderCommitment:     ct32,
+		NewSenderHandle:         ct32,
+		ReceiverDeltaCommitment: ct32,
+		ReceiverDeltaHandle:     ct32,
 		ProofBundle:             proof,
 	})
 	if err == nil {
@@ -329,6 +361,22 @@ func TestUNOUnshieldValidation(t *testing.T) {
 		t.Fatalf("expected invalid params error for amount")
 	}
 	rpcErr, ok := err.(*rpcAPIError)
+	if !ok || rpcErr.code != rpcErrInvalidParams {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = api.UnoUnshield(context.Background(), RPCUNOUnshieldArgs{
+		RPCTxCommonArgs:     RPCTxCommonArgs{From: from},
+		To:                  to,
+		Amount:              1,
+		NewSenderCommitment: ct32,
+		NewSenderHandle:     ct32,
+		ProofBundle:         make(hexutil.Bytes, coreuno.BalanceProofSize-1),
+	})
+	if err == nil {
+		t.Fatalf("expected invalid params error for malformed proof shape")
+	}
+	rpcErr, ok = err.(*rpcAPIError)
 	if !ok || rpcErr.code != rpcErrInvalidParams {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -2481,6 +2481,9 @@ func (s *TOSAPI) UnoShield(ctx context.Context, args RPCUNOShieldArgs) (common.H
 	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
 		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
 	}
+	if err := coreuno.ValidateShieldProofBundleShape(args.ProofBundle); err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", err.Error())
+	}
 	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
 	if err != nil {
 		return common.Hash{}, err
@@ -2529,6 +2532,9 @@ func (s *TOSAPI) UnoTransfer(ctx context.Context, args RPCUNOTransferArgs) (comm
 	}
 	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
 		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
+	}
+	if err := coreuno.ValidateTransferProofBundleShape(args.ProofBundle); err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", err.Error())
 	}
 	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
 	if err != nil {
@@ -2586,6 +2592,9 @@ func (s *TOSAPI) UnoUnshield(ctx context.Context, args RPCUNOUnshieldArgs) (comm
 	}
 	if len(args.ProofBundle) == 0 || len(args.ProofBundle) > params.UNOMaxProofBytes {
 		return common.Hash{}, newRPCInvalidParamsError("proofBundle", "invalid proof bundle size")
+	}
+	if err := coreuno.ValidateUnshieldProofBundleShape(args.ProofBundle); err != nil {
+		return common.Hash{}, newRPCInvalidParamsError("proofBundle", err.Error())
 	}
 	newSender, err := makeUNOCiphertext(args.NewSenderCommitment, args.NewSenderHandle, "newSenderCommitment", "newSenderHandle")
 	if err != nil {
