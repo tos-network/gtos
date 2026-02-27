@@ -289,26 +289,32 @@ Expected:
 **Nodes fail to connect (peers = 0)**
 - Check `bootnodes.csv`, `static-nodes.json` on each node, and that ports `30311–30313` are reachable between nodes.
 
-## 10. UNO Initial Balance Preallocation
+## 10. UNO Initial Balance Preallocation (Genesis)
 
-GTOS supports pre-seeding encrypted UNO balances at genesis for ElGamal accounts.
-This allows you to allocate private balances to specific addresses without requiring
-them to submit a `UNO_SHIELD` transaction first.
+GTOS supports pre-seeding encrypted UNO balances directly in `genesis.json`.
+You can assign an initial private balance to any address at block 0, without a
+runtime `UNO_SHIELD`.
 
-### 10.1 Prerequisites
+Important: the same alloc entry must also define the account signer metadata:
+- `signerType: "elgamal"`
+- `signerValue: <32-byte elgamal pubkey hex>`
 
-A UNO genesis prealloc entry requires:
+If signer metadata is missing or non-elgamal, `gtos init` rejects the genesis.
 
-1. **`signerType: "elgamal"`** — the account must use an ElGamal key as its signer.
-2. **`signerValue`** — the 32-byte ElGamal public key (hex, with `0x` prefix).
-3. **`uno_ct_commitment`** — the 32-byte Pedersen commitment of the ciphertext (hex).
-4. **`uno_ct_handle`** — the 32-byte handle (ephemeral ECDH key) of the ciphertext (hex).
-5. **`uno_version`** (optional) — initial version counter; defaults to `0`.
+### 10.1 Required Fields in the Same Alloc Entry
 
-The ciphertext is a Twisted ElGamal encryption of the initial balance under the
-account's public key. Amounts are in **TOS units** (1 UNO unit = 1 TOS; not wei).
+For address `0x...` in `alloc`, include all of:
 
-### 10.2 Generating the Ciphertext
+1. **`signerType: "elgamal"`** — required.
+2. **`signerValue`** — 32-byte ElGamal public key (hex).
+3. **`uno_ct_commitment`** — 32-byte commitment (hex).
+4. **`uno_ct_handle`** — 32-byte handle (hex).
+5. **`uno_version`** (optional) — defaults to `0` if omitted.
+
+The ciphertext is ElGamal encryption of the initial UNO amount under `signerValue`.
+Amounts are in **TOS units** (1 UNO = 1 TOS, not wei).
+
+### 10.2 Generate Ciphertext for Genesis
 
 Use `scripts/gen_genesis_uno_ct/main.go` (requires CGO + the `ed25519c` C library):
 
@@ -317,8 +323,8 @@ go run -tags cgo,ed25519c ./scripts/gen_genesis_uno_ct/main.go <pubkey-hex> <amo
 ```
 
 Arguments:
-- `pubkey-hex` — the 32-byte ElGamal public key (from `toskey inspect <keyfile>`, field `PublicKey`), with or without `0x`.
-- `amount` — the initial UNO balance in TOS units (integer).
+- `pubkey-hex`: 32-byte ElGamal public key (from `toskey inspect <keyfile>`, field `PublicKey`), with or without `0x`
+- `amount`: initial UNO balance in TOS units (integer)
 
 Output: a JSON fragment ready to merge into the genesis `alloc` entry.
 
@@ -358,10 +364,9 @@ go run -tags cgo,ed25519c ./scripts/gen_genesis_uno_ct/main.go \
   74b3528ccece09228323cd9e6067499a8fdff33cd4c545859cc17027885d5276 50
 ```
 
-### 10.4 Genesis Alloc Entry Layout
+### 10.4 Alloc Entry Template (Address + Signer + UNO)
 
-Merge the generated values into the account's alloc entry alongside the existing
-`balance`, `signerType`, and `signerValue` fields:
+Place signer metadata and UNO ciphertext in the same address entry:
 
 ```json
 "0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1": {
@@ -380,39 +385,42 @@ Rules enforced by `gtos init`:
 - The account must have `signerType: "elgamal"` and a valid `signerValue` in the same alloc entry.
 - Missing either field while the other is present is a fatal genesis error.
 
-### 10.5 Verifying the Prealloc After Startup
+### 10.5 Verify After Startup
 
-**Using the node RPC** (requires the account to be unlocked first):
-
-```bash
-# Unlock the account
-curl -s -X POST http://127.0.0.1:8545 \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc":"2.0","method":"personal_unlockAccount",
-    "params":["0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1","<password>",300],
-    "id":1
-  }'
-
-# Decrypt the UNO balance
-curl -s -X POST http://127.0.0.1:8545 \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc":"2.0","method":"tos_unoBalance",
-    "params":["0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1",null,"latest"],
-    "id":2
-  }'
-```
-
-Expected response: `"balance": "0x64"` (= 100 in hex = 100 TOS).
-
-**Using `toskey` (private key never leaves the machine)**:
+Method A (recommended): `toskey` local decrypt (private key stays local):
 
 ```bash
 ./build/bin/toskey uno-balance \
   --rpc http://127.0.0.1:8545 \
   /data/gtos/uno_e2e/keys/uno_a.json
-# UNO balance: 100 TOS (version 0, block 0)
+# expected: balance ~= preallocated amount (e.g. 100), version 0 at early height
+```
+
+Method B: RPC-level verification with current APIs:
+
+```bash
+# 1) Read ciphertext from state
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","method":"tos_getUNOCiphertext",
+    "params":["0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1","latest"],
+    "id":1
+  }'
+
+# 2) Decrypt with explicit private key (trusted/local environments only)
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","method":"tos_unoDecryptBalance",
+    "params":[
+      "0x34F829B87C2adfDE3589B1beCFBdDA06809CDE36cb238811Fe08DDd6476543b1",
+      "0x<32-byte-elgamal-private-key>",
+      null,
+      "latest"
+    ],
+    "id":2
+  }'
 ```
 
 ### 10.6 Interaction with UNO_SHIELD / UNO_UNSHIELD
