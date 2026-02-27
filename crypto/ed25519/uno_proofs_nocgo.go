@@ -85,6 +85,25 @@ func ElgamalEncrypt(pub32 []byte, amount uint64) ([]byte, error) {
 	return nil, ErrUNOBackendUnavailable
 }
 
+func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, error) {
+	_ = opening32
+	_ = amount
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalDecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
+	_ = pub32
+	_ = opening32
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ElgamalEncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, error) {
+	_ = pub32
+	_ = amount
+	_ = opening32
+	return nil, ErrUNOBackendUnavailable
+}
+
 func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	_ = priv32
 	_ = ct64

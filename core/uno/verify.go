@@ -13,7 +13,7 @@ func mapCryptoVerifyError(err error) error {
 	if errors.Is(err, cryptouno.ErrBackendUnavailable) {
 		return ErrProofNotImplemented
 	}
-	if errors.Is(err, cryptouno.ErrInvalidInput) || errors.Is(err, cryptouno.ErrInvalidProof) {
+	if errors.Is(err, cryptouno.ErrInvalidInput) || errors.Is(err, cryptouno.ErrInvalidProof) || errors.Is(err, cryptouno.ErrOperationFailed) {
 		return ErrInvalidPayload
 	}
 	return err

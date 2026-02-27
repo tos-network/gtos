@@ -1,341 +1,215 @@
-# GTOS UNO (Homomorphic Encrypted Account Balance)
-> Design v0.1 (XELIS-style account model, GTOS-native execution)
+# GTOS UNO Privacy Balance Design (XELIS-Convergent)
+> Design v0.2 (account model + homomorphic encrypted balance)
 
-## 0. Scope
+## 0. Positioning
 
-### Goals
-- Keep existing public ledger unchanged:
-  - `Account.balance` remains plaintext and fully functional.
-  - Public transfers and existing GTOS tx routes continue to work.
-- Add a second ledger field: `uno` (encrypted balance).
-- Reuse account signer metadata for privacy public keys:
-  - private-balance accounts must use canonical `signerType = elgamal` (Ristretto255-backed).
-  - no separate per-account privacy key registry in MVP.
-- Support private value transfer in account model (no note/nullifier set):
-  - `shield`: public -> private
-  - `unoTransfer`: private -> private
-  - `unshield`: private -> public
-- Use homomorphic ciphertext updates and zero-knowledge proofs for correctness.
-- Keep gas public in MVP (paid from public balance).
+### Primary target
+- Make GTOS UNO implementation approach close to `~/xelis-blockchain`:
+  - account-based encrypted balances
+  - transcript-bound proof verification
+  - deterministic nonce/version based replay protection
+  - wallet-side decrypt/sync workflow
 
-### Non-goals (MVP)
-- Fully private fee market.
-- Cross-chain privacy.
-- Private smart contract execution semantics.
-- Multi-asset support (MVP uses native TOS only).
+### Explicitly not required
+- Byte-level compatibility with XELIS wire/protocol.
+- Matching every transaction type and VM feature.
+
+### MVP boundaries (current track)
+- Native asset only.
+- Public gas, private transfer amount.
+- Three UNO actions:
+  - `UNO_SHIELD` (public -> private)
+  - `UNO_TRANSFER` (private -> private)
+  - `UNO_UNSHIELD` (private -> public)
 
 ---
 
-## 1. GTOS-Native Routing
+## 1. GTOS Native Routing
 
-GTOS does not rely on EVM contract execution for user calldata paths. UNO is implemented as native execution branches.
-
-- Add fixed router address:
+- Fixed router:
   - `params.PrivacyRouterAddress = 0x...0004`
-- Keep tx envelope unchanged:
-  - `SignerTxType`
+- Envelope remains signer tx:
   - `to = PrivacyRouterAddress`
   - `tx.Data = UNO payload`
-- Add branch in `core/state_transition.go`:
-  - `if to == params.PrivacyRouterAddress { vmerr = st.applyUNO(msg) }`
+- Execution branch:
+  - `if to == params.PrivacyRouterAddress { applyUNO(msg) }`
 
-Action set:
-- `UNO_SHIELD`
-- `UNO_TRANSFER`
-- `UNO_UNSHIELD`
-
-Signer setup is done via existing account-signer flows (for example `ACCOUNT_SET_SIGNER`), not a uno-specific action.
+UNO is implemented as native state transition logic, not EVM contract execution.
 
 ---
 
-## 2. Cryptography Stack
+## 2. Cryptography and Proof Model
 
-MVP defaults:
-- Group: `Ristretto255`.
-- Ciphertext form: Twisted ElGamal-compatible tuple `(C, D)`:
-  - `C` is Pedersen-style commitment component.
-  - `D` is decrypt handle component.
-- Proofs:
-  - `CommitmentEqProof` (sender balance transition correctness)
-  - `CiphertextValidityProof` (receiver ciphertext well-formed for destination key)
-  - `RangeProof` (amount bounds)
-- Hash/transcript domain separation required for all proofs.
+### Baseline cryptography
+- Group: `Ristretto255`
+- Key type: account signer with canonical `signerType = elgamal`
+- Ciphertext: commitment + handle tuple (`C`, `D`) suitable for homomorphic updates
 
-This follows account-balance privacy instead of note/nullifier privacy.
+### Proof classes used
+- `CiphertextValidityProof`
+- `CommitmentEqProof`
+- `RangeProof`
+
+### Required transcript binding (must converge)
+Every verified proof bundle must bind:
+- `chainId`
+- `actionTag`
+- `from`
+- `to` (if action has receiver)
+- sender nonce
+- old/new ciphertext commitments and handles
+- native asset tag
+
+This is the critical replay-hardening axis to align with the XELIS verification style.
 
 ---
 
 ## 3. State Model
 
-## 3.1 Per-account UNO State
-Stored under owner account address in StateDB slots.
-
-Required fields (native asset only in MVP):
+Per account UNO state in StateDB slots:
 - `uno_ct_commitment` (32 bytes compressed)
 - `uno_ct_handle` (32 bytes compressed)
-- `uno_version` (uint64, monotonic)
+- `uno_version` (uint64 monotonic)
 
-Key source (not in uno slots):
-- Read from GTOS account signer state.
-- Canonical signer type must be `elgamal` for private-balance actions.
-- `elgamal` signer public key is used as the ciphertext destination/source key.
+Signer key source:
+- not duplicated in UNO slots
+- loaded from GTOS signer state
+- UNO actions require `signerType == elgamal`
 
-Recommended slot namespace prefix:
-- `gtos.uno.<field>`
-
-## 3.2 Invariants
-For each account:
-- Any uno mutation requires signer metadata to exist and `signerType == elgamal`.
-- `UNO_TRANSFER` requires both sender and receiver to have `signerType == elgamal`.
-- `uno_version` increments whenever `uno` mutates.
-- Ciphertext values are only mutated through verified UNO actions.
+Core invariants:
+- UNO mutation only after proof verification.
+- `UNO_TRANSFER` requires sender and receiver both have `elgamal` signer.
+- `uno_version` increments on each successful UNO mutation.
 
 ---
 
-## 4. Transaction Payloads
+## 4. Payload Envelope and Actions
 
-Use binary envelope (`RLP` + fixed prefix), not JSON.
-
-## 4.1 Envelope
+Binary envelope:
 - Prefix: `GTOSUNO1`
 - Fields:
-  - `action` (u8)
-  - `body` (bytes)
+  - `action` (`u8`)
+  - `body` (`bytes`)
 
 Action IDs:
-- `0x01 = reserved` (unused in this design revision)
 - `0x02 = UNO_SHIELD`
 - `0x03 = UNO_TRANSFER`
 - `0x04 = UNO_UNSHIELD`
 
-## 4.2 UNO_SHIELD
-Body:
-- `amount` (u64)
-- `newSenderCiphertext` (`C,D`)
-- `proofBundle`
+### UNO_SHIELD
+- Input: public amount + proof bundle.
+- Effect: subtract public balance, add encrypted value to sender UNO state.
 
-Rules:
-- sender `signerType == elgamal`
-- `amount > 0`
-- deduct `amount` from public balance (or require equivalent value path)
-- credit encrypted value into sender `uno`
-- proof verifies transition from old sender ciphertext -> new sender ciphertext
-
-## 4.3 UNO_TRANSFER
-Body:
-- `to` (address)
-- `amount` (private witness, not required public in final form)
-- `newSenderCiphertext` (`C,D`)
-- `receiverCiphertextDelta` (`C,D`)
-- `proofBundle`
-- optional `encryptedMemo`
-
-Rules:
-- sender and receiver account signer type must both be `elgamal`
-- sender/receiver ElGamal pubkeys are loaded from account signer state
-- verify proofs and update:
+### UNO_TRANSFER
+- Input: receiver address, sender new ciphertext, receiver ciphertext delta, proof bundle.
+- Effect:
   - sender `uno := newSenderCiphertext`
-  - receiver `uno := receiver_old + receiverCiphertextDelta`
+  - receiver `uno := receiver_old + receiverDelta`
 
-## 4.4 UNO_UNSHIELD
-Body:
-- `to` (address)
-- `amount` (public in MVP)
-- `newSenderCiphertext` (`C,D`)
-- `proofBundle`
-
-Rules:
-- sender `signerType == elgamal`
-- verify sender encrypted balance decrease is valid
-- credit `to` public balance by `amount`
+### UNO_UNSHIELD
+- Input: destination address, public amount, sender new ciphertext, proof bundle.
+- Effect: decrease sender UNO encrypted balance, increase destination public balance.
 
 ---
 
-## 5. Consensus Verification Flow
+## 5. Verification Flow (Consensus Path)
 
-For all UNO actions:
-1. Standard GTOS pre-checks (nonce, gas, signature, sender).
-2. Decode payload with strict size checks.
-3. Load sender account signer metadata and require `signerType == elgamal`.
-4. For transfer, load receiver account signer metadata and require `signerType == elgamal`.
-5. Load sender/receiver uno state.
-6. Build canonical proof transcript context.
-7. Verify `proofBundle`.
-8. Apply deterministic state updates.
-9. Increment `uno_version` for modified accounts.
+For every UNO tx:
+1. Standard checks (nonce, gas, signature, sender).
+2. Strict payload decode and size bounds.
+3. Load signer metadata and require canonical `elgamal`.
+4. Load current UNO ciphertext state.
+5. Build canonical transcript context.
+6. Verify action proof bundle.
+7. Apply deterministic state updates.
+8. Increment `uno_version` for touched account(s).
 
-`proofBundle` must bind at least:
-- `chainId`
-- `actionTag`
-- `from`
-- `to` (if applicable)
-- sender nonce
-- old/new ciphertext commitments used in transition
-- `assetId` (fixed native asset constant in MVP)
-
-This prevents cross-chain/cross-action replay.
+Rule:
+- Any verification failure must produce zero state mutation.
 
 ---
 
-## 6. Double-spend / Replay Model
+## 6. Replay/Double-Spend Model
 
-No nullifier set is used.
+UNO follows account model protections:
+- GTOS nonce ordering
+- transcript-bound context
+- ciphertext transition checks tied to sender state
 
-Protection basis:
-- account nonce ordering (existing GTOS model)
-- each tx consumes exactly one nonce
-- sender ciphertext transition must match proof under that nonce-bound transcript
-
-Result:
-- conflicting private spends from same sender nonce cannot both pass on canonical chain.
+No note/nullifier set is used in this design.
 
 ---
 
-## 7. Genesis Initialization (Your Main Use Case)
+## 7. Genesis Initialization
 
-If chain wants to pre-allocate private balances at genesis:
+To pre-allocate UNO balances:
+1. Configure account signer metadata (`signerType = elgamal`, `signerValue = pubkey`).
+2. Generate initial ciphertext for target private amount.
+3. Set:
+  - `uno_ct_commitment`
+  - `uno_ct_handle`
+  - `uno_version = 0`
 
-1. Define recipients and their ElGamal (Ristretto255-backed) public keys.
-2. For each recipient, set account signer metadata:
-   - `signerType = elgamal`
-   - `signerValue = compressed ElGamal pubkey`
-3. For each recipient, compute initial ciphertext representing allocated amount.
-4. Write into genesis state for each account:
-   - `uno_ct_commitment = ...`
-   - `uno_ct_handle = ...`
-   - `uno_version = 0`
-5. If funds should originate from protocol reserve, mirror total accounting rule in genesis spec.
-
-How A/B know they received private funds:
-- wallet reads account `uno` ciphertext from chain
-- wallet uses the private key corresponding to its `elgamal` account signer pubkey
-- the same keypair is used for account signer identity and private-balance decryption
-- wallet displays plaintext private balance
-
-No note scanning/nullifier indexing is required for this model.
+Recipient visibility:
+- Wallet fetches on-chain UNO ciphertext and decrypts using local private key corresponding to signer public key.
 
 ---
 
-## 8. Gas Model
+## 8. Parallel Execution Rule
 
-Gas remains public and deterministic.
+Current deterministic safety rule:
+- Serialize all UNO actions in parallel analyzer using shared conflict marker (`PrivacyRouterAddress`).
 
-Suggested constants:
-- `UNOBaseGas`
-- `UNOShieldGas`
-- `UNOTransferGas`
-- `UNOUnshieldGas`
-- `UNOProofVerifyBaseGas`
-- `UNOProofVerifyPerInputGas`
-
-MVP recommendation:
-- fixed upper bounds on payload bytes and proof bytes
-- reject oversize payloads before heavy verification
+Future optimization can relax this only after parity and soak evidence.
 
 ---
 
-## 9. Parallel Execution Safety
+## 9. Convergence Gap vs XELIS (Current)
 
-GTOS parallel executor must avoid nondeterministic races.
+`DONE`:
+- UNO router and core package scaffolding.
+- Genesis UNO fields and signer bootstrap checks.
+- UNO RPC actions and basic validation.
+- Baseline proof verification entrypoints wired.
 
-MVP-safe policy:
-- serialize all UNO txs against each other.
+`IN PROGRESS`:
+- Full transcript binding with complete chain context.
+- Transfer/unshield semantics hardening to XELIS-like strictness.
+- Txpool/execution rejection parity completion.
+- Wallet decrypt/sync lifecycle integration.
 
-Implementation hint in `core/parallel/analyze.go`:
-- For `to == PrivacyRouterAddress`, add shared conflict marker:
-  - `WriteAddrs[PrivacyRouterAddress] = {}`
-
-Later optimization:
-- allow parallelism for disjoint sender/receiver pairs after parity proofs and soak tests.
-
----
-
-## 10. GTOS Implementation Plan
-
-### Step 1: Params (`DONE`)
-- `params/tos_params.go`
-  - add `PrivacyRouterAddress`
-  - add gas and limit constants for UNO
-
-### Step 2: Core UNO package (`DONE`)
-Create `core/uno/`:
-- `codec.go` (payload encode/decode)
-- `state.go` (slot derivation and read/write)
-- `proofs.go` (proof structures and transcript encoding)
-- `verify.go` (verification entrypoint)
-- `errors.go`
-
-### Step 3: State transition integration (`IN PROGRESS`)
-- `core/state_transition.go`
-  - add `applyUNO`
-  - add per-action handlers
-
-### Step 4: Parallel conflict integration (`DONE`)
-- `core/parallel/analyze.go`
-  - MVP serialization rule for all UNO txs
-
-### Step 5: RPC and tooling (`IN PROGRESS`)
-- `internal/tosapi/api.go`
-  - `tos_unoShield`
-  - `tos_unoTransfer`
-  - `tos_unoUnshield`
-  - `tos_getUNOCiphertext`
-- wallet-side SDK/CLI:
-  - decrypt ciphertext to plaintext balance locally
-
-### Step 6: Tests (`IN PROGRESS`)
-- Unit tests:
-  - payload codec, slot layout, transcript domain separation
-- Core tests:
-  - shield/transfer/unshield state transitions
-  - replay/nonce conflict rejection
-  - invalid proof rejection
-- Parallel parity tests:
-  - serial vs parallel state root equivalence
-- Integration tests:
-  - 3-node DPoS testnet private transfer flow
-  - genesis pre-allocation to A/B decryptable by wallets
-
-### Status Snapshot (2026-02-27)
-- `DONE`: UNO params/constants and `PrivacyRouterAddress` are live.
-- `DONE`: `core/uno` codec/state/proof-shape verify scaffolding is live.
-- `DONE`: UNO route is wired in `state_transition` and parallel analyzer serialization is active.
-- `DONE`: Genesis supports UNO pre-allocation (`uno_ct_commitment`, `uno_ct_handle`, `uno_version`) and optional signer bootstrap fields (`signerType`, `signerValue`) with `elgamal` validation.
-- `DONE`: RPC methods `tos_unoShield`, `tos_unoTransfer`, `tos_unoUnshield`, `tos_getUNOCiphertext` are implemented, including proof-shape validation at RPC layer with tests.
-- `IN PROGRESS`: transcript binding to chain context and replay-hardening test matrix.
-- `IN PROGRESS`: end-to-end UNO integration flow on 3-node local DPoS.
+`PENDING`:
+- Differential test vectors against Rust/C references.
+- Reorg and replay stress matrix for UNO paths.
 
 ---
 
-## 11. Security Checklist
+## 10. Roadmap (Implementation Style Close to XELIS)
 
-- Enforce strict payload/proof size limits before proof verification.
-- Reject zero or malformed ciphertext elements.
-- Reject uno actions if account signer type is not canonical `elgamal`.
-- For transfers, reject if receiver signer is missing or non-`elgamal`.
-- Bind nonce + chainId + action in proof transcript.
-- No partial writes on verification failure.
-- Track deterministic ordering in state updates.
-- Audit cryptography implementation and transcript canonicalization.
-- Document key-loss behavior (lost private key means unrecoverable private balance access).
+### Phase A: Deterministic Verification Core
+- Finish transcript binding and replay-hardening matrix.
+- Finish transfer/unshield strict semantics.
+- Add strict error taxonomy from C bridge to consensus errors.
+
+### Phase B: Cross-Path Equivalence
+- Ensure txpool precheck and block execution yield same accept/reject result.
+- Strengthen serial/parallel parity tests with UNO-heavy mixed blocks.
+
+### Phase C: Wallet Lifecycle
+- Implement wallet decrypt/update flow with nonce/version tracking.
+- Add recovery/reorg-safe local cache update rules.
+
+### Phase D: Differential and Security Gates
+- Run vector differential checks against reference implementations.
+- Complete malformed-proof, gas-griefing, and divergence audits.
+
+### Phase E: Network Rollout
+- Local -> devnet soak -> public testnet trial -> mainnet gate.
 
 ---
 
-## 12. MVP Defaults
+## 11. Status Snapshot (2026-02-27)
 
-- asset set: native TOS only
-- public gas, private amount semantics
-- private-balance eligible accounts: signer type `elgamal` only
-- serialized UNO execution path
-- one receiver per transfer tx
-- fixed-size proof bundle per action class
-
----
-
-## 13. Future Phases
-
-- Multi-asset encrypted balances (`uno[asset]`).
-- Receiver-stealth routing to reduce sender->receiver linkage.
-- Relayer model for UX.
-- Partial parallelism for disjoint account sets.
-- Optional migration from compressed ciphertext slots to dedicated StateDB namespace.
+- Direction is confirmed: converge toward XELIS-style account privacy architecture.
+- GTOS UNO has entered executable MVP stage but is not yet XELIS-equivalent.
+- The blocking items are transcript completeness, parity matrix, wallet integration, and differential validation.

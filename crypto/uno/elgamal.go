@@ -70,14 +70,40 @@ func DecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	return out, nil
 }
 
+func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, error) {
+	out, err := ed25519.PedersenCommitmentWithOpening(opening32, amount)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func DecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
+	out, err := ed25519.ElgamalDecryptHandleWithOpening(pub32, opening32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
+func EncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, error) {
+	out, err := ed25519.ElgamalEncryptWithOpening(pub32, amount, opening32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}
+
 func mapBackendError(err error) error {
 	switch {
 	case errors.Is(err, ed25519.ErrUNOBackendUnavailable):
 		return ErrBackendUnavailable
 	case errors.Is(err, ed25519.ErrUNOInvalidInput):
 		return ErrInvalidInput
-	case errors.Is(err, ed25519.ErrUNOInvalidProof), errors.Is(err, ed25519.ErrUNOOperationFailed):
+	case errors.Is(err, ed25519.ErrUNOInvalidProof):
 		return ErrInvalidProof
+	case errors.Is(err, ed25519.ErrUNOOperationFailed):
+		return ErrOperationFailed
 	default:
 		return err
 	}

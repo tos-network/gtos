@@ -13,6 +13,8 @@ var (
 	ErrInvalidInput = errors.New("uno crypto: invalid input")
 	// ErrInvalidProof indicates proof verification failure.
 	ErrInvalidProof = errors.New("uno crypto: invalid proof")
+	// ErrOperationFailed indicates native cryptographic operation failure.
+	ErrOperationFailed = errors.New("uno crypto: operation failed")
 )
 
 func VerifyShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64) error {

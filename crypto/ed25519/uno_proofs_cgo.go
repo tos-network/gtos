@@ -144,6 +144,50 @@ static int gtos_elgamal_encrypt(unsigned char *out64, const unsigned char *pub32
   return 0;
 }
 
+static int gtos_pedersen_commitment_with_opening(unsigned char *out32,
+                                                 unsigned long amount,
+                                                 const unsigned char *opening32) {
+  at_pedersen_opening_t opening;
+  at_elgamal_compressed_commitment_t commitment;
+  at_memcpy(opening.bytes, opening32, 32);
+  if (at_pedersen_commitment_new_with_opening(&commitment, amount, &opening) != 0) {
+    return -1;
+  }
+  at_memcpy(out32, commitment.bytes, 32);
+  return 0;
+}
+
+static int gtos_elgamal_decrypt_handle_with_opening(unsigned char *out32,
+                                                    const unsigned char *pub32,
+                                                    const unsigned char *opening32) {
+  at_elgamal_public_key_t pub;
+  at_pedersen_opening_t opening;
+  at_elgamal_compressed_handle_t handle;
+  at_memcpy(pub.bytes, pub32, 32);
+  at_memcpy(opening.bytes, opening32, 32);
+  if (at_elgamal_decrypt_handle(&handle, &pub, &opening) != 0) {
+    return -1;
+  }
+  at_memcpy(out32, handle.bytes, 32);
+  return 0;
+}
+
+static int gtos_elgamal_encrypt_with_opening(unsigned char *out64,
+                                             const unsigned char *pub32,
+                                             unsigned long amount,
+                                             const unsigned char *opening32) {
+  at_elgamal_public_key_t pub;
+  at_pedersen_opening_t opening;
+  at_elgamal_compressed_ciphertext_t ct;
+  at_memcpy(pub.bytes, pub32, 32);
+  at_memcpy(opening.bytes, opening32, 32);
+  if (at_elgamal_encrypt_with_opening(&ct, &pub, amount, &opening) != 0) {
+    return -1;
+  }
+  at_memcpy(out64, ct.bytes, 64);
+  return 0;
+}
+
 static int gtos_elgamal_decrypt_to_point(unsigned char *out32, const unsigned char *priv32, const unsigned char *ct64) {
   at_elgamal_private_key_t priv;
   at_elgamal_compressed_ciphertext_t ct;
@@ -416,6 +460,52 @@ func ElgamalEncrypt(pub32 []byte, amount uint64) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 		C.ulong(amount),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, error) {
+	if len(opening32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 32)
+	if C.gtos_pedersen_commitment_with_opening(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		C.ulong(amount),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalDecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
+	if len(pub32) != 32 || len(opening32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 32)
+	if C.gtos_elgamal_decrypt_handle_with_opening(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&pub32[0])),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+func ElgamalEncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, error) {
+	if len(pub32) != 32 || len(opening32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	out := make([]byte, 64)
+	if C.gtos_elgamal_encrypt_with_opening(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&pub32[0])),
+		C.ulong(amount),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
 	) != 0 {
 		return nil, ErrUNOOperationFailed
 	}
