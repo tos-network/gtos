@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	lua "github.com/tos-network/golua"
+	lua "github.com/tos-network/glua"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"

@@ -21,7 +21,7 @@ import (
 
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
-	lua "github.com/tos-network/golua"
+	lua "github.com/tos-network/glua"
 )
 
 // ── Lua ↔ Go value conversion ─────────────────────────────────────────────────
