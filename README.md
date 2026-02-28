@@ -51,7 +51,6 @@ TOS contracts are native on-chain logic — deterministic, auditable, no Solidit
 - System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead
 - `code_put_ttl`: deploy executable logic metadata with an expiry (`tos_setCode`)
 - `kv_put_ttl`: write structured state with TTL (`tos_putKV`) — entries expire automatically
-- Multi-signer accounts: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal` — one chain for every key type
 
 ---
 
