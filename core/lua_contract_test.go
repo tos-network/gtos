@@ -1796,3 +1796,226 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 		t.Errorf("NoCode: expected false (0), got %d", receipt.Logs[6].Data[31])
 	}
 }
+
+// TestLuaContractCall tests tos.call — inter-contract calls with value
+// forwarding, calldata, caller identity, and revert isolation.
+func TestLuaContractCall(t *testing.T) {
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	// noCodeAddr is an address with no deployed code.
+	noCodeAddr := common.HexToAddress("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEF")
+
+	t.Run("no_code_plain_transfer", func(t *testing.T) {
+		// tos.call to an address with no code acts as a plain TOS transfer.
+		// A has 1 TOS in genesis; it transfers 0.25 TOS to noCodeAddr.
+		oneTOS := new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS))
+		quarterTOS := new(big.Int).Div(oneTOS, big.NewInt(4))
+
+		codeA := fmt.Sprintf(`
+			local ok = tos.call(%q, %s)
+			tos.require(ok, "plain transfer failed")
+		`, noCodeAddr.Hex(), quarterTOS.Text(10))
+
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, `-- codeB unused`)
+		defer cleanup()
+		_ = contractAddr
+
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+
+		state, _ := bc.State()
+		got := state.GetBalance(noCodeAddr)
+		if got == nil || got.Cmp(quarterTOS) != 0 {
+			t.Errorf("noCodeAddr balance: want %s, got %v", quarterTOS, got)
+		}
+	})
+
+	t.Run("executes_callee_code", func(t *testing.T) {
+		// A calls B; B writes "called"=1 to its own storage.
+		// After the tx, contractAddrB's storage slot for "called" must be 1.
+		codeB := `tos.set("called", 1)`
+		codeA := fmt.Sprintf(`
+			local ok = tos.call(%q)
+			tos.require(ok, "call failed")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLuaTx(t, bc, common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"), big.NewInt(0))
+
+		state, _ := bc.State()
+		slot := luaStorageSlot("called")
+		val := state.GetState(contractAddrB, slot)
+		if val[31] != 1 {
+			t.Errorf("contractAddrB.called: want 1, got %d", val[31])
+		}
+	})
+
+	t.Run("caller_identity", func(t *testing.T) {
+		// A calls B. Inside B:
+		//   msg.sender == contractAddr (A's address, not the EOA)
+		//   tx.origin  == addr1 (the original EOA, unchanged)
+		codeB := `
+			tos.emit("Sender",  "address", msg.sender)
+			tos.emit("Origin",  "address", tx.origin)
+		`
+		codeA := fmt.Sprintf(`tos.call(%q)`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 2 {
+			t.Fatalf("expected 2 logs, got %d", len(receipt.Logs))
+		}
+
+		// Log 0: Sender — should be contractAddr (A), not addr1 (EOA)
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Sender")) {
+			t.Errorf("log[0] topic mismatch")
+		}
+		wantSender := contractAddr
+		// ABI address encoding: 32 bytes, address in low 32 bytes
+		gotSender := common.BytesToAddress(receipt.Logs[0].Data)
+		if gotSender != wantSender {
+			t.Errorf("B.msg.sender: want %s (A), got %s", wantSender.Hex(), gotSender.Hex())
+		}
+
+		// Log 1: Origin — should be addr1 (the original EOA)
+		if receipt.Logs[1].Topics[0] != crypto.Keccak256Hash([]byte("Origin")) {
+			t.Errorf("log[1] topic mismatch")
+		}
+		gotOrigin := common.BytesToAddress(receipt.Logs[1].Data)
+		if gotOrigin != addr1 {
+			t.Errorf("B.tx.origin: want %s (EOA), got %s", addr1.Hex(), gotOrigin.Hex())
+		}
+	})
+
+	t.Run("value_forwarded", func(t *testing.T) {
+		// A has 1 TOS; it forwards 0.5 TOS to B.
+		// B emits its msg.value — must equal 0.5 TOS.
+		halfTOS := new(big.Int).Mul(big.NewInt(5e17), big.NewInt(1))
+
+		codeB := `tos.emit("Value", "uint256", msg.value)`
+		codeA := fmt.Sprintf(`
+			local ok = tos.call(%q, %s)
+			tos.require(ok, "value forward failed")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", halfTOS.Text(10))
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected 1 log, got 0")
+		}
+		gotVal := new(big.Int).SetBytes(receipt.Logs[0].Data)
+		if gotVal.Cmp(halfTOS) != 0 {
+			t.Errorf("B.msg.value: want %s, got %s", halfTOS, gotVal)
+		}
+	})
+
+	t.Run("revert_isolates_callee", func(t *testing.T) {
+		// A writes "alive"=1 to A's storage.
+		// A calls B; B writes "dead"=1 to B's storage, then reverts.
+		// After tx: A's write preserved, B's write undone.
+		codeB := `
+			tos.set("dead", 1)
+			tos.revert("intentional revert")
+		`
+		codeA := fmt.Sprintf(`
+			tos.set("alive", 1)
+			tos.call(%q)   -- returns false; ignored here
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLuaTx(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0))
+
+		state, _ := bc.State()
+
+		// A's "alive" slot must be 1.
+		aliveSlot := state.GetState(contractAddr, luaStorageSlot("alive"))
+		if aliveSlot[31] != 1 {
+			t.Errorf("A.alive: want 1, got %d", aliveSlot[31])
+		}
+
+		// B's "dead" slot must be zero (reverted).
+		deadSlot := state.GetState(contractAddrB, luaStorageSlot("dead"))
+		if deadSlot != (common.Hash{}) {
+			t.Errorf("B.dead: want 0 (reverted), got %x", deadSlot)
+		}
+	})
+
+	t.Run("returns_false_on_revert", func(t *testing.T) {
+		// tos.call returns false when callee reverts; caller can inspect and
+		// emit the result.  Caller itself must not revert.
+		codeB := `tos.revert("fail")`
+		codeA := fmt.Sprintf(`
+			local ok = tos.call(%q)
+			if ok then
+				tos.emit("Result", "uint256", 1)
+			else
+				tos.emit("Result", "uint256", 0)
+			end
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Result log, got 0")
+		}
+		if receipt.Logs[0].Data[31] != 0 {
+			t.Errorf("Result: want 0 (false), got %d", receipt.Logs[0].Data[31])
+		}
+	})
+
+	t.Run("calldata_routing", func(t *testing.T) {
+		// A constructs ABI calldata for "store(uint256)" and passes it to B.
+		// B uses tos.dispatch to route the call and writes the value to storage.
+		codeB := `
+			tos.dispatch({
+				["store(uint256)"] = function(val)
+					tos.set("stored", val)
+				end,
+			})
+		`
+		// A builds: selector("store(uint256)") ++ abi.encode("uint256", 999)
+		// and calls B with it.
+		codeA := fmt.Sprintf(`
+			local sel = tos.selector("store(uint256)")
+			local enc = tos.abi.encode("uint256", 999)
+			local data = sel .. string.sub(enc, 3)   -- strip extra "0x" from enc
+			local ok = tos.call(%q, 0, data)
+			tos.require(ok, "calldata call failed")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLuaTx(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0))
+
+		state, _ := bc.State()
+		storedSlot := state.GetState(contractAddrB, luaStorageSlot("stored"))
+		got := new(big.Int).SetBytes(storedSlot[:])
+		if got.Int64() != 999 {
+			t.Errorf("B.stored: want 999, got %s", got)
+		}
+	})
+}

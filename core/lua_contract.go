@@ -13,6 +13,25 @@ import (
 	lua "github.com/tos-network/gopher-lua"
 )
 
+// luaMaxCallDepth caps tos.call nesting to prevent stack-overflow DoS.
+// Analogous to EVM call depth limit (1024); we use a smaller value since
+// Lua call frames are heavier than EVM frames.
+const luaMaxCallDepth = 8
+
+// luaCallCtx is the per-invocation execution context for a Lua contract call.
+// Top-level calls initialise it from StateTransition.msg; nested tos.call
+// invocations override from/to/value/data while keeping txOrigin/txPrice
+// constant (they belong to the transaction, not to each call frame).
+type luaCallCtx struct {
+	from     common.Address // msg.sender visible to this call
+	to       common.Address // contract address being executed
+	value    *big.Int       // msg.value for this call (nil treated as zero)
+	data     []byte         // msg.data (calldata) for this call
+	depth    int            // nesting depth (0 = top-level tx call)
+	txOrigin common.Address // tx.origin: the original EOA, constant across all levels
+	txPrice  *big.Int       // tx.gasprice: constant across all levels
+}
+
 // luaParseBigInt extracts a non-negative *big.Int from Lua argument n.
 // Accepts LNumber or LString. Raises a Lua error on bad input.
 func luaParseBigInt(L *lua.LState, n int) *big.Int {
@@ -74,35 +93,25 @@ func luaArrElemSlot(base common.Hash, i uint64) common.Hash {
 	return crypto.Keccak256Hash(b[:])
 }
 
-// applyLua executes the Lua contract stored at the destination address.
+// executeLuaVM runs Lua source code `src` in a fresh Lua state under the given
+// call context, limited to `gasLimit` VM opcodes.
 //
-// Gas model (Phase 2):
-//   - L.SetGasLimit(st.gas) caps total VM opcode gas.
-//   - After execution, st.gas is decremented by L.GasUsed() (VM opcodes only).
-//   - Primitive gas costs (tos.set, tos.get, …) are not yet charged; Phase 3.
+// Returns (total opcodes consumed including nested calls, execution error).
 //
-// State model:
-//   - A StateDB snapshot is taken before execution.
-//   - Any Lua error (including OOG) reverts all state changes.
-//   - msg.Value is transferred to contractAddr before the script runs.
-func (st *StateTransition) applyLua(src []byte) error {
-	contractAddr := st.to()
-
-	// Snapshot for revert on any error.
-	snapshot := st.state.Snapshot()
-
-	// Transfer msg.Value from caller to contract before executing the script,
-	// matching EVM semantics (value arrives before code runs).
-	if v := st.msg.Value(); v != nil && v.Sign() > 0 {
-		if !st.blockCtx.CanTransfer(st.state, st.msg.From(), v) {
-			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, st.msg.From().Hex())
-		}
-		st.blockCtx.Transfer(st.state, st.msg.From(), contractAddr, v)
-	}
+// Callers are responsible for StateDB snapshot/revert; this function does not
+// modify snapshot state itself (tos.call takes its own inner snapshot for
+// callee isolation).
+func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint64) (uint64, error) {
+	contractAddr := ctx.to
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
 	defer L.Close()
-	L.SetGasLimit(st.gas)
+	L.SetGasLimit(gasLimit)
+
+	// totalChildGas accumulates opcodes consumed by all nested tos.call
+	// invocations at this call level (not recursively — each level tracks its
+	// own children separately).
+	var totalChildGas uint64
 
 	// ── "tos" module ──────────────────────────────────────────────────────────
 	tosTable := L.NewTable()
@@ -146,7 +155,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 
 	// tos.transfer(toAddr, amount)
 	//   Sends `amount` wei from the contract's balance to `toAddr`.
-	//   `toAddr` is a hex-encoded address string; `amount` is an LNumber (wei).
 	L.SetField(tosTable, "transfer", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
 		amountNum := L.CheckNumber(2)
@@ -175,18 +183,17 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// ── Context properties (static values, no parentheses needed) ────────────
+	// ── Context properties ────────────────────────────────────────────────────
 	//
-	// These mirror EVM opcode semantics: constant within a single execution,
-	// so they are pre-populated as plain Lua values rather than Go functions.
-	// Scripts read them as properties: tos.caller, tos.value, tos.block.number…
+	// All static for this call frame — pre-populated as Lua values, not
+	// Go functions, so scripts read them as properties (no parentheses).
 
-	// tos.caller  → string  (hex address of msg.From, like Solidity msg.sender)
-	L.SetField(tosTable, "caller", lua.LString(st.msg.From().Hex()))
+	// tos.caller  → string  (hex address of immediate msg.sender)
+	L.SetField(tosTable, "caller", lua.LString(ctx.from.Hex()))
 
-	// tos.value  → LNumber  (msg.Value in wei, like Solidity msg.value)
+	// tos.value  → LNumber  (msg.value in wei)
 	{
-		v := st.msg.Value()
+		v := ctx.value
 		if v == nil || v.Sign() == 0 {
 			L.SetField(tosTable, "value", lua.LNumber("0"))
 		} else {
@@ -194,7 +201,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		}
 	}
 
-	// tos.block  (sub-table — all fields are static values for this execution)
+	// tos.block  (sub-table — static block context values)
 	blockTable := L.NewTable()
 	L.SetField(blockTable, "number", lua.LNumber(st.blockCtx.BlockNumber.Text(10)))
 	L.SetField(blockTable, "timestamp", lua.LNumber(st.blockCtx.Time.Text(10)))
@@ -208,26 +215,25 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}
 	L.SetField(tosTable, "block", blockTable)
 
-	// tos.tx  (sub-table — static values, like Solidity tx.origin / tx.gasprice)
+	// tos.tx  (sub-table — tx.origin is the original EOA, constant across frames)
 	txTable := L.NewTable()
-	L.SetField(txTable, "origin", lua.LString(st.msg.From().Hex()))
-	if st.txPrice != nil {
-		L.SetField(txTable, "gasprice", lua.LNumber(st.txPrice.Text(10)))
+	L.SetField(txTable, "origin", lua.LString(ctx.txOrigin.Hex()))
+	if ctx.txPrice != nil {
+		L.SetField(txTable, "gasprice", lua.LNumber(ctx.txPrice.Text(10)))
 	} else {
 		L.SetField(txTable, "gasprice", lua.LNumber("0"))
 	}
 	L.SetField(tosTable, "tx", txTable)
 
 	// tos.msg  (sub-table — Solidity-compatible aliases)
-	//   msg.sender == tos.caller == caller  (all three refer to the same value)
-	//   msg.value  == tos.value  == value
-	//   msg.data   → "0x"-prefixed hex of raw tx data (Solidity msg.data)
-	//   msg.sig    → first 4 bytes of msg.data as "0x"+8 hex chars (Solidity msg.sig)
-	// After the ForEach global injection below, all msg.* are also bare globals.
+	//   msg.sender == tos.caller     (immediate caller for this frame)
+	//   msg.value  == tos.value      (value forwarded to this frame)
+	//   msg.data   → calldata hex    (this call's calldata)
+	//   msg.sig    → first 4 bytes   (function selector)
 	msgTable := L.NewTable()
-	L.SetField(msgTable, "sender", lua.LString(st.msg.From().Hex()))
+	L.SetField(msgTable, "sender", lua.LString(ctx.from.Hex()))
 	{
-		v := st.msg.Value()
+		v := ctx.value
 		if v == nil || v.Sign() == 0 {
 			L.SetField(msgTable, "value", lua.LNumber("0"))
 		} else {
@@ -235,7 +241,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		}
 	}
 	{
-		d := st.msg.Data()
+		d := ctx.data
 		var msgDataHex string
 		if len(d) == 0 {
 			msgDataHex = "0x"
@@ -251,32 +257,27 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}
 	L.SetField(tosTable, "msg", msgTable)
 
-	// tos.abi  (sub-table — Ethereum ABI encode/decode, like Solidity abi.*)
-	//   abi.encode("type", val, ...)         → "0x" hex  (standard ABI)
-	//   abi.encodePacked("type", val, ...)   → "0x" hex  (tight, no padding)
-	//   abi.decode(hexData, "type", ...)     → val, val, ...
-	// After the ForEach injection, abi.encode / abi.encodePacked / abi.decode
-	// are also accessible without any prefix.
+	// tos.abi  (sub-table — Ethereum ABI encode/decode)
 	abiTable := L.NewTable()
 	L.SetField(abiTable, "encode", L.NewFunction(luaABIEncode))
 	L.SetField(abiTable, "encodePacked", L.NewFunction(luaABIEncodePacked))
 	L.SetField(abiTable, "decode", L.NewFunction(luaABIDecode))
 	L.SetField(tosTable, "abi", abiTable)
 
-	// tos.gasleft() → LNumber  (remaining gas at call time — must be a function
-	//   because the value changes with each opcode executed)
+	// tos.gasleft() → LNumber
+	//   Returns remaining gas at call time, accounting for child gas consumed.
+	//   Must be a function because the value changes each opcode.
 	L.SetField(tosTable, "gasleft", L.NewFunction(func(L *lua.LState) int {
-		used := L.GasUsed()
+		used := L.GasUsed() + totalChildGas
 		var remaining uint64
-		if used < st.gas {
-			remaining = st.gas - used
+		if used < gasLimit {
+			remaining = gasLimit - used
 		}
 		L.Push(lua.LNumber(new(big.Int).SetUint64(remaining).Text(10)))
 		return 1
 	}))
 
 	// tos.require(condition, msg)
-	//   Halts execution with an error if condition is false or nil.
 	L.SetField(tosTable, "require", L.NewFunction(func(L *lua.LState) int {
 		cond := L.CheckAny(1)
 		message := L.OptString(2, "requirement failed")
@@ -287,14 +288,13 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.revert(msg)
-	//   Explicitly reverts execution with an error message.
 	L.SetField(tosTable, "revert", L.NewFunction(func(L *lua.LState) int {
 		message := L.OptString(1, "revert")
 		L.RaiseError("tos.revert: %s", message)
 		return 0
 	}))
 
-	// tos.keccak256(data) → string  (keccak256 of data, hex-encoded)
+	// tos.keccak256(data) → string
 	L.SetField(tosTable, "keccak256", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
 		h := crypto.Keccak256Hash([]byte(data))
@@ -302,7 +302,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.sha256(data) → string  (SHA-256 of data as "0x" + 64 hex chars)
+	// tos.sha256(data) → string
 	L.SetField(tosTable, "sha256", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
 		h := gosha256.Sum256([]byte(data))
@@ -311,11 +311,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.ecrecover(hash, v, r, s) → string | nil
-	//   Recovers the signer address from an ECDSA signature (secp256k1).
-	//   hash: "0x"-prefixed 32-byte hex string
-	//   v:    27 or 28 (Solidity convention); also accepts 0 or 1
-	//   r, s: "0x"-prefixed 32-byte hex strings
-	//   Returns the signer address hex string, or nil on failure.
 	L.SetField(tosTable, "ecrecover", L.NewFunction(func(L *lua.LState) int {
 		hashHex := L.CheckString(1)
 		vNum := uint8(L.CheckInt(2))
@@ -329,7 +324,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			L.Push(lua.LNil)
 			return 1
 		}
-		// normalize v: Solidity uses 27/28; crypto.SigToPub expects 0/1
 		v := vNum
 		if v >= 27 {
 			v -= 27
@@ -338,7 +332,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			L.Push(lua.LNil)
 			return 1
 		}
-		// sig = [R(32) || S(32) || V(1)]
 		sig := make([]byte, 65)
 		copy(sig[0:32], rBytes)
 		copy(sig[32:64], sBytes)
@@ -354,7 +347,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.addmod(x, y, k) → (x + y) % k  (uint256, reverts if k == 0)
+	// tos.addmod(x, y, k) → (x + y) % k
 	L.SetField(tosTable, "addmod", L.NewFunction(func(L *lua.LState) int {
 		x := luaParseBigInt(L, 1)
 		y := luaParseBigInt(L, 2)
@@ -368,7 +361,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.mulmod(x, y, k) → (x * y) % k  (uint256, reverts if k == 0)
+	// tos.mulmod(x, y, k) → (x * y) % k
 	L.SetField(tosTable, "mulmod", L.NewFunction(func(L *lua.LState) int {
 		x := luaParseBigInt(L, 1)
 		y := luaParseBigInt(L, 2)
@@ -383,8 +376,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.blockhash(n) → string | nil
-	//   Returns the hash of block n as "0x"+64 hex chars, or nil if unavailable.
-	//   Only recent blocks (within ~256) are guaranteed available.
 	L.SetField(tosTable, "blockhash", L.NewFunction(func(L *lua.LState) int {
 		nNum := luaParseBigInt(L, 1)
 		if nNum == nil || !nNum.IsUint64() {
@@ -400,44 +391,26 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.self → string  (this contract's own address, like Solidity address(this))
+	// tos.self → string  (this contract's own address)
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
 
 	// ── Constructor / one-time initializer ────────────────────────────────────
 
 	// tos.oncreate(fn)
 	//   Runs fn exactly once — on the very first call to the contract.
-	//   On every subsequent call fn is skipped (idempotent / constructor semantics).
-	//
-	//   The "initialized" flag is stored in a reserved storage slot so it
-	//   survives across blocks.  fn is called in protected mode; if it reverts,
-	//   the flag is NOT set (the constructor can be retried).
-	//
-	//   Example:
-	//     tos.oncreate(function()
-	//       tos.setStr("owner", tos.caller)
-	//       tos.set("totalSupply", 1000000)
-	//       tos.set("bal." .. tos.caller, 1000000)
-	//       tos.emit("Deployed", "address", tos.caller)
-	//     end)
 	L.SetField(tosTable, "oncreate", L.NewFunction(func(L *lua.LState) int {
 		fn := L.CheckFunction(1)
 
-		// Reserved slot: __oncreate__ in the uint256 storage namespace.
 		initSlot := luaStorageSlot("__oncreate__")
 		if st.state.GetState(contractAddr, initSlot) != (common.Hash{}) {
-			return 0 // already initialised — skip fn
+			return 0
 		}
 
-		// Mark as initialised BEFORE calling fn so that re-entrancy within fn
-		// does not trigger a second constructor call.
 		var one common.Hash
 		one[31] = 1
 		st.state.SetState(contractAddr, initSlot, one)
 
-		// Call fn in protected mode so its errors propagate normally.
 		if err := L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}); err != nil {
-			// Constructor reverted: clear the flag so it can be retried.
 			st.state.SetState(contractAddr, initSlot, common.Hash{})
 			L.RaiseError("%v", err)
 		}
@@ -445,19 +418,8 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// ── Dynamic array storage ──────────────────────────────────────────────────
-	//
-	// Arrays store ordered sequences of uint256 values.  The layout is:
-	//   length slot  = keccak256("gtos.lua.arr." + key)         → uint256 length
-	//   element i    = keccak256(length_slot || uint64(i))       → uint256 value
-	//
-	// The "gtos.lua.arr." namespace is independent of the scalar uint256
-	// namespace ("gtos.lua.storage.") so arrays and scalars with the same key
-	// never collide.
-	//
-	// Indices visible to Lua are 1-based (matching Lua table convention).
 
 	// tos.arrLen(key) → LNumber
-	//   Returns the current length of the array.  0 if never written to.
 	L.SetField(tosTable, "arrLen", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		base := luaArrLenSlot(key)
@@ -467,16 +429,9 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.arrGet(key, i) → LNumber | nil
-	//   Returns the element at 1-based index i, or nil if out of bounds.
-	//   Index must be a positive integer in [1, arrLen(key)].
-	//   Any other value (0, negative, or beyond length) returns nil.
-	//
-	//   NOTE: negative Lua literals (-1, -2, …) evaluate to their uint256
-	//   two's complement in this VM, so they are always > arrLen and return nil.
+	// tos.arrGet(key, i) → LNumber | nil  (1-based)
 	L.SetField(tosTable, "arrGet", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
-		// Read index as a big.Int; negative Lua values arrive as large uint256.
 		idxBI := luaParseBigInt(L, 2)
 		if idxBI == nil {
 			L.Push(lua.LNil)
@@ -486,12 +441,10 @@ func (st *StateTransition) applyLua(src []byte) error {
 		raw := st.state.GetState(contractAddr, base)
 		length := new(big.Int).SetBytes(raw[:])
 		one := big.NewInt(1)
-		// Valid range: [1, length]. idxBI < 1 or idxBI > length → nil.
 		if idxBI.Cmp(one) < 0 || idxBI.Cmp(length) > 0 {
 			L.Push(lua.LNil)
 			return 1
 		}
-		// Convert to 0-based uint64 (safe: fits because ≤ length ≤ uint64).
 		i0 := new(big.Int).Sub(idxBI, one).Uint64()
 		elemSlot := luaArrElemSlot(base, i0)
 		val := st.state.GetState(contractAddr, elemSlot)
@@ -500,12 +453,10 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.arrSet(key, i, value)
-	//   Overwrites the element at 1-based index i.  Raises an error if i is
-	//   out of bounds (use arrPush to extend the array).
+	// tos.arrSet(key, i, value)  (1-based; reverts if OOB)
 	L.SetField(tosTable, "arrSet", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
-		idxBI := luaParseBigInt(L, 2) // 1-based
+		idxBI := luaParseBigInt(L, 2)
 		val := luaParseBigInt(L, 3)
 		base := luaArrLenSlot(key)
 		raw := st.state.GetState(contractAddr, base)
@@ -522,7 +473,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.arrPush(key, value)
-	//   Appends value to the end of the array, incrementing its length.
 	L.SetField(tosTable, "arrPush", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		val := luaParseBigInt(L, 2)
@@ -530,12 +480,10 @@ func (st *StateTransition) applyLua(src []byte) error {
 		raw := st.state.GetState(contractAddr, base)
 		length := new(big.Int).SetBytes(raw[:]).Uint64()
 
-		// Store element.
 		var elemSlot common.Hash
 		val.FillBytes(elemSlot[:])
 		st.state.SetState(contractAddr, luaArrElemSlot(base, length), elemSlot)
 
-		// Increment length.
 		var lenSlot common.Hash
 		new(big.Int).SetUint64(length + 1).FillBytes(lenSlot[:])
 		st.state.SetState(contractAddr, base, lenSlot)
@@ -543,8 +491,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.arrPop(key) → LNumber | nil
-	//   Removes and returns the last element of the array.
-	//   Returns nil (and leaves the array unchanged) if it is empty.
 	L.SetField(tosTable, "arrPop", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		base := luaArrLenSlot(key)
@@ -559,7 +505,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 		val := st.state.GetState(contractAddr, elemSlot)
 		n := new(big.Int).SetBytes(val[:])
 
-		// Zero the element slot and decrement length.
 		st.state.SetState(contractAddr, elemSlot, common.Hash{})
 		var lenSlot common.Hash
 		new(big.Int).SetUint64(lastIdx).FillBytes(lenSlot[:])
@@ -570,15 +515,8 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// ── Cross-contract read API ───────────────────────────────────────────────
-	//
-	// These primitives expose read-only access to another contract's on-chain
-	// state.  They never write — only StateDB.GetState / GetCode are called.
-	// There is no re-entrancy risk because no Lua is executed inside the target.
 
 	// tos.codeAt(addr) → bool
-	//   Returns true if the given address has Lua contract code deployed.
-	//   Useful as a guard before calling tos.at(addr):
-	//     tos.require(tos.codeAt(tokenAddr), "not a contract")
 	L.SetField(tosTable, "codeAt", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
 		addr := common.HexToAddress(addrHex)
@@ -586,30 +524,13 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.at(addr) → proxy table
-	//   Returns a read-only storage proxy for the Lua contract at addr.
-	//   The proxy exposes the same storage namespaces used by tos.get/set,
-	//   tos.setStr/getStr, and tos.arrPush/arrGet — so any value written by
-	//   contract A can be read by contract B via tos.at(addrA).get(key).
-	//
-	//   Proxy methods:
-	//     proxy.get(key)        → LNumber | nil   (uint256 storage)
-	//     proxy.getStr(key)     → string | nil    (string storage)
-	//     proxy.arrLen(key)     → LNumber         (dynamic array length)
-	//     proxy.arrGet(key, i)  → LNumber | nil   (1-based array element)
-	//     proxy.balance()       → LNumber         (TOS balance in wei)
-	//
-	//   Example — read another token contract's balance mapping:
-	//     local tok = tos.at("0xTokenAddr...")
-	//     local bal = tok.get("bal." .. tos.caller)
-	//     tos.require(bal >= 100, "insufficient token balance")
+	// tos.at(addr) → read-only proxy table
 	L.SetField(tosTable, "at", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
 		target := common.HexToAddress(addrHex)
 
 		proxy := L.NewTable()
 
-		// proxy.get(key) — read uint256 slot
 		L.SetField(proxy, "get", L.NewFunction(func(L *lua.LState) int {
 			key := L.CheckString(1)
 			val := st.state.GetState(target, luaStorageSlot(key))
@@ -622,7 +543,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			return 1
 		}))
 
-		// proxy.getStr(key) — read string slot
 		L.SetField(proxy, "getStr", L.NewFunction(func(L *lua.LState) int {
 			key := L.CheckString(1)
 			base := luaStrLenSlot(key)
@@ -641,7 +561,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			return 1
 		}))
 
-		// proxy.arrLen(key) — read dynamic array length
 		L.SetField(proxy, "arrLen", L.NewFunction(func(L *lua.LState) int {
 			key := L.CheckString(1)
 			base := luaArrLenSlot(key)
@@ -651,7 +570,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			return 1
 		}))
 
-		// proxy.arrGet(key, i) — read 1-based array element
 		L.SetField(proxy, "arrGet", L.NewFunction(func(L *lua.LState) int {
 			key := L.CheckString(1)
 			idxBI := luaParseBigInt(L, 2)
@@ -675,7 +593,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			return 1
 		}))
 
-		// proxy.balance() — TOS balance of the target address
 		L.SetField(proxy, "balance", L.NewFunction(func(L *lua.LState) int {
 			bal := st.state.GetBalance(target)
 			if bal == nil {
@@ -690,12 +607,119 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.selector(sig) → string  (4-byte keccak selector as "0x" hex)
-	//   Computes the Ethereum ABI function selector for a given signature string.
-	//   Equivalent to bytes4(keccak256(bytes(sig))).
+	// ── Inter-contract call ────────────────────────────────────────────────────
+
+	// tos.call(addr [, value [, calldata]]) → bool
 	//
-	//   Example:
-	//     tos.selector("transfer(address,uint256)") == "0xa9059cbb"
+	// Calls another Lua contract with optional value forwarding and calldata.
+	// Returns true on success, false if the callee reverts.
+	//
+	// Semantics (Solidity low-level call equivalent):
+	//   • Callee's code runs in a new Lua VM with its own gas budget.
+	//   • msg.sender inside callee = this contract's address (not tx.origin).
+	//   • msg.value inside callee = forwarded value.
+	//   • State changes by callee are isolated: callee revert undoes only
+	//     callee's changes; caller's changes before tos.call are preserved.
+	//   • Gas consumed by callee is deducted from caller's remaining budget.
+	//   • Nesting limited to luaMaxCallDepth (8) levels; deeper calls revert.
+	//
+	// If the target address has no code, tos.call acts as a plain TOS transfer
+	// (returns true on success, false if caller's balance is insufficient).
+	//
+	// Example:
+	//   local ok = tos.call(tokenAddr, 0, calldata)
+	//   tos.require(ok, "token call failed")
+	L.SetField(tosTable, "call", L.NewFunction(func(L *lua.LState) int {
+		if ctx.depth >= luaMaxCallDepth {
+			L.RaiseError("tos.call: max call depth (%d) exceeded", luaMaxCallDepth)
+			return 0
+		}
+
+		addrHex := L.CheckString(1)
+		calleeAddr := common.HexToAddress(addrHex)
+
+		var callValue *big.Int
+		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+			callValue = luaParseBigInt(L, 2)
+		} else {
+			callValue = new(big.Int)
+		}
+
+		var callData []byte
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			hexStr := L.CheckString(3)
+			callData = common.FromHex(hexStr)
+		}
+
+		// Compute remaining gas budget for the child.
+		// gasLimit is captured from the outer executeLuaVM parameter.
+		parentUsedNow := L.GasUsed()
+		totalUsed := parentUsedNow + totalChildGas
+		if totalUsed >= gasLimit {
+			L.RaiseError("tos.call: out of gas")
+			return 0
+		}
+		childGasLimit := gasLimit - totalUsed
+
+		// Inner snapshot: callee state changes are reverted on callee failure,
+		// but caller state changes before this call are preserved.
+		calleeSnap := st.state.Snapshot()
+
+		// Value transfer from calling contract to callee.
+		if callValue.Sign() > 0 {
+			if !st.blockCtx.CanTransfer(st.state, contractAddr, callValue) {
+				// Insufficient balance: soft failure (do not revert snapshot).
+				L.Push(lua.LFalse)
+				return 1
+			}
+			st.blockCtx.Transfer(st.state, contractAddr, calleeAddr, callValue)
+		}
+
+		// If no code, plain transfer succeeded.
+		calleeCode := st.state.GetCode(calleeAddr)
+		if len(calleeCode) == 0 {
+			L.Push(lua.LTrue)
+			return 1
+		}
+
+		// Build child context: msg.sender = this contract, tx.origin unchanged.
+		childCtx := luaCallCtx{
+			from:     contractAddr, // callee sees caller contract as msg.sender
+			to:       calleeAddr,
+			value:    callValue,
+			data:     callData,
+			depth:    ctx.depth + 1,
+			txOrigin: ctx.txOrigin,
+			txPrice:  ctx.txPrice,
+		}
+
+		childGasUsed, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
+		totalChildGas += childGasUsed
+
+		// Recalculate remaining and update parent gas limit so the parent
+		// cannot use gas that the child already consumed.
+		newTotalUsed := parentUsedNow + totalChildGas
+		if newTotalUsed < gasLimit {
+			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
+		} else {
+			// Child consumed all remaining gas; freeze parent.
+			L.SetGasLimit(parentUsedNow)
+		}
+
+		if childErr != nil {
+			// Revert callee's state changes; caller's changes are preserved.
+			st.state.RevertToSnapshot(calleeSnap)
+			L.Push(lua.LFalse)
+			return 1
+		}
+
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// ── Selector / Dispatch ────────────────────────────────────────────────────
+
+	// tos.selector(sig) → string  (4-byte keccak selector as "0x" hex)
 	L.SetField(tosTable, "selector", L.NewFunction(func(L *lua.LState) int {
 		sig := L.CheckString(1)
 		h := crypto.Keccak256([]byte(sig))
@@ -704,42 +728,12 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.dispatch(handlers)
-	//   Routes the current call to the correct handler function based on the
-	//   4-byte ABI function selector in msg.data.
-	//
-	//   `handlers` is a Lua table mapping Solidity-style ABI signatures to
-	//   handler functions. The handler function receives the decoded calldata
-	//   arguments as individual Lua values.
-	//
-	//   Special keys:
-	//     "" or "fallback" or "fallback()" — called when no selector matches,
-	//     and also when msg.data is empty (receive-like behaviour).
-	//
-	//   Behaviour:
-	//     • msg.data empty or < 4 bytes → call fallback if present, else no-op.
-	//     • selector matches a handler  → decode args, call handler.
-	//     • no match + no fallback      → tos.revert("no handler for <selector>").
-	//
-	//   Example:
-	//     tos.dispatch({
-	//       ["transfer(address,uint256)"] = function(to, amount)
-	//         tos.transfer(to, amount)
-	//         tos.emit("Transfer", "address", tos.caller, "address", to, "uint256", amount)
-	//       end,
-	//       ["balanceOf(address)"] = function(addr)
-	//         tos.emit("BalanceOf", "address", addr, "uint256", tos.balance(addr))
-	//       end,
-	//       [""] = function()   -- fallback / receive
-	//         tos.emit("Received")
-	//       end,
-	//     })
+	//   Routes msg.data to the correct handler by ABI function selector.
 	L.SetField(tosTable, "dispatch", L.NewFunction(func(L *lua.LState) int {
 		handlers := L.CheckTable(1)
 
-		// Extract msg.sig and msg.data from the Lua global state.
-		// These were populated when the tos.msg sub-table was built above.
 		var msgSig string
-		var calldata []byte // calldata = msg.data bytes after the 4-byte selector
+		var calldata []byte
 
 		msgTable, ok := L.GetGlobal("msg").(*lua.LTable)
 		if ok {
@@ -754,7 +748,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			}
 		}
 
-		// Build a map: 4-byte selector hex → (handler LValue, type list).
 		type handlerEntry struct {
 			fn    lua.LValue
 			types []string
@@ -782,7 +775,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 				fallbackEntry = &entry
 				return
 			}
-			// Compute the 4-byte selector for this signature.
 			h := crypto.Keccak256([]byte(string(sigStr)))
 			sel := "0x" + common.Bytes2Hex(h[:4])
 			handlerMap[sel] = handlerEntry{fn: v, types: types}
@@ -792,14 +784,11 @@ func (st *StateTransition) applyLua(src []byte) error {
 			return 0
 		}
 
-		// Determine which handler to call.
 		var entry *handlerEntry
-		if len(msgSig) < 10 { // "0x" + 8 hex chars = 10; anything shorter = no selector
-			// No selector present: use fallback.
+		if len(msgSig) < 10 {
 			if fallbackEntry != nil {
 				entry = fallbackEntry
 			}
-			// else: no-op (empty call, no msg.data)
 		} else {
 			if h, ok := handlerMap[msgSig]; ok {
 				entry = &h
@@ -812,17 +801,15 @@ func (st *StateTransition) applyLua(src []byte) error {
 		}
 
 		if entry == nil {
-			return 0 // no-op
+			return 0
 		}
 
-		// Decode calldata arguments using the handler's ABI type list.
 		goVals, abiArgs, err := abiDecodeRawArgs(calldata, entry.types)
 		if err != nil {
 			L.RaiseError("tos.dispatch: decode args for %s: %v", msgSig, err)
 			return 0
 		}
 
-		// Convert Go values to Lua values and push them as function arguments.
 		luaArgs := make([]lua.LValue, len(goVals))
 		for i, gv := range goVals {
 			lv, err := abiGoToLua(abiArgs[i].Type, gv)
@@ -833,9 +820,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 			luaArgs[i] = lv
 		}
 
-		// Call the handler using protected mode (pcall semantics).
-		// Errors in the handler propagate back to applyLua as a normal Lua error,
-		// which triggers the snapshot revert in applyLua.
 		callParams := lua.P{Fn: entry.fn, NRet: 0, Protect: true}
 		if err := L.CallByParam(callParams, luaArgs...); err != nil {
 			L.RaiseError("%v", err)
@@ -843,17 +827,10 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 0
 	}))
 
-	// tos.emit(eventName, "type1", val1, "type2", val2, ...)
-	//   Emits a structured event into the transaction receipt logs.
-	//
-	//   topic[0] = keccak256(eventName)  — identifies the event type.
-	//   data     = abi.encode(type-value pairs)  — ABI-encoded non-indexed fields.
-	//
-	//   Events are visible in receipts and can be indexed by standard Ethereum
-	//   tooling (topic0 = event signature hash, data = ABI-encoded payload).
-	//
-	//   Example:
-	//     tos.emit("Transfer", "address", tos.caller, "address", recipient, "uint256", amount)
+	// ── Events ────────────────────────────────────────────────────────────────
+
+	// tos.emit(eventName, "type1", val1, ...)
+	//   Emits a receipt log with topic[0] = keccak256(eventName).
 	L.SetField(tosTable, "emit", L.NewFunction(func(L *lua.LState) int {
 		eventName := L.CheckString(1)
 		topic0 := crypto.Keccak256Hash([]byte(eventName))
@@ -870,12 +847,9 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 0
 	}))
 
+	// ── String storage ────────────────────────────────────────────────────────
+
 	// tos.setStr(key, val)
-	//   Stores an arbitrary UTF-8 string in contract storage.
-	//   The string length is stored in the "length slot"; data is packed into
-	//   consecutive 32-byte "chunk slots" derived deterministically from the key.
-	//   No length limit is enforced here; very large strings consume many slots
-	//   and therefore consume proportionally more gas (Phase 3 will meter this).
 	L.SetField(tosTable, "setStr", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		val := L.CheckString(2)
@@ -883,13 +857,10 @@ func (st *StateTransition) applyLua(src []byte) error {
 
 		base := luaStrLenSlot(key)
 
-		// Store (byte-length + 1) at the base slot (big-endian uint64 in high bytes).
-		// Adding 1 distinguishes "empty string" (slot=1) from "key not set" (slot=0).
 		var lenSlot common.Hash
 		binary.BigEndian.PutUint64(lenSlot[24:], uint64(len(data))+1)
 		st.state.SetState(contractAddr, base, lenSlot)
 
-		// Store data packed into 32-byte chunks.
 		for i := 0; i < len(data); i += 32 {
 			chunk := data[i:]
 			if len(chunk) > 32 {
@@ -903,22 +874,17 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}))
 
 	// tos.getStr(key) → string | nil
-	//   Reads a string previously stored with tos.setStr.
-	//   Returns nil if the key has never been set.
 	L.SetField(tosTable, "getStr", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		base := luaStrLenSlot(key)
 
-		// Read length.
 		lenSlot := st.state.GetState(contractAddr, base)
 		if lenSlot == (common.Hash{}) {
 			L.Push(lua.LNil)
 			return 1
 		}
-		// Stored value is length+1; slot==0 means "not set" (handled above).
 		length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
 
-		// Read and reassemble chunks.
 		data := make([]byte, length)
 		for i := 0; i < int(length); i += 32 {
 			slot := st.state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
@@ -928,19 +894,63 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
+	// ── Inject globals ────────────────────────────────────────────────────────
+
 	L.SetGlobal("tos", tosTable)
 
-	// Inject every tos.* field as a global so the tos. prefix is optional.
-	// tos.caller / caller, tos.set() / set(), tos.block.number / block.number, …
-	// all work identically. tos.* remains available for explicit use.
+	// Make every tos.* field also available as a bare global.
+	// tos.caller / caller, tos.set() / set(), tos.block.number / block.number …
 	tosTable.ForEach(func(k, v lua.LValue) {
 		if name, ok := k.(lua.LString); ok {
 			L.SetGlobal(string(name), v)
 		}
 	})
 
-	// ── Execute the script ────────────────────────────────────────────────────
+	// ── Execute ───────────────────────────────────────────────────────────────
+
 	if err := L.DoString(string(src)); err != nil {
+		return L.GasUsed() + totalChildGas, err
+	}
+	return L.GasUsed() + totalChildGas, nil
+}
+
+// applyLua executes the Lua contract stored at the destination address.
+//
+// Gas model:
+//   - executeLuaVM is capped to st.gas total opcodes (including nested calls).
+//   - On success, st.gas is decremented by total opcodes consumed.
+//
+// State model:
+//   - A StateDB snapshot is taken before execution.
+//   - Any Lua error (including OOG) reverts all state changes.
+//   - msg.Value is transferred to contractAddr before the script runs.
+func (st *StateTransition) applyLua(src []byte) error {
+	contractAddr := st.to()
+
+	// Snapshot for outer revert on any error.
+	snapshot := st.state.Snapshot()
+
+	// Transfer msg.Value from caller to contract before executing the script,
+	// matching EVM semantics (value arrives before code runs).
+	if v := st.msg.Value(); v != nil && v.Sign() > 0 {
+		if !st.blockCtx.CanTransfer(st.state, st.msg.From(), v) {
+			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, st.msg.From().Hex())
+		}
+		st.blockCtx.Transfer(st.state, st.msg.From(), contractAddr, v)
+	}
+
+	ctx := luaCallCtx{
+		from:     st.msg.From(),
+		to:       contractAddr,
+		value:    st.msg.Value(),
+		data:     st.msg.Data(),
+		depth:    0,
+		txOrigin: st.msg.From(),
+		txPrice:  st.txPrice,
+	}
+
+	gasUsed, err := executeLuaVM(st, ctx, src, st.gas)
+	if err != nil {
 		st.state.RevertToSnapshot(snapshot)
 		if strings.Contains(err.Error(), "gas limit exceeded") {
 			return ErrIntrinsicGas
@@ -948,8 +958,6 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return err
 	}
 
-	// Deduct VM opcode gas from the remaining allowance.
-	gasUsed := L.GasUsed()
 	if gasUsed > st.gas {
 		st.state.RevertToSnapshot(snapshot)
 		return ErrIntrinsicGas
