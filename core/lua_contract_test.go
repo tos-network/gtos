@@ -226,3 +226,22 @@ func TestLuaContractHash(t *testing.T) {
 	defer cleanup()
 	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
+
+// TestLuaContractMsgSender verifies Solidity-style msg.sender / msg.value aliases.
+// msg.sender == tos.caller == caller (same value, three spellings)
+// msg.value  == tos.value  == value  (same value, three spellings)
+func TestLuaContractMsgSender(t *testing.T) {
+	code := `
+		-- Solidity-style access
+		assert(type(msg.sender) == "string" and #msg.sender > 0, "msg.sender should be non-empty string")
+		assert(msg.value == 1000000000000000000, "msg.value should be 1 TOS in wei")
+		-- All three spellings must agree
+		assert(msg.sender == tos.caller, "msg.sender == tos.caller")
+		assert(msg.sender == caller,     "msg.sender == caller")
+		assert(msg.value  == tos.value,  "msg.value == tos.value")
+		assert(msg.value  == value,      "msg.value == value")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+}

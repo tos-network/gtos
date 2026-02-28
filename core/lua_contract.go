@@ -161,6 +161,23 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}
 	L.SetField(tosTable, "tx", txTable)
 
+	// tos.msg  (sub-table — Solidity-compatible aliases: msg.sender / msg.value)
+	//   msg.sender == tos.caller == caller  (all three refer to the same value)
+	//   msg.value  == tos.value  == value
+	// After the ForEach global injection below, scripts can also write just
+	// msg.sender / msg.value without any prefix.
+	msgTable := L.NewTable()
+	L.SetField(msgTable, "sender", lua.LString(st.msg.From().Hex()))
+	{
+		v := st.msg.Value()
+		if v == nil || v.Sign() == 0 {
+			L.SetField(msgTable, "value", lua.LNumber("0"))
+		} else {
+			L.SetField(msgTable, "value", lua.LNumber(v.Text(10)))
+		}
+	}
+	L.SetField(tosTable, "msg", msgTable)
+
 	// tos.gasleft() → LNumber  (remaining gas at call time — must be a function
 	//   because the value changes with each opcode executed)
 	L.SetField(tosTable, "gasleft", L.NewFunction(func(L *lua.LState) int {
