@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -977,23 +978,158 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// ── Events ────────────────────────────────────────────────────────────────
 
-	// tos.emit(eventName, "type1", val1, ...)
-	//   Emits a receipt log with topic[0] = keccak256(eventName).
+	// luaEncodeIndexedTopic encodes one indexed event parameter as a 32-byte
+	// log topic following the Ethereum ABI event-encoding rules:
+	//
+	//   Value types (uint*, int*, bool, address, bytesN):
+	//     ABI-encode → 32 bytes → topic.
+	//
+	//   Reference types (string, bytes, T[], T[N]):
+	//     keccak256(ABI-encode(value)) → topic.
+	//
+	// This matches Solidity's behaviour for `indexed` event parameters.
+	luaEncodeIndexedTopic := func(typStr string, val lua.LValue) (common.Hash, error) {
+		typ, err := abi.NewType(typStr, "", nil)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("invalid type %q: %v", typStr, err)
+		}
+		goVal, err := abiLuaToGo(typ, val)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		packed, err := (abi.Arguments{{Type: typ}}).Pack(goVal)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		switch typ.T {
+		case abi.StringTy, abi.BytesTy, abi.SliceTy, abi.ArrayTy:
+			// Reference types: topic = keccak256(ABI-encoded bytes).
+			return crypto.Keccak256Hash(packed), nil
+		default:
+			// Value types: ABI-encode yields exactly 32 bytes.
+			if len(packed) != 32 {
+				return common.Hash{}, fmt.Errorf("indexed topic: unexpected size %d for type %s", len(packed), typStr)
+			}
+			var h common.Hash
+			copy(h[:], packed)
+			return h, nil
+		}
+	}
+
+	// tos.emit(eventName, ["type [indexed]", val, ...]...)
+	//   Emits a receipt log following the Ethereum event log specification.
+	//
+	//   topic[0] = keccak256(canonicalSig)
+	//     where canonicalSig = "EventName(type1,type2,...)"
+	//
+	//   Indexed parameters are marked by appending " indexed" to the type
+	//   string (or prefixing "indexed "). They appear as topics[1..3].
+	//   EVM allows at most 3 indexed parameters; exceeding this is an error.
+	//
+	//   Non-indexed parameters are ABI-encoded into the log's data field.
+	//
+	//   Examples:
+	//     tos.emit("Ping")
+	//     tos.emit("Transfer", "address", from, "uint256", amount)
+	//     tos.emit("Transfer", "address indexed", from, "uint256", amount)
+	//     tos.emit("Approval", "address indexed", owner,
+	//                          "address indexed", spender, "uint256", value)
 	L.SetField(tosTable, "emit", L.NewFunction(func(L *lua.LState) int {
 		if ctx.readonly {
 			L.RaiseError("tos.emit: log emission not allowed in staticcall")
 			return 0
 		}
 		eventName := L.CheckString(1)
-		topic0 := crypto.Keccak256Hash([]byte(eventName))
-		data, err := luaABIEncodeBytes(L, 2)
-		if err != nil {
-			L.RaiseError("tos.emit: %v", err)
+
+		// Parse alternating ("type [indexed]", val) pairs starting at arg 2.
+		nargs := L.GetTop() - 1
+		if nargs%2 != 0 {
+			L.RaiseError("tos.emit: expected alternating type/value pairs, got %d extra args", nargs)
 			return 0
 		}
+
+		type emitParam struct {
+			typStr  string
+			val     lua.LValue
+			indexed bool
+		}
+		params := make([]emitParam, nargs/2)
+		for i := range params {
+			rawType := L.CheckString(2 + i*2)
+			val := L.CheckAny(2 + i*2 + 1)
+			isIndexed := false
+			if strings.HasSuffix(rawType, " indexed") {
+				isIndexed = true
+				rawType = strings.TrimSuffix(rawType, " indexed")
+			} else if strings.HasPrefix(rawType, "indexed ") {
+				isIndexed = true
+				rawType = strings.TrimPrefix(rawType, "indexed ")
+			}
+			params[i] = emitParam{typStr: strings.TrimSpace(rawType), val: val, indexed: isIndexed}
+		}
+
+		// Build canonical event signature "EventName(type1,type2,...)".
+		// topic[0] = keccak256(canonicalSig) — matches Ethereum ABI spec.
+		typeNames := make([]string, len(params))
+		for i, p := range params {
+			typeNames[i] = p.typStr
+		}
+		canonicalSig := eventName + "(" + strings.Join(typeNames, ",") + ")"
+		topics := []common.Hash{crypto.Keccak256Hash([]byte(canonicalSig))}
+
+		// Separate indexed params (→ topics[1..3]) from non-indexed (→ data).
+		type nonIndexedPair struct {
+			typStr string
+			val    lua.LValue
+		}
+		var nonIndexed []nonIndexedPair
+		for _, p := range params {
+			if p.indexed {
+				if len(topics) >= 4 {
+					L.RaiseError("tos.emit: too many indexed parameters (EVM max is 3)")
+					return 0
+				}
+				topic, err := luaEncodeIndexedTopic(p.typStr, p.val)
+				if err != nil {
+					L.RaiseError("tos.emit: indexed param %q: %v", p.typStr, err)
+					return 0
+				}
+				topics = append(topics, topic)
+			} else {
+				nonIndexed = append(nonIndexed, nonIndexedPair{p.typStr, p.val})
+			}
+		}
+
+		// ABI-encode non-indexed params into log data.
+		var data []byte
+		if len(nonIndexed) > 0 {
+			abiArgs := make(abi.Arguments, len(nonIndexed))
+			goVals := make([]interface{}, len(nonIndexed))
+			for i, ni := range nonIndexed {
+				typ, err := abi.NewType(ni.typStr, "", nil)
+				if err != nil {
+					L.RaiseError("tos.emit: invalid type %q: %v", ni.typStr, err)
+					return 0
+				}
+				abiArgs[i] = abi.Argument{Type: typ}
+				gv, err := abiLuaToGo(typ, ni.val)
+				if err != nil {
+					L.RaiseError("tos.emit: param %q: %v", ni.typStr, err)
+					return 0
+				}
+				goVals[i] = gv
+			}
+			var err error
+			data, err = abiArgs.Pack(goVals...)
+			if err != nil {
+				L.RaiseError("tos.emit: ABI encode: %v", err)
+				return 0
+			}
+		}
+
 		st.state.AddLog(&types.Log{
 			Address: contractAddr,
-			Topics:  []common.Hash{topic0},
+			Topics:  topics,
 			Data:    data,
 		})
 		return 0

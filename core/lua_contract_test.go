@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/tos-network/gtos/accounts/abi"
@@ -14,6 +15,20 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// luaEventSig returns keccak256 of the canonical Ethereum event signature.
+// For a no-arg event: luaEventSig("Ping") → keccak256("Ping()")
+// For a typed event:  luaEventSig("Transfer", "address", "uint256")
+//
+//	→ keccak256("Transfer(address,uint256)")
+//
+// Use this in test assertions whenever you check receipt log topics produced
+// by tos.emit, since tos.emit uses the canonical signature (with types) as
+// topic[0] to be compatible with the Ethereum ABI event log specification.
+func luaEventSig(name string, types ...string) common.Hash {
+	sig := name + "(" + strings.Join(types, ",") + ")"
+	return crypto.Keccak256Hash([]byte(sig))
+}
 
 // buildCalldata constructs EVM-compatible calldata:
 //   selector (4 bytes) || ABI-encoded arguments
@@ -819,8 +834,8 @@ func runLuaTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Addres
 // TestLuaContractEmit verifies tos.emit produces correct receipt logs.
 //
 // Checks:
-//   - topic[0] == keccak256(eventName)
-//   - data == ABI-encoded payload
+//   - topic[0] == keccak256(canonicalSig) where canonicalSig = "EventName(types...)"
+//   - data == ABI-encoded non-indexed payload
 //   - multiple events in one execution each appear in logs
 //   - emit with no data produces empty Data bytes
 func TestLuaContractEmit(t *testing.T) {
@@ -836,7 +851,7 @@ func TestLuaContractEmit(t *testing.T) {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := crypto.Keccak256Hash([]byte("Ping"))
+		wantTopic := luaEventSig("Ping")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0]: got %s, want %s", log.Topics[0].Hex(), wantTopic.Hex())
 		}
@@ -857,7 +872,7 @@ func TestLuaContractEmit(t *testing.T) {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := crypto.Keccak256Hash([]byte("Transfer"))
+		wantTopic := luaEventSig("Transfer", "uint256")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0] mismatch")
 		}
@@ -883,7 +898,7 @@ func TestLuaContractEmit(t *testing.T) {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := crypto.Keccak256Hash([]byte("Transfer"))
+		wantTopic := luaEventSig("Transfer", "address", "address", "uint256")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0] mismatch")
 		}
@@ -916,10 +931,13 @@ func TestLuaContractEmit(t *testing.T) {
 		if len(receipt.Logs) != 3 {
 			t.Fatalf("expected 3 logs, got %d", len(receipt.Logs))
 		}
-		names := []string{"Event1", "Event2", "Event3"}
-		for i, name := range names {
-			wantTopic := crypto.Keccak256Hash([]byte(name))
-			if receipt.Logs[i].Topics[0] != wantTopic {
+		wantTopics := []common.Hash{
+			luaEventSig("Event1"),
+			luaEventSig("Event2"),
+			luaEventSig("Event3", "uint256"),
+		}
+		for i, want := range wantTopics {
+			if receipt.Logs[i].Topics[0] != want {
 				t.Errorf("log[%d] topic mismatch: got %s", i, receipt.Logs[i].Topics[0].Hex())
 			}
 		}
@@ -1126,7 +1144,7 @@ func TestLuaContractDispatch(t *testing.T) {
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Ping")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Ping") {
 			t.Errorf("wrong event topic")
 		}
 	})
@@ -1208,7 +1226,7 @@ func TestLuaContractDispatch(t *testing.T) {
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Bar")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Bar") {
 			t.Errorf("wrong event: expected Bar")
 		}
 	})
@@ -1229,7 +1247,7 @@ func TestLuaContractDispatch(t *testing.T) {
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Fallback")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Fallback") {
 			t.Errorf("expected Fallback event")
 		}
 	})
@@ -1247,7 +1265,7 @@ func TestLuaContractDispatch(t *testing.T) {
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Received")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Received") {
 			t.Errorf("expected Received event")
 		}
 	})
@@ -1332,7 +1350,7 @@ func TestLuaContractDispatch(t *testing.T) {
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Registered")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Registered", "string") {
 			t.Errorf("expected Registered event")
 		}
 	})
@@ -1358,7 +1376,7 @@ func TestLuaContractOncreate(t *testing.T) {
 		if len(receipt1.Logs) != 1 {
 			t.Fatalf("first call: expected 1 log (Deployed), got %d", len(receipt1.Logs))
 		}
-		if receipt1.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Deployed")) {
+		if receipt1.Logs[0].Topics[0] != luaEventSig("Deployed") {
 			t.Errorf("first call: expected Deployed event")
 		}
 
@@ -1734,7 +1752,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 0: Score = 42
-	if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Score")) {
+	if receipt.Logs[0].Topics[0] != luaEventSig("Score", "uint256") {
 		t.Errorf("log[0] not Score")
 	}
 	if receipt.Logs[0].Data[31] != 42 {
@@ -1742,7 +1760,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 1: Name = "hello" (ABI-encoded string)
-	if receipt.Logs[1].Topics[0] != crypto.Keccak256Hash([]byte("Name")) {
+	if receipt.Logs[1].Topics[0] != luaEventSig("Name", "string") {
 		t.Errorf("log[1] not Name")
 	}
 	// ABI-encoded string: offset(32) + length(32) + data(32 padded) = 96 bytes
@@ -1755,7 +1773,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 2: ArrLen = 1
-	if receipt.Logs[2].Topics[0] != crypto.Keccak256Hash([]byte("ArrLen")) {
+	if receipt.Logs[2].Topics[0] != luaEventSig("ArrLen", "uint256") {
 		t.Errorf("log[2] not ArrLen")
 	}
 	if receipt.Logs[2].Data[31] != 1 {
@@ -1763,7 +1781,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 3: ArrElem = 99
-	if receipt.Logs[3].Topics[0] != crypto.Keccak256Hash([]byte("ArrElem")) {
+	if receipt.Logs[3].Topics[0] != luaEventSig("ArrElem", "uint256") {
 		t.Errorf("log[3] not ArrElem")
 	}
 	if receipt.Logs[3].Data[31] != 99 {
@@ -1771,7 +1789,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 4: Balance = 2 TOS
-	if receipt.Logs[4].Topics[0] != crypto.Keccak256Hash([]byte("Balance")) {
+	if receipt.Logs[4].Topics[0] != luaEventSig("Balance", "uint256") {
 		t.Errorf("log[4] not Balance")
 	}
 	twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
@@ -1781,7 +1799,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 5: HasCode = true (addrB has code)
-	if receipt.Logs[5].Topics[0] != crypto.Keccak256Hash([]byte("HasCode")) {
+	if receipt.Logs[5].Topics[0] != luaEventSig("HasCode", "bool") {
 		t.Errorf("log[5] not HasCode")
 	}
 	if receipt.Logs[5].Data[31] != 1 {
@@ -1789,7 +1807,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 6: NoCode = false (zero address has no code)
-	if receipt.Logs[6].Topics[0] != crypto.Keccak256Hash([]byte("NoCode")) {
+	if receipt.Logs[6].Topics[0] != luaEventSig("NoCode", "bool") {
 		t.Errorf("log[6] not NoCode")
 	}
 	if receipt.Logs[6].Data[31] != 0 {
@@ -1874,7 +1892,7 @@ func TestLuaContractCall(t *testing.T) {
 		}
 
 		// Log 0: Sender — should be contractAddr (A), not addr1 (EOA)
-		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Sender")) {
+		if receipt.Logs[0].Topics[0] != luaEventSig("Sender", "address") {
 			t.Errorf("log[0] topic mismatch")
 		}
 		wantSender := contractAddr
@@ -1885,7 +1903,7 @@ func TestLuaContractCall(t *testing.T) {
 		}
 
 		// Log 1: Origin — should be addr1 (the original EOA)
-		if receipt.Logs[1].Topics[0] != crypto.Keccak256Hash([]byte("Origin")) {
+		if receipt.Logs[1].Topics[0] != luaEventSig("Origin", "address") {
 			t.Errorf("log[1] topic mismatch")
 		}
 		gotOrigin := common.BytesToAddress(receipt.Logs[1].Data)
@@ -2350,4 +2368,217 @@ func TestLuaContractStaticCall(t *testing.T) {
 			t.Errorf("Supply: want 500000, got %s", new(big.Int).SetBytes(receipt.Logs[0].Data))
 		}
 	})
+}
+
+// TestLuaContractEmitIndexed verifies Phase 3B indexed event topics.
+//
+// EVM log specification for indexed parameters:
+//   - topic[0] = keccak256(canonicalSig) — always
+//   - topic[1..3] = indexed params encoded as 32-byte values:
+//     value types (uint*, int*, bool, address, bytesN): ABI-padded to 32 bytes
+//     reference types (string, bytes, T[]): keccak256(ABI-encode(value))
+//   - data = ABI-encoded non-indexed params (same as before)
+//   - EVM max is 3 indexed params; a 4th raises an error
+func TestLuaContractEmitIndexed(t *testing.T) {
+
+	t.Run("indexed_uint256_as_topic", func(t *testing.T) {
+		// "uint256 indexed" appears as topic[1], NOT in log data.
+		const code = `tos.emit("Stored", "uint256 indexed", 42)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if log.Topics[0] != luaEventSig("Stored", "uint256") {
+			t.Errorf("topic[0] mismatch: got %s", log.Topics[0].Hex())
+		}
+		if len(log.Topics) != 2 {
+			t.Fatalf("expected 2 topics, got %d", len(log.Topics))
+		}
+		if log.Topics[1][31] != 42 {
+			t.Errorf("topic[1][31]: expected 42, got %d", log.Topics[1][31])
+		}
+		if len(log.Data) != 0 {
+			t.Errorf("expected empty data for all-indexed event, got %d bytes", len(log.Data))
+		}
+	})
+
+	t.Run("indexed_address_as_topic", func(t *testing.T) {
+		// "address indexed" appears as topic[1]; non-indexed uint256 goes to data.
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+		const code = `tos.emit("Transfer", "address indexed", tos.caller, "uint256", 1000)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if log.Topics[0] != luaEventSig("Transfer", "address", "uint256") {
+			t.Errorf("topic[0] mismatch")
+		}
+		if len(log.Topics) != 2 {
+			t.Fatalf("expected 2 topics, got %d", len(log.Topics))
+		}
+		gotAddr := common.BytesToAddress(log.Topics[1][32-common.AddressLength:])
+		if gotAddr != addr1 {
+			t.Errorf("topic[1] address: got %s, want %s", gotAddr.Hex(), addr1.Hex())
+		}
+		// data = ABI-encode(uint256, 1000) — 32 bytes, last byte = 232
+		if len(log.Data) != 32 {
+			t.Fatalf("expected 32 bytes data, got %d", len(log.Data))
+		}
+		if log.Data[31] != 232 { // 1000 & 0xff
+			t.Errorf("data[31]: expected 232 (1000 low byte), got %d", log.Data[31])
+		}
+	})
+
+	t.Run("multiple_indexed_topics", func(t *testing.T) {
+		// Three indexed params → topics[1..3]; data empty.
+		const code = `tos.emit("Approval",
+			"uint256 indexed", 1,
+			"uint256 indexed", 2,
+			"uint256 indexed", 3)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if len(log.Topics) != 4 {
+			t.Fatalf("expected 4 topics (sig + 3 indexed), got %d", len(log.Topics))
+		}
+		if log.Topics[0] != luaEventSig("Approval", "uint256", "uint256", "uint256") {
+			t.Errorf("topic[0] mismatch")
+		}
+		if log.Topics[1][31] != 1 || log.Topics[2][31] != 2 || log.Topics[3][31] != 3 {
+			t.Errorf("indexed values mismatch: topics[1..3] last bytes = %d %d %d",
+				log.Topics[1][31], log.Topics[2][31], log.Topics[3][31])
+		}
+		if len(log.Data) != 0 {
+			t.Errorf("expected empty data, got %d bytes", len(log.Data))
+		}
+	})
+
+	t.Run("too_many_indexed_reverts", func(t *testing.T) {
+		// Four indexed params exceed EVM max (3); tx must fail.
+		const code = `tos.emit("Bad",
+			"uint256 indexed", 1,
+			"uint256 indexed", 2,
+			"uint256 indexed", 3,
+			"uint256 indexed", 4)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Errorf("expected status=0 (revert on >3 indexed), got %d", receipts[0].Status)
+		}
+	})
+
+	t.Run("indexed_string_is_keccak", func(t *testing.T) {
+		// Indexed string → topic = keccak256(ABI-encode("hello")).
+		const code = `tos.emit("Named", "string indexed", "hello")`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if log.Topics[0] != luaEventSig("Named", "string") {
+			t.Errorf("topic[0] mismatch")
+		}
+		if len(log.Topics) != 2 {
+			t.Fatalf("expected 2 topics, got %d", len(log.Topics))
+		}
+		// Expected: keccak256(ABI-encode(string, "hello"))
+		strType := mustABIType(t, "string")
+		packed, _ := (abi.Arguments{{Type: strType}}).Pack("hello")
+		want := crypto.Keccak256Hash(packed)
+		if log.Topics[1] != want {
+			t.Errorf("indexed string topic: got %s, want %s", log.Topics[1].Hex(), want.Hex())
+		}
+		if len(log.Data) != 0 {
+			t.Errorf("expected empty data, got %d bytes", len(log.Data))
+		}
+	})
+
+	t.Run("prefix_indexed_syntax", func(t *testing.T) {
+		// "indexed type" prefix works identically to "type indexed" suffix.
+		const code = `tos.emit("Foo", "indexed uint256", 7)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if log.Topics[0] != luaEventSig("Foo", "uint256") {
+			t.Errorf("topic[0] mismatch")
+		}
+		if len(log.Topics) != 2 {
+			t.Fatalf("expected 2 topics, got %d", len(log.Topics))
+		}
+		if log.Topics[1][31] != 7 {
+			t.Errorf("topic[1][31]: expected 7, got %d", log.Topics[1][31])
+		}
+	})
+
+	t.Run("mixed_indexed_and_data", func(t *testing.T) {
+		// One indexed param in topic[1]; one non-indexed param in data.
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+		const code = `tos.emit("Transfer",
+			"address indexed", tos.caller,
+			"uint256", 500)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		if log.Topics[0] != luaEventSig("Transfer", "address", "uint256") {
+			t.Errorf("topic[0] mismatch")
+		}
+		if len(log.Topics) != 2 {
+			t.Fatalf("expected 2 topics, got %d", len(log.Topics))
+		}
+		gotAddr := common.BytesToAddress(log.Topics[1][32-common.AddressLength:])
+		if gotAddr != addr1 {
+			t.Errorf("topic[1] address: got %s, want %s", gotAddr.Hex(), addr1.Hex())
+		}
+		if len(log.Data) != 32 {
+			t.Fatalf("expected 32 bytes data, got %d", len(log.Data))
+		}
+		gotVal := new(big.Int).SetBytes(log.Data)
+		if gotVal.Int64() != 500 {
+			t.Errorf("data uint256: expected 500, got %s", gotVal)
+		}
+	})
+}
+
+// mustABIType is a test helper that builds an abi.Type and fatals on error.
+func mustABIType(t *testing.T, typStr string) abi.Type {
+	t.Helper()
+	typ, err := abi.NewType(typStr, "", nil)
+	if err != nil {
+		t.Fatalf("abi.NewType(%q): %v", typStr, err)
+	}
+	return typ
 }
