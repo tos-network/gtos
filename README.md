@@ -1,33 +1,41 @@
 # TOS
 
-**The first blockchain to unify speed, privacy, and easy smart contracts.**
+**The first blockchain to unify speed, privacy, and agent-native economics.**
 
-TOS is a DPoS chain where 360ms blocks, built-in encrypted balances, and on-chain logic live together — no trade-offs, no layer juggling.
-
----
-
-## The Problem With Every Other Chain
-
-Existing blockchains force you to choose:
-
-- **Fast chains** sacrifice privacy and trust-minimized execution
-- **Privacy chains** are slow, complex, and require specialized tooling
-- **Smart contract chains** leak every state change to the public and hit throughput walls
-
-TOS is built from the ground up to remove this trade-off.
+TOS is a DPoS chain where 360ms blocks, built-in encrypted balances, and on-chain logic are the infrastructure — built to carry the world's first general-purpose agent labor market.
 
 ---
 
-## Speed
+## Vision
+
+Ethereum generalized computation. TOS generalizes **economic agency**.
+
+The next generation of AI agents needs more than a fast ledger. They need a chain where:
+
+- **Work is verifiable** — agents submit cryptographic receipts for completed tasks (AGIW: Proof-of-Intelligent-Work), verified by TEE attestations and randomized spot-checks, settling per outcome not per call
+- **Reputation is on-chain** — an append-only, stake-weighted reputation graph reduces counterparty risk and speeds market clearing across agent-to-agent transactions
+- **Value is measured in real scarcity** — Compute Credits (CC) and Energy Credits (EC) are native ledger assets, not ERC-20 wrappers; fees and treasury policy are anchored to GPU-minute and kWh indices
+- **Compliance is built in** — Safety Oracle + Account Abstraction policy wallets enforce rate limits, allow/deny lists, and region rules at validation time, without centralization
+- **Identity is first-class** — native DID, key rotation, and attribute attestations make autonomous agents provable, accountable, and integrable
+
+> TOS is not "a faster EVM." It is the first chain that turns agent work, reputation, and energy use into a measurable, settleable, and governable economic substrate.
+
+---
+
+## Infrastructure
+
+The agent economy runs on three foundational layers:
+
+### Speed
 
 - `360ms` target block interval, DPoS consensus
-- Parallel transaction execution — independent txs run concurrently within each block
+- Parallel transaction execution — independent txs run concurrently within each block via DAG scheduling
 - Rolling `200`-block finalized history window — nodes stay lean
 - Configurable seal signer: `ed25519` (default), `secp256k1`
 
-## Privacy
+### Privacy (UNO)
 
-UNO is TOS's native privacy layer — encrypted balances on the base chain, no bridges, no L2.
+UNO is TOS's native privacy layer — encrypted balances on the base chain, no bridges, no L2. Agent payments and task settlements can be fully private.
 
 - Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
 - Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
@@ -35,38 +43,39 @@ UNO is TOS's native privacy layer — encrypted balances on the base chain, no b
 - Decrypt your own balance locally with `personal_unoBalance` — private key never leaves your machine
 - Chain-bound proofs: every proof is committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
 
-## Smart Contracts
+### Smart Contracts
 
-TOS contracts are first-class on-chain logic — fast to write, cheap to run, no Solidity required.
+TOS contracts are native on-chain logic — deterministic, auditable, no Solidity required.
 
-- System actions dispatch to native handlers at fixed addresses — deterministic, auditable, gas-efficient
+- System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead
 - `code_put_ttl`: deploy executable logic metadata with an expiry (`tos_setCode`)
-- `kv_put_ttl`: write structured state with TTL (`tos_putKV`) — entries expire automatically, no manual cleanup
+- `kv_put_ttl`: write structured state with TTL (`tos_putKV`) — entries expire automatically
 - Multi-signer accounts: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal` — one chain for every key type
 
 ---
 
-## Architecture at a Glance
+## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│               Applications              │
-│    (wallets, agents, dapps, scripts)    │
-└────────────────────┬────────────────────┘
-                     │ JSON-RPC / IPC
-┌────────────────────▼────────────────────┐
-│              TOS Node (gtos)            │
-│                                         │
-│  ┌──────────┐  ┌───────┐  ┌─────────┐  │
-│  │   DPoS   │  │  UNO  │  │ System  │  │
-│  │ 360ms    │  │Privacy│  │ Actions │  │
-│  │ Consensus│  │Layer  │  │(kv/code)│  │
-│  └──────────┘  └───────┘  └─────────┘  │
-│                                         │
-│  ┌─────────────────────────────────┐    │
-│  │   Parallel Tx Executor (DAG)    │    │
-│  └─────────────────────────────────┘    │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                  Agent Economy Layer                 │
+│   Task Market · AGIW Receipts · Reputation Graph    │
+│   CC/EC Settlement · Safety Oracle · Policy Wallets │
+└──────────────────────────┬───────────────────────────┘
+                           │
+┌──────────────────────────▼───────────────────────────┐
+│                    TOS Node (gtos)                   │
+│                                                      │
+│  ┌──────────┐   ┌────────────┐   ┌───────────────┐  │
+│  │   DPoS   │   │    UNO     │   │ System Actions│  │
+│  │  360ms   │   │  Privacy   │   │  (kv / code)  │  │
+│  │Consensus │   │   Layer    │   │               │  │
+│  └──────────┘   └────────────┘   └───────────────┘  │
+│                                                      │
+│  ┌──────────────────────────────────────────────┐    │
+│  │          Parallel Tx Executor (DAG)          │    │
+│  └──────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -77,10 +86,10 @@ TOS contracts are first-class on-chain logic — fast to write, cheap to run, no
 # Build
 go build ./cmd/gtos
 
-# Start a node (example)
+# Start a node
 gtos --datadir /data/tos --networkid 1666 console
 
-# Check your private UNO balance
+# Check your private UNO balance (private key stays local)
 > personal.unoBalance("0x<your-address>", "your-password")
 ```
 
