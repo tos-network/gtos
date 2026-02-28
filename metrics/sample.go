@@ -8,7 +8,32 @@ import (
 	"time"
 )
 
+
 const rescaleThreshold = time.Hour
+
+// metricsRng is the package-level random source used by reservoir sampling.
+// It is seeded from the current time at init so production runs are
+// non-deterministic. Tests can replace it (and metricsRngMu) to get a
+// fixed sequence; both are unexported and accessible from _test.go files in
+// the same package.
+var (
+	metricsRng   = rand.New(rand.NewSource(time.Now().UnixNano()))
+	metricsRngMu sync.Mutex
+)
+
+func randFloat64() float64 {
+	metricsRngMu.Lock()
+	v := metricsRng.Float64()
+	metricsRngMu.Unlock()
+	return v
+}
+
+func randInt63n(n int64) int64 {
+	metricsRngMu.Lock()
+	v := metricsRng.Int63n(n)
+	metricsRngMu.Unlock()
+	return v
+}
 
 // Samples maintain a statistically-significant selection of values from
 // a stream.
@@ -169,7 +194,7 @@ func (s *ExpDecaySample) update(t time.Time, v int64) {
 		s.values.Pop()
 	}
 	s.values.Push(expDecaySample{
-		k: math.Exp(t.Sub(s.t0).Seconds()*s.alpha) / rand.Float64(),
+		k: math.Exp(t.Sub(s.t0).Seconds()*s.alpha) / randFloat64(),
 		v: v,
 	})
 	if t.After(s.t1) {
@@ -511,7 +536,7 @@ func (s *UniformSample) Update(v int64) {
 	if len(s.values) < s.reservoirSize {
 		s.values = append(s.values, v)
 	} else {
-		r := rand.Int63n(s.count)
+		r := randInt63n(s.count)
 		if r < int64(len(s.values)) {
 			s.values[int(r)] = v
 		}
