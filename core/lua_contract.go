@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	lua "github.com/tos-network/gopher-lua"
+	lua "github.com/tos-network/golua"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"

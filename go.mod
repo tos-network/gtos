@@ -82,7 +82,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.5 // indirect
 	github.com/tklauser/numcpus v0.2.2 // indirect
-	github.com/tos-network/gopher-lua v0.0.0-20260228220438-79ea9f91a3e0 // indirect
+	github.com/tos-network/golua v0.0.0-20260228231511-57fcff8270ec
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
