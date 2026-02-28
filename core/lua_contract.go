@@ -183,11 +183,12 @@ func (st *StateTransition) applyLua(src []byte) error {
 	}
 	L.SetField(tosTable, "tx", txTable)
 
-	// tos.msg  (sub-table — Solidity-compatible aliases: msg.sender / msg.value)
+	// tos.msg  (sub-table — Solidity-compatible aliases)
 	//   msg.sender == tos.caller == caller  (all three refer to the same value)
 	//   msg.value  == tos.value  == value
-	// After the ForEach global injection below, scripts can also write just
-	// msg.sender / msg.value without any prefix.
+	//   msg.data   → "0x"-prefixed hex of raw tx data (Solidity msg.data)
+	//   msg.sig    → first 4 bytes of msg.data as "0x"+8 hex chars (Solidity msg.sig)
+	// After the ForEach global injection below, all msg.* are also bare globals.
 	msgTable := L.NewTable()
 	L.SetField(msgTable, "sender", lua.LString(st.msg.From().Hex()))
 	{
@@ -198,7 +199,34 @@ func (st *StateTransition) applyLua(src []byte) error {
 			L.SetField(msgTable, "value", lua.LNumber(v.Text(10)))
 		}
 	}
+	{
+		d := st.msg.Data()
+		var msgDataHex string
+		if len(d) == 0 {
+			msgDataHex = "0x"
+		} else {
+			msgDataHex = "0x" + common.Bytes2Hex(d)
+		}
+		L.SetField(msgTable, "data", lua.LString(msgDataHex))
+		if len(d) >= 4 {
+			L.SetField(msgTable, "sig", lua.LString("0x"+common.Bytes2Hex(d[:4])))
+		} else {
+			L.SetField(msgTable, "sig", lua.LString("0x"))
+		}
+	}
 	L.SetField(tosTable, "msg", msgTable)
+
+	// tos.abi  (sub-table — Ethereum ABI encode/decode, like Solidity abi.*)
+	//   abi.encode("type", val, ...)         → "0x" hex  (standard ABI)
+	//   abi.encodePacked("type", val, ...)   → "0x" hex  (tight, no padding)
+	//   abi.decode(hexData, "type", ...)     → val, val, ...
+	// After the ForEach injection, abi.encode / abi.encodePacked / abi.decode
+	// are also accessible without any prefix.
+	abiTable := L.NewTable()
+	L.SetField(abiTable, "encode", L.NewFunction(luaABIEncode))
+	L.SetField(abiTable, "encodePacked", L.NewFunction(luaABIEncodePacked))
+	L.SetField(abiTable, "decode", L.NewFunction(luaABIDecode))
+	L.SetField(tosTable, "abi", abiTable)
 
 	// tos.gasleft() → LNumber  (remaining gas at call time — must be a function
 	//   because the value changes with each opcode executed)

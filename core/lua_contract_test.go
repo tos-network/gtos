@@ -48,12 +48,18 @@ func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	return bc, contractAddr, bc.Stop
 }
 
-// runLuaTx is a helper that sends one tx to contractAddr and inserts the block.
+// runLuaTx is a helper that sends one tx (no calldata) to contractAddr.
 func runLuaTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
+	t.Helper()
+	runLuaTxWithData(t, bc, contractAddr, value, nil)
+}
+
+// runLuaTxWithData sends one tx with custom calldata to contractAddr.
+func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), nil)
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,4 +355,132 @@ func TestLuaContractEcrecover(t *testing.T) {
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
 	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// ── Phase 2C: ABI encode/decode + msg.data/sig ───────────────────────────────
+
+// TestLuaContractABIEncodePacked verifies abi.encodePacked for scalar types.
+func TestLuaContractABIEncodePacked(t *testing.T) {
+	const code = `
+		-- uint8(1) packed = 1 byte = "0x01"
+		assert(abi.encodePacked("uint8", 1) == "0x01", "uint8 packed")
+
+		-- uint256(1) packed = 32 bytes, last byte = 0x01
+		local u256 = abi.encodePacked("uint256", 1)
+		assert(#u256 == 66, "uint256 packed len: " .. tostring(#u256))
+		assert(u256:sub(65) == "01", "uint256 packed last byte")
+
+		-- bool packed
+		assert(abi.encodePacked("bool", true)  == "0x01", "bool true packed")
+		assert(abi.encodePacked("bool", false) == "0x00", "bool false packed")
+
+		-- string packed = raw UTF-8 bytes
+		assert(abi.encodePacked("string", "AB") == "0x4142", "string packed")
+
+		-- bytes4 packed
+		assert(abi.encodePacked("bytes4", "0xdeadbeef") == "0xdeadbeef", "bytes4 packed")
+
+		-- concatenation: uint8(1) ++ uint8(2) = "0x0102"
+		assert(abi.encodePacked("uint8", 1, "uint8", 2) == "0x0102", "concat packed")
+
+		-- tos. prefix works too
+		assert(tos.abi.encodePacked("uint8", 7) == "0x07", "tos.abi.encodePacked")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIEncodeDecodeRoundTrip verifies encode→decode is lossless
+// for static types.
+func TestLuaContractABIEncodeDecodeRoundTrip(t *testing.T) {
+	const code = `
+		-- static types round-trip
+		local encoded = abi.encode("uint256", 999, "bool", true, "uint8", 7)
+		-- 3 × 32 bytes = 96 bytes = "0x" + 192 hex chars = 194 total chars
+		assert(#encoded == 194, "encode len: " .. tostring(#encoded))
+
+		local n, b, m = abi.decode(encoded, "uint256", "bool", "uint8")
+		assert(n == 999, "uint256 roundtrip: " .. tostring(n))
+		assert(b == true, "bool roundtrip: " .. tostring(b))
+		assert(m == 7,   "uint8 roundtrip: " .. tostring(m))
+
+		-- negative int256
+		local enc2 = abi.encode("int256", -1)
+		local neg = abi.decode(enc2, "int256")
+		assert(neg == -1, "int256 -1 roundtrip: " .. tostring(neg))
+
+		-- tos.abi prefix also works
+		local enc3 = tos.abi.encode("uint256", 42)
+		local v = tos.abi.decode(enc3, "uint256")
+		assert(v == 42, "tos.abi roundtrip")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIEncodeDynamic verifies abi.encode/decode with dynamic types.
+func TestLuaContractABIEncodeDynamic(t *testing.T) {
+	const code = `
+		-- string round-trip
+		local enc = abi.encode("string", "hello world")
+		local s = abi.decode(enc, "string")
+		assert(s == "hello world", "string roundtrip: " .. tostring(s))
+
+		-- bytes round-trip ("0x"-prefixed input → "0x"-prefixed output)
+		local encB = abi.encode("bytes", "0xdeadbeef")
+		local bv = abi.decode(encB, "bytes")
+		assert(bv == "0xdeadbeef", "bytes roundtrip: " .. tostring(bv))
+
+		-- mixed static + dynamic
+		local encM = abi.encode("uint256", 123, "string", "TOS", "bool", true)
+		local n, str, flag = abi.decode(encM, "uint256", "string", "bool")
+		assert(n == 123,    "mixed uint256")
+		assert(str == "TOS", "mixed string")
+		assert(flag == true, "mixed bool")
+
+		-- two dynamic args
+		local enc2 = abi.encode("string", "foo", "string", "bar")
+		local a, bstr = abi.decode(enc2, "string", "string")
+		assert(a == "foo", "two strings a")
+		assert(bstr == "bar", "two strings b")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIFunctionSelector verifies the Solidity function-selector
+// pattern: keccak256("funcName(types)")[:4 bytes].
+// keccak256("transfer(address,uint256)") must equal 0xa9059cbb.
+func TestLuaContractABIFunctionSelector(t *testing.T) {
+	const code = `
+		local full = keccak256("transfer(address,uint256)")
+		local selector = full:sub(1, 10)  -- "0x" + 8 hex chars = 4 bytes
+		assert(#selector == 10, "selector length")
+		assert(selector == "0xa9059cbb", "transfer selector: " .. selector)
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractMsgData verifies msg.data and msg.sig carry the tx calldata.
+func TestLuaContractMsgData(t *testing.T) {
+	const code = `
+		assert(type(msg.data) == "string", "msg.data should be string")
+		assert(msg.data:sub(1,2) == "0x", "msg.data should start with 0x")
+		assert(type(msg.sig) == "string", "msg.sig should be string")
+		-- sent 8 bytes, so msg.data = "0x" + 16 hex chars = 18 chars
+		assert(#msg.data == 18, "msg.data length: " .. tostring(#msg.data))
+		-- sig = first 4 bytes = "0x" + first 8 hex chars of data
+		assert(msg.sig == msg.data:sub(1, 10), "msg.sig == first 4 bytes of msg.data")
+		assert(msg.sig == "0xc2985578", "msg.sig value")
+	`
+	// keccak256("foo()") selector = 0xc2985578, appended with 4 extra bytes
+	txData := common.FromHex("0xc298557812345678")
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTxWithData(t, bc, contractAddr, big.NewInt(0), txData)
 }
