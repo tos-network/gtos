@@ -352,6 +352,83 @@ func luaABIDecode(L *lua.LState) int {
 	return n
 }
 
+// ── ABI signature parsing and raw decoding (used by tos.dispatch) ────────────
+
+// abiSplitTypes splits a flat comma-separated ABI type list, respecting nested
+// parentheses (tuple components). For example:
+//
+//	"uint256,address"        → ["uint256", "address"]
+//	"(uint256,address),bool" → ["(uint256,address)", "bool"]
+func abiSplitTypes(inner string) []string {
+	if inner == "" {
+		return nil
+	}
+	var result []string
+	depth, start := 0, 0
+	for i, c := range inner {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				result = append(result, strings.TrimSpace(inner[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	result = append(result, strings.TrimSpace(inner[start:]))
+	return result
+}
+
+// abiParseSignature parses a Solidity ABI function signature into its name and
+// flat argument type list. The special keys "" and "fallback" / "fallback()"
+// represent the fallback function (no selector matching, catches all).
+//
+//	"transfer(address,uint256)" → ("transfer", ["address", "uint256"], nil)
+//	"receive()"                 → ("receive",  [],                    nil)
+//	""                          → ("fallback", nil, nil)
+func abiParseSignature(sig string) (name string, types []string, err error) {
+	if sig == "" || sig == "fallback" || sig == "fallback()" {
+		return "fallback", nil, nil
+	}
+	open := strings.Index(sig, "(")
+	if open < 0 || !strings.HasSuffix(sig, ")") {
+		return "", nil, fmt.Errorf("invalid ABI signature %q: expected name(...)", sig)
+	}
+	name = sig[:open]
+	if name == "" {
+		return "", nil, fmt.Errorf("invalid ABI signature %q: missing function name", sig)
+	}
+	inner := sig[open+1 : len(sig)-1]
+	types = abiSplitTypes(inner)
+	return name, types, nil
+}
+
+// abiDecodeRawArgs decodes ABI-encoded calldata bytes using the given type
+// strings and returns (Go values, ABI arguments, error). It is the Go-level
+// equivalent of abi.decode but takes raw bytes and returns Go values rather
+// than Lua values, so callers can convert them as needed.
+func abiDecodeRawArgs(data []byte, typeStrs []string) ([]interface{}, abi.Arguments, error) {
+	if len(typeStrs) == 0 {
+		return nil, nil, nil
+	}
+	args := make(abi.Arguments, len(typeStrs))
+	for i, ts := range typeStrs {
+		typ, err := abi.NewType(ts, "", nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("type %q: %v", ts, err)
+		}
+		args[i] = abi.Argument{Type: typ}
+	}
+	goVals, err := args.Unpack(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	return goVals, args, nil
+}
+
 // ── Packed ABI encoding (abi.encodePacked) ────────────────────────────────────
 //
 // accounts/abi does not expose a packed encoder, so this is implemented here.

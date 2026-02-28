@@ -386,6 +386,159 @@ func (st *StateTransition) applyLua(src []byte) error {
 	// tos.self → string  (this contract's own address, like Solidity address(this))
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
 
+	// tos.selector(sig) → string  (4-byte keccak selector as "0x" hex)
+	//   Computes the Ethereum ABI function selector for a given signature string.
+	//   Equivalent to bytes4(keccak256(bytes(sig))).
+	//
+	//   Example:
+	//     tos.selector("transfer(address,uint256)") == "0xa9059cbb"
+	L.SetField(tosTable, "selector", L.NewFunction(func(L *lua.LState) int {
+		sig := L.CheckString(1)
+		h := crypto.Keccak256([]byte(sig))
+		L.Push(lua.LString("0x" + common.Bytes2Hex(h[:4])))
+		return 1
+	}))
+
+	// tos.dispatch(handlers)
+	//   Routes the current call to the correct handler function based on the
+	//   4-byte ABI function selector in msg.data.
+	//
+	//   `handlers` is a Lua table mapping Solidity-style ABI signatures to
+	//   handler functions. The handler function receives the decoded calldata
+	//   arguments as individual Lua values.
+	//
+	//   Special keys:
+	//     "" or "fallback" or "fallback()" — called when no selector matches,
+	//     and also when msg.data is empty (receive-like behaviour).
+	//
+	//   Behaviour:
+	//     • msg.data empty or < 4 bytes → call fallback if present, else no-op.
+	//     • selector matches a handler  → decode args, call handler.
+	//     • no match + no fallback      → tos.revert("no handler for <selector>").
+	//
+	//   Example:
+	//     tos.dispatch({
+	//       ["transfer(address,uint256)"] = function(to, amount)
+	//         tos.transfer(to, amount)
+	//         tos.emit("Transfer", "address", tos.caller, "address", to, "uint256", amount)
+	//       end,
+	//       ["balanceOf(address)"] = function(addr)
+	//         tos.emit("BalanceOf", "address", addr, "uint256", tos.balance(addr))
+	//       end,
+	//       [""] = function()   -- fallback / receive
+	//         tos.emit("Received")
+	//       end,
+	//     })
+	L.SetField(tosTable, "dispatch", L.NewFunction(func(L *lua.LState) int {
+		handlers := L.CheckTable(1)
+
+		// Extract msg.sig and msg.data from the Lua global state.
+		// These were populated when the tos.msg sub-table was built above.
+		var msgSig string
+		var calldata []byte // calldata = msg.data bytes after the 4-byte selector
+
+		msgTable, ok := L.GetGlobal("msg").(*lua.LTable)
+		if ok {
+			if sv, ok2 := msgTable.RawGetString("sig").(lua.LString); ok2 {
+				msgSig = string(sv)
+			}
+			if dv, ok2 := msgTable.RawGetString("data").(lua.LString); ok2 {
+				raw := common.FromHex(string(dv))
+				if len(raw) >= 4 {
+					calldata = raw[4:]
+				}
+			}
+		}
+
+		// Build a map: 4-byte selector hex → (handler LValue, type list).
+		type handlerEntry struct {
+			fn    lua.LValue
+			types []string
+		}
+		handlerMap := make(map[string]handlerEntry)
+		var fallbackEntry *handlerEntry
+
+		var parseErr error
+		handlers.ForEach(func(k, v lua.LValue) {
+			if parseErr != nil {
+				return
+			}
+			sigStr, ok := k.(lua.LString)
+			if !ok {
+				parseErr = fmt.Errorf("tos.dispatch: handler key must be a string, got %T", k)
+				return
+			}
+			name, types, err := abiParseSignature(string(sigStr))
+			if err != nil {
+				parseErr = fmt.Errorf("tos.dispatch: %v", err)
+				return
+			}
+			if name == "fallback" {
+				entry := handlerEntry{fn: v, types: nil}
+				fallbackEntry = &entry
+				return
+			}
+			// Compute the 4-byte selector for this signature.
+			h := crypto.Keccak256([]byte(string(sigStr)))
+			sel := "0x" + common.Bytes2Hex(h[:4])
+			handlerMap[sel] = handlerEntry{fn: v, types: types}
+		})
+		if parseErr != nil {
+			L.RaiseError("%v", parseErr)
+			return 0
+		}
+
+		// Determine which handler to call.
+		var entry *handlerEntry
+		if len(msgSig) < 10 { // "0x" + 8 hex chars = 10; anything shorter = no selector
+			// No selector present: use fallback.
+			if fallbackEntry != nil {
+				entry = fallbackEntry
+			}
+			// else: no-op (empty call, no msg.data)
+		} else {
+			if h, ok := handlerMap[msgSig]; ok {
+				entry = &h
+			} else if fallbackEntry != nil {
+				entry = fallbackEntry
+			} else {
+				L.RaiseError("tos.dispatch: no handler for selector %s", msgSig)
+				return 0
+			}
+		}
+
+		if entry == nil {
+			return 0 // no-op
+		}
+
+		// Decode calldata arguments using the handler's ABI type list.
+		goVals, abiArgs, err := abiDecodeRawArgs(calldata, entry.types)
+		if err != nil {
+			L.RaiseError("tos.dispatch: decode args for %s: %v", msgSig, err)
+			return 0
+		}
+
+		// Convert Go values to Lua values and push them as function arguments.
+		luaArgs := make([]lua.LValue, len(goVals))
+		for i, gv := range goVals {
+			lv, err := abiGoToLua(abiArgs[i].Type, gv)
+			if err != nil {
+				L.RaiseError("tos.dispatch: arg %d: %v", i+1, err)
+				return 0
+			}
+			luaArgs[i] = lv
+		}
+
+		// Call the handler using protected mode (pcall semantics).
+		// Errors in the handler propagate back to applyLua as a normal Lua error,
+		// which triggers the snapshot revert in applyLua.
+		callParams := lua.P{Fn: entry.fn, NRet: 0, Protect: true}
+		if err := L.CallByParam(callParams, luaArgs...); err != nil {
+			L.RaiseError("%v", err)
+		}
+		return 0
+	}))
+
 	// tos.emit(eventName, "type1", val1, "type2", val2, ...)
 	//   Emits a structured event into the transaction receipt logs.
 	//

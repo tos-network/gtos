@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -12,6 +13,51 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// buildCalldata constructs EVM-compatible calldata:
+//   selector (4 bytes) || ABI-encoded arguments
+//
+// sig:     Solidity ABI signature, e.g. "transfer(address,uint256)"
+// typeVals: alternating ("type", value) pairs matching the signature args
+func buildCalldata(t *testing.T, sig string, typeVals ...interface{}) []byte {
+	t.Helper()
+	// 4-byte selector
+	sel := crypto.Keccak256([]byte(sig))[:4]
+
+	if len(typeVals) == 0 {
+		return sel
+	}
+	if len(typeVals)%2 != 0 {
+		t.Fatalf("buildCalldata: typeVals must be even (type,value pairs)")
+	}
+	n := len(typeVals) / 2
+	abiArgs := make(abi.Arguments, n)
+	vals := make([]interface{}, n)
+	for i := 0; i < n; i++ {
+		typStr, ok := typeVals[i*2].(string)
+		if !ok {
+			t.Fatalf("buildCalldata: arg %d type must be string", i)
+		}
+		typ, err := abi.NewType(typStr, "", nil)
+		if err != nil {
+			t.Fatalf("buildCalldata: NewType %q: %v", typStr, err)
+		}
+		abiArgs[i] = abi.Argument{Type: typ}
+		vals[i] = typeVals[i*2+1]
+	}
+	packed, err := abiArgs.Pack(vals...)
+	if err != nil {
+		t.Fatalf("buildCalldata: Pack: %v", err)
+	}
+	return append(sel, packed...)
+}
+
+// abiSelector returns the 4-byte selector hex "0x..." for a signature.
+func abiSelector(sig string) string {
+	h := crypto.Keccak256([]byte(sig))
+	return "0x" + common.Bytes2Hex(h[:4])
+}
+
 
 
 // luaTestSetup returns a blockchain with:
@@ -977,5 +1023,282 @@ func TestLuaContractStrStorage(t *testing.T) {
 		bc, contractAddr, cleanup := luaTestSetup(t, code)
 		defer cleanup()
 		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+}
+
+// TestLuaContractSelector verifies tos.selector(sig) produces the correct
+// 4-byte keccak function selector.
+func TestLuaContractSelector(t *testing.T) {
+	cases := []struct {
+		sig  string
+		want string // "0x" + 8 hex chars
+	}{
+		{"transfer(address,uint256)", abiSelector("transfer(address,uint256)")},
+		{"balanceOf(address)", abiSelector("balanceOf(address)")},
+		{"mint()", abiSelector("mint()")},
+		{"get()", abiSelector("get()")},
+	}
+	for _, tc := range cases {
+		sig := tc.sig
+		want := tc.want
+		t.Run(sig, func(t *testing.T) {
+			code := fmt.Sprintf(`
+				local sel = tos.selector(%q)
+				assert(sel == %q, "selector: got " .. sel .. " want " .. %q)
+			`, sig, want, want)
+			bc, contractAddr, cleanup := luaTestSetup(t, code)
+			defer cleanup()
+			runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		})
+	}
+}
+
+// TestLuaContractDispatch verifies tos.dispatch routes calldata to the correct
+// Lua handler and decodes arguments.
+func TestLuaContractDispatch(t *testing.T) {
+
+	t.Run("no_data_is_noop", func(t *testing.T) {
+		// dispatch with no msg.data and no fallback = no-op (no error).
+		const code = `
+			tos.dispatch({
+				["ping()"] = function()
+					tos.emit("Ping")
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		// No calldata → dispatch is a no-op → no logs emitted.
+		if len(receipt.Logs) != 0 {
+			t.Errorf("expected 0 logs for no-data call, got %d", len(receipt.Logs))
+		}
+	})
+
+	t.Run("no_arg_function", func(t *testing.T) {
+		// Call ping() with 4-byte selector, no arguments.
+		const code = `
+			tos.dispatch({
+				["ping()"] = function()
+					tos.emit("Ping")
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		data := buildCalldata(t, "ping()")
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Ping")) {
+			t.Errorf("wrong event topic")
+		}
+	})
+
+	t.Run("uint256_arg", func(t *testing.T) {
+		// store(uint256 value): sets a storage slot, emits StoredValue event.
+		const code = `
+			tos.dispatch({
+				["store(uint256)"] = function(value)
+					tos.set("stored", tostring(value))
+					tos.emit("StoredValue", "uint256", value)
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		// Calldata: store(uint256 42)
+		data := buildCalldata(t, "store(uint256)", "uint256", big.NewInt(42))
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		// data = ABI-encode(uint256 42) = 32 bytes, last byte = 42
+		if receipt.Logs[0].Data[31] != 42 {
+			t.Errorf("expected 42 in log data, got %d", receipt.Logs[0].Data[31])
+		}
+	})
+
+	t.Run("multi_arg_address_uint256", func(t *testing.T) {
+		// transfer(address to, uint256 amount): routes and decodes two args.
+		const code = `
+			tos.dispatch({
+				["transfer(address,uint256)"] = function(to, amount)
+					tos.emit("Transfer", "address", tos.caller, "address", to, "uint256", amount)
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+		recipient := common.HexToAddress("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF")
+		data := buildCalldata(t, "transfer(address,uint256)", "address", recipient, "uint256", big.NewInt(1000))
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 Transfer log, got %d", len(receipt.Logs))
+		}
+		// 3 × 32 bytes: from, to, amount
+		if len(receipt.Logs[0].Data) != 96 {
+			t.Fatalf("expected 96 bytes, got %d", len(receipt.Logs[0].Data))
+		}
+		// First 32 bytes: addr1 (from = tos.caller)
+		if common.BytesToAddress(receipt.Logs[0].Data[0:32]) != addr1 {
+			t.Errorf("from address mismatch in Transfer log")
+		}
+		// Second 32 bytes: recipient
+		if common.BytesToAddress(receipt.Logs[0].Data[32:64]) != recipient {
+			t.Errorf("to address mismatch in Transfer log")
+		}
+		// Third 32 bytes: amount 1000 → last byte = 232
+		if receipt.Logs[0].Data[95] != 232 {
+			t.Errorf("amount mismatch: got %d want 232", receipt.Logs[0].Data[95])
+		}
+	})
+
+	t.Run("multiple_functions_routing", func(t *testing.T) {
+		// Two functions; only the one whose selector matches msg.sig is called.
+		const code = `
+			tos.dispatch({
+				["foo()"] = function() tos.emit("Foo") end,
+				["bar()"] = function() tos.emit("Bar") end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		// Call bar() — Foo must not be emitted.
+		data := buildCalldata(t, "bar()")
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Bar")) {
+			t.Errorf("wrong event: expected Bar")
+		}
+	})
+
+	t.Run("fallback_on_unknown_selector", func(t *testing.T) {
+		// fallback function is called when selector doesn't match any handler.
+		const code = `
+			tos.dispatch({
+				["known()"] = function() tos.emit("Known") end,
+				[""] = function()        tos.emit("Fallback") end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		// Send calldata for unknown selector "0xdeadbeef".
+		data := []byte{0xde, 0xad, 0xbe, 0xef}
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Fallback")) {
+			t.Errorf("expected Fallback event")
+		}
+	})
+
+	t.Run("fallback_on_empty_calldata", func(t *testing.T) {
+		// fallback is also called when msg.data is empty (receive-like).
+		const code = `
+			tos.dispatch({
+				[""] = function() tos.emit("Received") end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Received")) {
+			t.Errorf("expected Received event")
+		}
+	})
+
+	t.Run("no_match_no_fallback_reverts", func(t *testing.T) {
+		// Unknown selector with no fallback → tx must fail (revert).
+		const code = `
+			tos.dispatch({
+				["known()"] = function() tos.emit("Known") end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		// Send calldata with an unknown selector — dispatch should revert.
+		unknownSelector := []byte{0x12, 0x34, 0x56, 0x78}
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), unknownSelector)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Errorf("expected status=0 (revert on unknown selector), got %d", receipts[0].Status)
+		}
+	})
+
+	t.Run("handler_revert_rolls_back", func(t *testing.T) {
+		// A handler that reverts should roll back any state it modified.
+		const code = `
+			tos.dispatch({
+				["badOp()"] = function()
+					tos.emit("ShouldNotAppear")
+					tos.revert("intentional revert")
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		data := buildCalldata(t, "badOp()")
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), data)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Errorf("expected status=0 after handler revert")
+		}
+		if len(receipts[0].Logs) != 0 {
+			t.Errorf("expected 0 logs after revert, got %d", len(receipts[0].Logs))
+		}
+	})
+
+	t.Run("bool_and_string_args", func(t *testing.T) {
+		// Decode bool and string ABI types.
+		const code = `
+			tos.dispatch({
+				["register(string,bool)"] = function(name, active)
+					if active then
+						tos.setStr("name", name)
+						tos.emit("Registered", "string", name)
+					end
+				end,
+			})
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		data := buildCalldata(t, "register(string,bool)", "string", "Alice", "bool", true)
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Registered")) {
+			t.Errorf("expected Registered event")
+		}
 	})
 }
