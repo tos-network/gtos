@@ -42,6 +42,12 @@ const luaMaxCallDepth = 8
 // user Lua code that might call error() with an arbitrary string.
 const luaResultSignal = "__tos_internal_result__"
 
+// luaRevertDataSignal is raised by tos.revert("ErrorName", ...) when structured
+// ABI-encoded revert data is attached.  executeLuaVM detects this sentinel and
+// returns the data to the caller (tos.call / tos.staticcall) as the 2nd return
+// value on failure, analogous to EVM custom errors.
+const luaRevertDataSignal = "__tos_revert_data__"
+
 // luaCallCtx is the per-invocation execution context for a Lua contract call.
 // Top-level calls initialise it from StateTransition.msg; nested tos.call
 // invocations override from/to/value/data while keeping txOrigin/txPrice
@@ -182,7 +188,7 @@ func luaMapStrLenSlot(mapName string, keys []string) common.Hash {
 // Callers are responsible for StateDB snapshot/revert; this function does not
 // modify snapshot state itself (tos.call takes its own inner snapshot for
 // callee isolation).
-func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint64) (uint64, []byte, error) {
+func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
 	contractAddr := ctx.to
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
@@ -227,6 +233,12 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// by calling error(luaResultSignal) directly.
 	var capturedResult []byte
 	var hasResult bool
+
+	// capturedRevertData holds structured ABI-encoded error data set by
+	// tos.revert("ErrorName", "type", val, ...).  hasRevertData gates the
+	// luaRevertDataSignal check to prevent spoofing.
+	var capturedRevertData []byte
+	var hasRevertData bool
 
 	// ── "tos" module ──────────────────────────────────────────────────────────
 	tosTable := L.NewTable()
@@ -422,6 +434,29 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	L.SetField(abiTable, "encode", L.NewFunction(luaABIEncode))
 	L.SetField(abiTable, "encodePacked", L.NewFunction(luaABIEncodePacked))
 	L.SetField(abiTable, "decode", L.NewFunction(luaABIDecode))
+
+	// tos.abi.decodeError(revertData, "type1", "type2", ...) → val1, val2, ...
+	//   Convenience wrapper around tos.abi.decode that strips the leading 4-byte
+	//   ABI error selector before decoding.  Use on the 2nd return value of
+	//   tos.call when the callee used tos.revert("ErrorName", ...).
+	//
+	//   local ok, ret = tos.call(addr, 0, calldata)
+	//   if not ok and ret then
+	//       local avail, req = tos.abi.decodeError(ret, "uint256", "uint256")
+	//   end
+	L.SetField(abiTable, "decodeError", L.NewFunction(func(L *lua.LState) int {
+		hexStr := L.CheckString(1)
+		raw := strings.TrimPrefix(strings.TrimPrefix(hexStr, "0x"), "0X")
+		if len(raw) < 8 {
+			L.RaiseError("tos.abi.decodeError: data too short for 4-byte selector (got %d hex chars)", len(raw))
+			return 0
+		}
+		// Replace arg 1 with the body (selector stripped); keep type args unchanged.
+		L.Remove(1)
+		L.Insert(lua.LString("0x"+raw[8:]), 1)
+		return luaABIDecode(L)
+	}))
+
 	L.SetField(tosTable, "abi", abiTable)
 
 	// tos.gasleft() → LNumber
@@ -448,10 +483,51 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 0
 	}))
 
-	// tos.revert(msg)
+	// tos.revert([msg])
+	// tos.revert("ErrorName", "type1", val1, "type2", val2, ...)
+	//
+	// Plain form (1 arg or 0 args): raises a string error — same as before.
+	//
+	// Named-error form (3+ args with an even number of type+value pairs):
+	//   Encodes as selector("ErrorName(type1,type2,...)") || abi.encode(val1, val2, ...)
+	//   and makes this data available to the caller via the 2nd return of tos.call.
+	//   Analogous to Solidity:
+	//     error InsufficientBalance(uint256 available, uint256 required);
+	//     revert InsufficientBalance(bal, needed);
+	//
+	//   Caller-side decoding:
+	//     local ok, ret = tos.call(addr, 0, calldata)
+	//     if not ok and ret then
+	//         local avail, req = tos.abi.decodeError(ret, "uint256", "uint256")
+	//     end
 	L.SetField(tosTable, "revert", L.NewFunction(func(L *lua.LState) int {
-		message := L.OptString(1, "revert")
-		L.RaiseError("tos.revert: %s", message)
+		if L.GetTop() <= 1 {
+			// Plain string revert (unchanged behaviour).
+			message := L.OptString(1, "revert")
+			L.RaiseError("tos.revert: %s", message)
+			return 0
+		}
+		// Named error: arg1 = name, then alternating "type", value pairs.
+		if (L.GetTop()-1)%2 != 0 {
+			L.RaiseError("tos.revert: named error requires pairs of (type, value) after the name")
+			return 0
+		}
+		errorName := L.CheckString(1)
+		nPairs := (L.GetTop() - 1) / 2
+		typeNames := make([]string, nPairs)
+		for i := range typeNames {
+			typeNames[i] = L.CheckString(2 + i*2)
+		}
+		sig := errorName + "(" + strings.Join(typeNames, ",") + ")"
+		selector := crypto.Keccak256([]byte(sig))[:4]
+		encoded, encErr := luaABIEncodeBytes(L, 2)
+		if encErr != nil {
+			L.RaiseError("tos.revert: ABI encode: %v", encErr)
+			return 0
+		}
+		capturedRevertData = append(selector, encoded...)
+		hasRevertData = true
+		L.RaiseError(luaRevertDataSignal)
 		return 0
 	}))
 
@@ -1222,7 +1298,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			readonly: ctx.readonly, // propagate staticcall constraint
 		}
 
-		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
+		childGasUsed, childReturnData, childRevertData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
 		totalChildGas += childGasUsed
 
 		// Recalculate remaining and update parent gas limit so the parent
@@ -1240,7 +1316,13 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			// Revert callee's state changes; caller's changes are preserved.
 			st.state.RevertToSnapshot(calleeSnap)
 			L.Push(lua.LFalse)
-			L.Push(lua.LNil)
+			// Return structured revert data (selector + ABI) if the callee used
+			// tos.revert("ErrorName", ...), otherwise nil.
+			if len(childRevertData) > 0 {
+				L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))
+			} else {
+				L.Push(lua.LNil)
+			}
 			return 2
 		}
 
@@ -1313,7 +1395,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			readonly: true, // the defining property of staticcall
 		}
 
-		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
+		childGasUsed, childReturnData, childRevertData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
 		totalChildGas += childGasUsed
 
 		// Maintain invariant: L.GasLimit() == gasLimit - totalChildGas - primGasCharged.
@@ -1327,7 +1409,11 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		if childErr != nil {
 			// No state was written (readonly), so no snapshot revert needed.
 			L.Push(lua.LFalse)
-			L.Push(lua.LNil)
+			if len(childRevertData) > 0 {
+				L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))
+			} else {
+				L.Push(lua.LNil)
+			}
 			return 2
 		}
 
@@ -2154,11 +2240,15 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		total := L.GasUsed() + totalChildGas + primGasCharged
 		// Check for clean return via tos.result().
 		if hasResult && strings.Contains(err.Error(), luaResultSignal) {
-			return total, capturedResult, nil
+			return total, capturedResult, nil, nil
 		}
-		return total, nil, err
+		// Check for structured revert error via tos.revert("ErrorName", ...).
+		if hasRevertData && strings.Contains(err.Error(), luaRevertDataSignal) {
+			return total, nil, capturedRevertData, fmt.Errorf("revert with data")
+		}
+		return total, nil, nil, err
 	}
-	return L.GasUsed() + totalChildGas + primGasCharged, nil, nil
+	return L.GasUsed() + totalChildGas + primGasCharged, nil, nil, nil
 }
 
 // applyLua executes the Lua contract stored at the destination address.
@@ -2196,7 +2286,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		txPrice:  st.txPrice,
 	}
 
-	gasUsed, _, err := executeLuaVM(st, ctx, src, st.gas)
+	gasUsed, _, _, err := executeLuaVM(st, ctx, src, st.gas)
 	if err != nil {
 		st.state.RevertToSnapshot(snapshot)
 		if strings.Contains(err.Error(), "gas limit exceeded") {

@@ -3590,3 +3590,133 @@ func TestLuaContractDeploy(t *testing.T) {
 		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 }
+
+func TestLuaContractRevertError(t *testing.T) {
+	t.Run("plain_revert_unchanged", func(t *testing.T) {
+		// tos.revert("msg") still reverts the tx with no return data.
+		bc, addr, cleanup := luaTestSetup(t, `tos.revert("plain error")`)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("named_error_data_returned_to_caller", func(t *testing.T) {
+		// Callee reverts with a named error; caller receives the ABI data.
+		// Selector for "InsufficientBalance(uint256,uint256)":
+		wantSel := abiSelector("InsufficientBalance(uint256,uint256)")
+
+		calleeCode := `
+			local avail = tos.get("avail") or 0
+			local req   = 1000
+			tos.revert("InsufficientBalance", "uint256", avail, "uint256", req)
+		`
+		// callerCode: calls callee, asserts ok==false, checks selector prefix.
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.call(%q, 0)
+			assert(not ok,  "callee should have reverted")
+			assert(ret ~= nil, "structured revert data expected")
+			assert(string.sub(ret, 1, 10) == %q,
+				"wrong selector: " .. tostring(string.sub(ret, 1, 10)))
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", wantSel)
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("decode_error_roundtrip", func(t *testing.T) {
+		// tos.abi.decodeError correctly strips the selector and decodes args.
+		calleeCode := `
+			tos.revert("Overflow", "uint256", 255, "uint256", 256)
+		`
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.call(%q, 0)
+			assert(not ok, "callee must revert")
+			assert(ret ~= nil, "revert data must not be nil")
+			local a, b = tos.abi.decodeError(ret, "uint256", "uint256")
+			assert(a == 255, "a: " .. tostring(a))
+			assert(b == 256, "b: " .. tostring(b))
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("no_args_named_error", func(t *testing.T) {
+		// tos.revert("Unauthorized") with exactly 1 arg is a plain string revert
+		// (indistinguishable from a message). No structured data is returned.
+		// For a 0-arg named error selector, encode a sentinel bool: "uint8", 0.
+		wantSel := abiSelector("Unauthorized(uint8)")
+		calleeCode := `tos.revert("Unauthorized", "uint8", 0)`
+
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.call(%q, 0)
+			assert(not ok, "callee must revert")
+			assert(ret ~= nil, "revert data expected")
+			assert(string.sub(ret, 1, 10) == %q,
+				"wrong selector: " .. tostring(ret))
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", wantSel)
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("plain_revert_returns_nil_data", func(t *testing.T) {
+		// Plain tos.revert("msg") → tos.call returns false, nil (no data).
+		calleeCode := `tos.revert("no balance")`
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.call(%q, 0)
+			assert(not ok, "callee must revert")
+			assert(ret == nil, "plain revert must return nil data, got: " .. tostring(ret))
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("odd_args_reverts", func(t *testing.T) {
+		// tos.revert("Name", "uint256") — missing value → named error with odd args raises error.
+		bc, addr, cleanup := luaTestSetup(t, `tos.revert("Name", "uint256")`)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("state_reverted_on_named_error", func(t *testing.T) {
+		// tos.revert("E", ...) must revert the callee's state changes.
+		calleeCode := `
+			tos.set("x", 99)
+			tos.revert("Fail", "uint256", 1)
+		`
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.call(%q, 0)
+			assert(not ok, "must revert")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, callerAddr, calleeAddr, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+
+		state, _ := bc.State()
+		v := state.GetState(calleeAddr, luaStorageSlot("x"))
+		if v != (common.Hash{}) {
+			t.Errorf("callee storage must be reverted, got x=%v", v)
+		}
+	})
+
+	t.Run("decode_error_in_staticcall", func(t *testing.T) {
+		// Structured revert data propagates through staticcall too.
+		calleeCode := `tos.revert("ReadOnly", "uint256", 42)`
+		callerCode := fmt.Sprintf(`
+			local ok, ret = tos.staticcall(%q)
+			assert(not ok, "must fail")
+			local v = tos.abi.decodeError(ret, "uint256")
+			assert(v == 42, "v: " .. tostring(v))
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+	})
+}
