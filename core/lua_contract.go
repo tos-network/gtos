@@ -57,6 +57,23 @@ func luaStrChunkSlot(base common.Hash, i int) common.Hash {
 	return crypto.Keccak256Hash(b[:])
 }
 
+// luaArrLenSlot returns the slot holding the length of a dynamic uint256 array.
+// Namespace "gtos.lua.arr." is distinct from the uint256 ("gtos.lua.storage.")
+// and string ("gtos.lua.str.") namespaces.
+func luaArrLenSlot(key string) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("gtos.lua.arr."), key...))
+}
+
+// luaArrElemSlot returns the slot for element i (0-based) of a dynamic array.
+// Derived from the length-slot hash and an 8-byte big-endian index, so there
+// is no delimiter-injection risk and the mapping is collision-free.
+func luaArrElemSlot(base common.Hash, i uint64) common.Hash {
+	var b [40]byte
+	copy(b[:32], base[:])
+	binary.BigEndian.PutUint64(b[32:], i)
+	return crypto.Keccak256Hash(b[:])
+}
+
 // applyLua executes the Lua contract stored at the destination address.
 //
 // Gas model (Phase 2):
@@ -385,6 +402,172 @@ func (st *StateTransition) applyLua(src []byte) error {
 
 	// tos.self → string  (this contract's own address, like Solidity address(this))
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
+
+	// ── Constructor / one-time initializer ────────────────────────────────────
+
+	// tos.oncreate(fn)
+	//   Runs fn exactly once — on the very first call to the contract.
+	//   On every subsequent call fn is skipped (idempotent / constructor semantics).
+	//
+	//   The "initialized" flag is stored in a reserved storage slot so it
+	//   survives across blocks.  fn is called in protected mode; if it reverts,
+	//   the flag is NOT set (the constructor can be retried).
+	//
+	//   Example:
+	//     tos.oncreate(function()
+	//       tos.setStr("owner", tos.caller)
+	//       tos.set("totalSupply", 1000000)
+	//       tos.set("bal." .. tos.caller, 1000000)
+	//       tos.emit("Deployed", "address", tos.caller)
+	//     end)
+	L.SetField(tosTable, "oncreate", L.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(1)
+
+		// Reserved slot: __oncreate__ in the uint256 storage namespace.
+		initSlot := luaStorageSlot("__oncreate__")
+		if st.state.GetState(contractAddr, initSlot) != (common.Hash{}) {
+			return 0 // already initialised — skip fn
+		}
+
+		// Mark as initialised BEFORE calling fn so that re-entrancy within fn
+		// does not trigger a second constructor call.
+		var one common.Hash
+		one[31] = 1
+		st.state.SetState(contractAddr, initSlot, one)
+
+		// Call fn in protected mode so its errors propagate normally.
+		if err := L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}); err != nil {
+			// Constructor reverted: clear the flag so it can be retried.
+			st.state.SetState(contractAddr, initSlot, common.Hash{})
+			L.RaiseError("%v", err)
+		}
+		return 0
+	}))
+
+	// ── Dynamic array storage ──────────────────────────────────────────────────
+	//
+	// Arrays store ordered sequences of uint256 values.  The layout is:
+	//   length slot  = keccak256("gtos.lua.arr." + key)         → uint256 length
+	//   element i    = keccak256(length_slot || uint64(i))       → uint256 value
+	//
+	// The "gtos.lua.arr." namespace is independent of the scalar uint256
+	// namespace ("gtos.lua.storage.") so arrays and scalars with the same key
+	// never collide.
+	//
+	// Indices visible to Lua are 1-based (matching Lua table convention).
+
+	// tos.arrLen(key) → LNumber
+	//   Returns the current length of the array.  0 if never written to.
+	L.SetField(tosTable, "arrLen", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		base := luaArrLenSlot(key)
+		raw := st.state.GetState(contractAddr, base)
+		n := new(big.Int).SetBytes(raw[:])
+		L.Push(lua.LNumber(n.Text(10)))
+		return 1
+	}))
+
+	// tos.arrGet(key, i) → LNumber | nil
+	//   Returns the element at 1-based index i, or nil if out of bounds.
+	//   Index must be a positive integer in [1, arrLen(key)].
+	//   Any other value (0, negative, or beyond length) returns nil.
+	//
+	//   NOTE: negative Lua literals (-1, -2, …) evaluate to their uint256
+	//   two's complement in this VM, so they are always > arrLen and return nil.
+	L.SetField(tosTable, "arrGet", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		// Read index as a big.Int; negative Lua values arrive as large uint256.
+		idxBI := luaParseBigInt(L, 2)
+		if idxBI == nil {
+			L.Push(lua.LNil)
+			return 1
+		}
+		base := luaArrLenSlot(key)
+		raw := st.state.GetState(contractAddr, base)
+		length := new(big.Int).SetBytes(raw[:])
+		one := big.NewInt(1)
+		// Valid range: [1, length]. idxBI < 1 or idxBI > length → nil.
+		if idxBI.Cmp(one) < 0 || idxBI.Cmp(length) > 0 {
+			L.Push(lua.LNil)
+			return 1
+		}
+		// Convert to 0-based uint64 (safe: fits because ≤ length ≤ uint64).
+		i0 := new(big.Int).Sub(idxBI, one).Uint64()
+		elemSlot := luaArrElemSlot(base, i0)
+		val := st.state.GetState(contractAddr, elemSlot)
+		n := new(big.Int).SetBytes(val[:])
+		L.Push(lua.LNumber(n.Text(10)))
+		return 1
+	}))
+
+	// tos.arrSet(key, i, value)
+	//   Overwrites the element at 1-based index i.  Raises an error if i is
+	//   out of bounds (use arrPush to extend the array).
+	L.SetField(tosTable, "arrSet", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		idxBI := luaParseBigInt(L, 2) // 1-based
+		val := luaParseBigInt(L, 3)
+		base := luaArrLenSlot(key)
+		raw := st.state.GetState(contractAddr, base)
+		length := new(big.Int).SetBytes(raw[:])
+		one := big.NewInt(1)
+		if idxBI == nil || idxBI.Cmp(one) < 0 || idxBI.Cmp(length) > 0 {
+			L.RaiseError("tos.arrSet: index out of bounds (len=%s)", length.Text(10))
+		}
+		i0 := new(big.Int).Sub(idxBI, one).Uint64()
+		var slot common.Hash
+		val.FillBytes(slot[:])
+		st.state.SetState(contractAddr, luaArrElemSlot(base, i0), slot)
+		return 0
+	}))
+
+	// tos.arrPush(key, value)
+	//   Appends value to the end of the array, incrementing its length.
+	L.SetField(tosTable, "arrPush", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		val := luaParseBigInt(L, 2)
+		base := luaArrLenSlot(key)
+		raw := st.state.GetState(contractAddr, base)
+		length := new(big.Int).SetBytes(raw[:]).Uint64()
+
+		// Store element.
+		var elemSlot common.Hash
+		val.FillBytes(elemSlot[:])
+		st.state.SetState(contractAddr, luaArrElemSlot(base, length), elemSlot)
+
+		// Increment length.
+		var lenSlot common.Hash
+		new(big.Int).SetUint64(length + 1).FillBytes(lenSlot[:])
+		st.state.SetState(contractAddr, base, lenSlot)
+		return 0
+	}))
+
+	// tos.arrPop(key) → LNumber | nil
+	//   Removes and returns the last element of the array.
+	//   Returns nil (and leaves the array unchanged) if it is empty.
+	L.SetField(tosTable, "arrPop", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		base := luaArrLenSlot(key)
+		raw := st.state.GetState(contractAddr, base)
+		length := new(big.Int).SetBytes(raw[:]).Uint64()
+		if length == 0 {
+			L.Push(lua.LNil)
+			return 1
+		}
+		lastIdx := length - 1
+		elemSlot := luaArrElemSlot(base, lastIdx)
+		val := st.state.GetState(contractAddr, elemSlot)
+		n := new(big.Int).SetBytes(val[:])
+
+		// Zero the element slot and decrement length.
+		st.state.SetState(contractAddr, elemSlot, common.Hash{})
+		var lenSlot common.Hash
+		new(big.Int).SetUint64(lastIdx).FillBytes(lenSlot[:])
+		st.state.SetState(contractAddr, base, lenSlot)
+
+		L.Push(lua.LNumber(n.Text(10)))
+		return 1
+	}))
 
 	// tos.selector(sig) → string  (4-byte keccak selector as "0x" hex)
 	//   Computes the Ethereum ABI function selector for a given signature string.
