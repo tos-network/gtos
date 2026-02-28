@@ -3091,3 +3091,106 @@ func TestLuaContractMappingProxy(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 	})
 }
+
+// TestLuaContractSend tests tos.send(addr, amount) — the soft-failure variant
+// of tos.transfer that returns a bool instead of reverting.
+// Equivalent to Solidity's payable(addr).send(amount).
+func TestLuaContractSend(t *testing.T) {
+	t.Run("success_transfers_balance", func(t *testing.T) {
+		// Contract starts with 1 TOS; send 0.5 TOS to recipient.
+		recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
+		halfTOS := new(big.Int).Div(big.NewInt(params.TOS), big.NewInt(2))
+
+		code := fmt.Sprintf(`
+			local ok = tos.send(%q, %s)
+			assert(ok == true, "send should succeed, got " .. tostring(ok))
+		`, recipient.Hex(), halfTOS.Text(10))
+
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+
+		state, _ := bc.State()
+		got := state.GetBalance(recipient)
+		if got == nil || got.Cmp(halfTOS) != 0 {
+			t.Errorf("recipient balance: want %s, got %v", halfTOS, got)
+		}
+	})
+
+	t.Run("returns_false_on_insufficient_balance", func(t *testing.T) {
+		// Contract has 1 TOS; try to send 2 TOS → false, recipient gets nothing.
+		recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
+		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
+
+		code := fmt.Sprintf(`
+			local ok = tos.send(%q, %s)
+			assert(ok == false, "send should return false on insufficient balance")
+		`, recipient.Hex(), twoTOS.Text(10))
+
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+
+		state, _ := bc.State()
+		got := state.GetBalance(recipient)
+		if got != nil && got.Sign() != 0 {
+			t.Errorf("recipient should have zero balance, got %v", got)
+		}
+	})
+
+	t.Run("does_not_revert_on_failure", func(t *testing.T) {
+		// Unlike tos.transfer, a failed tos.send must NOT abort the tx.
+		// State writes before AND after the failed send must both be committed.
+		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
+		code := fmt.Sprintf(`
+			tos.set("before", 1)
+			local ok = tos.send("0x4444444444444444444444444444444444444444", %s)
+			assert(ok == false)
+			tos.set("after", 2)
+		`, twoTOS.Text(10))
+
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+
+		state, _ := bc.State()
+		before := state.GetState(contractAddr, luaStorageSlot("before"))
+		after := state.GetState(contractAddr, luaStorageSlot("after"))
+		if before[31] != 1 {
+			t.Errorf("before slot: want 1, got %d", before[31])
+		}
+		if after[31] != 2 {
+			t.Errorf("after slot: want 2, got %d", after[31])
+		}
+	})
+
+	t.Run("returns_false_in_readonly", func(t *testing.T) {
+		// Inside a staticcall, tos.send returns false (does not revert the callee).
+		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		calleeCode := `
+			local ok = tos.send("0x1111111111111111111111111111111111111111", 1)
+			assert(ok == false, "send in readonly context must return false")
+		`
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q, "")
+			assert(ok, "callee should not revert even though send returned false")
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+	})
+
+	t.Run("zero_amount_succeeds", func(t *testing.T) {
+		// send(addr, 0) is a no-op transfer; must return true.
+		recipient := common.HexToAddress("0x3333333333333333333333333333333333333333")
+		code := fmt.Sprintf(`
+			local ok = tos.send(%q, 0)
+			assert(ok == true, "send(0) should succeed")
+		`, recipient.Hex())
+
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+}

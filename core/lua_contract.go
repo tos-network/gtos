@@ -293,6 +293,39 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 0
 	}))
 
+	// tos.send(toAddr, amount) → bool
+	//   Soft-failure variant of tos.transfer.
+	//   Returns true on success, false on any failure (insufficient balance,
+	//   invalid amount, or readonly context).  Never reverts.
+	//   Equivalent to Solidity's payable(addr).send(amount).
+	//
+	//   Example:
+	//     if not tos.send(recipient, amount) then
+	//         tos.revert("send failed")
+	//     end
+	L.SetField(tosTable, "send", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		addrHex := L.CheckString(1)
+		amountNum := L.CheckNumber(2)
+		to := common.HexToAddress(addrHex)
+		amount, ok := new(big.Int).SetString(string(amountNum), 10)
+		if !ok || amount.Sign() < 0 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		chargePrimGas(luaGasTransfer)
+		if !st.blockCtx.CanTransfer(st.state, contractAddr, amount) {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		st.blockCtx.Transfer(st.state, contractAddr, to, amount)
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
 	// tos.balance(addr) → LNumber  (wei as uint256 string)
 	L.SetField(tosTable, "balance", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(luaGasBalance)
