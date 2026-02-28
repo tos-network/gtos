@@ -14,6 +14,20 @@ import (
 	lua "github.com/tos-network/gopher-lua"
 )
 
+// Gas costs for Lua contract primitives.
+// Charged in addition to the per-opcode VM gas (1 gas per opcode).
+// Modelled loosely after EVM gas schedule but simplified for TOS.
+const (
+	luaGasSLoad    uint64 = 100  // per StateDB slot read
+	luaGasSStore   uint64 = 5000 // per StateDB slot write
+	luaGasBalance  uint64 = 400  // balance query
+	luaGasCodeSize uint64 = 700  // external code size check
+	luaGasTransfer uint64 = 2300 // value transfer base
+	luaGasLogBase  uint64 = 375  // log emission base
+	luaGasLogTopic uint64 = 375  // per indexed topic (topics[1..3])
+	luaGasLogByte  uint64 = 8    // per byte of log data
+)
+
 // luaMaxCallDepth caps tos.call nesting to prevent stack-overflow DoS.
 // Analogous to EVM call depth limit (1024); we use a smaller value since
 // Lua call frames are heavier than EVM frames.
@@ -123,6 +137,34 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// own children separately).
 	var totalChildGas uint64
 
+	// primGasCharged accumulates gas charged by individual primitive calls
+	// (tos.set, tos.get, tos.emit, etc.) on top of per-opcode VM gas.
+	var primGasCharged uint64
+
+	// chargePrimGas deducts cost gas units for a single primitive invocation.
+	// It adjusts the VM's opcode ceiling so that the combined budget
+	// (VM opcodes + primitives + child calls) stays within gasLimit.
+	// Raises "lua: gas limit exceeded" if insufficient budget remains.
+	//
+	// Invariant maintained: L.GasLimit() == gasLimit - totalChildGas - primGasCharged
+	chargePrimGas := func(cost uint64) {
+		vmUsed := L.GasUsed()
+		if vmUsed+totalChildGas+primGasCharged+cost > gasLimit {
+			L.RaiseError("lua: gas limit exceeded")
+			return
+		}
+		primGasCharged += cost
+		// Shrink the VM opcode ceiling to prevent future opcodes from spending
+		// gas already claimed by this primitive charge.
+		newCeiling := gasLimit - totalChildGas - primGasCharged
+		if vmUsed <= newCeiling {
+			L.SetGasLimit(newCeiling)
+		} else {
+			// VM opcodes already consumed all remaining budget; next opcode OOGs.
+			L.SetGasLimit(vmUsed)
+		}
+	}
+
 	// capturedResult holds ABI-encoded return data set by tos.result().
 	// hasResult gates the luaResultSignal check so user code can't spoof it
 	// by calling error(luaResultSignal) directly.
@@ -136,6 +178,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	//   Reads a uint256 value from contract storage. Returns nil if never set.
 	L.SetField(tosTable, "get", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
+		chargePrimGas(luaGasSLoad)
 		val := st.state.GetState(contractAddr, luaStorageSlot(key))
 		if val == (common.Hash{}) {
 			L.Push(lua.LNil)
@@ -153,6 +196,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.RaiseError("tos.set: state modification not allowed in staticcall")
 			return 0
 		}
+		chargePrimGas(luaGasSStore)
 		key := L.CheckString(1)
 		var numStr string
 		switch v := L.CheckAny(2).(type) {
@@ -180,6 +224,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.RaiseError("tos.transfer: value transfer not allowed in staticcall")
 			return 0
 		}
+		chargePrimGas(luaGasTransfer)
 		addrHex := L.CheckString(1)
 		amountNum := L.CheckNumber(2)
 		to := common.HexToAddress(addrHex)
@@ -196,6 +241,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.balance(addr) → LNumber  (wei as uint256 string)
 	L.SetField(tosTable, "balance", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(luaGasBalance)
 		addrHex := L.CheckString(1)
 		addr := common.HexToAddress(addrHex)
 		bal := st.state.GetBalance(addr)
@@ -289,10 +335,11 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	L.SetField(tosTable, "abi", abiTable)
 
 	// tos.gasleft() → LNumber
-	//   Returns remaining gas at call time, accounting for child gas consumed.
+	//   Returns remaining gas at call time, accounting for child gas and
+	//   primitive charges consumed so far.
 	//   Must be a function because the value changes each opcode.
 	L.SetField(tosTable, "gasleft", L.NewFunction(func(L *lua.LState) int {
-		used := L.GasUsed() + totalChildGas
+		used := L.GasUsed() + totalChildGas + primGasCharged
 		var remaining uint64
 		if used < gasLimit {
 			remaining = gasLimit - used
@@ -430,10 +477,12 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		fn := L.CheckFunction(1)
 
 		initSlot := luaStorageSlot("__oncreate__")
+		chargePrimGas(luaGasSLoad) // read the init-flag slot
 		if st.state.GetState(contractAddr, initSlot) != (common.Hash{}) {
 			return 0
 		}
 
+		chargePrimGas(luaGasSStore) // set the init-flag slot
 		var one common.Hash
 		one[31] = 1
 		st.state.SetState(contractAddr, initSlot, one)
@@ -449,6 +498,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.arrLen(key) → LNumber
 	L.SetField(tosTable, "arrLen", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(luaGasSLoad)
 		key := L.CheckString(1)
 		base := luaArrLenSlot(key)
 		raw := st.state.GetState(contractAddr, base)
@@ -459,6 +509,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.arrGet(key, i) → LNumber | nil  (1-based)
 	L.SetField(tosTable, "arrGet", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(2 * luaGasSLoad) // len slot + element slot
 		key := L.CheckString(1)
 		idxBI := luaParseBigInt(L, 2)
 		if idxBI == nil {
@@ -487,6 +538,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.RaiseError("tos.arrSet: state modification not allowed in staticcall")
 			return 0
 		}
+		chargePrimGas(luaGasSLoad + luaGasSStore) // len slot read + element write
 		key := L.CheckString(1)
 		idxBI := luaParseBigInt(L, 2)
 		val := luaParseBigInt(L, 3)
@@ -510,6 +562,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.RaiseError("tos.arrPush: state modification not allowed in staticcall")
 			return 0
 		}
+		chargePrimGas(luaGasSLoad + 2*luaGasSStore) // len read + elem write + new len write
 		key := L.CheckString(1)
 		val := luaParseBigInt(L, 2)
 		base := luaArrLenSlot(key)
@@ -532,6 +585,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.RaiseError("tos.arrPop: state modification not allowed in staticcall")
 			return 0
 		}
+		chargePrimGas(luaGasSLoad + 2*luaGasSStore) // len read + elem clear + new len write
 		key := L.CheckString(1)
 		base := luaArrLenSlot(key)
 		raw := st.state.GetState(contractAddr, base)
@@ -558,6 +612,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.codeAt(addr) → bool
 	L.SetField(tosTable, "codeAt", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(luaGasCodeSize)
 		addrHex := L.CheckString(1)
 		addr := common.HexToAddress(addrHex)
 		L.Push(lua.LBool(st.state.GetCodeSize(addr) > 0))
@@ -572,6 +627,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		proxy := L.NewTable()
 
 		L.SetField(proxy, "get", L.NewFunction(func(L *lua.LState) int {
+			chargePrimGas(luaGasSLoad)
 			key := L.CheckString(1)
 			val := st.state.GetState(target, luaStorageSlot(key))
 			if val == (common.Hash{}) {
@@ -584,6 +640,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}))
 
 		L.SetField(proxy, "getStr", L.NewFunction(func(L *lua.LState) int {
+			chargePrimGas(luaGasSLoad) // length slot
 			key := L.CheckString(1)
 			base := luaStrLenSlot(key)
 			lenSlot := st.state.GetState(target, base)
@@ -592,6 +649,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				return 1
 			}
 			length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+			if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+				chargePrimGas(numChunks * luaGasSLoad) // data chunks
+			}
 			data := make([]byte, length)
 			for i := 0; i < int(length); i += 32 {
 				slot := st.state.GetState(target, luaStrChunkSlot(base, i/32))
@@ -602,6 +662,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}))
 
 		L.SetField(proxy, "arrLen", L.NewFunction(func(L *lua.LState) int {
+			chargePrimGas(luaGasSLoad)
 			key := L.CheckString(1)
 			base := luaArrLenSlot(key)
 			raw := st.state.GetState(target, base)
@@ -611,6 +672,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}))
 
 		L.SetField(proxy, "arrGet", L.NewFunction(func(L *lua.LState) int {
+			chargePrimGas(2 * luaGasSLoad) // len slot + element slot
 			key := L.CheckString(1)
 			idxBI := luaParseBigInt(L, 2)
 			if idxBI == nil {
@@ -634,6 +696,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}))
 
 		L.SetField(proxy, "balance", L.NewFunction(func(L *lua.LState) int {
+			chargePrimGas(luaGasBalance)
 			bal := st.state.GetBalance(target)
 			if bal == nil {
 				L.Push(lua.LNumber("0"))
@@ -707,7 +770,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		// Compute remaining gas budget for the child.
 		// gasLimit is captured from the outer executeLuaVM parameter.
 		parentUsedNow := L.GasUsed()
-		totalUsed := parentUsedNow + totalChildGas
+		totalUsed := parentUsedNow + totalChildGas + primGasCharged
 		if totalUsed >= gasLimit {
 			L.RaiseError("tos.call: out of gas")
 			return 0
@@ -755,7 +818,8 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 		// Recalculate remaining and update parent gas limit so the parent
 		// cannot use gas that the child already consumed.
-		newTotalUsed := parentUsedNow + totalChildGas
+		// Maintain invariant: L.GasLimit() == gasLimit - totalChildGas - primGasCharged.
+		newTotalUsed := parentUsedNow + totalChildGas + primGasCharged
 		if newTotalUsed < gasLimit {
 			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
 		} else {
@@ -813,7 +877,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 		// Compute child gas budget.
 		parentUsedNow := L.GasUsed()
-		totalUsed := parentUsedNow + totalChildGas
+		totalUsed := parentUsedNow + totalChildGas + primGasCharged
 		if totalUsed >= gasLimit {
 			L.RaiseError("tos.staticcall: out of gas")
 			return 0
@@ -843,7 +907,8 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
 		totalChildGas += childGasUsed
 
-		newTotalUsed := parentUsedNow + totalChildGas
+		// Maintain invariant: L.GasLimit() == gasLimit - totalChildGas - primGasCharged.
+		newTotalUsed := parentUsedNow + totalChildGas + primGasCharged
 		if newTotalUsed < gasLimit {
 			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
 		} else {
@@ -1127,6 +1192,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			}
 		}
 
+		// Charge for log emission: base + per-indexed-topic + per-byte.
+		numIndexedTopics := uint64(len(topics) - 1) // topics[0] is the event sig, not charged per-topic
+		chargePrimGas(luaGasLogBase + numIndexedTopics*luaGasLogTopic + uint64(len(data))*luaGasLogByte)
+
 		st.state.AddLog(&types.Log{
 			Address: contractAddr,
 			Topics:  topics,
@@ -1146,6 +1215,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		key := L.CheckString(1)
 		val := L.CheckString(2)
 		data := []byte(val)
+
+		numChunks := uint64((len(data) + 31) / 32)
+		chargePrimGas(luaGasSStore + numChunks*luaGasSStore) // len slot + data chunks
 
 		base := luaStrLenSlot(key)
 
@@ -1167,6 +1239,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.getStr(key) → string | nil
 	L.SetField(tosTable, "getStr", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(luaGasSLoad) // length slot
 		key := L.CheckString(1)
 		base := luaStrLenSlot(key)
 
@@ -1176,6 +1249,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 1
 		}
 		length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+		if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+			chargePrimGas(numChunks * luaGasSLoad) // data chunks
+		}
 
 		data := make([]byte, length)
 		for i := 0; i < int(length); i += 32 {
@@ -1240,14 +1316,14 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// ── Execute ───────────────────────────────────────────────────────────────
 
 	if err := L.DoString(string(src)); err != nil {
-		total := L.GasUsed() + totalChildGas
+		total := L.GasUsed() + totalChildGas + primGasCharged
 		// Check for clean return via tos.result().
 		if hasResult && strings.Contains(err.Error(), luaResultSignal) {
 			return total, capturedResult, nil
 		}
 		return total, nil, err
 	}
-	return L.GasUsed() + totalChildGas, nil, nil
+	return L.GasUsed() + totalChildGas + primGasCharged, nil, nil
 }
 
 // applyLua executes the Lua contract stored at the destination address.

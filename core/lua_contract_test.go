@@ -2582,3 +2582,126 @@ func mustABIType(t *testing.T, typStr string) abi.Type {
 	}
 	return typ
 }
+
+// runLuaTxWithGasLimit sends a nil-data tx with a custom gas limit.
+// Returns true if the Lua contract executed successfully (receipt status=1),
+// false if it failed (OOG, revert, etc.).
+func runLuaTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Address, gasLimit uint64) bool {
+	t.Helper()
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), gasLimit, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	block := blocks[0]
+	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+	if len(receipts) == 0 {
+		t.Fatal("no receipts found for block")
+	}
+	return receipts[0].Status == types.ReceiptStatusSuccessful
+}
+
+// TestLuaContractPrimGas verifies that primitive calls charge gas on top of the
+// per-opcode VM gas:
+//   - Each primitive charges at least its defined constant worth of gas.
+//   - A script that calls an expensive primitive OOGs when the gas budget is
+//     only marginally above the intrinsic tx cost (params.TxGas = 3000).
+//   - tos.gasleft() accounts for both VM opcodes and primitive charges.
+//
+// Gas budget arithmetic (all values approximate):
+//
+//	st.gas = gasLimit - params.TxGas (3000) - zero_data_cost (0)
+func TestLuaContractPrimGas(t *testing.T) {
+	// tightOOG verifies that a tight gasLimit causes OOG, and a comfortable one
+	// succeeds.  oogLimit must result in st.gas < primCost; okLimit must give
+	// st.gas > primCost + ~50 opcodes overhead.
+	tightOOG := func(t *testing.T, code string, oogLimit, okLimit uint64) {
+		t.Helper()
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		if runLuaTxWithGasLimit(t, bc, contractAddr, oogLimit) {
+			t.Fatalf("gasLimit=%d: expected OOG, got success", oogLimit)
+		}
+		// Fresh bc for the success case (cannot reuse the same bc for a second block 1).
+		bc2, contractAddr2, cleanup2 := luaTestSetup(t, code)
+		defer cleanup2()
+		if !runLuaTxWithGasLimit(t, bc2, contractAddr2, okLimit) {
+			t.Fatalf("gasLimit=%d: expected success, got failure", okLimit)
+		}
+	}
+
+	// params.TxGas = 3000; st.gas = gasLimit - 3000.
+
+	t.Run("tos_get_charges_sload", func(t *testing.T) {
+		// luaGasSLoad = 100.  st.gas=99 (<100) → OOG; st.gas=300 → success.
+		tightOOG(t, `tos.get("k")`, 3099, 3300)
+	})
+
+	t.Run("tos_set_charges_sstore", func(t *testing.T) {
+		// luaGasSStore = 5000.  st.gas=100 (<5000) → OOG; st.gas=6000 → success.
+		tightOOG(t, `tos.set("k", 1)`, 3100, 9000)
+	})
+
+	t.Run("tos_arrLen_charges_sload", func(t *testing.T) {
+		// luaGasSLoad = 100.  Same budget as tos.get.
+		tightOOG(t, `tos.arrLen("a")`, 3099, 3300)
+	})
+
+	t.Run("tos_arrGet_charges_2x_sload", func(t *testing.T) {
+		// 2 × luaGasSLoad = 200.  st.gas=199 → OOG; st.gas=400 → success.
+		tightOOG(t, `tos.arrGet("a", 1)`, 3199, 3500)
+	})
+
+	t.Run("tos_emit_charges_log_base", func(t *testing.T) {
+		// luaGasLogBase = 375.  st.gas=374 → OOG; st.gas=600 → success.
+		tightOOG(t, `tos.emit("Ping")`, 3374, 4000)
+	})
+
+	t.Run("tos_emit_indexed_charges_log_topic", func(t *testing.T) {
+		// luaGasLogBase(375) + luaGasLogTopic(375) = 750.
+		// st.gas=749 → OOG; st.gas=1000 → success.
+		tightOOG(t, `tos.emit("X", "uint256 indexed", 1)`, 3749, 4500)
+	})
+
+	t.Run("tos_setStr_charges_per_chunk", func(t *testing.T) {
+		// "hello" = 5 bytes → numChunks=1 → 2 × luaGasSStore = 10000.
+		// st.gas=100 → OOG; st.gas=12000 → success.
+		tightOOG(t, `tos.setStr("k", "hello")`, 3100, 15000)
+	})
+
+	t.Run("gasleft_reflects_prim_charges", func(t *testing.T) {
+		// After tos.set the gasleft must drop by at least luaGasSStore (5000).
+		const code = `
+			local g1 = tos.gasleft()
+			tos.set("x", 1)
+			local g2 = tos.gasleft()
+			assert(g1 - g2 >= 5000,
+				"gasleft should decrease by >= 5000 after tos.set, got " .. tostring(g1-g2))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("gasleft_reflects_get_charge", func(t *testing.T) {
+		// After tos.get the gasleft must drop by at least luaGasSLoad (100).
+		const code = `
+			local g1 = tos.gasleft()
+			tos.get("x")
+			local g2 = tos.gasleft()
+			assert(g1 - g2 >= 100,
+				"gasleft should decrease by >= 100 after tos.get, got " .. tostring(g1-g2))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+}
