@@ -3720,3 +3720,132 @@ func TestLuaContractRevertError(t *testing.T) {
 		runLuaTx(t, bc, callerAddr, big.NewInt(0))
 	})
 }
+
+func TestLuaContractStruct(t *testing.T) {
+	t.Run("get_set_roundtrip", func(t *testing.T) {
+		code := `
+			local Account = tos.struct("Account", "balance:uint256", "nonce:uint256")
+			Account.set("alice", {balance=1000, nonce=5})
+			local a = Account.get("alice")
+			assert(a.balance == 1000, "balance: " .. tostring(a.balance))
+			assert(a.nonce   == 5,    "nonce: "   .. tostring(a.nonce))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("unset_field_is_zero_or_false", func(t *testing.T) {
+		code := `
+			local S = tos.struct("SUnset", "x:uint256", "flag:bool")
+			local v = S.get("k")
+			assert(v.x    == 0,     "x should be 0, got " .. tostring(v.x))
+			assert(v.flag == false, "flag should be false")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("partial_set_leaves_other_fields", func(t *testing.T) {
+		code := `
+			local S = tos.struct("SPartial", "a:uint256", "b:uint256")
+			S.set("k", {a=10})
+			S.set("k", {b=20})
+			local v = S.get("k")
+			assert(v.a == 10, "a: " .. tostring(v.a))
+			assert(v.b == 20, "b: " .. tostring(v.b))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("getField_setField", func(t *testing.T) {
+		code := `
+			local S = tos.struct("SField", "x:uint256", "y:uint256")
+			S.setField("k", "x", 99)
+			assert(S.getField("k", "x") == 99,  "x: " .. tostring(S.getField("k", "x")))
+			assert(S.getField("k", "y") == 0,   "y should be 0")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("bool_field", func(t *testing.T) {
+		code := `
+			local S = tos.struct("SBool", "flag:bool", "val:uint256")
+			S.set("k", {flag=true, val=42})
+			local v = S.get("k")
+			assert(v.flag == true, "flag should be true")
+			assert(v.val  == 42,   "val: " .. tostring(v.val))
+			S.setField("k", "flag", false)
+			assert(S.getField("k", "flag") == false, "flag should now be false")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("namespace_isolation", func(t *testing.T) {
+		// Two struct types with the same field name must not share slots.
+		code := `
+			local A = tos.struct("TypeA", "x:uint256")
+			local B = tos.struct("TypeB", "x:uint256")
+			A.setField("k", "x", 1)
+			B.setField("k", "x", 2)
+			assert(A.getField("k", "x") == 1, "A.x: " .. tostring(A.getField("k", "x")))
+			assert(B.getField("k", "x") == 2, "B.x: " .. tostring(B.getField("k", "x")))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("key_isolation", func(t *testing.T) {
+		// Different keys produce independent instances.
+		code := `
+			local S = tos.struct("SKey", "v:uint256")
+			S.setField("alice", "v", 10)
+			S.setField("bob",   "v", 20)
+			assert(S.getField("alice", "v") == 10, "alice")
+			assert(S.getField("bob",   "v") == 20, "bob")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("unknown_field_reverts", func(t *testing.T) {
+		code := `
+			local S = tos.struct("SUnknown", "a:uint256")
+			S.getField("k", "z")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("unsupported_type_reverts", func(t *testing.T) {
+		code := `tos.struct("SBad", "x:int256")`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("set_in_staticcall_reverts", func(t *testing.T) {
+		helperCode := `
+			local S = tos.struct("SStatic", "x:uint256")
+			S.setField("k", "x", 1)
+		`
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q)
+			require(ok, "staticcall must fail")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+	})
+}

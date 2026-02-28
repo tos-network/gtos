@@ -989,6 +989,202 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 1
 	}))
 
+	// ── Struct storage ────────────────────────────────────────────────────────
+
+	// tos.struct("TypeName", "field1:type1", "field2:type2", ...) → accessor table
+	//
+	// Defines a named struct type and returns a table with four methods:
+	//
+	//   accessor.get(key)                     → Lua table {field1=v1, field2=v2, ...}
+	//   accessor.set(key, tbl)                → write all present fields; absent ones unchanged
+	//   accessor.getField(key, fieldName)     → single field value
+	//   accessor.setField(key, fieldName, v)  → single field write
+	//
+	// Supported field types:
+	//   uint256  — stored as a 32-byte big-endian slot; reads back as LNumber
+	//   bool     — stored in a slot; 0 = false, nonzero = true; reads back as LBool
+	//
+	// Each field occupies its own StateDB slot, namespaced by struct type and key:
+	//   slot = keccak256("gtos.lua.struct." || TypeName || NUL || key || NUL || fieldName)
+	//
+	// Namespace "gtos.lua.struct." never collides with "gtos.lua.storage.",
+	// "gtos.lua.str.", "gtos.lua.arr.", or "gtos.lua.map.".
+	//
+	// Gas: each field read costs luaGasSLoad; each field write costs luaGasSStore.
+	//
+	// Example:
+	//   local Account = tos.struct("Account", "balance:uint256", "locked:bool", "nonce:uint256")
+	//   Account.set("alice", {balance=1000, locked=false, nonce=1})
+	//   local a = Account.get("alice")
+	//   Account.setField("alice", "balance", a.balance - 100)
+	L.SetField(tosTable, "struct", L.NewFunction(func(L *lua.LState) int {
+		if L.GetTop() < 2 {
+			L.RaiseError("tos.struct: requires a type name and at least one field definition")
+			return 0
+		}
+		structName := L.CheckString(1)
+
+		type fieldDef struct {
+			name string
+			typ  string // "uint256" or "bool"
+		}
+
+		nArgs := L.GetTop()
+		fields := make([]fieldDef, 0, nArgs-1)
+		fieldIdx := make(map[string]int, nArgs-1)
+
+		for i := 2; i <= nArgs; i++ {
+			def := L.CheckString(i)
+			parts := strings.SplitN(def, ":", 2)
+			if len(parts) != 2 {
+				L.RaiseError("tos.struct: invalid field definition %q (expected \"name:type\")", def)
+				return 0
+			}
+			fname := strings.TrimSpace(parts[0])
+			ftype := strings.TrimSpace(parts[1])
+			if fname == "" {
+				L.RaiseError("tos.struct: empty field name in %q", def)
+				return 0
+			}
+			switch ftype {
+			case "uint256", "bool":
+			default:
+				L.RaiseError("tos.struct: unsupported field type %q (supported: uint256, bool)", ftype)
+				return 0
+			}
+			if _, dup := fieldIdx[fname]; dup {
+				L.RaiseError("tos.struct: duplicate field name %q", fname)
+				return 0
+			}
+			fieldIdx[fname] = len(fields)
+			fields = append(fields, fieldDef{name: fname, typ: ftype})
+		}
+
+		// slotFor derives the StateDB slot for (structName, instanceKey, fieldName).
+		// NUL bytes separate components so "a"+"bc" != "ab"+"c".
+		slotFor := func(key, fieldName string) common.Hash {
+			return crypto.Keccak256Hash(
+				[]byte("gtos.lua.struct."),
+				[]byte(structName), []byte{0},
+				[]byte(key), []byte{0},
+				[]byte(fieldName),
+			)
+		}
+
+		readField := func(key string, f fieldDef) lua.LValue {
+			raw := st.state.GetState(contractAddr, slotFor(key, f.name))
+			switch f.typ {
+			case "bool":
+				if raw == (common.Hash{}) {
+					return lua.LFalse
+				}
+				return lua.LBool(raw[31] != 0)
+			default: // uint256
+				if raw == (common.Hash{}) {
+					return lua.LNumber("0")
+				}
+				return lua.LNumber(new(big.Int).SetBytes(raw[:]).Text(10))
+			}
+		}
+
+		writeField := func(key string, f fieldDef, v lua.LValue) error {
+			var h common.Hash
+			switch f.typ {
+			case "bool":
+				if v != lua.LFalse && v != lua.LNil {
+					h[31] = 1
+				}
+			default: // uint256
+				bi, err := luaParseUint256Value(v)
+				if err != nil {
+					return fmt.Errorf("field %q: %v", f.name, err)
+				}
+				b := bi.Bytes()
+				if len(b) > 32 {
+					return fmt.Errorf("field %q: value overflows uint256", f.name)
+				}
+				copy(h[32-len(b):], b)
+			}
+			st.state.SetState(contractAddr, slotFor(key, f.name), h)
+			return nil
+		}
+
+		acc := L.NewTable()
+
+		// acc.get(key) → table with all fields
+		L.SetField(acc, "get", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			chargePrimGas(uint64(len(fields)) * luaGasSLoad)
+			t := L.NewTable()
+			for _, f := range fields {
+				L.SetField(t, f.name, readField(key, f))
+			}
+			L.Push(t)
+			return 1
+		}))
+
+		// acc.set(key, tbl) — write all fields present in tbl; absent fields unchanged
+		L.SetField(acc, "set", L.NewFunction(func(L *lua.LState) int {
+			if ctx.readonly {
+				L.RaiseError("struct.set: state modification not allowed in staticcall")
+				return 0
+			}
+			key := L.CheckString(1)
+			tbl := L.CheckTable(2)
+			chargePrimGas(uint64(len(fields)) * luaGasSStore)
+			for _, f := range fields {
+				v := tbl.RawGetString(f.name)
+				if v == lua.LNil {
+					continue
+				}
+				if err := writeField(key, f, v); err != nil {
+					L.RaiseError("struct.set: %v", err)
+					return 0
+				}
+			}
+			return 0
+		}))
+
+		// acc.getField(key, fieldName) → value
+		L.SetField(acc, "getField", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			fname := L.CheckString(2)
+			idx, ok := fieldIdx[fname]
+			if !ok {
+				L.RaiseError("struct.getField: unknown field %q in struct %q", fname, structName)
+				return 0
+			}
+			chargePrimGas(luaGasSLoad)
+			L.Push(readField(key, fields[idx]))
+			return 1
+		}))
+
+		// acc.setField(key, fieldName, value) — write one field
+		L.SetField(acc, "setField", L.NewFunction(func(L *lua.LState) int {
+			if ctx.readonly {
+				L.RaiseError("struct.setField: state modification not allowed in staticcall")
+				return 0
+			}
+			key := L.CheckString(1)
+			fname := L.CheckString(2)
+			v := L.CheckAny(3)
+			idx, ok := fieldIdx[fname]
+			if !ok {
+				L.RaiseError("struct.setField: unknown field %q in struct %q", fname, structName)
+				return 0
+			}
+			chargePrimGas(luaGasSStore)
+			if err := writeField(key, fields[idx], v); err != nil {
+				L.RaiseError("struct.setField: %v", err)
+				return 0
+			}
+			return 0
+		}))
+
+		L.Push(acc)
+		return 1
+	}))
+
 	// ── Cross-contract read API ───────────────────────────────────────────────
 
 	// tos.codeAt(addr) → bool
