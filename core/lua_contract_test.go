@@ -484,3 +484,185 @@ func TestLuaContractMsgData(t *testing.T) {
 	defer cleanup()
 	runLuaTxWithData(t, bc, contractAddr, big.NewInt(0), txData)
 }
+
+// TestLuaContractABIAddress verifies abi.encode/decode roundtrip for the address type.
+func TestLuaContractABIAddress(t *testing.T) {
+	const code = `
+		-- tos.self is the contract's own 32-byte address
+		local addr = tos.self
+		local enc = abi.encode("address", addr)
+		-- 1 × 32-byte ABI slot = "0x" + 64 hex chars = 66 total chars
+		assert(#enc == 66, "address encoded len: " .. tostring(#enc))
+
+		local dec = abi.decode(enc, "address")
+		assert(dec == addr, "address roundtrip: " .. tostring(dec))
+
+		-- address + uint256 multi-field round-trip
+		local enc2 = abi.encode("address", addr, "uint256", 42)
+		local a2, n2 = abi.decode(enc2, "address", "uint256")
+		assert(a2 == addr, "addr in multi: " .. tostring(a2))
+		assert(n2 == 42, "uint256 in multi: " .. tostring(n2))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIFixedBytes verifies abi.encode/decode roundtrip for fixedBytes (bytes1, bytes32).
+// The unpack path returns a [N]byte reflect.Array; abiGoToLua extracts it via reflection.
+func TestLuaContractABIFixedBytes(t *testing.T) {
+	const code = `
+		-- bytes1: single byte
+		local enc1 = abi.encode("bytes1", "0xab")
+		local dec1 = abi.decode(enc1, "bytes1")
+		assert(dec1 == "0xab", "bytes1 roundtrip: " .. dec1)
+
+		-- bytes32: 4-byte input is right-padded with zeros on encode
+		local enc32 = abi.encode("bytes32", "0xdeadbeef")
+		assert(#enc32 == 66, "bytes32 encoded slot len: " .. tostring(#enc32))
+		local dec32 = abi.decode(enc32, "bytes32")
+		-- decoded = "0x" + 64 hex chars
+		assert(#dec32 == 66, "bytes32 decoded len: " .. tostring(#dec32))
+		-- first 4 bytes preserved; remaining 28 bytes are zero
+		assert(dec32:sub(1, 10) == "0xdeadbeef", "bytes32 first 4 bytes: " .. dec32:sub(1,10))
+		assert(dec32:sub(11) == string.rep("00", 28), "bytes32 zero padding")
+
+		-- bytes32 full: exact 32 bytes survives unchanged
+		local full = "0x" .. string.rep("ab", 32)
+		local encF = abi.encode("bytes32", full)
+		local decF = abi.decode(encF, "bytes32")
+		assert(decF == full, "bytes32 full roundtrip")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABISmallInts verifies abi.encode/decode for uint16/32/64 and int8/16/32/64.
+// These sizes return native Go int types from ReadInteger, not *big.Int.
+func TestLuaContractABISmallInts(t *testing.T) {
+	const code = `
+		-- uint16 max (65535)
+		local v16 = abi.decode(abi.encode("uint16", 65535), "uint16")
+		assert(v16 == 65535, "uint16 max: " .. tostring(v16))
+
+		-- uint32 max (4294967295)
+		local v32 = abi.decode(abi.encode("uint32", 4294967295), "uint32")
+		assert(v32 == 4294967295, "uint32 max: " .. tostring(v32))
+
+		-- uint64 max — pass as string to avoid Lua literal overflow
+		local maxU64 = "18446744073709551615"
+		local v64 = abi.decode(abi.encode("uint64", maxU64), "uint64")
+		assert(tostring(v64) == maxU64, "uint64 max: " .. tostring(v64))
+
+		-- int8 min / max
+		local vI8min = abi.decode(abi.encode("int8", -128), "int8")
+		assert(vI8min == -128, "int8 min: " .. tostring(vI8min))
+		local vI8max = abi.decode(abi.encode("int8", 127), "int8")
+		assert(vI8max == 127, "int8 max: " .. tostring(vI8max))
+
+		-- int16 min
+		local vI16 = abi.decode(abi.encode("int16", -32768), "int16")
+		assert(vI16 == -32768, "int16 min: " .. tostring(vI16))
+
+		-- int32 min
+		local vI32 = abi.decode(abi.encode("int32", -2147483648), "int32")
+		assert(vI32 == -2147483648, "int32 min: " .. tostring(vI32))
+
+		-- int64 min — pass as string
+		local minI64 = "-9223372036854775808"
+		local vI64 = abi.decode(abi.encode("int64", minI64), "int64")
+		assert(tostring(vI64) == minI64, "int64 min: " .. tostring(vI64))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIEncodePackedExtended verifies encodePacked for negative ints and address.
+func TestLuaContractABIEncodePackedExtended(t *testing.T) {
+	const code = `
+		-- int8(-1): two's complement 1 byte = 0xff
+		assert(abi.encodePacked("int8",  -1)   == "0xff",   "int8 -1 packed")
+		assert(abi.encodePacked("int8",  -128) == "0x80",   "int8 -128 packed")
+
+		-- int16(-1): 2 bytes of 0xff
+		assert(abi.encodePacked("int16", -1)   == "0xffff", "int16 -1 packed")
+
+		-- int256(-1): 32 bytes of 0xff
+		local neg1_256 = abi.encodePacked("int256", -1)
+		assert(#neg1_256 == 66, "int256 -1 packed len: " .. tostring(#neg1_256))
+		assert(neg1_256 == "0x" .. string.rep("ff", 32), "int256 -1 packed value")
+
+		-- address packed = 32 bytes (gtos uses 32-byte addresses)
+		local encA = abi.encodePacked("address", tos.self)
+		assert(#encA == 66, "address packed len: " .. tostring(#encA))
+
+		-- bytes (dynamic) packed = raw bytes, no length prefix
+		assert(abi.encodePacked("bytes", "0xdeadbeef") == "0xdeadbeef", "bytes packed no prefix")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIErrors verifies that malformed calls raise errors catchable by pcall.
+func TestLuaContractABIErrors(t *testing.T) {
+	const code = `
+		-- odd number of args to encode (missing value)
+		local ok1, e1 = pcall(function() abi.encode("uint256") end)
+		assert(not ok1, "missing value should error")
+		assert(type(e1) == "string", "error should be string, got: " .. type(e1))
+
+		-- unrecognised type string
+		local ok2, e2 = pcall(function() abi.encode("notavalidtype", 1) end)
+		assert(not ok2, "invalid type should error")
+
+		-- decode with too-short data (< 32 bytes for a uint256 slot)
+		local ok3, e3 = pcall(function() abi.decode("0x1234", "uint256") end)
+		assert(not ok3, "short data should error")
+
+		-- wrong Lua type for uint256 (bool instead of number/string)
+		local ok4, e4 = pcall(function() abi.encode("uint256", true) end)
+		assert(not ok4, "wrong Lua type should error")
+
+		-- encodePacked: odd args
+		local ok5, e5 = pcall(function() abi.encodePacked("uint8") end)
+		assert(not ok5, "encodePacked odd args should error")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractABIEdgeCases verifies boundary values and empty inputs.
+func TestLuaContractABIEdgeCases(t *testing.T) {
+	const code = `
+		-- uint256 maximum
+		local maxU256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+		local vMax = abi.decode(abi.encode("uint256", maxU256), "uint256")
+		assert(tostring(vMax) == maxU256, "uint256 max: " .. tostring(vMax))
+
+		-- empty string round-trip
+		local vStr = abi.decode(abi.encode("string", ""), "string")
+		assert(vStr == "", "empty string roundtrip")
+
+		-- empty bytes round-trip
+		local vBytes = abi.decode(abi.encode("bytes", "0x"), "bytes")
+		assert(vBytes == "0x", "empty bytes roundtrip: " .. tostring(vBytes))
+
+		-- uint8 zero
+		local v0 = abi.decode(abi.encode("uint8", 0), "uint8")
+		assert(v0 == 0, "uint8 zero: " .. tostring(v0))
+
+		-- encodePacked: empty string yields just "0x" (no payload bytes)
+		assert(abi.encodePacked("string", "") == "0x", "encodePacked empty string")
+
+		-- encodePacked: uint256 zero = 32 zero bytes
+		local pz = abi.encodePacked("uint256", 0)
+		assert(pz == "0x" .. string.rep("00", 32), "encodePacked uint256 zero")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
