@@ -32,7 +32,8 @@ func luaEventSig(name string, types ...string) common.Hash {
 }
 
 // buildCalldata constructs EVM-compatible calldata:
-//   selector (4 bytes) || ABI-encoded arguments
+//
+//	selector (4 bytes) || ABI-encoded arguments
 //
 // sig:     Solidity ABI signature, e.g. "transfer(address,uint256)"
 // typeVals: alternating ("type", value) pairs matching the signature args
@@ -1691,6 +1692,20 @@ func TestLuaContractMapping(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 	})
 
+	t.Run("proxy_single_key_uint256", func(t *testing.T) {
+		const code = `
+			local balance = tos.mapping("balance")
+			balance["alice"] = 1000
+			assert(balance["alice"] == 1000, "proxy read/write")
+			assert(balance["bob"] == nil, "proxy unset")
+			-- interchangeable with mapGet/mapSet
+			assert(tos.mapGet("balance", "alice") == 1000, "compat with mapGet")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
 	t.Run("nested_two_keys", func(t *testing.T) {
 		const code = `
 			-- allowance[owner][spender] = amount
@@ -1700,6 +1715,25 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(tos.mapGet("allowance", "owner1", "spender2") == 250, "spender2")
 			-- different owner shares no storage with owner1
 			assert(tos.mapGet("allowance", "owner2", "spender1") == nil, "different owner")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("proxy_nested_two_keys_uint256", func(t *testing.T) {
+		const code = `
+			local allowance = tos.mapping("allowance", 2)
+			allowance["owner1"]["spender1"] = 500
+			allowance["owner1"]["spender2"] = 250
+			assert(allowance["owner1"]["spender1"] == 500, "spender1")
+			assert(allowance["owner1"]["spender2"] == 250, "spender2")
+			assert(allowance["owner2"]["spender1"] == nil, "different owner")
+			-- top-level assignment is invalid for depth=2
+			local ok = pcall(function() allowance["owner3"] = 1 end)
+			assert(not ok, "depth=2 requires second key")
+			-- interchangeable with mapGet/mapSet
+			assert(tos.mapGet("allowance", "owner1", "spender1") == 500, "compat with mapGet")
 		`
 		bc, addr, cleanup := luaTestSetup(t, code)
 		defer cleanup()
@@ -1901,11 +1935,11 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 					// tos.set("score", 42)
 					slotUint("score"): uint256Slot(42),
 					// tos.setStr("name", "hello")
-					slotStrLen("name"):       strLenSlotValue(storageName),
-					slotStrChunk("name", 0):  strChunkSlotValue(storageName, 0),
+					slotStrLen("name"):      strLenSlotValue(storageName),
+					slotStrChunk("name", 0): strChunkSlotValue(storageName, 0),
 					// tos.arrPush("items", 99)  → len=1, items[0]=99
-					slotArrLen("items"):      uint256Slot(1),
-					slotArrElem("items", 0):  uint256Slot(99),
+					slotArrLen("items"):     uint256Slot(1),
+					slotArrElem("items", 0): uint256Slot(99),
 				},
 			},
 		},
@@ -2874,5 +2908,186 @@ func TestLuaContractPrimGas(t *testing.T) {
 		bc, contractAddr, cleanup := luaTestSetup(t, code)
 		defer cleanup()
 		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+}
+
+// TestLuaContractMappingProxy tests tos.mapping() and tos.mappingStr() — the
+// metamethod-backed proxy tables that let Lua code use table-index syntax for
+// on-chain named mappings:
+//
+//	local bal = tos.mapping("balance")
+//	bal["alice"] = 1000
+//	assert(bal["alice"] == 1000)
+//
+// Slot derivation is identical to tos.mapGet/Set, so the two APIs are fully
+// interchangeable.
+func TestLuaContractMappingProxy(t *testing.T) {
+	t.Run("uint256_roundtrip", func(t *testing.T) {
+		const code = `
+			local bal = tos.mapping("balance")
+			bal["alice"] = 1000
+			bal["bob"]   = 500
+			assert(bal["alice"] == 1000, "alice")
+			assert(bal["bob"]   == 500,  "bob")
+			assert(bal["carol"] == nil,  "unset key is nil")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("string_roundtrip", func(t *testing.T) {
+		const code = `
+			local tag = tos.mappingStr("tag")
+			tag["nft1"] = "Dragon"
+			tag["nft2"] = "Phoenix"
+			assert(tag["nft1"] == "Dragon",  "nft1")
+			assert(tag["nft2"] == "Phoenix", "nft2")
+			assert(tag["nft3"] == nil,       "unset key is nil")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("compat_with_mapGet_mapSet", func(t *testing.T) {
+		// tos.mapping("x")["k"] and tos.mapGet("x","k") must share the same slot.
+		const code = `
+			-- Write via mapSet, read via proxy
+			tos.mapSet("pts", "alice", 77)
+			local proxy = tos.mapping("pts")
+			assert(proxy["alice"] == 77, "proxy should see mapSet value")
+
+			-- Write via proxy, read via mapGet
+			proxy["bob"] = 33
+			assert(tos.mapGet("pts", "bob") == 33, "mapGet should see proxy value")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("string_compat_with_mapGetStr_mapSetStr", func(t *testing.T) {
+		// mappingStr("x")["k"] and mapGetStr("x","k") must share the same slot.
+		const code = `
+			-- Write via mapSetStr, read via proxy
+			tos.mapSetStr("meta", "token1", "CoolNFT")
+			local proxy = tos.mappingStr("meta")
+			assert(proxy["token1"] == "CoolNFT", "proxy should see mapSetStr value")
+
+			-- Write via proxy, read via mapGetStr
+			proxy["token2"] = "RareItem"
+			assert(tos.mapGetStr("meta", "token2") == "RareItem", "mapGetStr should see proxy value")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("depth2_nested_uint256", func(t *testing.T) {
+		// tos.mapping("allowance", 2)[owner][spender] = amount
+		const code = `
+			local allowance = tos.mapping("allowance", 2)
+			allowance["alice"]["bob"] = 500
+			allowance["alice"]["carol"] = 250
+			assert(allowance["alice"]["bob"]   == 500, "alice->bob")
+			assert(allowance["alice"]["carol"] == 250, "alice->carol")
+			assert(allowance["dave"]["bob"]    == nil, "dave->bob unset")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("depth2_compat_with_nested_mapGet", func(t *testing.T) {
+		// depth=2 proxy slot must be identical to tos.mapGet(name, k1, k2).
+		const code = `
+			tos.mapSet("allow", "owner1", "spender1", 777)
+			local m = tos.mapping("allow", 2)
+			assert(m["owner1"]["spender1"] == 777, "depth2 proxy sees mapSet value")
+
+			m["owner2"]["spender1"] = 333
+			assert(tos.mapGet("allow", "owner2", "spender1") == 333, "mapGet sees depth2 value")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("namespace_isolation_from_set", func(t *testing.T) {
+		// tos.mapping("score")["k"] must not collide with tos.set("score").
+		const code = `
+			tos.set("score", 99)
+			local m = tos.mapping("score")
+			m["alice"] = 42
+			assert(tos.get("score") == 99, "tos.get must be unchanged")
+			assert(m["alice"] == 42,       "mapping must be 42")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("mapping_newindex_readonly_reverts", func(t *testing.T) {
+		// __newindex inside a staticcall must raise an error → staticcall returns false.
+		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		calleeCode := `
+			local m = tos.mapping("x")
+			m["k"] = 1
+		`
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q, "")
+			assert(not ok, "mapping write inside staticcall should fail")
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+	})
+
+	t.Run("mappingStr_newindex_readonly_reverts", func(t *testing.T) {
+		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		calleeCode := `
+			local m = tos.mappingStr("x")
+			m["k"] = "hello"
+		`
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q, "")
+			assert(not ok, "mappingStr write inside staticcall should fail")
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+	})
+
+	t.Run("at_proxy_mapping_reads", func(t *testing.T) {
+		// tos.at(self).mapping(name)[key] must read the same slot as tos.mapping(name)[key].
+		const code = `
+			local m = tos.mapping("pts")
+			m["alice"] = 77
+			m["bob"]   = 33
+			local ro = tos.at(tos.self).mapping("pts")
+			assert(ro["alice"] == 77,  "at proxy alice")
+			assert(ro["bob"]   == 33,  "at proxy bob")
+			assert(ro["carol"] == nil, "at proxy unset")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("at_proxy_mappingStr_reads", func(t *testing.T) {
+		// tos.at(self).mappingStr(name)[key] must read the same slot as tos.mappingStr.
+		const code = `
+			local m = tos.mappingStr("tag")
+			m["nft1"] = "Dragon"
+			local ro = tos.at(tos.self).mappingStr("tag")
+			assert(ro["nft1"] == "Dragon", "at proxy nft1")
+			assert(ro["nft2"] == nil,      "at proxy unset")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
 	})
 }

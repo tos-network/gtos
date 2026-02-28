@@ -7,11 +7,11 @@ import (
 	"math/big"
 	"strings"
 
+	lua "github.com/tos-network/gopher-lua"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
-	lua "github.com/tos-network/gopher-lua"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -52,7 +52,7 @@ type luaCallCtx struct {
 	txOrigin common.Address // tx.origin: the original EOA, constant across all levels
 	txPrice  *big.Int       // tx.gasprice: constant across all levels
 	readonly bool           // if true, all state-mutating primitives raise an error
-	                        // (EVM STATICCALL semantics; propagates to nested calls)
+	// (EVM STATICCALL semantics; propagates to nested calls)
 }
 
 // luaParseBigInt extracts a non-negative *big.Int from Lua argument n.
@@ -74,6 +74,25 @@ func luaParseBigInt(L *lua.LState, n int) *big.Int {
 		return nil
 	}
 	return bi
+}
+
+// luaParseUint256Value parses an LValue as a non-negative uint256 integer.
+// Accepts LNumber or numeric LString.
+func luaParseUint256Value(v lua.LValue) (*big.Int, error) {
+	var s string
+	switch x := v.(type) {
+	case lua.LNumber:
+		s = string(x)
+	case lua.LString:
+		s = string(x)
+	default:
+		return nil, fmt.Errorf("value must be a number or numeric string")
+	}
+	bi, ok := new(big.Int).SetString(s, 10)
+	if !ok || bi.Sign() < 0 {
+		return nil, fmt.Errorf("invalid uint256 value")
+	}
+	return bi, nil
 }
 
 // luaStorageSlot maps a Lua contract storage key to a deterministic EVM storage
@@ -806,6 +825,58 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 1
 		}))
 
+		// tos.at(addr).mapping(name) → read-only proxy for uint256 named mappings
+		L.SetField(proxy, "mapping", L.NewFunction(func(L *lua.LState) int {
+			mapName := L.CheckString(1)
+			innerProxy := L.NewTable()
+			innerMt := L.NewTable()
+			L.SetField(innerMt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key := L.CheckString(2)
+				chargePrimGas(luaGasSLoad)
+				val := st.state.GetState(target, luaMapSlot(mapName, []string{key}))
+				if val == (common.Hash{}) {
+					L.Push(lua.LNil)
+				} else {
+					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+				}
+				return 1
+			}))
+			L.SetMetatable(innerProxy, innerMt)
+			L.Push(innerProxy)
+			return 1
+		}))
+
+		// tos.at(addr).mappingStr(name) → read-only proxy for string named mappings
+		L.SetField(proxy, "mappingStr", L.NewFunction(func(L *lua.LState) int {
+			mapName := L.CheckString(1)
+			innerProxy := L.NewTable()
+			innerMt := L.NewTable()
+			L.SetField(innerMt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key := L.CheckString(2)
+				chargePrimGas(luaGasSLoad) // length slot
+				base := luaMapStrLenSlot(mapName, []string{key})
+				lenSlot := st.state.GetState(target, base)
+				if lenSlot == (common.Hash{}) {
+					L.Push(lua.LNil)
+					return 1
+				}
+				length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+				if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+					chargePrimGas(numChunks * luaGasSLoad)
+				}
+				data := make([]byte, length)
+				for i := 0; i < int(length); i += 32 {
+					chunk := st.state.GetState(target, luaStrChunkSlot(base, i/32))
+					copy(data[i:], chunk[:])
+				}
+				L.Push(lua.LString(string(data)))
+				return 1
+			}))
+			L.SetMetatable(innerProxy, innerMt)
+			L.Push(innerProxy)
+			return 1
+		}))
+
 		L.Push(proxy)
 		return 1
 	}))
@@ -1420,18 +1491,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		for i := 2; i <= nArgs-1; i++ {
 			keys[i-2] = L.CheckString(i)
 		}
-		var valStr string
-		switch v := L.CheckAny(nArgs).(type) {
-		case lua.LNumber:
-			valStr = string(v)
-		case lua.LString:
-			valStr = string(v)
-		default:
-			L.RaiseError("tos.mapSet: value must be a number or numeric string")
-		}
-		bi, ok := new(big.Int).SetString(valStr, 10)
-		if !ok || bi.Sign() < 0 {
-			L.RaiseError("tos.mapSet: invalid uint256 value")
+		bi, err := luaParseUint256Value(L.CheckAny(nArgs))
+		if err != nil {
+			L.RaiseError("tos.mapSet: %s", err.Error())
+			return 0
 		}
 		var slot common.Hash
 		bi.FillBytes(slot[:])
@@ -1508,6 +1571,215 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			st.state.SetState(contractAddr, luaStrChunkSlot(base, i/32), s)
 		}
 		return 0
+	}))
+
+	// tos.mapping(name [, depth]) → read/write proxy table for uint256 values
+	//   depth=1 (default):
+	//     proxy[key]       → uint256 string or nil  (same slot as tos.mapGet(name, key))
+	//     proxy[key] = val → stores uint256          (same slot as tos.mapSet(name, key, val))
+	//   depth=2:
+	//     proxy[k1][k2]       → uint256 string or nil
+	//     proxy[k1][k2] = val → stores uint256
+	//
+	//   Enables idiomatic table syntax for on-chain named mappings:
+	//
+	//     local bal = tos.mapping("balance")
+	//     bal["alice"] = 1000
+	//     local v = bal["alice"]  -- v == "1000"
+	//
+	//     local allowance = tos.mapping("allowance", 2)
+	//     allowance["owner"]["spender"] = 500
+	//     local a = allowance["owner"]["spender"]  -- a == "500"
+	//
+	//   Slot derivation is identical to tos.mapGet/tos.mapSet — fully interchangeable.
+	L.SetField(tosTable, "mapping", L.NewFunction(func(L *lua.LState) int {
+		mapName := L.CheckString(1)
+		depth := L.OptInt(2, 1)
+		if depth != 1 && depth != 2 {
+			L.RaiseError("tos.mapping: depth must be 1 or 2")
+			return 0
+		}
+
+		// makeLevel2 creates the second-level proxy used by depth=2 mappings.
+		makeLevel2 := func(key1 string) *lua.LTable {
+			sub := L.NewTable()
+			subMt := L.NewTable()
+			L.SetField(subMt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key2 := L.CheckString(2)
+				chargePrimGas(luaGasSLoad)
+				val := st.state.GetState(contractAddr, luaMapSlot(mapName, []string{key1, key2}))
+				if val == (common.Hash{}) {
+					L.Push(lua.LNil)
+				} else {
+					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+				}
+				return 1
+			}))
+			L.SetField(subMt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				if ctx.readonly {
+					L.RaiseError("mapping: state modification not allowed in staticcall")
+					return 0
+				}
+				key2 := L.CheckString(2)
+				bi, err := luaParseUint256Value(L.CheckAny(3))
+				if err != nil {
+					L.RaiseError("mapping.__newindex: %s", err.Error())
+					return 0
+				}
+				chargePrimGas(luaGasSStore)
+				var slot common.Hash
+				bi.FillBytes(slot[:])
+				st.state.SetState(contractAddr, luaMapSlot(mapName, []string{key1, key2}), slot)
+				return 0
+			}))
+			L.SetMetatable(sub, subMt)
+			return sub
+		}
+
+		proxy := L.NewTable()
+		mt := L.NewTable()
+		if depth == 1 {
+			L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key := L.CheckString(2)
+				chargePrimGas(luaGasSLoad)
+				val := st.state.GetState(contractAddr, luaMapSlot(mapName, []string{key}))
+				if val == (common.Hash{}) {
+					L.Push(lua.LNil)
+				} else {
+					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+				}
+				return 1
+			}))
+			L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				if ctx.readonly {
+					L.RaiseError("mapping: state modification not allowed in staticcall")
+					return 0
+				}
+				key := L.CheckString(2)
+				bi, err := luaParseUint256Value(L.CheckAny(3))
+				if err != nil {
+					L.RaiseError("mapping.__newindex: %s", err.Error())
+					return 0
+				}
+				chargePrimGas(luaGasSStore)
+				var slot common.Hash
+				bi.FillBytes(slot[:])
+				st.state.SetState(contractAddr, luaMapSlot(mapName, []string{key}), slot)
+				return 0
+			}))
+		} else {
+			L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key1 := L.CheckString(2)
+				L.Push(makeLevel2(key1))
+				return 1
+			}))
+			L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				L.RaiseError("mapping: depth=2 requires second key (use m[k1][k2])")
+				return 0
+			}))
+		}
+		L.SetMetatable(proxy, mt)
+		L.Push(proxy)
+		return 1
+	}))
+
+	// tos.mappingStr(name [, depth]) → read/write proxy table for string values
+	//   depth=1: proxy[key]         ↔ mapGetStr/mapSetStr(name, key)
+	//   depth=2: proxy[k1][k2]      ↔ mapGetStr/mapSetStr(name, k1, k2)
+	L.SetField(tosTable, "mappingStr", L.NewFunction(func(L *lua.LState) int {
+		mapName := L.CheckString(1)
+		depth := L.OptInt(2, 1)
+		if depth != 1 && depth != 2 {
+			L.RaiseError("tos.mappingStr: depth must be 1 or 2")
+			return 0
+		}
+
+		mapGetStrByKeys := func(keys []string) int {
+			chargePrimGas(luaGasSLoad) // length slot
+			base := luaMapStrLenSlot(mapName, keys)
+			lenSlot := st.state.GetState(contractAddr, base)
+			if lenSlot == (common.Hash{}) {
+				L.Push(lua.LNil)
+				return 1
+			}
+			length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+			if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+				chargePrimGas(numChunks * luaGasSLoad)
+			}
+			data := make([]byte, length)
+			for i := 0; i < int(length); i += 32 {
+				chunk := st.state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
+				copy(data[i:], chunk[:])
+			}
+			L.Push(lua.LString(string(data)))
+			return 1
+		}
+		mapSetStrByKeys := func(keys []string, val string) int {
+			if ctx.readonly {
+				L.RaiseError("mappingStr: state modification not allowed in staticcall")
+				return 0
+			}
+			data := []byte(val)
+			numChunks := uint64((len(data) + 31) / 32)
+			chargePrimGas(luaGasSStore + numChunks*luaGasSStore)
+			base := luaMapStrLenSlot(mapName, keys)
+			var lenSlot common.Hash
+			binary.BigEndian.PutUint64(lenSlot[24:], uint64(len(data))+1)
+			st.state.SetState(contractAddr, base, lenSlot)
+			for i := 0; i < len(data); i += 32 {
+				chunk := data[i:]
+				if len(chunk) > 32 {
+					chunk = chunk[:32]
+				}
+				var s common.Hash
+				copy(s[:], chunk)
+				st.state.SetState(contractAddr, luaStrChunkSlot(base, i/32), s)
+			}
+			return 0
+		}
+
+		makeLevel2 := func(key1 string) *lua.LTable {
+			sub := L.NewTable()
+			subMt := L.NewTable()
+			L.SetField(subMt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key2 := L.CheckString(2)
+				return mapGetStrByKeys([]string{key1, key2})
+			}))
+			L.SetField(subMt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				key2 := L.CheckString(2)
+				val := L.CheckString(3)
+				return mapSetStrByKeys([]string{key1, key2}, val)
+			}))
+			L.SetMetatable(sub, subMt)
+			return sub
+		}
+
+		proxy := L.NewTable()
+		mt := L.NewTable()
+		if depth == 1 {
+			L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key := L.CheckString(2)
+				return mapGetStrByKeys([]string{key})
+			}))
+			L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				key := L.CheckString(2)
+				val := L.CheckString(3)
+				return mapSetStrByKeys([]string{key}, val)
+			}))
+		} else {
+			L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
+				key1 := L.CheckString(2)
+				L.Push(makeLevel2(key1))
+				return 1
+			}))
+			L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+				L.RaiseError("mappingStr: depth=2 requires second key (use m[k1][k2])")
+				return 0
+			}))
+		}
+		L.SetMetatable(proxy, mt)
+		L.Push(proxy)
+		return 1
 	}))
 
 	// ── Return data ───────────────────────────────────────────────────────────
