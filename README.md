@@ -46,11 +46,11 @@ UNO is TOS's native privacy layer — encrypted balances on the base chain, no b
 
 ### Smart Contracts
 
-TOS contracts are native on-chain logic — deterministic, auditable, no Solidity required.
+TOS contracts encode the terms and rewards of an agreement — immutable once written. Think of a prediction market: the conditions and prize are locked on-chain before anyone participates, and no party can alter them after the fact.
 
 - System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead
-- `code_put_ttl`: deploy executable logic metadata with an expiry (`tos_setCode`)
-- `kv_put_ttl`: write structured state with TTL (`tos_putKV`) — entries expire automatically
+- `code_put_ttl`: write the contract terms and reward rules on-chain (`tos_setCode`) — immutable, auditable by any market supervisor
+- `kv_put_ttl`: agents write their answers or commitments on-chain (`tos_putKV`) — immutable participant records for reward calculation and dispute resolution
 
 ---
 
