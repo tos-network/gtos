@@ -3238,12 +3238,10 @@ func TestLuaContractBytes(t *testing.T) {
 	})
 
 	t.Run("len", func(t *testing.T) {
-		// Note: gopher-lua is Lua 5.1 — \xNN hex escapes not supported.
-		// Use decimal escapes: \0 = 0x00, \255 = 0xff.
 		const code = `
 			assert(tos.bytes.len("")        == 0, "empty")
 			assert(tos.bytes.len("abc")     == 3, "ascii")
-			assert(tos.bytes.len("\0\255")  == 2, "binary with null and 0xff")
+			assert(tos.bytes.len("\x00\xff") == 2, "binary with null and 0xff")
 		`
 		bc, addr, cleanup := luaTestSetup(t, code)
 		defer cleanup()
