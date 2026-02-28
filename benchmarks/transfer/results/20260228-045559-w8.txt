@@ -1,0 +1,22 @@
+==> plain transfer soak setup
+date: 2026-02-28T04:59:16Z
+out:  /home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w8
+rpc:  http://127.0.0.1:8545
+ipc:  /data/gtos/node1/gtos.ipc
+duration: 90s (90s)
+skip dpos monitor: enabled
+funder=0x25e8750786adb41f9725d7bfc8dec9de30521661c53750b142a8ebfa68b85bbe
+funder_signer_type=elgamal
+tx_signer_type=secp256k1
+wallet_count=8
+unlocking wallets for 1890s
+funding wallets (value=0x38d7ea4c68000 per wallet)
+==> start concurrent transfer workers
+workers_started=8
+==> plain transfer soak complete
+out_dir:  /home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w8
+report:   /home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w8/plain_transfer_report.json
+accepted: 3217
+failed:   0
+soft_failed: 3
+dpos:     SKIPPED

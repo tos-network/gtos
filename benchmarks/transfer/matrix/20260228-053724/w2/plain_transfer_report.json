@@ -1,0 +1,27 @@
+{
+  "start_time": "2026-02-28T05:37:24Z",
+  "end_time": "2026-02-28T05:41:06Z",
+  "duration_sec": 222,
+  "target_duration": "45s",
+  "rpc": "http://127.0.0.1:8545",
+  "wallets": 7,
+  "workers": 2,
+  "fund_tos": 1000,
+  "fund_wei": 1000000000000000,
+  "tx_value_wei": 1,
+  "attempts": 0,
+  "accepted": 0,
+  "failed": 0,
+  "soft_failed": 0,
+  "dpos_result": "SKIPPED",
+  "artifacts": {
+    "dpos_report": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/dpos_livenet_report.json",
+    "dpos_log": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/dpos_livenet.log",
+    "wallets_file": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/wallets.txt",
+    "funding_csv": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/funding.csv",
+    "progress_log": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/progress.log",
+    "accept_log": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/tx_accept.log",
+    "fail_log": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/tx_fail.log",
+    "soft_fail_log": "/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2/tx_soft_fail.log"
+  }
+}

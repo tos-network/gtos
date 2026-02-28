@@ -1,0 +1,2 @@
+worker=1 from=0x4a41bfc9430cee81b59152191930f48e661d3a5928cdab4c1ff3ccda0e5665cd to=0x1f51eeb3823ed304894176570d1656200c80309b4befcf6942afeb6facbdc8fd started_at=2026-02-28T05:24:51Z
+worker=1 initial_nonce=93920

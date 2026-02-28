@@ -1,0 +1,2 @@
+profile	workers	duration_s	submitted	submit_tps	committed	committed_tps	finalized	finalized_tps	finality_depth	head_before	head_after_run	head_after_finalize	run_dir
+w2	2	222	0	0.0	0	0.0	0	0.0	12	197381	197999	198022	/home/tomi/gtos/benchmarks/transfer/matrix/20260228-053724/w2

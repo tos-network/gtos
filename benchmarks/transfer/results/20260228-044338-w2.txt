@@ -1,0 +1,13 @@
+==> plain transfer soak setup
+date: 2026-02-28T04:43:38Z
+out:  /home/tomi/gtos/benchmarks/transfer/results/20260228-044338-w2
+rpc:  http://127.0.0.1:8545
+ipc:  /data/gtos/node1/gtos.ipc
+duration: 90s (90s)
+skip dpos monitor: enabled
+funder=0x34f829b87c2adfde3589b1becfbdda06809cde36cb238811fe08ddd6476543b1
+funder_signer_type=elgamal
+tx_signer_type=secp256k1
+wallet_count=8
+unlocking wallets for 1890s
+funding wallets (value=0x38d7ea4c68000 per wallet)

@@ -1,0 +1,4 @@
+profile	workers	batch_size	avg_tps	total_txs	span_ms	output
+baseline-w4-b120	4	120				/home/tomi/gtos/benchmarks/transfer/results/20260228-044128-baseline-w4-b120.txt
+mid-w8-b120	8	120				/home/tomi/gtos/benchmarks/transfer/results/20260228-044128-mid-w8-b120.txt
+high-w12-b200	12	200				/home/tomi/gtos/benchmarks/transfer/results/20260228-044128-high-w12-b200.txt

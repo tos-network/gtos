@@ -1,0 +1,9 @@
+Starting benchmark node...
+Using account: 0xedfc95f8aacd36f525333a9951f1621a34e5858f2ad648fbb344a83a7bcddc69
+Datadir      : /tmp/gtos-tps-ZaNyQG
+Node log     : /tmp/gtos-tps-ZaNyQG/node.log
+Start block  : 0
+Load         : 12 workers, batch size 200, duration 20s
+Load finished, waiting for pending txs to be mined...
+End block    : 0
+No new blocks produced in benchmark window.

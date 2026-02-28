@@ -1,0 +1,4 @@
+profile	duration_s	wallets	workers	accepted	failed	soft_failed	accepted_tps	output
+w2	98	8	2	2250	0	0	22.96	/home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w2
+w4	99	8	4	3346	0	0	33.80	/home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w4
+w8	97	8	8	3217	0	3	33.16	/home/tomi/gtos/benchmarks/transfer/results/20260228-045559-w8

@@ -1,0 +1,3 @@
+worker=3 from=0xf36e474f3f17a5d213b53e81d0d3c33ff87b56c03cb8c4802fc276ecbf87749f to=0x033caed38e78cfc063350d89809f47abf6666e98f2b29494549a005d6969adba started_at=2026-02-28T06:03:12Z
+worker=3 initial_nonce=1808
+worker=3 attempts=936 ended_at=2026-02-28T06:04:15Z

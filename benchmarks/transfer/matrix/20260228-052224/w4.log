@@ -1,0 +1,16 @@
+==> plain transfer soak setup
+date: 2026-02-28T05:24:43Z
+out:  /home/tomi/gtos/benchmarks/transfer/matrix/20260228-052224/w4
+rpc:  http://127.0.0.1:8545
+ipc:  /data/gtos/node1/gtos.ipc
+duration: 120s (120s)
+skip dpos monitor: enabled
+funder=0x25e8750786adb41f9725d7bfc8dec9de30521661c53750b142a8ebfa68b85bbe
+funder_signer_type=elgamal
+tx_signer_type=secp256k1
+failed to create new wallet with signer secp256k1
+wallet_count=8
+unlocking wallets for 1920s
+funding wallets (value=0x38d7ea4c68000 per wallet)
+==> start concurrent transfer workers
+workers_started=4

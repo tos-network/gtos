@@ -1,0 +1,23 @@
+{
+  "duration_sec": 90,
+  "wall_duration_sec": 115,
+  "submitted": 1894,
+  "committed": 1905,
+  "finalized": 1905,
+  "submit_tps": 21.04,
+  "committed_tps": 21.17,
+  "finalized_tps": 21.17,
+  "finality_depth": 12,
+  "head_before": 200589,
+  "head_after_run": 200909,
+  "head_after_finalize": 200932,
+  "committed_range": [
+    200590,
+    200909
+  ],
+  "finalized_range": [
+    200590,
+    200909
+  ],
+  "finalized_limit_block": 200920
+}

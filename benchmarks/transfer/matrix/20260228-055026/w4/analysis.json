@@ -1,0 +1,14 @@
+{
+  "duration_sec": 115,
+  "submitted": 3668,
+  "committed": 2100,
+  "finalized": 2100,
+  "submit_tps": 31.9,
+  "committed_tps": 18.26,
+  "finalized_tps": 18.26,
+  "finality_depth": 12,
+  "head_before": 199236,
+  "head_after_run": 199558,
+  "head_after_finalize": 199580,
+  "finalized_limit_block": 199568
+}

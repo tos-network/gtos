@@ -1,0 +1,28 @@
+==> plain transfer soak setup
+date: 2026-02-28T05:54:42Z
+out:  /home/tomi/gtos/benchmarks/transfer/matrix/20260228-055026/w8
+rpc:  http://127.0.0.1:8545
+ipc:  /data/gtos/node1/gtos.ipc
+duration: 90s (90s)
+skip dpos monitor: enabled
+funder=0x25e8750786adb41f9725d7bfc8dec9de30521661c53750b142a8ebfa68b85bbe
+funder_signer_type=elgamal
+tx_signer_type=secp256k1
+wallet_count=12
+unlocking wallets for 1890s
+unlock failed 0x22b16116ed3e88f45626d3dd769da667fe6f09c5b88d26122c474a5062036a26
+unlock ok 0x12343a3a7ec761d7057a4c300d027f19597682bb208ab94cb970a728f06adcb0
+unlock ok 0xf36e474f3f17a5d213b53e81d0d3c33ff87b56c03cb8c4802fc276ecbf87749f
+unlock ok 0xab3a093dc34f30b7c93bd258cefc9a5bae0b99d46ddecab10114f59ed0637b71
+unlock ok 0xf3a6d742546e4787767beed046ed488a5b9abcb5a9095ac7cba870ffc8924a88
+unlock ok 0x4b1778ad0f35971be42b3d8323fa5c93caa10c3bf139de9ee49b73e25fb2d88d
+unlock ok 0x36ef44af9761ae41a5b926c1e7182d2e3ffe69869a4f9b0510b01be95a2ee4bf
+unlock ok 0x033caed38e78cfc063350d89809f47abf6666e98f2b29494549a005d6969adba
+unlock ok 0x9694e6d586ca8384ec2109d6b516c4a41604690d1f211e70f8ac95060600670e
+unlock ok 0xf9c8e13134169b77807840b48266fb81144f529d8b867a57fba9620a00dc9dc5
+unlock ok 0x4a41bfc9430cee81b59152191930f48e661d3a5928cdab4c1ff3ccda0e5665cd
+unlock ok 0x5852ebe2277beaf6aa5fc91ca7447c2f1ffdc4896e419d36600b9929c938a05f
+wallet_count_unlocked=11
+funding wallets (value=0x38d7ea4c68000 per wallet)
+==> start concurrent transfer workers
+workers_started=8
