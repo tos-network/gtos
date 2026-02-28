@@ -257,35 +257,52 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 
 // ── Standard ABI encoding (abi.encode) ───────────────────────────────────────
 
-// luaABIEncode implements abi.encode("type", val, ...) → "0x" hex.
-// Delegates to accounts/abi Arguments.Pack for spec-correct ABI encoding.
-func luaABIEncode(L *lua.LState) int {
-	nargs := L.GetTop()
+// luaABIEncodeBytes encodes Lua arguments starting at startArg (1-based) into
+// raw ABI bytes. Arguments are (type-string, value) pairs. Returns empty slice
+// if no type-value pairs are provided.
+//
+// This is the shared engine used by both luaABIEncode (which adds "0x" prefix)
+// and tos.emit (which uses the raw bytes as log data).
+func luaABIEncodeBytes(L *lua.LState, startArg int) ([]byte, error) {
+	nargs := L.GetTop() - (startArg - 1)
+	if nargs < 0 {
+		nargs = 0
+	}
+	if nargs == 0 {
+		return []byte{}, nil
+	}
 	if nargs%2 != 0 {
-		L.RaiseError("abi.encode: expected (type, value) pairs, got %d args", nargs)
-		return 0
+		return nil, fmt.Errorf("expected (type, value) pairs, got %d args", nargs)
 	}
 	n := nargs / 2
 	args := make(abi.Arguments, n)
 	vals := make([]interface{}, n)
 
 	for i := 0; i < n; i++ {
-		typStr := L.CheckString(i*2 + 1)
+		typStr := L.CheckString(startArg + i*2)
 		typ, err := abi.NewType(typStr, "", nil)
 		if err != nil {
-			L.RaiseError("abi.encode: invalid type %q: %v", typStr, err)
-			return 0
+			return nil, fmt.Errorf("invalid type %q: %v", typStr, err)
 		}
 		args[i] = abi.Argument{Type: typ}
-		goVal, err := abiLuaToGo(typ, L.CheckAny(i*2+2))
+		goVal, err := abiLuaToGo(typ, L.CheckAny(startArg+i*2+1))
 		if err != nil {
-			L.RaiseError("abi.encode arg %d (%s): %v", i+1, typStr, err)
-			return 0
+			return nil, fmt.Errorf("arg %d (%s): %v", i+1, typStr, err)
 		}
 		vals[i] = goVal
 	}
 
 	packed, err := args.Pack(vals...)
+	if err != nil {
+		return nil, err
+	}
+	return packed, nil
+}
+
+// luaABIEncode implements abi.encode("type", val, ...) → "0x" hex.
+// Delegates to accounts/abi Arguments.Pack for spec-correct ABI encoding.
+func luaABIEncode(L *lua.LState) int {
+	packed, err := luaABIEncodeBytes(L, 1)
 	if err != nil {
 		L.RaiseError("abi.encode: %v", err)
 		return 0

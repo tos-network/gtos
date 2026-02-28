@@ -706,3 +706,276 @@ func TestLuaContractABIEdgeCases(t *testing.T) {
 	defer cleanup()
 	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
+
+// runLuaTxGetReceipt is like runLuaTxWithData but also returns the receipt so
+// callers can inspect logs, status, etc.
+func runLuaTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
+	t.Helper()
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	block := blocks[0]
+	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+	if len(receipts) == 0 {
+		t.Fatal("no receipts found for block")
+	}
+	if receipts[0].Status != types.ReceiptStatusSuccessful {
+		t.Fatalf("Lua contract execution failed (receipt status=%d)", receipts[0].Status)
+	}
+	return receipts[0]
+}
+
+// TestLuaContractEmit verifies tos.emit produces correct receipt logs.
+//
+// Checks:
+//   - topic[0] == keccak256(eventName)
+//   - data == ABI-encoded payload
+//   - multiple events in one execution each appear in logs
+//   - emit with no data produces empty Data bytes
+func TestLuaContractEmit(t *testing.T) {
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	t.Run("single_event_no_data", func(t *testing.T) {
+		const code = `tos.emit("Ping")`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		wantTopic := crypto.Keccak256Hash([]byte("Ping"))
+		if log.Topics[0] != wantTopic {
+			t.Errorf("topic[0]: got %s, want %s", log.Topics[0].Hex(), wantTopic.Hex())
+		}
+		if len(log.Data) != 0 {
+			t.Errorf("expected empty data, got %x", log.Data)
+		}
+		if log.Address != contractAddr {
+			t.Errorf("log.Address: got %s, want %s", log.Address.Hex(), contractAddr.Hex())
+		}
+	})
+
+	t.Run("event_with_uint256_payload", func(t *testing.T) {
+		const code = `tos.emit("Transfer", "uint256", 42)`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		wantTopic := crypto.Keccak256Hash([]byte("Transfer"))
+		if log.Topics[0] != wantTopic {
+			t.Errorf("topic[0] mismatch")
+		}
+		// ABI-encoded uint256(42) = 32 bytes, big-endian.
+		if len(log.Data) != 32 {
+			t.Fatalf("expected 32 bytes of data, got %d", len(log.Data))
+		}
+		if log.Data[31] != 42 {
+			t.Errorf("expected data[31]=42, got %d", log.Data[31])
+		}
+	})
+
+	t.Run("event_with_address_and_uint256", func(t *testing.T) {
+		// Emit a Transfer(address from, address to, uint256 value) event.
+		const code = `
+			local recipient = "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF"
+			tos.emit("Transfer", "address", tos.caller, "address", recipient, "uint256", 1000)
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
+		}
+		log := receipt.Logs[0]
+		wantTopic := crypto.Keccak256Hash([]byte("Transfer"))
+		if log.Topics[0] != wantTopic {
+			t.Errorf("topic[0] mismatch")
+		}
+		// data = ABI-encode(address caller, address recipient, uint256 1000)
+		// GTOS addresses are 32 bytes; ABI encodes each as a full 32-byte slot.
+		// = 3 × 32 bytes = 96 bytes total
+		if len(log.Data) != 96 {
+			t.Fatalf("expected 96 bytes data, got %d", len(log.Data))
+		}
+		// First 32 bytes: addr1 (full 32-byte GTOS address, no zero-padding).
+		if common.BytesToAddress(log.Data[0:32]) != addr1 {
+			t.Errorf("from address mismatch in log data: got %s want %s",
+				common.BytesToAddress(log.Data[0:32]).Hex(), addr1.Hex())
+		}
+		// Third 32 bytes: value 1000 in last byte
+		if log.Data[95] != 232 { // 1000 & 0xff = 232
+			t.Errorf("expected data[95]=232 (1000 low byte), got %d", log.Data[95])
+		}
+	})
+
+	t.Run("multiple_events", func(t *testing.T) {
+		const code = `
+			tos.emit("Event1")
+			tos.emit("Event2")
+			tos.emit("Event3", "uint256", 99)
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) != 3 {
+			t.Fatalf("expected 3 logs, got %d", len(receipt.Logs))
+		}
+		names := []string{"Event1", "Event2", "Event3"}
+		for i, name := range names {
+			wantTopic := crypto.Keccak256Hash([]byte(name))
+			if receipt.Logs[i].Topics[0] != wantTopic {
+				t.Errorf("log[%d] topic mismatch: got %s", i, receipt.Logs[i].Topics[0].Hex())
+			}
+		}
+	})
+
+	t.Run("emit_revert_clears_logs", func(t *testing.T) {
+		// Logs emitted before a revert must be discarded (snapshot revert).
+		const code = `
+			tos.emit("ShouldNotAppear")
+			tos.revert("oops")
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		// Transaction failed → logs must be empty.
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Errorf("expected status=0 (failed), got %d", receipts[0].Status)
+		}
+		if len(receipts[0].Logs) != 0 {
+			t.Errorf("expected 0 logs after revert, got %d", len(receipts[0].Logs))
+		}
+	})
+}
+
+// TestLuaContractStrStorage verifies tos.setStr / tos.getStr.
+//
+// Checks:
+//   - nil returned for unset key
+//   - short string (fits in one 32-byte chunk)
+//   - exact 32-byte string (single full chunk)
+//   - long string spanning multiple chunks
+//   - overwrite replaces previous value
+func TestLuaContractStrStorage(t *testing.T) {
+	t.Run("unset_returns_nil", func(t *testing.T) {
+		const code = `
+			local v = tos.getStr("missing")
+			assert(v == nil, "expected nil for unset key, got: " .. tostring(v))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("short_string_roundtrip", func(t *testing.T) {
+		const code = `
+			tos.setStr("greeting", "hello, world!")
+			local v = tos.getStr("greeting")
+			assert(v == "hello, world!", "roundtrip: " .. tostring(v))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("exact_32_byte_string", func(t *testing.T) {
+		// Exactly 32 bytes: fills exactly one storage slot.
+		const code = `
+			local s = string.rep("A", 32)
+			tos.setStr("key32", s)
+			local v = tos.getStr("key32")
+			assert(v == s, "32-byte roundtrip failed: len=" .. #v)
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("long_string_multi_chunk", func(t *testing.T) {
+		// 100 bytes: spans 4 chunks (32+32+32+4).
+		const code = `
+			local s = string.rep("XY", 50)   -- 100 chars
+			tos.setStr("long", s)
+			local v = tos.getStr("long")
+			assert(#v == 100, "length: " .. #v)
+			assert(v == s, "content mismatch")
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("overwrite", func(t *testing.T) {
+		const code = `
+			tos.setStr("k", "first")
+			tos.setStr("k", "second")
+			local v = tos.getStr("k")
+			assert(v == "second", "overwrite: " .. tostring(v))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("empty_string", func(t *testing.T) {
+		const code = `
+			tos.setStr("e", "")
+			local v = tos.getStr("e")
+			assert(v == "", "empty: got " .. tostring(v))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("independent_keys", func(t *testing.T) {
+		const code = `
+			tos.setStr("a", "alpha")
+			tos.setStr("b", "beta")
+			assert(tos.getStr("a") == "alpha", "a")
+			assert(tos.getStr("b") == "beta",  "b")
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+
+	t.Run("str_and_uint_namespaces_separate", func(t *testing.T) {
+		// tos.set("x", 99) and tos.setStr("x", "hello") must not collide.
+		const code = `
+			tos.set("x", 99)
+			tos.setStr("x", "hello")
+			assert(tos.get("x") == 99, "uint slot corrupted: " .. tostring(tos.get("x")))
+			assert(tos.getStr("x") == "hello", "str slot corrupted: " .. tostring(tos.getStr("x")))
+		`
+		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	})
+}

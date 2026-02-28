@@ -2,11 +2,13 @@ package core
 
 import (
 	gosha256 "crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	lua "github.com/tos-network/gopher-lua"
 )
@@ -37,6 +39,22 @@ func luaParseBigInt(L *lua.LState, n int) *big.Int {
 // metadata slots (gtos.setCode.*).
 func luaStorageSlot(key string) common.Hash {
 	return crypto.Keccak256Hash(append([]byte("gtos.lua.storage."), key...))
+}
+
+// luaStrLenSlot returns the slot that holds the byte-length of a string value.
+// It is distinct from the uint256 storage namespace ("gtos.lua.storage.").
+func luaStrLenSlot(key string) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("gtos.lua.str."), key...))
+}
+
+// luaStrChunkSlot returns the slot for chunk i (0-based) of a stored string.
+// The slot is derived from the base (length) slot and the 4-byte chunk index,
+// making it independent of any character in key (no delimiter injection risk).
+func luaStrChunkSlot(base common.Hash, i int) common.Hash {
+	var b [36]byte
+	copy(b[:32], base[:])
+	binary.BigEndian.PutUint32(b[32:], uint32(i))
+	return crypto.Keccak256Hash(b[:])
 }
 
 // applyLua executes the Lua contract stored at the destination address.
@@ -367,6 +385,91 @@ func (st *StateTransition) applyLua(src []byte) error {
 
 	// tos.self → string  (this contract's own address, like Solidity address(this))
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
+
+	// tos.emit(eventName, "type1", val1, "type2", val2, ...)
+	//   Emits a structured event into the transaction receipt logs.
+	//
+	//   topic[0] = keccak256(eventName)  — identifies the event type.
+	//   data     = abi.encode(type-value pairs)  — ABI-encoded non-indexed fields.
+	//
+	//   Events are visible in receipts and can be indexed by standard Ethereum
+	//   tooling (topic0 = event signature hash, data = ABI-encoded payload).
+	//
+	//   Example:
+	//     tos.emit("Transfer", "address", tos.caller, "address", recipient, "uint256", amount)
+	L.SetField(tosTable, "emit", L.NewFunction(func(L *lua.LState) int {
+		eventName := L.CheckString(1)
+		topic0 := crypto.Keccak256Hash([]byte(eventName))
+		data, err := luaABIEncodeBytes(L, 2)
+		if err != nil {
+			L.RaiseError("tos.emit: %v", err)
+			return 0
+		}
+		st.state.AddLog(&types.Log{
+			Address: contractAddr,
+			Topics:  []common.Hash{topic0},
+			Data:    data,
+		})
+		return 0
+	}))
+
+	// tos.setStr(key, val)
+	//   Stores an arbitrary UTF-8 string in contract storage.
+	//   The string length is stored in the "length slot"; data is packed into
+	//   consecutive 32-byte "chunk slots" derived deterministically from the key.
+	//   No length limit is enforced here; very large strings consume many slots
+	//   and therefore consume proportionally more gas (Phase 3 will meter this).
+	L.SetField(tosTable, "setStr", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		val := L.CheckString(2)
+		data := []byte(val)
+
+		base := luaStrLenSlot(key)
+
+		// Store (byte-length + 1) at the base slot (big-endian uint64 in high bytes).
+		// Adding 1 distinguishes "empty string" (slot=1) from "key not set" (slot=0).
+		var lenSlot common.Hash
+		binary.BigEndian.PutUint64(lenSlot[24:], uint64(len(data))+1)
+		st.state.SetState(contractAddr, base, lenSlot)
+
+		// Store data packed into 32-byte chunks.
+		for i := 0; i < len(data); i += 32 {
+			chunk := data[i:]
+			if len(chunk) > 32 {
+				chunk = chunk[:32]
+			}
+			var slot common.Hash
+			copy(slot[:], chunk)
+			st.state.SetState(contractAddr, luaStrChunkSlot(base, i/32), slot)
+		}
+		return 0
+	}))
+
+	// tos.getStr(key) → string | nil
+	//   Reads a string previously stored with tos.setStr.
+	//   Returns nil if the key has never been set.
+	L.SetField(tosTable, "getStr", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(1)
+		base := luaStrLenSlot(key)
+
+		// Read length.
+		lenSlot := st.state.GetState(contractAddr, base)
+		if lenSlot == (common.Hash{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		// Stored value is length+1; slot==0 means "not set" (handled above).
+		length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+
+		// Read and reassemble chunks.
+		data := make([]byte, length)
+		for i := 0; i < int(length); i += 32 {
+			slot := st.state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
+			copy(data[i:], slot[:])
+		}
+		L.Push(lua.LString(string(data)))
+		return 1
+	}))
 
 	L.SetGlobal("tos", tosTable)
 
