@@ -282,8 +282,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				// Data with no contract code at destination: reject
 				vmerr = ErrContractNotSupported
 			} else if len(toCode) > 0 {
-				// Destination has contract code: reject (no TVM execution)
-				vmerr = ErrContractNotSupported
+				// Destination has Lua contract code: execute it.
+				vmerr = st.applyLua(toCode)
 			} else {
 				// Plain TOS transfer
 				if msg.Value().Sign() > 0 {

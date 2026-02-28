@@ -10,6 +10,17 @@ import (
 	"github.com/tos-network/gtos/crypto"
 )
 
+// writeBufSnapshot is a point-in-time copy of all overlay maps, used to
+// support Snapshot/RevertToSnapshot for Lua contract execution.
+type writeBufSnapshot struct {
+	balances map[common.Address]*big.Int
+	nonces   map[common.Address]uint64
+	codes    map[common.Address][]byte
+	storage  map[common.Address]map[common.Hash]common.Hash
+	created  map[common.Address]bool
+	logLen   int
+}
+
 // WriteBufStateDB implements vm.StateDB, wrapping a frozen read-only parent snapshot.
 // Reads are served from a local overlay first, then the parent.
 // Writes go to the local overlay only.
@@ -25,6 +36,8 @@ type WriteBufStateDB struct {
 	codes    map[common.Address][]byte
 	storage  map[common.Address]map[common.Hash]common.Hash
 	created  map[common.Address]bool
+
+	snapshots []writeBufSnapshot
 
 	// tx context for log attribution
 	txHash  common.Hash
@@ -204,8 +217,59 @@ func (b *WriteBufStateDB) AddRefund(_ uint64)                   {}
 func (b *WriteBufStateDB) SubRefund(_ uint64)                   {}
 func (b *WriteBufStateDB) GetRefund() uint64                    { return 0 }
 func (b *WriteBufStateDB) AddPreimage(_ common.Hash, _ []byte)  {}
-func (b *WriteBufStateDB) Snapshot() int                        { return 0 }
-func (b *WriteBufStateDB) RevertToSnapshot(_ int)               {}
+// Snapshot captures a deep copy of the current overlay state and returns an
+// opaque ID that can be passed to RevertToSnapshot. Used by applyLua to undo
+// state changes when a Lua contract reverts.
+func (b *WriteBufStateDB) Snapshot() int {
+	snap := writeBufSnapshot{
+		balances: make(map[common.Address]*big.Int, len(b.balances)),
+		nonces:   make(map[common.Address]uint64, len(b.nonces)),
+		codes:    make(map[common.Address][]byte, len(b.codes)),
+		storage:  make(map[common.Address]map[common.Hash]common.Hash, len(b.storage)),
+		created:  make(map[common.Address]bool, len(b.created)),
+		logLen:   len(b.logs),
+	}
+	for addr, bal := range b.balances {
+		snap.balances[addr] = new(big.Int).Set(bal)
+	}
+	for addr, n := range b.nonces {
+		snap.nonces[addr] = n
+	}
+	for addr, code := range b.codes {
+		cp := make([]byte, len(code))
+		copy(cp, code)
+		snap.codes[addr] = cp
+	}
+	for addr, slots := range b.storage {
+		snapSlots := make(map[common.Hash]common.Hash, len(slots))
+		for k, v := range slots {
+			snapSlots[k] = v
+		}
+		snap.storage[addr] = snapSlots
+	}
+	for addr, v := range b.created {
+		snap.created[addr] = v
+	}
+	id := len(b.snapshots)
+	b.snapshots = append(b.snapshots, snap)
+	return id
+}
+
+// RevertToSnapshot restores the overlay to the state captured by Snapshot(id).
+// All snapshots taken after id are discarded.
+func (b *WriteBufStateDB) RevertToSnapshot(id int) {
+	if id >= len(b.snapshots) {
+		return
+	}
+	snap := b.snapshots[id]
+	b.balances = snap.balances
+	b.nonces = snap.nonces
+	b.codes = snap.codes
+	b.storage = snap.storage
+	b.created = snap.created
+	b.logs = b.logs[:snap.logLen]
+	b.snapshots = b.snapshots[:id]
+}
 
 func (b *WriteBufStateDB) PrepareAccessList(_ common.Address, _ *common.Address, _ []common.Address, _ types.AccessList) {
 }
