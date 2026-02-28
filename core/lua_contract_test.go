@@ -2019,3 +2019,163 @@ func TestLuaContractCall(t *testing.T) {
 		}
 	})
 }
+
+// TestLuaContractCallResult tests tos.result() — callee sets return data that
+// the caller receives as the second value of tos.call().
+func TestLuaContractCallResult(t *testing.T) {
+	t.Run("uint256_return", func(t *testing.T) {
+		// B returns a uint256; A decodes it and emits it.
+		codeB := `tos.result("uint256", 12345)`
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.call(%q)
+			tos.require(ok, "call failed")
+			local val = tos.abi.decode(data, "uint256")
+			tos.emit("Got", "uint256", val)
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Got log, got 0")
+		}
+		got := new(big.Int).SetBytes(receipt.Logs[0].Data)
+		if got.Int64() != 12345 {
+			t.Errorf("Got: want 12345, got %s", got)
+		}
+	})
+
+	t.Run("dispatch_with_result", func(t *testing.T) {
+		// B dispatches getBalance(address) and returns caller's balance.
+		// A calls B via calldata and decodes the returned balance.
+		codeB := `
+			tos.dispatch({
+				["getBalance(address)"] = function(addr)
+					tos.result("uint256", tos.balance(addr))
+				end,
+			})
+		`
+		oneTOS := new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS))
+		codeA := fmt.Sprintf(`
+			local sel  = tos.selector("getBalance(address)")
+			local enc  = tos.abi.encode("address", tos.self)
+			local data = sel .. string.sub(enc, 3)
+			local ok, ret = tos.call(%q, 0, data)
+			tos.require(ok, "call failed")
+			local bal = tos.abi.decode(ret, "uint256")
+			tos.emit("Balance", "uint256", bal)
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Balance log, got 0")
+		}
+		gotBal := new(big.Int).SetBytes(receipt.Logs[0].Data)
+		if gotBal.Cmp(oneTOS) != 0 {
+			t.Errorf("Balance: want %s (1 TOS), got %s", oneTOS, gotBal)
+		}
+	})
+
+	t.Run("no_result_gives_nil", func(t *testing.T) {
+		// B does not call tos.result(); caller's second return value is nil.
+		// A stores 0 if data is nil, 1 if data is a string.
+		codeB := `tos.set("ran", 1)` // no tos.result()
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.call(%q)
+			tos.require(ok, "call failed")
+			if data == nil then
+				tos.emit("HasData", "uint256", 0)
+			else
+				tos.emit("HasData", "uint256", 1)
+			end
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected HasData log, got 0")
+		}
+		if receipt.Logs[0].Data[31] != 0 {
+			t.Errorf("HasData: want 0 (nil), got %d", receipt.Logs[0].Data[31])
+		}
+	})
+
+	t.Run("result_after_state_write_committed", func(t *testing.T) {
+		// B writes storage AND calls tos.result() — the write must be committed
+		// (tos.result is a clean return, not a revert).
+		codeB := `
+			tos.set("written", 77)
+			tos.result("uint256", 1)
+		`
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.call(%q)
+			tos.require(ok, "call failed")
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLuaTx(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0))
+
+		state, _ := bc.State()
+		slot := state.GetState(contractAddrB, luaStorageSlot("written"))
+		if slot[31] != 77 {
+			t.Errorf("B.written: want 77, got %d", slot[31])
+		}
+	})
+
+	t.Run("revert_after_result_discards_result", func(t *testing.T) {
+		// B calls tos.result() then tos.revert() — revert wins; caller gets false/nil.
+		// This cannot happen in practice (tos.result raises a signal that stops
+		// execution), but we verify the isolation guarantee holds.
+		// Actually: tos.result() raises the sentinel which stops execution, so
+		// tos.revert() after it never runs. We test the opposite ordering:
+		// B writes, then tos.revert() — result is nil, state is reverted.
+		codeB := `
+			tos.set("shouldNotExist", 1)
+			tos.revert("bailing out")
+		`
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.call(%q)
+			-- ok must be false; data must be nil
+			if ok then tos.revert("expected false") end
+			if data ~= nil then tos.revert("expected nil data") end
+			tos.emit("OK", "uint256", 1)
+		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		receipt := runLuaTxGetReceipt(t, bc,
+			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
+			big.NewInt(0), nil)
+
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected OK log, got 0")
+		}
+
+		// B's storage write must be absent (reverted).
+		state, _ := bc.State()
+		slot := state.GetState(contractAddrB, luaStorageSlot("shouldNotExist"))
+		if slot != (common.Hash{}) {
+			t.Errorf("B.shouldNotExist: want zero (reverted), got %x", slot)
+		}
+	})
+}

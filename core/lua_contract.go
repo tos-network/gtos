@@ -18,6 +18,11 @@ import (
 // Lua call frames are heavier than EVM frames.
 const luaMaxCallDepth = 8
 
+// luaResultSignal is the sentinel raised by tos.result() to signal a clean
+// return (not an error).  It is long and prefixed to minimise collision with
+// user Lua code that might call error() with an arbitrary string.
+const luaResultSignal = "__tos_internal_result__"
+
 // luaCallCtx is the per-invocation execution context for a Lua contract call.
 // Top-level calls initialise it from StateTransition.msg; nested tos.call
 // invocations override from/to/value/data while keeping txOrigin/txPrice
@@ -96,12 +101,14 @@ func luaArrElemSlot(base common.Hash, i uint64) common.Hash {
 // executeLuaVM runs Lua source code `src` in a fresh Lua state under the given
 // call context, limited to `gasLimit` VM opcodes.
 //
-// Returns (total opcodes consumed including nested calls, execution error).
+// Returns (total opcodes consumed including nested calls, return data, error).
+// returnData is non-nil only when the callee called tos.result(); in that
+// case err is nil (a clean return is not an error).
 //
 // Callers are responsible for StateDB snapshot/revert; this function does not
 // modify snapshot state itself (tos.call takes its own inner snapshot for
 // callee isolation).
-func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint64) (uint64, error) {
+func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint64) (uint64, []byte, error) {
 	contractAddr := ctx.to
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
@@ -112,6 +119,12 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// invocations at this call level (not recursively — each level tracks its
 	// own children separately).
 	var totalChildGas uint64
+
+	// capturedResult holds ABI-encoded return data set by tos.result().
+	// hasResult gates the luaResultSignal check so user code can't spoof it
+	// by calling error(luaResultSignal) directly.
+	var capturedResult []byte
+	var hasResult bool
 
 	// ── "tos" module ──────────────────────────────────────────────────────────
 	tosTable := L.NewTable()
@@ -609,10 +622,13 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// ── Inter-contract call ────────────────────────────────────────────────────
 
-	// tos.call(addr [, value [, calldata]]) → bool
+	// tos.call(addr [, value [, calldata]]) → bool, string|nil
 	//
 	// Calls another Lua contract with optional value forwarding and calldata.
-	// Returns true on success, false if the callee reverts.
+	// Returns two values:
+	//   ok       (bool)        — true on success, false if callee reverts
+	//   retdata  (string|nil)  — ABI-encoded hex set by callee's tos.result(),
+	//                            or nil if callee did not call tos.result()
 	//
 	// Semantics (Solidity low-level call equivalent):
 	//   • Callee's code runs in a new Lua VM with its own gas budget.
@@ -624,11 +640,12 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	//   • Nesting limited to luaMaxCallDepth (8) levels; deeper calls revert.
 	//
 	// If the target address has no code, tos.call acts as a plain TOS transfer
-	// (returns true on success, false if caller's balance is insufficient).
+	// (returns true/nil on success, false/nil if caller's balance is insufficient).
 	//
 	// Example:
-	//   local ok = tos.call(tokenAddr, 0, calldata)
+	//   local ok, data = tos.call(tokenAddr, 0, calldata)
 	//   tos.require(ok, "token call failed")
+	//   local bal = tos.abi.decode(data, "uint256")
 	L.SetField(tosTable, "call", L.NewFunction(func(L *lua.LState) int {
 		if ctx.depth >= luaMaxCallDepth {
 			L.RaiseError("tos.call: max call depth (%d) exceeded", luaMaxCallDepth)
@@ -670,16 +687,18 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			if !st.blockCtx.CanTransfer(st.state, contractAddr, callValue) {
 				// Insufficient balance: soft failure (do not revert snapshot).
 				L.Push(lua.LFalse)
-				return 1
+				L.Push(lua.LNil)
+				return 2
 			}
 			st.blockCtx.Transfer(st.state, contractAddr, calleeAddr, callValue)
 		}
 
-		// If no code, plain transfer succeeded.
+		// If no code, plain transfer succeeded (no return data).
 		calleeCode := st.state.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
 			L.Push(lua.LTrue)
-			return 1
+			L.Push(lua.LNil)
+			return 2
 		}
 
 		// Build child context: msg.sender = this contract, tx.origin unchanged.
@@ -693,7 +712,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			txPrice:  ctx.txPrice,
 		}
 
-		childGasUsed, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
+		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
 		totalChildGas += childGasUsed
 
 		// Recalculate remaining and update parent gas limit so the parent
@@ -710,11 +729,17 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			// Revert callee's state changes; caller's changes are preserved.
 			st.state.RevertToSnapshot(calleeSnap)
 			L.Push(lua.LFalse)
-			return 1
+			L.Push(lua.LNil)
+			return 2
 		}
 
 		L.Push(lua.LTrue)
-		return 1
+		if len(childReturnData) > 0 {
+			L.Push(lua.LString("0x" + common.Bytes2Hex(childReturnData)))
+		} else {
+			L.Push(lua.LNil)
+		}
+		return 2
 	}))
 
 	// ── Selector / Dispatch ────────────────────────────────────────────────────
@@ -894,6 +919,45 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 1
 	}))
 
+	// ── Return data ───────────────────────────────────────────────────────────
+
+	// tos.result("type1", val1, ...)
+	//   Sets the ABI-encoded return data for this call and immediately stops
+	//   execution.  The caller receives the data as the second return value of
+	//   tos.call().
+	//
+	//   Behaviour is analogous to Solidity's `return` statement:
+	//   state changes are committed (not reverted), gas used is accounted, and
+	//   the encoded data is delivered to the caller.
+	//
+	//   Note: `return` is a Lua keyword; use `tos.result(...)` instead.
+	//
+	//   Example (callee):
+	//     tos.dispatch({
+	//       ["balanceOf(address)"] = function(addr)
+	//         tos.result("uint256", tos.balance(addr))
+	//       end,
+	//     })
+	//
+	//   Example (caller):
+	//     local sel  = tos.selector("balanceOf(address)")
+	//     local ok, data = tos.call(tokenAddr, 0, sel)
+	//     tos.require(ok, "balanceOf failed")
+	//     local bal = tos.abi.decode(data, "uint256")
+	L.SetField(tosTable, "result", L.NewFunction(func(L *lua.LState) int {
+		data, err := luaABIEncodeBytes(L, 1)
+		if err != nil {
+			L.RaiseError("tos.result: %v", err)
+			return 0
+		}
+		capturedResult = data
+		hasResult = true
+		// Raise the sentinel to stop execution cleanly.
+		// executeLuaVM catches this and converts it to a (data, nil) return.
+		L.RaiseError(luaResultSignal)
+		return 0
+	}))
+
 	// ── Inject globals ────────────────────────────────────────────────────────
 
 	L.SetGlobal("tos", tosTable)
@@ -909,9 +973,14 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// ── Execute ───────────────────────────────────────────────────────────────
 
 	if err := L.DoString(string(src)); err != nil {
-		return L.GasUsed() + totalChildGas, err
+		total := L.GasUsed() + totalChildGas
+		// Check for clean return via tos.result().
+		if hasResult && strings.Contains(err.Error(), luaResultSignal) {
+			return total, capturedResult, nil
+		}
+		return total, nil, err
 	}
-	return L.GasUsed() + totalChildGas, nil
+	return L.GasUsed() + totalChildGas, nil, nil
 }
 
 // applyLua executes the Lua contract stored at the destination address.
@@ -949,7 +1018,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 		txPrice:  st.txPrice,
 	}
 
-	gasUsed, err := executeLuaVM(st, ctx, src, st.gas)
+	gasUsed, _, err := executeLuaVM(st, ctx, src, st.gas)
 	if err != nil {
 		st.state.RevertToSnapshot(snapshot)
 		if strings.Contains(err.Error(), "gas limit exceeded") {
