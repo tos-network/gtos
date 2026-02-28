@@ -710,6 +710,64 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// tos.self → string  (this contract's own address)
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
 
+	// ── Address utilities + constants ─────────────────────────────────────────
+
+	// tos.ZERO_ADDRESS  — the all-zeros address "0x0000...0000" (20 bytes).
+	// Equivalent to Solidity's address(0).
+	//
+	//   require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
+	L.SetField(tosTable, "ZERO_ADDRESS", lua.LString(common.Address{}.Hex()))
+
+	// tos.MAX_UINT256  — 2^256 − 1 as a decimal string.
+	// Equivalent to Solidity's type(uint256).max.
+	//
+	//   allow[owner][spender] = tos.MAX_UINT256  -- unlimited approval
+	{
+		max := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+		L.SetField(tosTable, "MAX_UINT256", lua.LNumber(max.Text(10)))
+	}
+
+	// tos.isAddress(str) → bool
+	//   Returns true if str is a syntactically valid Ethereum address:
+	//   optional "0x"/"0X" prefix followed by exactly 40 hex characters.
+	//   Does NOT check whether the address has deployed code or a non-zero balance.
+	//
+	//   require(tos.isAddress(to), "invalid address")
+	L.SetField(tosTable, "isAddress", L.NewFunction(func(L *lua.LState) int {
+		s := strings.TrimPrefix(L.CheckString(1), "0x")
+		s = strings.TrimPrefix(s, "0X")
+		// TOS addresses are 32 bytes = 64 hex chars (common.AddressLength == 32).
+		if len(s) != 2*common.AddressLength {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		for _, c := range s {
+			if !('0' <= c && c <= '9') && !('a' <= c && c <= 'f') && !('A' <= c && c <= 'F') {
+				L.Push(lua.LFalse)
+				return 1
+			}
+		}
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// tos.toAddress(str) → string
+	//   Normalise any hex string to a canonical lowercase "0x"-prefixed 20-byte
+	//   address string.  Short inputs are zero-padded on the left; extra leading
+	//   zeros are stripped.  Equivalent to Solidity's address(uint160(x)).
+	//
+	//   Useful to ensure consistent storage keys regardless of how callers format
+	//   addresses:
+	//
+	//     local key = tos.toAddress(raw)
+	//     tos.mapSet("balance", key, amount)
+	L.SetField(tosTable, "toAddress", L.NewFunction(func(L *lua.LState) int {
+		s := L.CheckString(1)
+		addr := common.HexToAddress(s)
+		L.Push(lua.LString(addr.Hex()))
+		return 1
+	}))
+
 	// ── Constructor / one-time initializer ────────────────────────────────────
 
 	// tos.oncreate(fn)

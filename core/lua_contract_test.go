@@ -3356,3 +3356,112 @@ func TestLuaContractBytes(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 	})
 }
+
+// TestLuaContractAddressUtils tests tos.ZERO_ADDRESS, tos.MAX_UINT256,
+// tos.isAddress(), and tos.toAddress().
+func TestLuaContractAddressUtils(t *testing.T) {
+	t.Run("ZERO_ADDRESS", func(t *testing.T) {
+		// TOS addresses are 32 bytes = 64 hex chars.
+		want := common.Address{}.Hex() // "0x" + 64 zeros
+		code := fmt.Sprintf(`
+			assert(tos.ZERO_ADDRESS == %q,
+				"ZERO_ADDRESS: " .. tostring(tos.ZERO_ADDRESS))
+			assert(#tos.ZERO_ADDRESS == 66, "ZERO_ADDRESS must be 66 chars (0x + 64)")
+		`, want)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("MAX_UINT256", func(t *testing.T) {
+		max := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+		// tos.MAX_UINT256 is LNumber; compare with a number literal (also LNumber).
+		// MAX_UINT256 + 1 wraps to 0 (mod 2^256).
+		code := fmt.Sprintf(`
+			assert(tos.MAX_UINT256 + 1 == 0, "MAX_UINT256 + 1 should wrap to 0")
+			assert(tos.MAX_UINT256 == %s, "MAX_UINT256 value mismatch")
+		`, max.Text(10))
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("isAddress_valid", func(t *testing.T) {
+		// TOS addresses are 32 bytes = 64 hex chars after "0x".
+		addr64 := strings.Repeat("ab", 32) // 64 hex chars
+		code := fmt.Sprintf(`
+			assert(tos.isAddress(%q) == true, "64 hex + 0x")
+			assert(tos.isAddress(%q) == true, "64 hex bare")
+			assert(tos.isAddress(tos.ZERO_ADDRESS) == true, "zero address is valid")
+			assert(tos.isAddress(tos.self) == true, "self is valid")
+		`, "0x"+addr64, addr64)
+		bc, addr2, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr2, big.NewInt(0))
+	})
+
+	t.Run("isAddress_invalid", func(t *testing.T) {
+		code := fmt.Sprintf(`
+			assert(tos.isAddress("") == false, "empty")
+			assert(tos.isAddress("0x") == false, "0x only")
+			assert(tos.isAddress("0x1234") == false, "too short")
+			assert(tos.isAddress("0x" .. string.rep("0", 65)) == false, "65 hex digits")
+			assert(tos.isAddress("0x" .. string.rep("g", 64)) == false, "non-hex chars")
+			assert(tos.isAddress("hello") == false, "plaintext")
+		`)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("toAddress_normalises", func(t *testing.T) {
+		// Use a 64-hex-char address (TOS 32-byte format).
+		raw := "0x" + strings.Repeat("AB", 32)
+		code := fmt.Sprintf(`
+			local a = tos.toAddress(%q)
+			assert(tos.isAddress(a), "result is a valid address: " .. a)
+			assert(#a == 66, "result is 66 chars, got " .. tostring(#a))
+			assert(tos.toAddress(a) == a, "idempotent")
+			local zero = tos.toAddress("0x0")
+			assert(zero == tos.ZERO_ADDRESS, "0x0 -> ZERO_ADDRESS: " .. zero)
+		`, raw)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("toAddress_consistent_storage_key", func(t *testing.T) {
+		// Write with mixed-case, read with canonical form: same slot.
+		raw := "0x" + strings.Repeat("AB", 32) // 64 hex chars, uppercase
+		code := fmt.Sprintf(`
+			local raw   = %q
+			local canon = tos.toAddress(raw)
+			tos.mapSet("bal", canon, 999)
+			assert(tos.mapGet("bal", canon)              == 999, "canonical read")
+			assert(tos.mapGet("bal", tos.toAddress(raw)) == 999, "normalised read")
+		`, raw)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("typical_transfer_guard", func(t *testing.T) {
+		// 64-hex-char address (TOS 32-byte format).
+		validAddr := "0x" + strings.Repeat("11", 32)
+		code := fmt.Sprintf(`
+			local to = %q
+			require(tos.isAddress(to),     "invalid address")
+			require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
+			tos.set("ok", 1)
+		`, validAddr)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		val := state.GetState(addr, luaStorageSlot("ok"))
+		if val[31] != 1 {
+			t.Errorf("ok slot: want 1, got %d", val[31])
+		}
+	})
+}
