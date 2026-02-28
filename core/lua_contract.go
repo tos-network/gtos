@@ -116,6 +116,40 @@ func luaArrElemSlot(base common.Hash, i uint64) common.Hash {
 	return crypto.Keccak256Hash(b[:])
 }
 
+// luaMapSlot derives the storage slot for a uint256 value in a named mapping
+// at the given key path (one or more keys for nested mappings).
+//
+// Slot derivation (injection-safe, Solidity-inspired):
+//
+//	base = keccak256("gtos.lua.map." || mapName)
+//	slot = keccak256(keccak256(key_1) || base)              // 1 key
+//	slot = keccak256(keccak256(key_2) || prev_slot)         // 2nd key applied on top
+//	...
+//
+// Each key is keccak256-hashed before mixing, so no delimiter-injection is
+// possible regardless of what characters the key contains.
+// Namespace "gtos.lua.map." never collides with other namespaces.
+func luaMapSlot(mapName string, keys []string) common.Hash {
+	h := crypto.Keccak256Hash(append([]byte("gtos.lua.map."), mapName...))
+	for _, key := range keys {
+		keyHash := crypto.Keccak256([]byte(key))
+		h = crypto.Keccak256Hash(append(keyHash, h[:]...))
+	}
+	return h
+}
+
+// luaMapStrLenSlot derives the length-slot for a string stored in a named
+// mapping at the given key path.  Uses "gtos.lua.mapstr." namespace so it
+// never collides with luaMapSlot (uint256) or luaStrLenSlot (direct strings).
+func luaMapStrLenSlot(mapName string, keys []string) common.Hash {
+	h := crypto.Keccak256Hash(append([]byte("gtos.lua.mapstr."), mapName...))
+	for _, key := range keys {
+		keyHash := crypto.Keccak256([]byte(key))
+		h = crypto.Keccak256Hash(append(keyHash, h[:]...))
+	}
+	return h
+}
+
 // executeLuaVM runs Lua source code `src` in a fresh Lua state under the given
 // call context, limited to `gasLimit` VM opcodes.
 //
@@ -720,6 +754,58 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 1
 		}))
 
+		L.SetField(proxy, "mapGet", L.NewFunction(func(L *lua.LState) int {
+			nArgs := L.GetTop()
+			if nArgs < 2 {
+				L.ArgError(1, "mapGet requires at least 2 arguments (mapName, key)")
+				return 0
+			}
+			chargePrimGas(luaGasSLoad)
+			mapName := L.CheckString(1)
+			keys := make([]string, nArgs-1)
+			for i := 2; i <= nArgs; i++ {
+				keys[i-2] = L.CheckString(i)
+			}
+			val := st.state.GetState(target, luaMapSlot(mapName, keys))
+			if val == (common.Hash{}) {
+				L.Push(lua.LNil)
+				return 1
+			}
+			L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+			return 1
+		}))
+
+		L.SetField(proxy, "mapGetStr", L.NewFunction(func(L *lua.LState) int {
+			nArgs := L.GetTop()
+			if nArgs < 2 {
+				L.ArgError(1, "mapGetStr requires at least 2 arguments (mapName, key)")
+				return 0
+			}
+			chargePrimGas(luaGasSLoad) // length slot
+			mapName := L.CheckString(1)
+			keys := make([]string, nArgs-1)
+			for i := 2; i <= nArgs; i++ {
+				keys[i-2] = L.CheckString(i)
+			}
+			base := luaMapStrLenSlot(mapName, keys)
+			lenSlot := st.state.GetState(target, base)
+			if lenSlot == (common.Hash{}) {
+				L.Push(lua.LNil)
+				return 1
+			}
+			length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+			if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+				chargePrimGas(numChunks * luaGasSLoad)
+			}
+			data := make([]byte, length)
+			for i := 0; i < int(length); i += 32 {
+				chunk := st.state.GetState(target, luaStrChunkSlot(base, i/32))
+				copy(data[i:], chunk[:])
+			}
+			L.Push(lua.LString(string(data)))
+			return 1
+		}))
+
 		L.Push(proxy)
 		return 1
 	}))
@@ -1274,6 +1360,154 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 		L.Push(lua.LString(string(data)))
 		return 1
+	}))
+
+	// ── Mapping storage ───────────────────────────────────────────────────────
+	//
+	// Named mappings provide collision-resistant multi-key storage.
+	// They model Solidity mappings (including nested) without a type system.
+	//
+	//   Single-level:   tos.mapSet("balance", addr, amount)
+	//                   tos.mapGet("balance", addr)
+	//
+	//   Nested (2-key): tos.mapSet("allowance", owner, spender, amount)
+	//                   tos.mapGet("allowance", owner, spender)
+	//
+	// Keys are arbitrary strings (addresses, numbers, names).
+	// The slot derivation is injection-safe: each key is keccak256-hashed
+	// before mixing, so concatenation attacks are impossible.
+
+	// tos.mapGet(mapName, key1 [, key2, ...]) → LNumber | nil
+	//   Reads a uint256 value from a named mapping at the given key path.
+	L.SetField(tosTable, "mapGet", L.NewFunction(func(L *lua.LState) int {
+		nArgs := L.GetTop()
+		if nArgs < 2 {
+			L.ArgError(1, "mapGet requires at least 2 arguments (mapName, key)")
+			return 0
+		}
+		chargePrimGas(luaGasSLoad)
+		mapName := L.CheckString(1)
+		keys := make([]string, nArgs-1)
+		for i := 2; i <= nArgs; i++ {
+			keys[i-2] = L.CheckString(i)
+		}
+		val := st.state.GetState(contractAddr, luaMapSlot(mapName, keys))
+		if val == (common.Hash{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+		return 1
+	}))
+
+	// tos.mapSet(mapName, key1 [, key2, ...], value)
+	//   Stores a uint256 value in a named mapping at the given key path.
+	//   The last argument is always the value; all preceding args after
+	//   mapName are treated as keys.
+	L.SetField(tosTable, "mapSet", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.mapSet: state modification not allowed in staticcall")
+			return 0
+		}
+		nArgs := L.GetTop()
+		if nArgs < 3 {
+			L.ArgError(1, "mapSet requires at least 3 arguments (mapName, key, value)")
+			return 0
+		}
+		chargePrimGas(luaGasSStore)
+		mapName := L.CheckString(1)
+		keys := make([]string, nArgs-2)
+		for i := 2; i <= nArgs-1; i++ {
+			keys[i-2] = L.CheckString(i)
+		}
+		var valStr string
+		switch v := L.CheckAny(nArgs).(type) {
+		case lua.LNumber:
+			valStr = string(v)
+		case lua.LString:
+			valStr = string(v)
+		default:
+			L.RaiseError("tos.mapSet: value must be a number or numeric string")
+		}
+		bi, ok := new(big.Int).SetString(valStr, 10)
+		if !ok || bi.Sign() < 0 {
+			L.RaiseError("tos.mapSet: invalid uint256 value")
+		}
+		var slot common.Hash
+		bi.FillBytes(slot[:])
+		st.state.SetState(contractAddr, luaMapSlot(mapName, keys), slot)
+		return 0
+	}))
+
+	// tos.mapGetStr(mapName, key1 [, key2, ...]) → string | nil
+	//   Reads a string value from a named mapping at the given key path.
+	L.SetField(tosTable, "mapGetStr", L.NewFunction(func(L *lua.LState) int {
+		nArgs := L.GetTop()
+		if nArgs < 2 {
+			L.ArgError(1, "mapGetStr requires at least 2 arguments (mapName, key)")
+			return 0
+		}
+		chargePrimGas(luaGasSLoad) // length slot
+		mapName := L.CheckString(1)
+		keys := make([]string, nArgs-1)
+		for i := 2; i <= nArgs; i++ {
+			keys[i-2] = L.CheckString(i)
+		}
+		base := luaMapStrLenSlot(mapName, keys)
+		lenSlot := st.state.GetState(contractAddr, base)
+		if lenSlot == (common.Hash{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+		if numChunks := uint64((int(length) + 31) / 32); numChunks > 0 {
+			chargePrimGas(numChunks * luaGasSLoad) // data chunks
+		}
+		data := make([]byte, length)
+		for i := 0; i < int(length); i += 32 {
+			chunk := st.state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
+			copy(data[i:], chunk[:])
+		}
+		L.Push(lua.LString(string(data)))
+		return 1
+	}))
+
+	// tos.mapSetStr(mapName, key1 [, key2, ...], value)
+	//   Stores a string value in a named mapping at the given key path.
+	//   The last argument is always the string value.
+	L.SetField(tosTable, "mapSetStr", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.mapSetStr: state modification not allowed in staticcall")
+			return 0
+		}
+		nArgs := L.GetTop()
+		if nArgs < 3 {
+			L.ArgError(1, "mapSetStr requires at least 3 arguments (mapName, key, value)")
+			return 0
+		}
+		mapName := L.CheckString(1)
+		keys := make([]string, nArgs-2)
+		for i := 2; i <= nArgs-1; i++ {
+			keys[i-2] = L.CheckString(i)
+		}
+		val := L.CheckString(nArgs)
+		data := []byte(val)
+		numChunks := uint64((len(data) + 31) / 32)
+		chargePrimGas(luaGasSStore + numChunks*luaGasSStore) // len slot + data chunks
+		base := luaMapStrLenSlot(mapName, keys)
+		var lenSlot common.Hash
+		binary.BigEndian.PutUint64(lenSlot[24:], uint64(len(data))+1)
+		st.state.SetState(contractAddr, base, lenSlot)
+		for i := 0; i < len(data); i += 32 {
+			chunk := data[i:]
+			if len(chunk) > 32 {
+				chunk = chunk[:32]
+			}
+			var s common.Hash
+			copy(s[:], chunk)
+			st.state.SetState(contractAddr, luaStrChunkSlot(base, i/32), s)
+		}
+		return 0
 	}))
 
 	// ── Return data ───────────────────────────────────────────────────────────

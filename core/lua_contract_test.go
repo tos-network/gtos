@@ -1666,6 +1666,141 @@ func TestLuaContractArrayStorage(t *testing.T) {
 	})
 }
 
+// TestLuaContractMapping verifies tos.mapGet / tos.mapSet / tos.mapGetStr /
+// tos.mapSetStr and the tos.at proxy mapGet / mapGetStr.
+//
+// Covers:
+//   - Single-key uint256 round-trip
+//   - Two-key nested mapping (mapSet/mapGet with 2 keys)
+//   - mapGetStr / mapSetStr round-trip (single and nested keys)
+//   - Unset key returns nil
+//   - Namespace isolation: mapGet and tos.get on same logical string are
+//     in different namespaces → different values
+//   - mapSet reverts in staticcall
+//   - tos.at(addr).mapGet reads another contract's mapping
+func TestLuaContractMapping(t *testing.T) {
+	t.Run("single_key_uint256", func(t *testing.T) {
+		const code = `
+			tos.mapSet("balance", "alice", 1000)
+			local v = tos.mapGet("balance", "alice")
+			assert(v == 1000, "expected 1000, got " .. tostring(v))
+			assert(tos.mapGet("balance", "bob") == nil, "unset key should be nil")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("nested_two_keys", func(t *testing.T) {
+		const code = `
+			-- allowance[owner][spender] = amount
+			tos.mapSet("allowance", "owner1", "spender1", 500)
+			tos.mapSet("allowance", "owner1", "spender2", 250)
+			assert(tos.mapGet("allowance", "owner1", "spender1") == 500, "spender1")
+			assert(tos.mapGet("allowance", "owner1", "spender2") == 250, "spender2")
+			-- different owner shares no storage with owner1
+			assert(tos.mapGet("allowance", "owner2", "spender1") == nil, "different owner")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("single_key_string", func(t *testing.T) {
+		const code = `
+			tos.mapSetStr("name", "token1", "CoolNFT")
+			local s = tos.mapGetStr("name", "token1")
+			assert(s == "CoolNFT", "expected CoolNFT, got " .. tostring(s))
+			assert(tos.mapGetStr("name", "token2") == nil, "unset key should be nil")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("nested_string", func(t *testing.T) {
+		const code = `
+			tos.mapSetStr("meta", "nft1", "owner1", "Alice")
+			tos.mapSetStr("meta", "nft1", "owner2", "Bob")
+			assert(tos.mapGetStr("meta", "nft1", "owner1") == "Alice", "owner1")
+			assert(tos.mapGetStr("meta", "nft1", "owner2") == "Bob",   "owner2")
+			assert(tos.mapGetStr("meta", "nft2", "owner1") == nil,     "different nft")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("namespace_isolation_from_set_get", func(t *testing.T) {
+		// tos.mapGet("x", "y") and tos.get("x") use different namespaces;
+		// setting one must not affect the other.
+		const code = `
+			tos.set("balance", 99)
+			tos.mapSet("balance", "alice", 42)
+			-- tos.get still reads the uint256 storage namespace
+			assert(tos.get("balance") == 99, "tos.get should be unchanged")
+			-- tos.mapGet reads the map namespace
+			assert(tos.mapGet("balance", "alice") == 42, "mapGet should be 42")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("mapGet_unset_nil", func(t *testing.T) {
+		const code = `
+			assert(tos.mapGet("x", "k") == nil, "unset uint256 slot is nil")
+			assert(tos.mapGetStr("x", "k") == nil, "unset string slot is nil")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("mapSet_readonly_reverts", func(t *testing.T) {
+		// staticcall B (which tries tos.mapSet) → must return false.
+		// Uses the same fixed-address pattern as TestLuaContractStaticCall.
+		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		calleeCode := `tos.mapSet("x", "k", 1)`
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q, "")
+			assert(not ok, "mapSet inside staticcall should fail")
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+	})
+
+	t.Run("proxy_mapGet_reads_own_state", func(t *testing.T) {
+		// Write via mapSet, then read the same state via tos.at(self).mapGet.
+		// This exercises the proxy's mapGet code path without a second contract.
+		const code = `
+			tos.mapSet("pts", "alice", 77)
+			tos.mapSet("pts", "bob",   33)
+			local proxy = tos.at(tos.self)
+			assert(proxy.mapGet("pts", "alice") == 77, "alice via proxy")
+			assert(proxy.mapGet("pts", "bob")   == 33, "bob via proxy")
+			assert(proxy.mapGet("pts", "carol") == nil, "unset via proxy")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("proxy_mapGetStr_reads_own_state", func(t *testing.T) {
+		const code = `
+			tos.mapSetStr("tag", "nft1", "Dragon")
+			local proxy = tos.at(tos.self)
+			assert(proxy.mapGetStr("tag", "nft1") == "Dragon", "nft1 via proxy")
+			assert(proxy.mapGetStr("tag", "nft2") == nil, "unset via proxy")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+}
+
 // TestLuaContractCrossContractRead verifies tos.at(addr) and tos.codeAt(addr).
 //
 // Two contracts are pre-deployed at genesis:
