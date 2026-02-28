@@ -202,6 +202,15 @@ func (st *StateTransition) applyLua(src []byte) error {
 
 	L.SetGlobal("tos", tosTable)
 
+	// Inject every tos.* field as a global so the tos. prefix is optional.
+	// tos.caller / caller, tos.set() / set(), tos.block.number / block.number, …
+	// all work identically. tos.* remains available for explicit use.
+	tosTable.ForEach(func(k, v lua.LValue) {
+		if name, ok := k.(lua.LString); ok {
+			L.SetGlobal(string(name), v)
+		}
+	})
+
 	// ── Execute the script ────────────────────────────────────────────────────
 	if err := L.DoString(string(src)); err != nil {
 		st.state.RevertToSnapshot(snapshot)

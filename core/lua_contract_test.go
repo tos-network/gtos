@@ -189,6 +189,32 @@ func TestLuaContractGasLeft(t *testing.T) {
 	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
+// TestLuaContractNoPrefixAccess verifies that all tos.* primitives are also
+// available without the "tos." prefix (caller, value, block.number, set(), …).
+func TestLuaContractNoPrefixAccess(t *testing.T) {
+	const code = `
+		-- properties
+		assert(type(caller) == "string" and #caller > 0, "caller")
+		assert(value == 1000000000000000000, "value")
+		assert(block.number > 0, "block.number")
+		assert(block.chainid == 1, "block.chainid")
+		assert(type(tx.origin) == "string", "tx.origin")
+		assert(tx.origin == caller, "tx.origin == caller")
+		-- functions
+		set("nopfx", 7)
+		assert(get("nopfx") == 7, "get/set without prefix")
+		local h = hash("hello")
+		assert(#h == 66, "hash without prefix")
+		local g = gasleft()
+		assert(g > 0, "gasleft without prefix")
+		-- tos.* still works too
+		assert(tos.caller == caller, "tos.caller == caller")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+}
+
 // TestLuaContractHash verifies tos.hash returns a deterministic keccak256 hex string.
 func TestLuaContractHash(t *testing.T) {
 	const code = `
