@@ -35,6 +35,8 @@ type luaCallCtx struct {
 	depth    int            // nesting depth (0 = top-level tx call)
 	txOrigin common.Address // tx.origin: the original EOA, constant across all levels
 	txPrice  *big.Int       // tx.gasprice: constant across all levels
+	readonly bool           // if true, all state-mutating primitives raise an error
+	                        // (EVM STATICCALL semantics; propagates to nested calls)
 }
 
 // luaParseBigInt extracts a non-negative *big.Int from Lua argument n.
@@ -146,6 +148,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// tos.set(key, value)
 	//   Stores a uint256 value (LNumber or numeric string) in contract storage.
 	L.SetField(tosTable, "set", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.set: state modification not allowed in staticcall")
+			return 0
+		}
 		key := L.CheckString(1)
 		var numStr string
 		switch v := L.CheckAny(2).(type) {
@@ -169,6 +175,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// tos.transfer(toAddr, amount)
 	//   Sends `amount` wei from the contract's balance to `toAddr`.
 	L.SetField(tosTable, "transfer", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.transfer: value transfer not allowed in staticcall")
+			return 0
+		}
 		addrHex := L.CheckString(1)
 		amountNum := L.CheckNumber(2)
 		to := common.HexToAddress(addrHex)
@@ -412,6 +422,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// tos.oncreate(fn)
 	//   Runs fn exactly once — on the very first call to the contract.
 	L.SetField(tosTable, "oncreate", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.oncreate: state modification not allowed in staticcall")
+			return 0
+		}
 		fn := L.CheckFunction(1)
 
 		initSlot := luaStorageSlot("__oncreate__")
@@ -468,6 +482,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.arrSet(key, i, value)  (1-based; reverts if OOB)
 	L.SetField(tosTable, "arrSet", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.arrSet: state modification not allowed in staticcall")
+			return 0
+		}
 		key := L.CheckString(1)
 		idxBI := luaParseBigInt(L, 2)
 		val := luaParseBigInt(L, 3)
@@ -487,6 +505,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.arrPush(key, value)
 	L.SetField(tosTable, "arrPush", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.arrPush: state modification not allowed in staticcall")
+			return 0
+		}
 		key := L.CheckString(1)
 		val := luaParseBigInt(L, 2)
 		base := luaArrLenSlot(key)
@@ -505,6 +527,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.arrPop(key) → LNumber | nil
 	L.SetField(tosTable, "arrPop", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.arrPop: state modification not allowed in staticcall")
+			return 0
+		}
 		key := L.CheckString(1)
 		base := luaArrLenSlot(key)
 		raw := st.state.GetState(contractAddr, base)
@@ -662,6 +688,15 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			callValue = new(big.Int)
 		}
 
+		// Value transfers are not allowed in a readonly (staticcall) context.
+		// Return false (soft failure) so callers can handle it with if/else,
+		// consistent with Solidity CALL-within-STATICCALL semantics.
+		if ctx.readonly && callValue.Sign() > 0 {
+			L.Push(lua.LFalse)
+			L.Push(lua.LNil)
+			return 2
+		}
+
 		var callData []byte
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
 			hexStr := L.CheckString(3)
@@ -702,6 +737,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 
 		// Build child context: msg.sender = this contract, tx.origin unchanged.
+		// readonly propagates: a call made from within a staticcall is also readonly.
 		childCtx := luaCallCtx{
 			from:     contractAddr, // callee sees caller contract as msg.sender
 			to:       calleeAddr,
@@ -710,6 +746,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			depth:    ctx.depth + 1,
 			txOrigin: ctx.txOrigin,
 			txPrice:  ctx.txPrice,
+			readonly: ctx.readonly, // propagate staticcall constraint
 		}
 
 		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
@@ -728,6 +765,92 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		if childErr != nil {
 			// Revert callee's state changes; caller's changes are preserved.
 			st.state.RevertToSnapshot(calleeSnap)
+			L.Push(lua.LFalse)
+			L.Push(lua.LNil)
+			return 2
+		}
+
+		L.Push(lua.LTrue)
+		if len(childReturnData) > 0 {
+			L.Push(lua.LString("0x" + common.Bytes2Hex(childReturnData)))
+		} else {
+			L.Push(lua.LNil)
+		}
+		return 2
+	}))
+
+	// tos.staticcall(addr [, calldata]) → bool, string|nil
+	//
+	// Read-only inter-contract call (EVM STATICCALL equivalent).
+	// Identical to tos.call except:
+	//   • No value forwarding (always zero).
+	//   • Callee runs in readonly mode: tos.set / tos.setStr / tos.arrPush …
+	//     tos.transfer / tos.emit / tos.oncreate all raise errors.
+	//   • readonly propagates transitively: if callee calls tos.call(addr,v>0),
+	//     that call also fails.
+	//
+	// Use when you need to query another contract's computed state without
+	// risking accidental side effects.
+	//
+	// Example:
+	//   local ok, data = tos.staticcall(tokenAddr, tos.selector("totalSupply()"))
+	//   tos.require(ok, "query failed")
+	//   local supply = tos.abi.decode(data, "uint256")
+	L.SetField(tosTable, "staticcall", L.NewFunction(func(L *lua.LState) int {
+		if ctx.depth >= luaMaxCallDepth {
+			L.RaiseError("tos.staticcall: max call depth (%d) exceeded", luaMaxCallDepth)
+			return 0
+		}
+
+		addrHex := L.CheckString(1)
+		calleeAddr := common.HexToAddress(addrHex)
+
+		var callData []byte
+		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+			callData = common.FromHex(L.CheckString(2))
+		}
+
+		// Compute child gas budget.
+		parentUsedNow := L.GasUsed()
+		totalUsed := parentUsedNow + totalChildGas
+		if totalUsed >= gasLimit {
+			L.RaiseError("tos.staticcall: out of gas")
+			return 0
+		}
+		childGasLimit := gasLimit - totalUsed
+
+		// No value transfer for staticcall.
+		calleeCode := st.state.GetCode(calleeAddr)
+		if len(calleeCode) == 0 {
+			// No code: nothing to call; return true with nil data.
+			L.Push(lua.LTrue)
+			L.Push(lua.LNil)
+			return 2
+		}
+
+		childCtx := luaCallCtx{
+			from:     contractAddr,
+			to:       calleeAddr,
+			value:    new(big.Int), // always zero for staticcall
+			data:     callData,
+			depth:    ctx.depth + 1,
+			txOrigin: ctx.txOrigin,
+			txPrice:  ctx.txPrice,
+			readonly: true, // the defining property of staticcall
+		}
+
+		childGasUsed, childReturnData, childErr := executeLuaVM(st, childCtx, calleeCode, childGasLimit)
+		totalChildGas += childGasUsed
+
+		newTotalUsed := parentUsedNow + totalChildGas
+		if newTotalUsed < gasLimit {
+			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
+		} else {
+			L.SetGasLimit(parentUsedNow)
+		}
+
+		if childErr != nil {
+			// No state was written (readonly), so no snapshot revert needed.
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2
@@ -857,6 +980,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	// tos.emit(eventName, "type1", val1, ...)
 	//   Emits a receipt log with topic[0] = keccak256(eventName).
 	L.SetField(tosTable, "emit", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.emit: log emission not allowed in staticcall")
+			return 0
+		}
 		eventName := L.CheckString(1)
 		topic0 := crypto.Keccak256Hash([]byte(eventName))
 		data, err := luaABIEncodeBytes(L, 2)
@@ -876,6 +1003,10 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// tos.setStr(key, val)
 	L.SetField(tosTable, "setStr", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.setStr: state modification not allowed in staticcall")
+			return 0
+		}
 		key := L.CheckString(1)
 		val := L.CheckString(2)
 		data := []byte(val)

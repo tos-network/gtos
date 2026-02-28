@@ -2179,3 +2179,175 @@ func TestLuaContractCallResult(t *testing.T) {
 		}
 	})
 }
+
+// TestLuaContractStaticCall tests tos.staticcall — read-only inter-contract
+// calls that enforce no state mutations in the callee.
+func TestLuaContractStaticCall(t *testing.T) {
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	t.Run("returns_result_data", func(t *testing.T) {
+		codeB := `tos.result("uint256", 7777)`
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.staticcall(%q)
+			tos.require(ok, "staticcall failed")
+			local val = tos.abi.decode(data, "uint256")
+			tos.emit("Val", "uint256", val)
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Val log, got 0")
+		}
+		if new(big.Int).SetBytes(receipt.Logs[0].Data).Int64() != 7777 {
+			t.Errorf("Val: want 7777, got %s", new(big.Int).SetBytes(receipt.Logs[0].Data))
+		}
+	})
+
+	t.Run("write_in_callee_fails", func(t *testing.T) {
+		// B tries tos.set — must fail; staticcall returns false.
+		// A's write before the call is preserved.
+		codeB := `tos.set("x", 1)`
+		codeA := fmt.Sprintf(`
+			tos.set("alive", 42)
+			local ok, _ = tos.staticcall(%q)
+			if ok then tos.revert("expected false") end
+			tos.emit("Done", "uint256", 1)
+		`, addrB)
+		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Done log")
+		}
+		state, _ := bc.State()
+		aliveSlot := state.GetState(contractAddr, luaStorageSlot("alive"))
+		if new(big.Int).SetBytes(aliveSlot[:]).Int64() != 42 {
+			t.Errorf("A.alive: want 42")
+		}
+		xSlot := state.GetState(contractAddrB, luaStorageSlot("x"))
+		if xSlot != (common.Hash{}) {
+			t.Errorf("B.x: want zero (write blocked), got %x", xSlot)
+		}
+	})
+
+	t.Run("transfer_in_callee_fails", func(t *testing.T) {
+		noCodeAddr := common.HexToAddress("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEF")
+		codeB := fmt.Sprintf(`tos.transfer(%q, 1)`, noCodeAddr.Hex())
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.staticcall(%q)
+			if ok then tos.revert("expected false") end
+			tos.emit("Done", "uint256", 1)
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Done log")
+		}
+	})
+
+	t.Run("emit_in_callee_fails", func(t *testing.T) {
+		// B tries tos.emit — must fail; no "Boom" log must appear.
+		codeB := `tos.emit("Boom", "uint256", 1)`
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.staticcall(%q)
+			if ok then tos.revert("expected false") end
+			tos.emit("Done", "uint256", 1)
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) != 1 {
+			t.Errorf("expected exactly 1 log (Done), got %d", len(receipt.Logs))
+		}
+	})
+
+	t.Run("value_call_in_static_context_fails", func(t *testing.T) {
+		// A staticcalls B; B tries tos.call(addrA, value>0) which must fail
+		// because readonly propagates. B catches the failure and still calls
+		// tos.result — so the staticcall itself succeeds.
+		oneTOS := new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS))
+		codeB := fmt.Sprintf(`
+			local ok, _ = tos.call(%q, %s)
+			if ok then tos.revert("should have failed") end
+			tos.result("uint256", 99)
+		`, addrA, oneTOS.Text(10))
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.staticcall(%q)
+			tos.require(ok, "staticcall failed")
+			local val = tos.abi.decode(data, "uint256")
+			tos.emit("Val", "uint256", val)
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Val log")
+		}
+		if new(big.Int).SetBytes(receipt.Logs[0].Data).Int64() != 99 {
+			t.Errorf("Val: want 99, got %s", new(big.Int).SetBytes(receipt.Logs[0].Data))
+		}
+	})
+
+	t.Run("dispatch_query_pattern", func(t *testing.T) {
+		// Full query pattern: A staticcalls B with ABI calldata for
+		// "totalSupply()"; B dispatches and returns a pre-seeded supply value.
+		supplySlot := luaStorageSlot("supply")
+		var supplyVal common.Hash
+		big.NewInt(500000).FillBytes(supplyVal[:])
+
+		config := &params.ChainConfig{
+			ChainID: big.NewInt(1),
+			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		}
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+		contractAddr := common.HexToAddress(addrA)
+		contractAddrB := common.HexToAddress(addrB)
+
+		codeB := `
+			tos.dispatch({
+				["totalSupply()"] = function()
+					tos.result("uint256", tos.get("supply") or 0)
+				end,
+			})
+		`
+		codeA := fmt.Sprintf(`
+			local sel = tos.selector("totalSupply()")
+			local ok, data = tos.staticcall(%q, sel)
+			tos.require(ok, "staticcall failed")
+			local supply = tos.abi.decode(data, "uint256")
+			tos.emit("Supply", "uint256", supply)
+		`, addrB)
+
+		db := rawdb.NewMemoryDatabase()
+		gspec := &Genesis{
+			Config: config,
+			Alloc: GenesisAlloc{
+				addr1:        {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
+				contractAddr: {Balance: big.NewInt(0), Code: []byte(codeA)},
+				contractAddrB: {
+					Balance: big.NewInt(0),
+					Code:    []byte(codeB),
+					Storage: map[common.Hash]common.Hash{supplySlot: supplyVal},
+				},
+			},
+		}
+		gspec.MustCommit(db)
+		bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer bc.Stop()
+
+		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Supply log")
+		}
+		if new(big.Int).SetBytes(receipt.Logs[0].Data).Int64() != 500000 {
+			t.Errorf("Supply: want 500000, got %s", new(big.Int).SetBytes(receipt.Logs[0].Data))
+		}
+	})
+}
