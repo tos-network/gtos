@@ -14,6 +14,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
 // luaEventSig returns keccak256 of the canonical Ethereum event signature.
@@ -400,6 +401,41 @@ func TestLuaContractSha256(t *testing.T) {
 		-- also accessible via tos prefix
 		assert(tos.sha256("hello") == h, "tos.sha256 == sha256")
 	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractRipemd160 verifies tos.ripemd160 (and bare ripemd160):
+//   - Output is a 66-char "0x"-prefixed string (20-byte hash left-padded to 32 bytes).
+//   - Known test vector: ripemd160("hello") matches Go's goripemd160.
+//   - Accessible as both tos.ripemd160 and bare ripemd160 global.
+func TestLuaContractRipemd160(t *testing.T) {
+	// Compute the expected value using Go's ripemd160 package.
+	h := goripemd160.New()
+	h.Write([]byte("hello"))
+	raw := h.Sum(nil) // 20 bytes
+	var padded [32]byte
+	copy(padded[12:], raw)
+	want := "0x" + common.Bytes2Hex(padded[:])
+
+	code := fmt.Sprintf(`
+		local h = tos.ripemd160("hello")
+		assert(type(h) == "string" and #h == 66,
+			"ripemd160 output should be 66-char hex string, got len " .. tostring(#h))
+		assert(h:sub(1,2) == "0x", "ripemd160 should start with 0x")
+		-- first 12 zero-bytes are the left-padding (24 hex chars after "0x")
+		assert(h:sub(3,26) == "000000000000000000000000",
+			"first 12 bytes should be zero-padded, got " .. h:sub(3,26))
+		-- exact match against Go-computed reference
+		assert(h == %q, "ripemd160 mismatch: got " .. h)
+		-- accessible as bare global too
+		assert(ripemd160("hello") == h, "bare ripemd160 should equal tos.ripemd160")
+		-- deterministic: same input → same output
+		assert(tos.ripemd160("hello") == tos.ripemd160("hello"), "not deterministic")
+		-- different inputs → different outputs
+		assert(tos.ripemd160("hello") ~= tos.ripemd160("world"), "collision")
+	`, want)
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
 	runLuaTx(t, bc, contractAddr, big.NewInt(0))

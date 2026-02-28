@@ -12,6 +12,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	lua "github.com/tos-network/gopher-lua"
+	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
 // Gas costs for Lua contract primitives.
@@ -378,6 +379,19 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		data := L.CheckString(1)
 		h := gosha256.Sum256([]byte(data))
 		L.Push(lua.LString("0x" + common.Bytes2Hex(h[:])))
+		return 1
+	}))
+
+	// tos.ripemd160(data) → string  (20-byte "0x..." hex, zero-padded to 32 bytes like EVM)
+	L.SetField(tosTable, "ripemd160", L.NewFunction(func(L *lua.LState) int {
+		data := L.CheckString(1)
+		h := goripemd160.New()
+		h.Write([]byte(data))
+		result := h.Sum(nil) // 20 bytes
+		// Left-pad to 32 bytes to match EVM precompile output convention.
+		var padded [32]byte
+		copy(padded[12:], result)
+		L.Push(lua.LString("0x" + common.Bytes2Hex(padded[:])))
 		return 1
 	}))
 
