@@ -118,74 +118,51 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
-	// tos.caller() → string  (hex address of msg.From)
-	L.SetField(tosTable, "caller", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LString(st.msg.From().Hex()))
-		return 1
-	}))
+	// ── Context properties (static values, no parentheses needed) ────────────
+	//
+	// These mirror EVM opcode semantics: constant within a single execution,
+	// so they are pre-populated as plain Lua values rather than Go functions.
+	// Scripts read them as properties: tos.caller, tos.value, tos.block.number…
 
-	// tos.value() → LNumber  (msg.Value in wei)
-	L.SetField(tosTable, "value", L.NewFunction(func(L *lua.LState) int {
+	// tos.caller  → string  (hex address of msg.From, like Solidity msg.sender)
+	L.SetField(tosTable, "caller", lua.LString(st.msg.From().Hex()))
+
+	// tos.value  → LNumber  (msg.Value in wei, like Solidity msg.value)
+	{
 		v := st.msg.Value()
 		if v == nil || v.Sign() == 0 {
-			L.Push(lua.LNumber("0"))
+			L.SetField(tosTable, "value", lua.LNumber("0"))
 		} else {
-			L.Push(lua.LNumber(v.Text(10)))
+			L.SetField(tosTable, "value", lua.LNumber(v.Text(10)))
 		}
-		return 1
-	}))
+	}
 
-	// tos.block  (sub-table with block context)
+	// tos.block  (sub-table — all fields are static values for this execution)
 	blockTable := L.NewTable()
-	L.SetField(blockTable, "number", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LNumber(st.blockCtx.BlockNumber.Text(10)))
-		return 1
-	}))
-	L.SetField(blockTable, "time", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LNumber(st.blockCtx.Time.Text(10)))
-		return 1
-	}))
-	L.SetField(blockTable, "coinbase", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LString(st.blockCtx.Coinbase.Hex()))
-		return 1
-	}))
-	L.SetField(blockTable, "chainid", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LNumber(st.chainConfig.ChainID.Text(10)))
-		return 1
-	}))
-	L.SetField(blockTable, "gaslimit", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LNumber(new(big.Int).SetUint64(st.blockCtx.GasLimit).Text(10)))
-		return 1
-	}))
-	L.SetField(blockTable, "basefee", L.NewFunction(func(L *lua.LState) int {
-		if st.blockCtx.BaseFee != nil {
-			L.Push(lua.LNumber(st.blockCtx.BaseFee.Text(10)))
-		} else {
-			L.Push(lua.LNumber("0"))
-		}
-		return 1
-	}))
+	L.SetField(blockTable, "number", lua.LNumber(st.blockCtx.BlockNumber.Text(10)))
+	L.SetField(blockTable, "time", lua.LNumber(st.blockCtx.Time.Text(10)))
+	L.SetField(blockTable, "coinbase", lua.LString(st.blockCtx.Coinbase.Hex()))
+	L.SetField(blockTable, "chainid", lua.LNumber(st.chainConfig.ChainID.Text(10)))
+	L.SetField(blockTable, "gaslimit", lua.LNumber(new(big.Int).SetUint64(st.blockCtx.GasLimit).Text(10)))
+	if st.blockCtx.BaseFee != nil {
+		L.SetField(blockTable, "basefee", lua.LNumber(st.blockCtx.BaseFee.Text(10)))
+	} else {
+		L.SetField(blockTable, "basefee", lua.LNumber("0"))
+	}
 	L.SetField(tosTable, "block", blockTable)
 
-	// tos.tx  (sub-table with transaction context)
-	//   tos.tx.origin()   → hex address of the original tx sender (same as caller in TOS)
-	//   tos.tx.gasprice() → gas price in wei (LNumber)
+	// tos.tx  (sub-table — static values, like Solidity tx.origin / tx.gasprice)
 	txTable := L.NewTable()
-	L.SetField(txTable, "origin", L.NewFunction(func(L *lua.LState) int {
-		L.Push(lua.LString(st.msg.From().Hex()))
-		return 1
-	}))
-	L.SetField(txTable, "gasprice", L.NewFunction(func(L *lua.LState) int {
-		if st.txPrice != nil {
-			L.Push(lua.LNumber(st.txPrice.Text(10)))
-		} else {
-			L.Push(lua.LNumber("0"))
-		}
-		return 1
-	}))
+	L.SetField(txTable, "origin", lua.LString(st.msg.From().Hex()))
+	if st.txPrice != nil {
+		L.SetField(txTable, "gasprice", lua.LNumber(st.txPrice.Text(10)))
+	} else {
+		L.SetField(txTable, "gasprice", lua.LNumber("0"))
+	}
 	L.SetField(tosTable, "tx", txTable)
 
-	// tos.gasleft() → LNumber  (remaining gas units at call time)
+	// tos.gasleft() → LNumber  (remaining gas at call time — must be a function
+	//   because the value changes with each opcode executed)
 	L.SetField(tosTable, "gasleft", L.NewFunction(func(L *lua.LState) int {
 		used := L.GasUsed()
 		var remaining uint64

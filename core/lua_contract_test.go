@@ -47,19 +47,12 @@ func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	return bc, contractAddr, bc.Stop
 }
 
-// TestLuaContractStorageGetSet verifies tos.set / tos.get round-trip.
-func TestLuaContractStorageGetSet(t *testing.T) {
-	const code = `
-		tos.set("counter", 42)
-		local v = tos.get("counter")
-		assert(v == 42, "expected 42, got " .. tostring(v))
-	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
-	defer cleanup()
-
+// runLuaTx is a helper that sends one tx to contractAddr and inserts the block.
+func runLuaTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
+	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +63,18 @@ func TestLuaContractStorageGetSet(t *testing.T) {
 	if _, err := bc.InsertChain(blocks); err != nil {
 		t.Fatalf("InsertChain: %v", err)
 	}
+}
+
+// TestLuaContractStorageGetSet verifies tos.set / tos.get round-trip.
+func TestLuaContractStorageGetSet(t *testing.T) {
+	const code = `
+		tos.set("counter", 42)
+		local v = tos.get("counter")
+		assert(v == 42, "expected 42, got " .. tostring(v))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
 // TestLuaContractStorageUnsetReturnsNil verifies unset keys return nil.
@@ -80,48 +85,19 @@ func TestLuaContractStorageUnsetReturnsNil(t *testing.T) {
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractCallerAndValue verifies tos.caller() and tos.value().
+// TestLuaContractCallerAndValue verifies tos.caller and tos.value as properties.
 func TestLuaContractCallerAndValue(t *testing.T) {
 	code := `
-		local caller = tos.caller()
-		assert(type(caller) == "string", "caller should be string")
-		assert(#caller > 0, "caller should not be empty")
-		local val = tos.value()
-		assert(val == 1000000000000000000, "expected 1 TOS in wei")
+		assert(type(tos.caller) == "string", "caller should be string")
+		assert(#tos.caller > 0, "caller should not be empty")
+		assert(tos.value == 1000000000000000000, "expected 1 TOS in wei")
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	oneETH := big.NewInt(params.TOS)
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, oneETH, 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
 }
 
 // TestLuaContractRequireRevert verifies that tos.require(false) reverts state.
@@ -132,21 +108,7 @@ func TestLuaContractRequireRevert(t *testing.T) {
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	// Block is accepted; the tx fails internally (vmerr), not a consensus error.
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain should succeed (failed tx ≠ bad block): %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 
 	// Verify: "key" slot must still be zero (revert worked).
 	state, err := bc.State()
@@ -165,124 +127,54 @@ func TestLuaContractGasLimit(t *testing.T) {
 	const code = `while true do end`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	// Block is accepted; the tx consumes all gas and fails with OOG.
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockChainID verifies tos.block.chainid() returns the configured chain ID.
+// TestLuaContractBlockChainID verifies tos.block.chainid is the configured chain ID.
 func TestLuaContractBlockChainID(t *testing.T) {
 	const code = `
-		local id = tos.block.chainid()
-		assert(id == 1, "expected chainid 1, got " .. tostring(id))
+		assert(tos.block.chainid == 1, "expected chainid 1, got " .. tostring(tos.block.chainid))
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockGasLimit verifies tos.block.gaslimit() returns a positive value.
+// TestLuaContractBlockGasLimit verifies tos.block.gaslimit is a positive value.
 func TestLuaContractBlockGasLimit(t *testing.T) {
 	const code = `
-		local gl = tos.block.gaslimit()
-		assert(gl > 0, "expected positive gaslimit, got " .. tostring(gl))
+		assert(tos.block.gaslimit > 0, "expected positive gaslimit, got " .. tostring(tos.block.gaslimit))
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockBaseFee verifies tos.block.basefee() returns a non-negative value.
+// TestLuaContractBlockBaseFee verifies tos.block.basefee is non-negative.
 func TestLuaContractBlockBaseFee(t *testing.T) {
 	const code = `
-		local bf = tos.block.basefee()
-		assert(bf >= 0, "expected non-negative basefee, got " .. tostring(bf))
+		assert(tos.block.basefee >= 0, "expected non-negative basefee, got " .. tostring(tos.block.basefee))
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractTxContext verifies tos.tx.origin and tos.tx.gasprice.
+// TestLuaContractTxContext verifies tos.tx.origin and tos.tx.gasprice as properties.
 func TestLuaContractTxContext(t *testing.T) {
 	const code = `
-		local origin = tos.tx.origin()
-		assert(type(origin) == "string" and #origin > 0, "origin should be non-empty string")
+		assert(type(tos.tx.origin) == "string" and #tos.tx.origin > 0, "origin should be non-empty string")
 		-- origin must equal caller for a simple (non-inner-call) tx
-		assert(origin == tos.caller(), "origin should equal caller for top-level tx")
-		local gp = tos.tx.gasprice()
-		assert(gp >= 0, "gasprice should be non-negative")
+		assert(tos.tx.origin == tos.caller, "origin should equal caller for top-level tx")
+		assert(tos.tx.gasprice >= 0, "gasprice should be non-negative")
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
 // TestLuaContractGasLeft verifies tos.gasleft() returns a positive decreasing value.
+// gasleft() remains a function because its value changes with each opcode executed.
 func TestLuaContractGasLeft(t *testing.T) {
 	const code = `
 		local g1 = tos.gasleft()
@@ -294,20 +186,7 @@ func TestLuaContractGasLeft(t *testing.T) {
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
 
 // TestLuaContractHash verifies tos.hash returns a deterministic keccak256 hex string.
@@ -319,18 +198,5 @@ func TestLuaContractHash(t *testing.T) {
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-
-	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
-		b.AddTx(tx)
-	})
-	if _, err := bc.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain: %v", err)
-	}
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }
