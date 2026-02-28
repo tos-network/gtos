@@ -3194,3 +3194,167 @@ func TestLuaContractSend(t *testing.T) {
 		runLuaTx(t, bc, contractAddr, big.NewInt(0))
 	})
 }
+
+// TestLuaContractBytes tests the tos.bytes.* utility sub-table.
+//
+// tos.bytes bridges the two representations used in TOS Lua:
+//   - hex strings  ("0x...")  — returned by abi.encode, keccak256, msg.data
+//   - binary strings          — accepted by keccak256, sha256, etc.
+func TestLuaContractBytes(t *testing.T) {
+	t.Run("fromhex_tohex_roundtrip", func(t *testing.T) {
+		const code = `
+			local hex = "0xdeadbeef"
+			local bin = tos.bytes.fromhex(hex)
+			assert(#bin == 4, "expected 4 bytes, got " .. tostring(#bin))
+			assert(tos.bytes.tohex(bin) == hex,
+				"tohex(fromhex) roundtrip failed: " .. tos.bytes.tohex(bin))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("fromhex_empty_string", func(t *testing.T) {
+		const code = `
+			local bin = tos.bytes.fromhex("0x")
+			assert(#bin == 0, "empty hex should give empty binary")
+			assert(tos.bytes.tohex(bin) == "0x", "tohex of empty should be 0x")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("fromhex_no_prefix", func(t *testing.T) {
+		// fromhex accepts bare hex without "0x" prefix.
+		const code = `
+			local bin = tos.bytes.fromhex("deadbeef")
+			assert(#bin == 4, "bare hex: expected 4 bytes")
+			assert(tos.bytes.tohex(bin) == "0xdeadbeef", "bare hex roundtrip")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("len", func(t *testing.T) {
+		// Note: gopher-lua is Lua 5.1 — \xNN hex escapes not supported.
+		// Use decimal escapes: \0 = 0x00, \255 = 0xff.
+		const code = `
+			assert(tos.bytes.len("")        == 0, "empty")
+			assert(tos.bytes.len("abc")     == 3, "ascii")
+			assert(tos.bytes.len("\0\255")  == 2, "binary with null and 0xff")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("slice_with_length", func(t *testing.T) {
+		const code = `
+			local bin = tos.bytes.fromhex("0xdeadbeef01020304")
+			-- first 4 bytes
+			local head = tos.bytes.slice(bin, 0, 4)
+			assert(tos.bytes.tohex(head) == "0xdeadbeef", "head: " .. tos.bytes.tohex(head))
+			-- next 4 bytes
+			local tail = tos.bytes.slice(bin, 4, 4)
+			assert(tos.bytes.tohex(tail) == "0x01020304", "tail: " .. tos.bytes.tohex(tail))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("slice_without_length", func(t *testing.T) {
+		const code = `
+			local bin = tos.bytes.fromhex("0xdeadbeef01020304")
+			local rest = tos.bytes.slice(bin, 4)
+			assert(tos.bytes.tohex(rest) == "0x01020304", "rest: " .. tos.bytes.tohex(rest))
+			-- slice from 0 with no length = full copy
+			local full = tos.bytes.slice(bin, 0)
+			assert(tos.bytes.tohex(full) == "0xdeadbeef01020304", "full")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("slice_oob_reverts", func(t *testing.T) {
+		const code = `
+			local bin = tos.bytes.fromhex("0xdeadbeef")  -- 4 bytes
+			-- offset past end should revert
+			local ok = pcall(function() tos.bytes.slice(bin, 5) end)
+			assert(not ok, "slice past end should revert")
+			-- length past end should revert
+			local ok2 = pcall(function() tos.bytes.slice(bin, 2, 10) end)
+			assert(not ok2, "slice length past end should revert")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("fromUint256_toUint256_roundtrip", func(t *testing.T) {
+		const code = `
+			local n = 12345678
+			local b = tos.bytes.fromUint256(n)    -- 32-byte big-endian
+			assert(#b == 32, "fromUint256 should give 32 bytes, got " .. tostring(#b))
+			local m = tos.bytes.toUint256(b)
+			assert(m == n, "roundtrip: want " .. tostring(n) .. " got " .. tostring(m))
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("fromUint256_with_size", func(t *testing.T) {
+		const code = `
+			-- 255 fits in 1 byte
+			local b1 = tos.bytes.fromUint256(255, 1)
+			assert(#b1 == 1, "size=1")
+			assert(tos.bytes.toUint256(b1) == 255, "toUint256 of 0xff")
+
+			-- 256 requires at least 2 bytes
+			local b2 = tos.bytes.fromUint256(256, 2)
+			assert(#b2 == 2, "size=2")
+			assert(tos.bytes.toUint256(b2) == 256, "toUint256 of 256")
+
+			-- 0 always fits
+			local b0 = tos.bytes.fromUint256(0, 1)
+			assert(#b0 == 1 and tos.bytes.toUint256(b0) == 0, "zero in 1 byte")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("fromUint256_overflow_reverts", func(t *testing.T) {
+		const code = `
+			-- 256 does not fit in 1 byte
+			local ok = pcall(function() tos.bytes.fromUint256(256, 1) end)
+			assert(not ok, "256 in 1 byte should revert")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("hash_abi_encoded_data", func(t *testing.T) {
+		// Core use-case: hash ABI-encoded data — keccak256(abi.encode("uint256", 42)).
+		// The reference value is keccak256(0x000...2a) computed from Go.
+		encoded := make([]byte, 32)
+		encoded[31] = 42
+		want := "0x" + common.Bytes2Hex(crypto.Keccak256(encoded))
+
+		code := fmt.Sprintf(`
+			local enc = tos.abi.encode("uint256", 42)
+			local bin = tos.bytes.fromhex(enc)
+			local hash = keccak256(bin)
+			assert(hash == %q, "hash mismatch: " .. hash)
+		`, want)
+
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+}

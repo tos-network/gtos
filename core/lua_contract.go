@@ -3,6 +3,7 @@ package core
 import (
 	gosha256 "crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -517,6 +518,150 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		L.Push(lua.LString(addr.Hex()))
 		return 1
 	}))
+
+	// ── Binary string utilities (tos.bytes.*) ────────────────────────────────
+	//
+	// These helpers bridge the gap between the two representations used in
+	// TOS Lua contracts:
+	//
+	//   • "hex string"    — "0x1234abcd"  (returned by abi.encode, keccak256, etc.)
+	//   • "binary string" — raw bytes     (accepted by keccak256, sha256, etc.)
+	//
+	// Example — hash ABI-encoded data:
+	//
+	//   local encoded = tos.abi.encode("uint256", 42)   -- "0x000...2a" hex
+	//   local hash    = keccak256(tos.bytes.fromhex(encoded))  -- raw-binary input
+	//
+	// All functions operate on Lua strings.  No gas is charged (pure computation).
+	bytesTable := L.NewTable()
+
+	// tos.bytes.fromhex(hexStr) → binaryStr
+	//   Decode a "0x..."-prefixed or bare hex string into a raw binary Lua string.
+	//   Raises an error if the input is not valid hex.
+	//
+	//   Example:
+	//     local bin = tos.bytes.fromhex("0xdeadbeef")  -- 4-byte binary string
+	//     assert(#bin == 4)
+	//     local hash = keccak256(tos.bytes.fromhex(tos.abi.encode("uint256", 42)))
+	L.SetField(bytesTable, "fromhex", L.NewFunction(func(L *lua.LState) int {
+		hexStr := strings.TrimPrefix(L.CheckString(1), "0x")
+		hexStr = strings.TrimPrefix(hexStr, "0X")
+		if len(hexStr)%2 != 0 {
+			L.RaiseError("tos.bytes.fromhex: odd-length hex string")
+			return 0
+		}
+		b, err := hex.DecodeString(hexStr)
+		if err != nil {
+			L.RaiseError("tos.bytes.fromhex: invalid hex: %v", err)
+			return 0
+		}
+		L.Push(lua.LString(b))
+		return 1
+	}))
+
+	// tos.bytes.tohex(binaryStr) → "0x..." hexStr
+	//   Encode a raw binary Lua string into a lowercase "0x..."-prefixed hex string.
+	//
+	//   Example:
+	//     local hex = tos.bytes.tohex("\xde\xad\xbe\xef")  -- "0xdeadbeef"
+	L.SetField(bytesTable, "tohex", L.NewFunction(func(L *lua.LState) int {
+		b := []byte(L.CheckString(1))
+		L.Push(lua.LString("0x" + common.Bytes2Hex(b)))
+		return 1
+	}))
+
+	// tos.bytes.len(binaryStr) → uint256
+	//   Returns the byte length of the string.  Equivalent to the Lua # operator
+	//   but explicit and safe for binary data.
+	L.SetField(bytesTable, "len", L.NewFunction(func(L *lua.LState) int {
+		s := L.CheckString(1)
+		L.Push(lua.LNumber(new(big.Int).SetInt64(int64(len(s))).Text(10)))
+		return 1
+	}))
+
+	// tos.bytes.slice(binaryStr, offset [, length]) → binaryStr
+	//   Extract a sub-string of bytes.  offset is 0-based (like Solidity / Python).
+	//   If length is omitted, returns everything from offset to end.
+	//   Raises an error if offset or offset+length is out of range.
+	//
+	//   Example — extract 4-byte function selector from binary calldata:
+	//     local bin = tos.bytes.fromhex(msg.data)
+	//     local sel = tos.bytes.slice(bin, 0, 4)   -- first 4 bytes
+	//     local args = tos.bytes.slice(bin, 4)     -- remaining bytes
+	L.SetField(bytesTable, "slice", L.NewFunction(func(L *lua.LState) int {
+		s := []byte(L.CheckString(1))
+		offset := int(luaParseBigInt(L, 2).Int64())
+		if offset < 0 || offset > len(s) {
+			L.RaiseError("tos.bytes.slice: offset %d out of range (len=%d)", offset, len(s))
+			return 0
+		}
+		var result []byte
+		if L.GetTop() >= 3 {
+			length := int(luaParseBigInt(L, 3).Int64())
+			if length < 0 || offset+length > len(s) {
+				L.RaiseError("tos.bytes.slice: offset+length %d out of range (len=%d)", offset+length, len(s))
+				return 0
+			}
+			result = s[offset : offset+length]
+		} else {
+			result = s[offset:]
+		}
+		L.Push(lua.LString(result))
+		return 1
+	}))
+
+	// tos.bytes.fromUint256(n [, size]) → binaryStr
+	//   Encode a uint256 as a big-endian binary string.
+	//   size (default 32) specifies the output byte length; the number is zero-padded
+	//   on the left.  Raises an error if the value does not fit in size bytes.
+	//
+	//   Example:
+	//     local b = tos.bytes.fromUint256(255, 1)  -- "\xff"  (1 byte)
+	//     local b = tos.bytes.fromUint256(255)     -- 32-byte zero-padded
+	L.SetField(bytesTable, "fromUint256", L.NewFunction(func(L *lua.LState) int {
+		n := luaParseBigInt(L, 1)
+		if n == nil || n.Sign() < 0 {
+			L.RaiseError("tos.bytes.fromUint256: value must be a non-negative integer")
+			return 0
+		}
+		size := 32
+		if L.GetTop() >= 2 {
+			size = int(luaParseBigInt(L, 2).Int64())
+			if size <= 0 || size > 32 {
+				L.RaiseError("tos.bytes.fromUint256: size must be 1–32")
+				return 0
+			}
+		}
+		raw := n.Bytes() // minimal big-endian; no leading zeros
+		if len(raw) > size {
+			L.RaiseError("tos.bytes.fromUint256: value does not fit in %d bytes", size)
+			return 0
+		}
+		buf := make([]byte, size)
+		copy(buf[size-len(raw):], raw)
+		L.Push(lua.LString(buf))
+		return 1
+	}))
+
+	// tos.bytes.toUint256(binaryStr) → uint256
+	//   Interpret a big-endian binary string as an unsigned integer.
+	//   The input may be 1–32 bytes; longer inputs raise an error.
+	//
+	//   Example:
+	//     local n = tos.bytes.toUint256("\x00\x01")  -- 256
+	//     local n = tos.bytes.toUint256(tos.bytes.slice(data, 0, 32))
+	L.SetField(bytesTable, "toUint256", L.NewFunction(func(L *lua.LState) int {
+		b := []byte(L.CheckString(1))
+		if len(b) > 32 {
+			L.RaiseError("tos.bytes.toUint256: input must be ≤ 32 bytes, got %d", len(b))
+			return 0
+		}
+		n := new(big.Int).SetBytes(b)
+		L.Push(lua.LNumber(n.Text(10)))
+		return 1
+	}))
+
+	L.SetField(tosTable, "bytes", bytesTable)
 
 	// tos.addmod(x, y, k) → (x + y) % k
 	L.SetField(tosTable, "addmod", L.NewFunction(func(L *lua.LState) int {
