@@ -3465,3 +3465,128 @@ func TestLuaContractAddressUtils(t *testing.T) {
 		}
 	})
 }
+
+func TestLuaContractDeploy(t *testing.T) {
+	// childCode is a minimal contract used as the deployed child in most subtests.
+	const childCode = `
+		tos.oncreate(function()
+			tos.set("creator", 1)
+		end)
+		tos.set("ping", 42)
+	`
+
+	t.Run("returns_deterministic_address", func(t *testing.T) {
+		// The address returned by tos.deploy must equal crypto.CreateAddress(contractAddr, 0).
+		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+		want := crypto.CreateAddress(contractAddr, 0)
+
+		code := fmt.Sprintf(`
+			local child = tos.deploy(%q)
+			assert(child == %q, "wrong address: " .. tostring(child))
+		`, childCode, want.Hex())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("deployed_code_is_callable", func(t *testing.T) {
+		// After tos.deploy, tos.codeAt should return true and tos.call should work.
+		code := `
+			local src = "tos.set([[hit]], 99)"
+			local child = tos.deploy(src)
+			assert(tos.codeAt(child), "no code at child")
+			local ok = tos.call(child, 0)
+			assert(ok, "tos.call failed")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("successive_deploys_differ", func(t *testing.T) {
+		// Two tos.deploy calls from same contract yield different addresses (nonce increments).
+		code := `
+			local a = tos.deploy("tos.set([[x]],1)")
+			local b = tos.deploy("tos.set([[x]],2)")
+			assert(a ~= b, "expected different addresses")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("second_address_matches_nonce1", func(t *testing.T) {
+		// Address from second deploy must equal crypto.CreateAddress(contractAddr, 1).
+		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+		want1 := crypto.CreateAddress(contractAddr, 1)
+
+		code := fmt.Sprintf(`
+			tos.deploy("tos.set([[x]],1)")       -- nonce 0
+			local b = tos.deploy("tos.set([[x]],2)") -- nonce 1
+			assert(b == %q, "wrong nonce-1 addr: " .. tostring(b))
+		`, want1.Hex())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("deploy_with_value_transfers_balance", func(t *testing.T) {
+		// Contract has 1 TOS; deploy with 0.5 TOS → child gets 0.5 TOS.
+		halfTOS := new(big.Int).Mul(big.NewInt(5e17), big.NewInt(1))
+		code := fmt.Sprintf(`
+			local child = tos.deploy("", %s)  -- empty code → should revert
+		`, halfTOS.String())
+		// empty code reverts — test value transfer with non-empty code instead:
+		code = fmt.Sprintf(`
+			local child = tos.deploy("tos.set([[x]],1)", %s)
+			local bal = tos.balance(child)
+			assert(bal == %s, "balance mismatch: " .. tostring(bal))
+		`, halfTOS.String(), halfTOS.String())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("empty_code_reverts", func(t *testing.T) {
+		code := `tos.deploy("")`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("insufficient_balance_reverts", func(t *testing.T) {
+		// Contract has 1 TOS; try to deploy with 2 TOS → should revert.
+		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
+		code := fmt.Sprintf(`
+			tos.deploy("tos.set([[x]],1)", %s)
+		`, twoTOS.String())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("deploy_in_staticcall_reverts", func(t *testing.T) {
+		// helperCode (at 0xBBBB...) tries tos.deploy — raises an error in a static context.
+		// callerCode staticcalls the helper; if the helper fails, staticcall returns false.
+		// require(ok) then propagates the failure, making the outer tx revert.
+		helperAddr := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q)
+			require(ok, "deploy in staticcall must fail")
+		`, helperAddr.Hex())
+		helperCode := `tos.deploy("tos.set([[x]],1)")`
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("oog_on_huge_code", func(t *testing.T) {
+		// A very large code string should exhaust gas (luaGasDeployByte=200 × N bytes).
+		// 2500 bytes × 200 = 500 000 gas > typical tx gas limit of 500 000 → OOG.
+		code := fmt.Sprintf(`tos.deploy(string.rep("x", 2500))`)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+}

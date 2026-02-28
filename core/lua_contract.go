@@ -25,9 +25,11 @@ const (
 	luaGasBalance  uint64 = 400  // balance query
 	luaGasCodeSize uint64 = 700  // external code size check
 	luaGasTransfer uint64 = 2300 // value transfer base
-	luaGasLogBase  uint64 = 375  // log emission base
-	luaGasLogTopic uint64 = 375  // per indexed topic (topics[1..3])
-	luaGasLogByte  uint64 = 8    // per byte of log data
+	luaGasLogBase    uint64 = 375   // log emission base
+	luaGasLogTopic   uint64 = 375   // per indexed topic (topics[1..3])
+	luaGasLogByte    uint64 = 8     // per byte of log data
+	luaGasDeploy     uint64 = 32000 // CREATE base (mirrors EVM CREATE opcode cost)
+	luaGasDeployByte uint64 = 200   // per byte of deployed code
 )
 
 // luaMaxCallDepth caps tos.call nesting to prevent stack-overflow DoS.
@@ -1336,6 +1338,83 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.Push(lua.LNil)
 		}
 		return 2
+	}))
+
+	// ── Contract deployment ────────────────────────────────────────────────────
+
+	// tos.deploy(code [, value]) → string
+	//   Deploys a new Lua contract and returns its address as "0x..." hex.
+	//   Analogous to EVM CREATE.
+	//
+	//   Address derivation (deterministic):
+	//     newAddr = keccak256(RLP(contractAddr, nonce))
+	//   The deploying contract's nonce is incremented after each successful
+	//   deploy, so successive tos.deploy calls from the same contract yield
+	//   distinct addresses.
+	//
+	//   code:  Lua source string (must not be empty)
+	//   value: optional TOS wei to transfer to the new contract on creation
+	//
+	//   Gas: luaGasDeploy (32 000 base) + luaGasDeployByte (200) × len(code)
+	//
+	//   Reverts on: staticcall context, call-depth exceeded, empty code,
+	//               insufficient balance for value transfer.
+	//
+	//   Example — factory pattern:
+	//     local child = tos.deploy([[
+	//         tos.oncreate(function() tos.set("parent", tos.caller()) end)
+	//     ]])
+	//     tos.set("child", child)
+	L.SetField(tosTable, "deploy", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.deploy: contract deployment not allowed in staticcall")
+			return 0
+		}
+		if ctx.depth >= luaMaxCallDepth {
+			L.RaiseError("tos.deploy: max call depth (%d) exceeded", luaMaxCallDepth)
+			return 0
+		}
+
+		code := L.CheckString(1)
+		if len(code) == 0 {
+			L.RaiseError("tos.deploy: code must not be empty")
+			return 0
+		}
+
+		// Optional value transfer to the new contract.
+		var deployValue *big.Int
+		if L.GetTop() >= 2 {
+			deployValue = luaParseBigInt(L, 2)
+			if deployValue == nil || deployValue.Sign() < 0 {
+				L.RaiseError("tos.deploy: invalid value")
+				return 0
+			}
+		} else {
+			deployValue = new(big.Int)
+		}
+
+		// Gas: base + per-byte of code (mirrors EVM CREATE cost model).
+		chargePrimGas(luaGasDeploy + luaGasDeployByte*uint64(len(code)))
+
+		// Derive new address from the deployer's current nonce (CREATE semantics).
+		nonce := st.state.GetNonce(contractAddr)
+		newAddr := crypto.CreateAddress(contractAddr, nonce)
+		st.state.SetNonce(contractAddr, nonce+1)
+
+		// Transfer value (if any) before storing code — matches EVM CREATE order.
+		if deployValue.Sign() > 0 {
+			if !st.blockCtx.CanTransfer(st.state, contractAddr, deployValue) {
+				L.RaiseError("tos.deploy: insufficient balance for value transfer")
+				return 0
+			}
+			st.blockCtx.Transfer(st.state, contractAddr, newAddr, deployValue)
+		}
+
+		// Store the contract code at the derived address.
+		st.state.SetCode(newAddr, []byte(code))
+
+		L.Push(lua.LString(newAddr.Hex()))
+		return 1
 	}))
 
 	// ── Selector / Dispatch ────────────────────────────────────────────────────
