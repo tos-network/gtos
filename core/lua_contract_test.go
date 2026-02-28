@@ -1503,17 +1503,15 @@ func TestLuaContractArrayStorage(t *testing.T) {
 
 	t.Run("push_pop_round_trip", func(t *testing.T) {
 		// Push 1×10 … 5×10, then pop all five and verify LIFO order.
-		// Negative-step for loops don't work in the uint256 VM (step -1 is
-		// stored as 2^256-1, treated as a large positive step), so we use
-		// explicit arrPop assertions instead of a decrementing loop.
+		// Uses a decrementing numeric for loop (for i = 5, 1, -1) which now
+		// works correctly after the OP_FORLOOP two's complement sign fix.
 		const code = `
 			for i = 1, 5 do tos.arrPush("s", i * 10) end
 			assert(tos.arrLen("s") == 5, "len=5")
-			assert(tos.arrPop("s") == 50, "pop 50")
-			assert(tos.arrPop("s") == 40, "pop 40")
-			assert(tos.arrPop("s") == 30, "pop 30")
-			assert(tos.arrPop("s") == 20, "pop 20")
-			assert(tos.arrPop("s") == 10, "pop 10")
+			for i = 5, 1, -1 do
+				local v = tos.arrPop("s")
+				assert(v == i * 10, "pop " .. tostring(i) .. ": got " .. tostring(v))
+			end
 			assert(tos.arrLen("s") == 0, "len=0 after all pops")
 		`
 		bc, contractAddr, cleanup := luaTestSetup(t, code)

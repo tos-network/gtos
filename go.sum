@@ -360,6 +360,8 @@ github.com/tos-network/gopher-lua v0.0.0-20260228111350-b862b02edd61 h1:YMfhQR9D
 github.com/tos-network/gopher-lua v0.0.0-20260228111350-b862b02edd61/go.mod h1:yjDi0Rw8R+J6rL5GVpBs+fNDabvZ5iQCd1iUa8Zk1xs=
 github.com/tos-network/gopher-lua v0.0.0-20260228132627-d141b3ab4273 h1:gpbraIzxDV9w4Psu/+6+6zFJYWLhiTj89Qa/ak7OA2M=
 github.com/tos-network/gopher-lua v0.0.0-20260228132627-d141b3ab4273/go.mod h1:yjDi0Rw8R+J6rL5GVpBs+fNDabvZ5iQCd1iUa8Zk1xs=
+github.com/tos-network/gopher-lua v0.0.0-20260228141522-a0d9eb9f1f05 h1:ltPu5tHthVqRdUMK8HayiwELdmsBW5KxgyJNOqerV1Y=
+github.com/tos-network/gopher-lua v0.0.0-20260228141522-a0d9eb9f1f05/go.mod h1:yjDi0Rw8R+J6rL5GVpBs+fNDabvZ5iQCd1iUa8Zk1xs=
 github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef h1:wHSqTBrZW24CsNJDfeh9Ex6Pm0Rcpc7qrgKBiL44vF4=
 github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef/go.mod h1:sJ5fKU0s6JVwZjjcUEX2zFOnvq0ASQ2K9Zr6cf67kNs=
 github.com/urfave/cli/v2 v2.10.2 h1:x3p8awjp/2arX+Nl/G2040AZpOCHS/eMJJ1/a+mye4Y=
