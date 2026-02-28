@@ -140,7 +140,7 @@ func (st *StateTransition) applyLua(src []byte) error {
 	// tos.block  (sub-table — all fields are static values for this execution)
 	blockTable := L.NewTable()
 	L.SetField(blockTable, "number", lua.LNumber(st.blockCtx.BlockNumber.Text(10)))
-	L.SetField(blockTable, "time", lua.LNumber(st.blockCtx.Time.Text(10)))
+	L.SetField(blockTable, "timestamp", lua.LNumber(st.blockCtx.Time.Text(10)))
 	L.SetField(blockTable, "coinbase", lua.LString(st.blockCtx.Coinbase.Hex()))
 	L.SetField(blockTable, "chainid", lua.LNumber(st.chainConfig.ChainID.Text(10)))
 	L.SetField(blockTable, "gaslimit", lua.LNumber(new(big.Int).SetUint64(st.blockCtx.GasLimit).Text(10)))
@@ -209,8 +209,8 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 0
 	}))
 
-	// tos.hash(data) → string  (keccak256 of data, hex-encoded)
-	L.SetField(tosTable, "hash", L.NewFunction(func(L *lua.LState) int {
+	// tos.keccak256(data) → string  (keccak256 of data, hex-encoded)
+	L.SetField(tosTable, "keccak256", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
 		h := crypto.Keccak256Hash([]byte(data))
 		L.Push(lua.LString(h.Hex()))

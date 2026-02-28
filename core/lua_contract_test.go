@@ -203,8 +203,8 @@ func TestLuaContractNoPrefixAccess(t *testing.T) {
 		-- functions
 		set("nopfx", 7)
 		assert(get("nopfx") == 7, "get/set without prefix")
-		local h = hash("hello")
-		assert(#h == 66, "hash without prefix")
+		local h = keccak256("hello")
+		assert(#h == 66, "keccak256 without prefix")
 		local g = gasleft()
 		assert(g > 0, "gasleft without prefix")
 		-- tos.* still works too
@@ -215,12 +215,12 @@ func TestLuaContractNoPrefixAccess(t *testing.T) {
 	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
 }
 
-// TestLuaContractHash verifies tos.hash returns a deterministic keccak256 hex string.
-func TestLuaContractHash(t *testing.T) {
+// TestLuaContractKeccak256 verifies tos.keccak256 returns a deterministic hex string.
+func TestLuaContractKeccak256(t *testing.T) {
 	const code = `
-		local h = tos.hash("hello")
+		local h = tos.keccak256("hello")
 		-- keccak256("hello") = 1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
-		assert(type(h) == "string" and #h == 66, "hash should be 66-char hex string (0x + 64)")
+		assert(type(h) == "string" and #h == 66, "keccak256 should be 66-char hex string (0x + 64)")
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
