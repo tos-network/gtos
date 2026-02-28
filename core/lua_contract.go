@@ -149,7 +149,52 @@ func (st *StateTransition) applyLua(src []byte) error {
 		L.Push(lua.LString(st.blockCtx.Coinbase.Hex()))
 		return 1
 	}))
+	L.SetField(blockTable, "chainid", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(st.chainConfig.ChainID.Text(10)))
+		return 1
+	}))
+	L.SetField(blockTable, "gaslimit", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LNumber(new(big.Int).SetUint64(st.blockCtx.GasLimit).Text(10)))
+		return 1
+	}))
+	L.SetField(blockTable, "basefee", L.NewFunction(func(L *lua.LState) int {
+		if st.blockCtx.BaseFee != nil {
+			L.Push(lua.LNumber(st.blockCtx.BaseFee.Text(10)))
+		} else {
+			L.Push(lua.LNumber("0"))
+		}
+		return 1
+	}))
 	L.SetField(tosTable, "block", blockTable)
+
+	// tos.tx  (sub-table with transaction context)
+	//   tos.tx.origin()   → hex address of the original tx sender (same as caller in TOS)
+	//   tos.tx.gasprice() → gas price in wei (LNumber)
+	txTable := L.NewTable()
+	L.SetField(txTable, "origin", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LString(st.msg.From().Hex()))
+		return 1
+	}))
+	L.SetField(txTable, "gasprice", L.NewFunction(func(L *lua.LState) int {
+		if st.txPrice != nil {
+			L.Push(lua.LNumber(st.txPrice.Text(10)))
+		} else {
+			L.Push(lua.LNumber("0"))
+		}
+		return 1
+	}))
+	L.SetField(tosTable, "tx", txTable)
+
+	// tos.gasleft() → LNumber  (remaining gas units at call time)
+	L.SetField(tosTable, "gasleft", L.NewFunction(func(L *lua.LState) int {
+		used := L.GasUsed()
+		var remaining uint64
+		if used < st.gas {
+			remaining = st.gas - used
+		}
+		L.Push(lua.LNumber(new(big.Int).SetUint64(remaining).Text(10)))
+		return 1
+	}))
 
 	// tos.require(condition, msg)
 	//   Halts execution with an error if condition is false or nil.

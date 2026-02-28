@@ -182,6 +182,134 @@ func TestLuaContractGasLimit(t *testing.T) {
 	}
 }
 
+// TestLuaContractBlockChainID verifies tos.block.chainid() returns the configured chain ID.
+func TestLuaContractBlockChainID(t *testing.T) {
+	const code = `
+		local id = tos.block.chainid()
+		assert(id == 1, "expected chainid 1, got " .. tostring(id))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+}
+
+// TestLuaContractBlockGasLimit verifies tos.block.gaslimit() returns a positive value.
+func TestLuaContractBlockGasLimit(t *testing.T) {
+	const code = `
+		local gl = tos.block.gaslimit()
+		assert(gl > 0, "expected positive gaslimit, got " .. tostring(gl))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+}
+
+// TestLuaContractBlockBaseFee verifies tos.block.basefee() returns a non-negative value.
+func TestLuaContractBlockBaseFee(t *testing.T) {
+	const code = `
+		local bf = tos.block.basefee()
+		assert(bf >= 0, "expected non-negative basefee, got " .. tostring(bf))
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+}
+
+// TestLuaContractTxContext verifies tos.tx.origin and tos.tx.gasprice.
+func TestLuaContractTxContext(t *testing.T) {
+	const code = `
+		local origin = tos.tx.origin()
+		assert(type(origin) == "string" and #origin > 0, "origin should be non-empty string")
+		-- origin must equal caller for a simple (non-inner-call) tx
+		assert(origin == tos.caller(), "origin should equal caller for top-level tx")
+		local gp = tos.tx.gasprice()
+		assert(gp >= 0, "gasprice should be non-negative")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+}
+
+// TestLuaContractGasLeft verifies tos.gasleft() returns a positive decreasing value.
+func TestLuaContractGasLeft(t *testing.T) {
+	const code = `
+		local g1 = tos.gasleft()
+		assert(g1 > 0, "gasleft should be positive at start")
+		-- burn some gas with a loop, then check it decreased
+		for i = 1, 100 do end
+		local g2 = tos.gasleft()
+		assert(g2 < g1, "gasleft should decrease after doing work")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+}
+
 // TestLuaContractHash verifies tos.hash returns a deterministic keccak256 hex string.
 func TestLuaContractHash(t *testing.T) {
 	const code = `
