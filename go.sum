@@ -358,6 +358,8 @@ github.com/tklauser/numcpus v0.2.2 h1:oyhllyrScuYI6g+h/zUvNXNp1wy7x8qQy3t/piefld
 github.com/tklauser/numcpus v0.2.2/go.mod h1:x3qojaO3uyYt0i56EW/VUYs7uBvdl2fkfZFu0T9wgjM=
 github.com/tos-network/gopher-lua v0.0.0-20260228111350-b862b02edd61 h1:YMfhQR9DtIIpN77tp3ymMVEEAnjx9LLr5p08yRLHS90=
 github.com/tos-network/gopher-lua v0.0.0-20260228111350-b862b02edd61/go.mod h1:yjDi0Rw8R+J6rL5GVpBs+fNDabvZ5iQCd1iUa8Zk1xs=
+github.com/tos-network/gopher-lua v0.0.0-20260228132627-d141b3ab4273 h1:gpbraIzxDV9w4Psu/+6+6zFJYWLhiTj89Qa/ak7OA2M=
+github.com/tos-network/gopher-lua v0.0.0-20260228132627-d141b3ab4273/go.mod h1:yjDi0Rw8R+J6rL5GVpBs+fNDabvZ5iQCd1iUa8Zk1xs=
 github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef h1:wHSqTBrZW24CsNJDfeh9Ex6Pm0Rcpc7qrgKBiL44vF4=
 github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef/go.mod h1:sJ5fKU0s6JVwZjjcUEX2zFOnvq0ASQ2K9Zr6cf67kNs=
 github.com/urfave/cli/v2 v2.10.2 h1:x3p8awjp/2arX+Nl/G2040AZpOCHS/eMJJ1/a+mye4Y=

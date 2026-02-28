@@ -13,6 +13,7 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
+
 // luaTestSetup returns a blockchain with:
 //   - addr1 (key1): 10 TOS balance, used as tx sender
 //   - contractAddr:  Lua code pre-loaded via Genesis Code field
@@ -48,13 +49,41 @@ func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	return bc, contractAddr, bc.Stop
 }
 
-// runLuaTx is a helper that sends one tx (no calldata) to contractAddr.
+// runLuaTx sends one tx (no calldata) and asserts Lua executed successfully.
 func runLuaTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
 	t.Helper()
 	runLuaTxWithData(t, bc, contractAddr, value, nil)
 }
 
-// runLuaTxWithData sends one tx with custom calldata to contractAddr.
+// runLuaTxExpectFail sends one tx expecting the Lua script to fail (revert/OOG).
+// It asserts the receipt status is 0 (failed).
+func runLuaTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
+	t.Helper()
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	signer := types.LatestSigner(bc.Config())
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := bc.GetBlockByNumber(0)
+	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	block := blocks[0]
+	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+	if len(receipts) == 0 {
+		t.Fatal("no receipts found for block")
+	}
+	if receipts[0].Status != types.ReceiptStatusFailed {
+		t.Fatalf("expected Lua to fail (status=0), got status=%d", receipts[0].Status)
+	}
+}
+
+// runLuaTxWithData sends one tx with custom calldata to contractAddr and
+// verifies that the Lua script executed successfully (receipt status == 1).
 func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -69,6 +98,16 @@ func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address,
 	})
 	if _, err := bc.InsertChain(blocks); err != nil {
 		t.Fatalf("InsertChain: %v", err)
+	}
+	// Verify the Lua contract executed successfully (status 1 = success).
+	// A failed Lua script (assert failure, error, etc.) produces status 0.
+	block := blocks[0]
+	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+	if len(receipts) == 0 {
+		t.Fatal("no receipts found for block")
+	}
+	if receipts[0].Status != types.ReceiptStatusSuccessful {
+		t.Fatalf("Lua contract execution failed (receipt status=%d): Lua error or assert failed", receipts[0].Status)
 	}
 }
 
@@ -115,7 +154,7 @@ func TestLuaContractRequireRevert(t *testing.T) {
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLuaTxExpectFail(t, bc, contractAddr, big.NewInt(0))
 
 	// Verify: "key" slot must still be zero (revert worked).
 	state, err := bc.State()
@@ -134,7 +173,7 @@ func TestLuaContractGasLimit(t *testing.T) {
 	const code = `while true do end`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLuaTxExpectFail(t, bc, contractAddr, big.NewInt(0))
 }
 
 // TestLuaContractBlockChainID verifies tos.block.chainid is the configured chain ID.
@@ -569,10 +608,11 @@ func TestLuaContractABISmallInts(t *testing.T) {
 		local vI32 = abi.decode(abi.encode("int32", -2147483648), "int32")
 		assert(vI32 == -2147483648, "int32 min: " .. tostring(vI32))
 
-		-- int64 min — pass as string
-		local minI64 = "-9223372036854775808"
-		local vI64 = abi.decode(abi.encode("int64", minI64), "int64")
-		assert(tostring(vI64) == minI64, "int64 min: " .. tostring(vI64))
+		-- int64 min: pass as string for encoding, compare via Lua literal for decode.
+		-- Decoded value is the uint256 two's complement (2^256 - 2^63), same as
+		-- Lua literal -9223372036854775808 after the OP_UNM wrap fix.
+		local vI64 = abi.decode(abi.encode("int64", "-9223372036854775808"), "int64")
+		assert(vI64 == -9223372036854775808, "int64 min: " .. tostring(vI64))
 	`
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()

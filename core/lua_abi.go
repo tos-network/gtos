@@ -27,8 +27,15 @@ import (
 // ── Lua ↔ Go value conversion ─────────────────────────────────────────────────
 
 // abiLuaToGo converts a Lua value to the Go type expected by accounts/abi Pack.
-// For all integer sizes we use *big.Int; packNum handles reflect.Ptr correctly.
-// For FixedBytesTy we pass []byte (packElement accepts both Array and Slice).
+//
+// Integer semantics (EVM / Lua VM are both uint256):
+//   - Lua -1  == LNumber("2^256-1") after the OP_UNM two's complement fix.
+//   - For unsigned types (uint8..64): low N bits of the uint256 value.
+//   - For signed types (int8..64): low N bits with two's complement reinterpretation.
+//   - For uint128/256 and int256: pass *big.Int directly.
+//   - accounts/abi typeCheck requires native Go int types for sizes ≤ 64.
+//
+// FixedBytesTy: accounts/abi typeCheck requires [N]byte (Array kind), not []byte (Slice).
 func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 	switch typ.T {
 	case abi.UintTy, abi.IntTy:
@@ -44,6 +51,40 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 		n, ok := new(big.Int).SetString(s, 10)
 		if !ok {
 			return nil, fmt.Errorf("invalid integer %q", s)
+		}
+		// For sizes ≤ 64, accounts/abi typeCheck requires native Go integer types.
+		// Mask to N bits to handle uint256 two's complement (Lua -1 == 2^256-1).
+		if typ.Size <= 64 {
+			bitSize := uint(typ.Size)
+			mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), bitSize), big.NewInt(1))
+			low := new(big.Int).And(n, mask) // low N bits, always non-negative
+			if typ.T == abi.IntTy && low.Bit(int(bitSize)-1) == 1 {
+				// Sign bit set: negative in N-bit two's complement.
+				low.Sub(low, new(big.Int).Lsh(big.NewInt(1), bitSize))
+			}
+			i64 := low.Int64()
+			switch typ.Size {
+			case 8:
+				if typ.T == abi.IntTy {
+					return int8(i64), nil
+				}
+				return uint8(low.Uint64()), nil
+			case 16:
+				if typ.T == abi.IntTy {
+					return int16(i64), nil
+				}
+				return uint16(low.Uint64()), nil
+			case 32:
+				if typ.T == abi.IntTy {
+					return int32(i64), nil
+				}
+				return uint32(low.Uint64()), nil
+			case 64:
+				if typ.T == abi.IntTy {
+					return i64, nil
+				}
+				return low.Uint64(), nil
+			}
 		}
 		return n, nil
 
@@ -103,15 +144,38 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 		if len(raw) > typ.Size {
 			return nil, fmt.Errorf("bytes%d: data too long (%d bytes)", typ.Size, len(raw))
 		}
-		// packElement accepts []byte directly (Slice kind → reflectValue.Bytes() works)
-		return raw, nil
+		// accounts/abi typeCheck requires Array kind ([N]byte), not Slice ([]byte).
+		// Build a [N]byte reflect array right-padded with zeros.
+		arrType := reflect.ArrayOf(typ.Size, reflect.TypeOf(byte(0)))
+		arr := reflect.New(arrType).Elem()
+		reflect.Copy(arr, reflect.ValueOf(raw))
+		return arr.Interface(), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported type for encode: %v", typ)
 	}
 }
 
+// uint256Mod = 2^256, used for signed→uint256 sign-extension.
+var uint256Mod = new(big.Int).Lsh(big.NewInt(1), 256)
+
+// signedToLNumber converts a signed integer value to LNumber using two's
+// complement uint256 representation, consistent with the Lua VM's own unary
+// minus semantics (-1 == 2^256-1).
+func signedToLNumber(n *big.Int) lua.LNumber {
+	if n.Sign() < 0 {
+		n = new(big.Int).Add(n, uint256Mod)
+	}
+	return lua.LNumber(n.Text(10))
+}
+
 // abiGoToLua converts a Go value returned by accounts/abi Unpack to a Lua value.
+//
+// Signed integer types (intN) are returned as their two's complement uint256
+// representation so they are valid LNumber values in the Lua VM:
+//
+//	int8(-1)   → LNumber("2^256-1")   — matches Lua's own -1 literal
+//	int8(-128) → LNumber("2^256-128")
 func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 	switch typ.T {
 	case abi.UintTy:
@@ -133,15 +197,15 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 	case abi.IntTy:
 		switch v := val.(type) {
 		case int8:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return signedToLNumber(big.NewInt(int64(v))), nil
 		case int16:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return signedToLNumber(big.NewInt(int64(v))), nil
 		case int32:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return signedToLNumber(big.NewInt(int64(v))), nil
 		case int64:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return signedToLNumber(big.NewInt(v)), nil
 		case *big.Int:
-			return lua.LNumber(v.Text(10)), nil
+			return signedToLNumber(new(big.Int).Set(v)), nil
 		default:
 			return nil, fmt.Errorf("unexpected Go int type %T", val)
 		}
@@ -301,6 +365,16 @@ func abiPackedOne(typ abi.Type, val lua.LValue) ([]byte, error) {
 		}
 		byteLen := typ.Size / 8
 		b := make([]byte, byteLen)
+		// For sizes < 256, mask to N bits to handle Lua uint256 two's complement
+		// (e.g. Lua -1 == 2^256-1; for int8 that must become 0xff, not panic on FillBytes).
+		if typ.Size < 256 {
+			mask := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(typ.Size)), big.NewInt(1))
+			n.And(n, mask) // now n is in [0, 2^N)
+			// For signed types, reinterpret as negative if sign bit is set.
+			if typ.T == abi.IntTy && n.Bit(typ.Size-1) == 1 {
+				n.Sub(n, new(big.Int).Lsh(big.NewInt(1), uint(typ.Size)))
+			}
+		}
 		if n.Sign() < 0 {
 			// two's complement mod 2^(byteLen*8)
 			mask := new(big.Int).Lsh(big.NewInt(1), uint(typ.Size))
