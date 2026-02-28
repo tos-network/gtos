@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -244,4 +245,108 @@ func TestLuaContractMsgSender(t *testing.T) {
 	bc, contractAddr, cleanup := luaTestSetup(t, code)
 	defer cleanup()
 	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+}
+
+// ── Phase 2C tests ────────────────────────────────────────────────────────────
+
+// TestLuaContractSha256 verifies tos.sha256 returns a 66-char hex string.
+func TestLuaContractSha256(t *testing.T) {
+	const code = `
+		local h = sha256("hello")
+		-- sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+		assert(type(h) == "string" and #h == 66, "sha256 should be 66-char hex string")
+		assert(h:sub(1,2) == "0x", "sha256 should start with 0x")
+		-- also accessible via tos prefix
+		assert(tos.sha256("hello") == h, "tos.sha256 == sha256")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractAddmod verifies tos.addmod computes (x+y)%k correctly.
+func TestLuaContractAddmod(t *testing.T) {
+	const code = `
+		assert(addmod(1, 2, 3) == 0,  "(1+2)%3 == 0")
+		assert(addmod(5, 7, 4) == 0,  "(5+7)%4 == 0")
+		assert(addmod(10, 1, 7) == 4, "(10+1)%7 == 4")
+		assert(addmod(0, 0, 1) == 0,  "(0+0)%1 == 0")
+		-- same via tos prefix
+		assert(tos.addmod(2, 3, 4) == 1, "tos.addmod")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractMulmod verifies tos.mulmod computes (x*y)%k correctly.
+func TestLuaContractMulmod(t *testing.T) {
+	const code = `
+		assert(mulmod(2, 3, 5)  == 1,  "(2*3)%5 == 1")
+		assert(mulmod(4, 4, 7)  == 2,  "(4*4)%7 == 2")
+		assert(mulmod(0, 999, 7) == 0, "(0*999)%7 == 0")
+		assert(mulmod(1, 1, 1)  == 0,  "(1*1)%1 == 0")
+		-- same via tos prefix
+		assert(tos.mulmod(3, 3, 4) == 1, "tos.mulmod")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractSelf verifies tos.self is the contract's own address.
+func TestLuaContractSelf(t *testing.T) {
+	// contractAddr is always 0xCCCC...CC (32 bytes) in luaTestSetup.
+	const code = `
+		assert(type(self) == "string" and #self > 0, "self should be non-empty string")
+		assert(self == tos.self, "self == tos.self")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	_ = contractAddr
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractBlockhash verifies blockhash returns nil or a 66-char hex string.
+func TestLuaContractBlockhash(t *testing.T) {
+	const code = `
+		-- Block 0 (genesis): may or may not be available depending on chain context.
+		local h = blockhash(0)
+		assert(h == nil or (#h == 66 and h:sub(1,2) == "0x"),
+			"blockhash(0) should be nil or 66-char hex, got: " .. tostring(h))
+		-- A very far future block is never available.
+		assert(blockhash(999999999) == nil, "far-future blockhash should be nil")
+	`
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+}
+
+// TestLuaContractEcrecover verifies ecrecover returns the correct signer address.
+func TestLuaContractEcrecover(t *testing.T) {
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	msgHash := crypto.Keccak256([]byte("hello ecrecover"))
+	sig, err := crypto.Sign(msgHash, key1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := "0x" + common.Bytes2Hex(sig[0:32])
+	s := "0x" + common.Bytes2Hex(sig[32:64])
+	v := int(sig[64]) + 27 // Solidity convention: 27 or 28
+	hashHex := "0x" + common.Bytes2Hex(msgHash)
+
+	code := fmt.Sprintf(`
+		local recovered = ecrecover("%s", %d, "%s", "%s")
+		assert(recovered ~= nil, "ecrecover returned nil")
+		assert(recovered == "%s", "ecrecover address mismatch: " .. tostring(recovered))
+		-- same via tos prefix
+		assert(tos.ecrecover("%s", %d, "%s", "%s") == recovered, "tos.ecrecover == ecrecover")
+	`, hashHex, v, r, s, addr1.Hex(),
+		hashHex, v, r, s)
+
+	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	defer cleanup()
+	runLuaTx(t, bc, contractAddr, big.NewInt(0))
 }

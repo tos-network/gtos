@@ -1,6 +1,7 @@
 package core
 
 import (
+	gosha256 "crypto/sha256"
 	"fmt"
 	"math/big"
 	"strings"
@@ -9,6 +10,27 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	lua "github.com/tos-network/gopher-lua"
 )
+
+// luaParseBigInt extracts a non-negative *big.Int from Lua argument n.
+// Accepts LNumber or LString. Raises a Lua error on bad input.
+func luaParseBigInt(L *lua.LState, n int) *big.Int {
+	var s string
+	switch v := L.CheckAny(n).(type) {
+	case lua.LNumber:
+		s = string(v)
+	case lua.LString:
+		s = string(v)
+	default:
+		L.ArgError(n, "expected number or numeric string")
+		return nil
+	}
+	bi, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		L.ArgError(n, "invalid integer")
+		return nil
+	}
+	return bi
+}
 
 // luaStorageSlot maps a Lua contract storage key to a deterministic EVM storage
 // slot, namespaced under "gtos.lua.storage." to avoid collision with setCode
@@ -216,6 +238,107 @@ func (st *StateTransition) applyLua(src []byte) error {
 		L.Push(lua.LString(h.Hex()))
 		return 1
 	}))
+
+	// tos.sha256(data) → string  (SHA-256 of data as "0x" + 64 hex chars)
+	L.SetField(tosTable, "sha256", L.NewFunction(func(L *lua.LState) int {
+		data := L.CheckString(1)
+		h := gosha256.Sum256([]byte(data))
+		L.Push(lua.LString("0x" + common.Bytes2Hex(h[:])))
+		return 1
+	}))
+
+	// tos.ecrecover(hash, v, r, s) → string | nil
+	//   Recovers the signer address from an ECDSA signature (secp256k1).
+	//   hash: "0x"-prefixed 32-byte hex string
+	//   v:    27 or 28 (Solidity convention); also accepts 0 or 1
+	//   r, s: "0x"-prefixed 32-byte hex strings
+	//   Returns the signer address hex string, or nil on failure.
+	L.SetField(tosTable, "ecrecover", L.NewFunction(func(L *lua.LState) int {
+		hashHex := L.CheckString(1)
+		vNum := uint8(L.CheckInt(2))
+		rHex := L.CheckString(3)
+		sHex := L.CheckString(4)
+
+		hashBytes := common.FromHex(hashHex)
+		rBytes := common.FromHex(rHex)
+		sBytes := common.FromHex(sHex)
+		if len(hashBytes) != 32 || len(rBytes) != 32 || len(sBytes) != 32 {
+			L.Push(lua.LNil)
+			return 1
+		}
+		// normalize v: Solidity uses 27/28; crypto.SigToPub expects 0/1
+		v := vNum
+		if v >= 27 {
+			v -= 27
+		}
+		if v != 0 && v != 1 {
+			L.Push(lua.LNil)
+			return 1
+		}
+		// sig = [R(32) || S(32) || V(1)]
+		sig := make([]byte, 65)
+		copy(sig[0:32], rBytes)
+		copy(sig[32:64], sBytes)
+		sig[64] = v
+
+		pub, err := crypto.SigToPub(hashBytes, sig)
+		if err != nil {
+			L.Push(lua.LNil)
+			return 1
+		}
+		addr := crypto.PubkeyToAddress(*pub)
+		L.Push(lua.LString(addr.Hex()))
+		return 1
+	}))
+
+	// tos.addmod(x, y, k) → (x + y) % k  (uint256, reverts if k == 0)
+	L.SetField(tosTable, "addmod", L.NewFunction(func(L *lua.LState) int {
+		x := luaParseBigInt(L, 1)
+		y := luaParseBigInt(L, 2)
+		k := luaParseBigInt(L, 3)
+		if k.Sign() == 0 {
+			L.RaiseError("addmod: modulus is zero")
+		}
+		result := new(big.Int).Add(x, y)
+		result.Mod(result, k)
+		L.Push(lua.LNumber(result.Text(10)))
+		return 1
+	}))
+
+	// tos.mulmod(x, y, k) → (x * y) % k  (uint256, reverts if k == 0)
+	L.SetField(tosTable, "mulmod", L.NewFunction(func(L *lua.LState) int {
+		x := luaParseBigInt(L, 1)
+		y := luaParseBigInt(L, 2)
+		k := luaParseBigInt(L, 3)
+		if k.Sign() == 0 {
+			L.RaiseError("mulmod: modulus is zero")
+		}
+		result := new(big.Int).Mul(x, y)
+		result.Mod(result, k)
+		L.Push(lua.LNumber(result.Text(10)))
+		return 1
+	}))
+
+	// tos.blockhash(n) → string | nil
+	//   Returns the hash of block n as "0x"+64 hex chars, or nil if unavailable.
+	//   Only recent blocks (within ~256) are guaranteed available.
+	L.SetField(tosTable, "blockhash", L.NewFunction(func(L *lua.LState) int {
+		nNum := luaParseBigInt(L, 1)
+		if nNum == nil || !nNum.IsUint64() {
+			L.Push(lua.LNil)
+			return 1
+		}
+		h := st.blockCtx.GetHash(nNum.Uint64())
+		if h == (common.Hash{}) {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.LString(h.Hex()))
+		}
+		return 1
+	}))
+
+	// tos.self → string  (this contract's own address, like Solidity address(this))
+	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
 
 	L.SetGlobal("tos", tosTable)
 
