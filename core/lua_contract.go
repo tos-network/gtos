@@ -569,6 +569,127 @@ func (st *StateTransition) applyLua(src []byte) error {
 		return 1
 	}))
 
+	// ── Cross-contract read API ───────────────────────────────────────────────
+	//
+	// These primitives expose read-only access to another contract's on-chain
+	// state.  They never write — only StateDB.GetState / GetCode are called.
+	// There is no re-entrancy risk because no Lua is executed inside the target.
+
+	// tos.codeAt(addr) → bool
+	//   Returns true if the given address has Lua contract code deployed.
+	//   Useful as a guard before calling tos.at(addr):
+	//     tos.require(tos.codeAt(tokenAddr), "not a contract")
+	L.SetField(tosTable, "codeAt", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		addr := common.HexToAddress(addrHex)
+		L.Push(lua.LBool(st.state.GetCodeSize(addr) > 0))
+		return 1
+	}))
+
+	// tos.at(addr) → proxy table
+	//   Returns a read-only storage proxy for the Lua contract at addr.
+	//   The proxy exposes the same storage namespaces used by tos.get/set,
+	//   tos.setStr/getStr, and tos.arrPush/arrGet — so any value written by
+	//   contract A can be read by contract B via tos.at(addrA).get(key).
+	//
+	//   Proxy methods:
+	//     proxy.get(key)        → LNumber | nil   (uint256 storage)
+	//     proxy.getStr(key)     → string | nil    (string storage)
+	//     proxy.arrLen(key)     → LNumber         (dynamic array length)
+	//     proxy.arrGet(key, i)  → LNumber | nil   (1-based array element)
+	//     proxy.balance()       → LNumber         (TOS balance in wei)
+	//
+	//   Example — read another token contract's balance mapping:
+	//     local tok = tos.at("0xTokenAddr...")
+	//     local bal = tok.get("bal." .. tos.caller)
+	//     tos.require(bal >= 100, "insufficient token balance")
+	L.SetField(tosTable, "at", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		target := common.HexToAddress(addrHex)
+
+		proxy := L.NewTable()
+
+		// proxy.get(key) — read uint256 slot
+		L.SetField(proxy, "get", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			val := st.state.GetState(target, luaStorageSlot(key))
+			if val == (common.Hash{}) {
+				L.Push(lua.LNil)
+				return 1
+			}
+			n := new(big.Int).SetBytes(val[:])
+			L.Push(lua.LNumber(n.Text(10)))
+			return 1
+		}))
+
+		// proxy.getStr(key) — read string slot
+		L.SetField(proxy, "getStr", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			base := luaStrLenSlot(key)
+			lenSlot := st.state.GetState(target, base)
+			if lenSlot == (common.Hash{}) {
+				L.Push(lua.LNil)
+				return 1
+			}
+			length := binary.BigEndian.Uint64(lenSlot[24:]) - 1
+			data := make([]byte, length)
+			for i := 0; i < int(length); i += 32 {
+				slot := st.state.GetState(target, luaStrChunkSlot(base, i/32))
+				copy(data[i:], slot[:])
+			}
+			L.Push(lua.LString(string(data)))
+			return 1
+		}))
+
+		// proxy.arrLen(key) — read dynamic array length
+		L.SetField(proxy, "arrLen", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			base := luaArrLenSlot(key)
+			raw := st.state.GetState(target, base)
+			n := new(big.Int).SetBytes(raw[:])
+			L.Push(lua.LNumber(n.Text(10)))
+			return 1
+		}))
+
+		// proxy.arrGet(key, i) — read 1-based array element
+		L.SetField(proxy, "arrGet", L.NewFunction(func(L *lua.LState) int {
+			key := L.CheckString(1)
+			idxBI := luaParseBigInt(L, 2)
+			if idxBI == nil {
+				L.Push(lua.LNil)
+				return 1
+			}
+			base := luaArrLenSlot(key)
+			raw := st.state.GetState(target, base)
+			length := new(big.Int).SetBytes(raw[:])
+			one := big.NewInt(1)
+			if idxBI.Cmp(one) < 0 || idxBI.Cmp(length) > 0 {
+				L.Push(lua.LNil)
+				return 1
+			}
+			i0 := new(big.Int).Sub(idxBI, one).Uint64()
+			elemSlot := luaArrElemSlot(base, i0)
+			val := st.state.GetState(target, elemSlot)
+			n := new(big.Int).SetBytes(val[:])
+			L.Push(lua.LNumber(n.Text(10)))
+			return 1
+		}))
+
+		// proxy.balance() — TOS balance of the target address
+		L.SetField(proxy, "balance", L.NewFunction(func(L *lua.LState) int {
+			bal := st.state.GetBalance(target)
+			if bal == nil {
+				L.Push(lua.LNumber("0"))
+			} else {
+				L.Push(lua.LNumber(bal.Text(10)))
+			}
+			return 1
+		}))
+
+		L.Push(proxy)
+		return 1
+	}))
+
 	// tos.selector(sig) → string  (4-byte keccak selector as "0x" hex)
 	//   Computes the Ethereum ABI function selector for a given signature string.
 	//   Equivalent to bytes4(keccak256(bytes(sig))).

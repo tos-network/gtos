@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"testing"
@@ -58,7 +59,41 @@ func abiSelector(sig string) string {
 	return "0x" + common.Bytes2Hex(h[:4])
 }
 
+// luaTestSetup2 returns a blockchain with TWO Lua contracts pre-deployed at
+// genesis, used for cross-contract read tests.
+//
+//   - addr1 (key1):    10 TOS, used as tx sender
+//   - contractAddr:    codeA (the "caller" contract)
+//   - contractAddrB:   codeB (the "target" contract with state to be read)
+func luaTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractAddr, contractAddrB common.Address, cleanup func()) {
+	t.Helper()
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
+	contractAddr = common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+	contractAddrB = common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc: GenesisAlloc{
+			addr1:         {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
+			contractAddr:  {Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)), Code: []byte(codeA)},
+			contractAddrB: {Balance: new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS)), Code: []byte(codeB)},
+		},
+	}
+	gspec.MustCommit(db)
+	bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = addr1
+	return bc, contractAddr, contractAddrB, bc.Stop
+}
 
 // luaTestSetup returns a blockchain with:
 //   - addr1 (key1): 10 TOS balance, used as tx sender
@@ -1575,4 +1610,189 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			t.Errorf("len in log: expected 1, got %d", receipt.Logs[0].Data[63])
 		}
 	})
+}
+
+// TestLuaContractCrossContractRead verifies tos.at(addr) and tos.codeAt(addr).
+//
+// Two contracts are pre-deployed at genesis:
+//   - contractAddrB: "source" — has pre-written state via genesis storage
+//   - contractAddr:  "reader" — uses tos.at(addrB) to read B's state and
+//     emits events so the test can inspect the values.
+//
+// Because genesis contracts can't run Lua at block-0 (no transactions), we
+// pre-populate contractAddrB's storage slots directly in the genesis alloc
+// via the same slot derivation used by applyLua.
+func TestLuaContractCrossContractRead(t *testing.T) {
+
+	// Pre-compute the storage slots that B's tos.set/setStr/arrPush would write.
+	// We inject them directly into genesis so block-1 can read them via tos.at.
+	slotUint := func(key string) common.Hash { return luaStorageSlot(key) }
+	slotStrLen := func(key string) common.Hash { return luaStrLenSlot(key) }
+	slotStrChunk := func(key string, i int) common.Hash {
+		return luaStrChunkSlot(luaStrLenSlot(key), i)
+	}
+	slotArrLen := func(key string) common.Hash { return luaArrLenSlot(key) }
+	slotArrElem := func(key string, i uint64) common.Hash {
+		return luaArrElemSlot(luaArrLenSlot(key), i)
+	}
+
+	uint256Slot := func(v uint64) common.Hash {
+		var h common.Hash
+		new(big.Int).SetUint64(v).FillBytes(h[:])
+		return h
+	}
+
+	// String "hello" (5 bytes): lenSlot = 5+1 = 6 stored as uint64 in bytes [24:32]
+	strLenSlotValue := func(s string) common.Hash {
+		var h common.Hash
+		binary.BigEndian.PutUint64(h[24:], uint64(len(s))+1)
+		return h
+	}
+	strChunkSlotValue := func(s string, chunk int) common.Hash {
+		var h common.Hash
+		data := []byte(s)
+		start := chunk * 32
+		end := start + 32
+		if end > len(data) {
+			end = len(data)
+		}
+		copy(h[:], data[start:end])
+		return h
+	}
+
+	addrB := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	// codeA: reads from B and emits results as events.
+	codeA := fmt.Sprintf(`
+		local b = tos.at(%q)
+		-- read uint256
+		local score = b.get("score")
+		tos.emit("Score", "uint256", score)
+		-- read string
+		local name = b.getStr("name")
+		tos.emit("Name", "string", name)
+		-- read array length
+		local n = b.arrLen("items")
+		tos.emit("ArrLen", "uint256", n)
+		-- read array element
+		local v1 = b.arrGet("items", 1)
+		tos.emit("ArrElem", "uint256", v1)
+		-- read balance
+		local bal = b.balance()
+		tos.emit("Balance", "uint256", bal)
+		-- codeAt
+		local hasCode = tos.codeAt(%q)
+		tos.emit("HasCode", "bool", hasCode)
+		local noCode = tos.codeAt("0x0000000000000000000000000000000000000000")
+		tos.emit("NoCode", "bool", noCode)
+	`, addrB.Hex(), addrB.Hex())
+
+	// codeB: just a no-op Lua script (its storage is injected via genesis alloc).
+	codeB := `-- storage pre-seeded in genesis`
+
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+
+	storageName := "hello"
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc: GenesisAlloc{
+			addr1:        {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
+			contractAddr: {Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)), Code: []byte(codeA)},
+			addrB: {
+				Balance: new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS)),
+				Code:    []byte(codeB),
+				Storage: map[common.Hash]common.Hash{
+					// tos.set("score", 42)
+					slotUint("score"): uint256Slot(42),
+					// tos.setStr("name", "hello")
+					slotStrLen("name"):       strLenSlotValue(storageName),
+					slotStrChunk("name", 0):  strChunkSlotValue(storageName, 0),
+					// tos.arrPush("items", 99)  → len=1, items[0]=99
+					slotArrLen("items"):      uint256Slot(1),
+					slotArrElem("items", 0):  uint256Slot(99),
+				},
+			},
+		},
+	}
+	gspec.MustCommit(db)
+	bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bc.Stop()
+
+	receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+	if len(receipt.Logs) != 7 {
+		t.Fatalf("expected 7 logs, got %d", len(receipt.Logs))
+	}
+
+	// Log 0: Score = 42
+	if receipt.Logs[0].Topics[0] != crypto.Keccak256Hash([]byte("Score")) {
+		t.Errorf("log[0] not Score")
+	}
+	if receipt.Logs[0].Data[31] != 42 {
+		t.Errorf("Score: expected 42, got %d", receipt.Logs[0].Data[31])
+	}
+
+	// Log 1: Name = "hello" (ABI-encoded string)
+	if receipt.Logs[1].Topics[0] != crypto.Keccak256Hash([]byte("Name")) {
+		t.Errorf("log[1] not Name")
+	}
+	// ABI-encoded string: offset(32) + length(32) + data(32 padded) = 96 bytes
+	if len(receipt.Logs[1].Data) != 96 {
+		t.Fatalf("Name data: expected 96 bytes, got %d", len(receipt.Logs[1].Data))
+	}
+	// bytes [64:69] = "hello"
+	if string(receipt.Logs[1].Data[64:69]) != "hello" {
+		t.Errorf("Name data: expected 'hello', got %q", string(receipt.Logs[1].Data[64:69]))
+	}
+
+	// Log 2: ArrLen = 1
+	if receipt.Logs[2].Topics[0] != crypto.Keccak256Hash([]byte("ArrLen")) {
+		t.Errorf("log[2] not ArrLen")
+	}
+	if receipt.Logs[2].Data[31] != 1 {
+		t.Errorf("ArrLen: expected 1, got %d", receipt.Logs[2].Data[31])
+	}
+
+	// Log 3: ArrElem = 99
+	if receipt.Logs[3].Topics[0] != crypto.Keccak256Hash([]byte("ArrElem")) {
+		t.Errorf("log[3] not ArrElem")
+	}
+	if receipt.Logs[3].Data[31] != 99 {
+		t.Errorf("ArrElem: expected 99, got %d", receipt.Logs[3].Data[31])
+	}
+
+	// Log 4: Balance = 2 TOS
+	if receipt.Logs[4].Topics[0] != crypto.Keccak256Hash([]byte("Balance")) {
+		t.Errorf("log[4] not Balance")
+	}
+	twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
+	gotBal := new(big.Int).SetBytes(receipt.Logs[4].Data)
+	if gotBal.Cmp(twoTOS) != 0 {
+		t.Errorf("Balance: expected %s, got %s", twoTOS, gotBal)
+	}
+
+	// Log 5: HasCode = true (addrB has code)
+	if receipt.Logs[5].Topics[0] != crypto.Keccak256Hash([]byte("HasCode")) {
+		t.Errorf("log[5] not HasCode")
+	}
+	if receipt.Logs[5].Data[31] != 1 {
+		t.Errorf("HasCode: expected true (1), got %d", receipt.Logs[5].Data[31])
+	}
+
+	// Log 6: NoCode = false (zero address has no code)
+	if receipt.Logs[6].Topics[0] != crypto.Keccak256Hash([]byte("NoCode")) {
+		t.Errorf("log[6] not NoCode")
+	}
+	if receipt.Logs[6].Data[31] != 0 {
+		t.Errorf("NoCode: expected false (0), got %d", receipt.Logs[6].Data[31])
+	}
 }
