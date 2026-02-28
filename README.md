@@ -32,6 +32,7 @@ The agent economy runs on three foundational layers:
 - Parallel transaction execution — independent txs run concurrently within each block via DAG scheduling
 - Rolling `200`-block finalized history window — nodes stay lean
 - Configurable seal signer: `ed25519` (default), `secp256k1`
+- Agent wallet supports: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 
 ### Privacy (UNO)
 
