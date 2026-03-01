@@ -4232,3 +4232,238 @@ func TestLuaContractBytecode(t *testing.T) {
 		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 }
+
+func TestLuaContractTOS721(t *testing.T) {
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	bob := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	const nftCode = `
+		local T = tos.import("tos721")
+		T.init("MyNFT", "MNFT")
+		tos.dispatch(T.handlers)
+	`
+
+	// readMapStr reads a string stored by tos.mapSetStr at (mapName, key).
+	readMapStr := func(state interface {
+		GetState(common.Address, common.Hash) common.Hash
+	}, contractAddr common.Address, mapName, key string) string {
+		base := luaMapStrLenSlot(mapName, []string{key})
+		lenSlot := state.GetState(contractAddr, base)
+		if lenSlot == (common.Hash{}) {
+			return ""
+		}
+		length := int(binary.BigEndian.Uint64(lenSlot[24:]) - 1)
+		data := make([]byte, length)
+		for i := 0; i < length; i += 32 {
+			chunk := state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
+			end := i + 32
+			if end > length {
+				end = length
+			}
+			copy(data[i:end], chunk[:end-i])
+		}
+		return string(data)
+	}
+
+	// trigger fires the first call to set up oncreate (mints nothing in TOS-721).
+	trigger := func(t *testing.T, bc *BlockChain, addr common.Address) {
+		t.Helper()
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "name()"))
+	}
+
+	t.Run("metadata_stored", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		state, _ := bc.State()
+		if state.GetState(addr, luaStrLenSlot("_name")) == (common.Hash{}) {
+			t.Error("_name not stored")
+		}
+		if state.GetState(addr, luaStrLenSlot("_symbol")) == (common.Hash{}) {
+			t.Error("_symbol not stored")
+		}
+		// _cowner is stored via tos.setStr; check the len slot is non-zero.
+		if state.GetState(addr, luaStrLenSlot("_cowner")) == (common.Hash{}) {
+			t.Error("_cowner not stored")
+		}
+	})
+
+	t.Run("mint_stores_owner_and_balance", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+
+		state, _ := bc.State()
+
+		// owner of token 1 must be addr1.
+		owner := readMapStr(state, addr, "_own", "1")
+		if owner != addr1.Hex() {
+			t.Errorf("owner of token 1: want %s, got %s", addr1.Hex(), owner)
+		}
+
+		// balance of addr1 must be 1.
+		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		bal := new(big.Int).SetBytes(balSlot[:]).Int64()
+		if bal != 1 {
+			t.Errorf("balance of addr1: want 1, got %d", bal)
+		}
+	})
+
+	t.Run("mint_emits_Transfer_from_zero", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+
+		block := bc.CurrentBlock()
+		receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+		sig := luaEventSig("Transfer", "address", "address", "uint256")
+		found := false
+		for _, l := range receipts[0].Logs {
+			if len(l.Topics) > 0 && l.Topics[0] == sig {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("Transfer event not emitted on mint")
+		}
+	})
+
+	t.Run("transfer_updates_owner_and_balances", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		// Mint token 1 to addr1 (owner == caller == addr1).
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+
+		// addr1 transfers token 1 to bob (addr1 == token owner → authorized).
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transferFrom(address,address,uint256)", "address", addr1, "address", bob, "uint256", big.NewInt(1)))
+
+		state, _ := bc.State()
+
+		// New owner is bob.
+		owner := readMapStr(state, addr, "_own", "1")
+		if owner != bob.Hex() {
+			t.Errorf("owner after transfer: want %s, got %s", bob.Hex(), owner)
+		}
+
+		// addr1 balance = 0, bob balance = 1.
+		addr1BalSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		bobBalSlot := state.GetState(addr, luaMapSlot("_bal", []string{bob.Hex()}))
+		addr1Bal := new(big.Int).SetBytes(addr1BalSlot[:]).Int64()
+		bobBal := new(big.Int).SetBytes(bobBalSlot[:]).Int64()
+		if addr1Bal != 0 {
+			t.Errorf("addr1 balance after transfer: want 0, got %d", addr1Bal)
+		}
+		if bobBal != 1 {
+			t.Errorf("bob balance after transfer: want 1, got %d", bobBal)
+		}
+	})
+
+	t.Run("approve_sets_storage", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
+
+		state, _ := bc.State()
+		approved := readMapStr(state, addr, "_appr", "1")
+		if approved != bob.Hex() {
+			t.Errorf("approved for token 1: want %s, got %s", bob.Hex(), approved)
+		}
+	})
+
+	t.Run("unauthorized_transfer_reverts", func(t *testing.T) {
+		// Mint token 1 to bob; addr1 (the tx signer) has no authorization → must revert.
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transferFrom(address,address,uint256)", "address", bob, "address", addr1, "uint256", big.NewInt(1)))
+	})
+
+	t.Run("non_owner_mint_reverts", func(t *testing.T) {
+		// luaTestSetup2: codeA → 0xCCCC… (attacker), codeB → 0xBBBB… (NFT).
+		// Sequence:
+		//   1. addr1 calls NFT (0xBBBB…) to trigger oncreate → _cowner = addr1
+		//   2. addr1 calls attacker (0xCCCC…); attacker calls NFT mint as 0xCCCC…
+		//      0xCCCC… ≠ _cowner (addr1) → mint reverts → tos.call returns false
+		//      attacker's require(not ok) passes → outer tx succeeds.
+		nftAddr := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		mintData := buildCalldata(t, "mint(address,uint256)", "address", bob, "uint256", big.NewInt(5))
+		attackerCode := fmt.Sprintf(`
+			local ok = tos.call(%q, 0, %q)
+			require(not ok, "mint should have been rejected")
+		`, nftAddr.Hex(), "0x"+common.Bytes2Hex(mintData))
+
+		bc, attackerAddr, _, cleanup := luaTestSetup2(t, attackerCode, nftCode)
+		defer cleanup()
+
+		// Step 1: trigger oncreate on the NFT → _cowner = addr1.
+		runLuaTxWithData(t, bc, nftAddr, big.NewInt(0), buildCalldata(t, "name()"))
+		// Step 2: addr1 calls the attacker; attacker tries to mint as 0xCCCC… → rejected.
+		runLuaTxWithData(t, bc, attackerAddr, big.NewInt(0), nil)
+	})
+
+	t.Run("double_mint_same_token_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+	})
+
+	t.Run("burn_removes_token", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "burn(uint256)", "uint256", big.NewInt(1)))
+
+		state, _ := bc.State()
+
+		// Owner slot must now be ZERO_ADDRESS.
+		owner := readMapStr(state, addr, "_own", "1")
+		if owner != (common.Address{}).Hex() {
+			t.Errorf("owner after burn: want ZERO_ADDRESS, got %s", owner)
+		}
+
+		// Balance of addr1 must be 0.
+		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		bal := new(big.Int).SetBytes(balSlot[:]).Int64()
+		if bal != 0 {
+			t.Errorf("balance after burn: want 0, got %d", bal)
+		}
+	})
+
+	t.Run("unknown_selector_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		defer cleanup()
+		trigger(t, bc, addr)
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
+	})
+}
