@@ -8,11 +8,12 @@ import lua "github.com/tos-network/glua"
 var luaBuiltinModules map[string][]byte
 
 func init() {
-	luaBuiltinModules = make(map[string][]byte, 3)
+	luaBuiltinModules = make(map[string][]byte, 4)
 	for name, src := range map[string]string{
-		"tos20":  tos20LuaSrc,
-		"tos721": tos721LuaSrc,
-		"access": accessLuaSrc,
+		"tos20":    tos20LuaSrc,
+		"tos721":   tos721LuaSrc,
+		"access":   accessLuaSrc,
+		"timelock": timelockLuaSrc,
 	} {
 		bc, err := lua.CompileSourceToBytecode([]byte(src), name)
 		if err != nil {
@@ -409,6 +410,126 @@ function M.renounceRole(role)
     tos.mapSet("_roles", tos.caller, role, 0)
     tos.emit("RoleRevoked", "string", role,
              "address", tos.caller, "address", tos.caller)
+end
+
+return M
+`
+
+// timelockLuaSrc is the Timelock stdlib — a two-step, time-delayed execution
+// pattern analogous to OpenZeppelin's TimelockController.
+//
+// Usage inside a contract:
+//
+//	local TL = tos.import("timelock")
+//	TL.init(minDelay)          -- call at top-level; first caller becomes admin
+//
+// Workflow:
+//
+//  1. Admin calls TL.schedule(target, value, calldata, salt, delay)
+//     → stores eta = block.timestamp + max(delay, minDelay); returns opId
+//  2. Anyone calls TL.execute(target, value, calldata, salt)
+//     → verifies eta ≤ block.timestamp, then tos.call(target, value, calldata)
+//  3. Admin may call TL.cancel(target, value, calldata, salt) to discard.
+//
+// Helper queries:
+//
+//	TL.isReady(target, value, calldata, salt) → bool
+//	TL.eta(target, value, calldata, salt)     → number | nil
+//
+// Storage keys (prefixed "__tl" to minimise collision risk):
+//
+//	__tl_init   — tos.get/set; one-shot init flag
+//	__tl_delay  — tos.get/set; minimum delay in seconds
+//	__tl_admin  — tos.getStr/setStr; admin address
+//	_tl_ops     — tos.mapGet/mapSet("_tl_ops", opId); scheduled eta (0 = unset)
+//
+// Events:
+//
+//	TimelockInit(address admin, uint256 minDelay)
+//	OperationScheduled(address target, uint256 eta)
+//	OperationExecuted(address target)
+//	OperationCancelled(address target)
+const timelockLuaSrc = `
+local M = {}
+
+local INIT_KEY  = "__tl_init"
+local DELAY_KEY = "__tl_delay"
+local ADMIN_KEY = "__tl_admin"
+
+-- opId: deterministic identifier for (target, value, calldata, salt).
+-- Uses keccak256 of the colon-separated string representation so that each
+-- distinct parameter tuple maps to a unique 32-byte key.
+local function opId(target, value, calldata, salt)
+    return tos.keccak256(
+        tostring(target)   .. ":"
+     .. tostring(value)    .. ":"
+     .. tostring(calldata) .. ":"
+     .. tostring(salt))
+end
+
+-- M.init(minDelay) — idempotent one-shot initialiser.
+-- On the first transaction to the contract, records tos.caller as admin and
+-- stores minDelay (in seconds).  All subsequent calls are no-ops.
+function M.init(minDelay)
+    if tos.get(INIT_KEY) ~= nil then return end
+    tos.set(INIT_KEY, 1)
+    tos.set(DELAY_KEY, minDelay or 0)
+    tos.setStr(ADMIN_KEY, tos.caller)
+    tos.emit("TimelockInit", "address", tos.caller, "uint256", minDelay or 0)
+end
+
+-- M.schedule(target, value, calldata, salt [, delay]) → opId
+-- Admin-only.  Queues a call to "target" with the given parameters.
+-- The effective delay is max(delay, minDelay).  Returns the operation ID.
+function M.schedule(target, value, calldata, salt, delay)
+    tos.require(tos.caller == tos.getStr(ADMIN_KEY), "timelock: not admin")
+    local minDelay = tos.get(DELAY_KEY) or 0
+    local d = math.max(delay or 0, minDelay)
+    local eta = tos.block.timestamp + d
+    local id = opId(target, value, calldata, salt)
+    tos.require(tos.mapGet("_tl_ops", id) == nil, "timelock: already scheduled")
+    tos.mapSet("_tl_ops", id, eta)
+    tos.emit("OperationScheduled", "address", target, "uint256", eta)
+    return id
+end
+
+-- M.execute(target, value, calldata, salt)
+-- Anyone may call.  Verifies the operation was scheduled and the delay has
+-- elapsed, then dispatches tos.call(target, value, calldata).
+function M.execute(target, value, calldata, salt)
+    local id = opId(target, value, calldata, salt)
+    local eta = tos.mapGet("_tl_ops", id)
+    tos.require(eta ~= nil, "timelock: not scheduled")
+    tos.require(tos.block.timestamp >= eta, "timelock: not ready")
+    tos.mapSet("_tl_ops", id, 0)   -- mark consumed
+    local ok, _ = tos.call(target, value or 0, calldata or "0x")
+    tos.require(ok, "timelock: execution failed")
+    tos.emit("OperationExecuted", "address", target)
+end
+
+-- M.cancel(target, value, calldata, salt)
+-- Admin-only.  Removes a pending operation so it can never be executed.
+function M.cancel(target, value, calldata, salt)
+    tos.require(tos.caller == tos.getStr(ADMIN_KEY), "timelock: not admin")
+    local id = opId(target, value, calldata, salt)
+    tos.require(tos.mapGet("_tl_ops", id) ~= nil, "timelock: not scheduled")
+    tos.mapSet("_tl_ops", id, 0)
+    tos.emit("OperationCancelled", "address", target)
+end
+
+-- M.isReady(target, value, calldata, salt) → bool
+function M.isReady(target, value, calldata, salt)
+    local id = opId(target, value, calldata, salt)
+    local eta = tos.mapGet("_tl_ops", id)
+    if eta == nil or eta == 0 then return false end
+    return tos.block.timestamp >= eta
+end
+
+-- M.eta(target, value, calldata, salt) → number | nil
+-- Returns the scheduled execution timestamp, or nil if not scheduled.
+function M.eta(target, value, calldata, salt)
+    local id = opId(target, value, calldata, salt)
+    return tos.mapGet("_tl_ops", id)
 end
 
 return M

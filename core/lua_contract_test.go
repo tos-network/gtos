@@ -5006,3 +5006,153 @@ func TestLuaContractAccess(t *testing.T) {
 			buildCalldata(t, "mint()"))
 	})
 }
+
+// TestLuaContractTimelock tests the tos.import("timelock") stdlib.
+//
+// Block timestamps advance by 3 s per block (PeriodMs=3000 in the test config).
+// Tests use delay=0 (immediate) or delay=60 (needs many blocks) to cover both
+// ready and not-ready execution paths.
+func TestLuaContractTimelock(t *testing.T) {
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	const zero = "0x0000000000000000000000000000000000000000"
+
+	t.Run("delay_zero_schedule_and_execute", func(t *testing.T) {
+		// With delay=0 the eta equals the scheduling block's timestamp.
+		// The NEXT block (time += 3 s) satisfies the check.
+		// Uses calldata routing: empty = schedule, 0x01 = execute.
+		code := `
+			local TL = tos.import("timelock")
+			TL.init(0)
+			local data = tos.msg.data
+			if data == "0x" then
+				-- Tx 1: init fires + schedule with delay=0
+				TL.schedule(tos.ZERO_ADDRESS, 0, "0x", "s0", 0)
+			elseif data == "0x01" then
+				-- Tx 2: execute (block.timestamp advanced by 3 s → eta check passes)
+				TL.execute(tos.ZERO_ADDRESS, 0, "0x", "s0")
+				tos.set("done", 1)
+			end
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+
+		// Tx 1: empty calldata → init + schedule.
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		// Tx 2: data=0x01 → execute.
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01})
+
+		state, _ := bc.State()
+		doneSlot := state.GetState(addr, luaStorageSlot("done"))
+		if doneSlot[31] != 1 {
+			t.Errorf("done: want 1, got %d", doneSlot[31])
+		}
+	})
+
+	t.Run("execute_before_delay_reverts", func(t *testing.T) {
+		// schedule with delay=60 s; attempting execute in the same block (same tx)
+		// means block.timestamp < eta → the tx must fail.
+		code := `
+			local TL = tos.import("timelock")
+			TL.init(0)
+			TL.schedule(tos.ZERO_ADDRESS, 0, "0x", "s60", 60)
+			-- Execute immediately (same block): block.timestamp < eta → revert.
+			TL.execute(tos.ZERO_ADDRESS, 0, "0x", "s60")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("cancel_prevents_execute", func(t *testing.T) {
+		// Schedule then cancel; a subsequent execute attempt must fail.
+		// pcall is used to catch the expected revert without failing the outer tx.
+		code := `
+			local TL = tos.import("timelock")
+			TL.init(0)
+			TL.schedule(tos.ZERO_ADDRESS, 0, "0x", "sc", 0)
+			TL.cancel(tos.ZERO_ADDRESS, 0, "0x", "sc")
+			-- execute now fails: "timelock: not scheduled"
+			local ok = pcall(TL.execute, tos.ZERO_ADDRESS, 0, "0x", "sc")
+			assert(not ok, "execute after cancel should fail")
+			tos.set("verified", 1)
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		v := state.GetState(addr, luaStorageSlot("verified"))
+		if v[31] != 1 {
+			t.Errorf("verified: want 1, got %d", v[31])
+		}
+	})
+
+	t.Run("non_admin_schedule_reverts", func(t *testing.T) {
+		// codeA (0xCCCC) is the timelock contract; admin = addr1 (first direct caller).
+		// codeB calls codeA's schedule handler; inside codeA tos.caller = codeB ≠ addr1
+		// → TL.schedule reverts → tos.call returns false → codeB asserts not ok.
+		selectorHex := "0x" + common.Bytes2Hex(crypto.Keccak256([]byte("try_schedule()"))[:4])
+
+		codeA := fmt.Sprintf(`
+			local TL = tos.import("timelock")
+			TL.init(0)
+			tos.dispatch({
+				["try_schedule()"] = function()
+					TL.schedule(tos.ZERO_ADDRESS, 0, "0x", "s", 0)
+				end,
+				fallback = function() end,
+			})
+		`)
+		codeB := fmt.Sprintf(`
+			-- tos.caller of codeA will be codeB (not addr1 = admin) → must fail.
+			local ok, _ = tos.call(%q, 0, %q)
+			assert(not ok, "non-admin schedule must fail")
+		`, addrA, selectorHex)
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		// Step 1: addr1 calls codeA directly → TL.init fires, admin = addr1.
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+
+		// Step 2: addr1 calls codeB → codeB calls codeA.try_schedule → fail.
+		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+	})
+
+	t.Run("scheduled_call_executes_target", func(t *testing.T) {
+		// codeA is the timelock; codeB is the target.
+		// Tx 1: addr1 → codeA (no data) → init + schedule call to codeB with delay=0.
+		// Tx 2: addr1 → codeA (data=0x01) → execute → tos.call(codeB) → codeB sets triggered=1.
+		codeB := `tos.set("triggered", 1)`
+
+		codeA := fmt.Sprintf(`
+			local TL = tos.import("timelock")
+			TL.init(0)
+			if tos.msg.data == "0x" then
+				-- Tx 1: schedule the call to codeB
+				TL.schedule(%q, 0, "0x", "exec_test", 0)
+			elseif tos.msg.data == "0x01" then
+				-- Tx 2: execute (block time has advanced, eta check passes)
+				TL.execute(%q, 0, "0x", "exec_test")
+			end
+		`, addrB, addrB)
+
+		bc, contractAddrA, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		// Tx 1: schedule (data = empty → "0x").
+		runLuaTx(t, bc, contractAddrA, big.NewInt(0))
+
+		// Tx 2: execute (data = 0x01, block.timestamp += 3 → eta check passes).
+		runLuaTxWithData(t, bc, contractAddrA, big.NewInt(0), []byte{0x01})
+
+		state, _ := bc.State()
+		triggeredSlot := state.GetState(contractAddrB, luaStorageSlot("triggered"))
+		if triggeredSlot[31] != 1 {
+			t.Errorf("codeB.triggered: want 1, got %d", triggeredSlot[31])
+		}
+		_ = zero
+	})
+}
