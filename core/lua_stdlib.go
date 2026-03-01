@@ -8,10 +8,11 @@ import lua "github.com/tos-network/glua"
 var luaBuiltinModules map[string][]byte
 
 func init() {
-	luaBuiltinModules = make(map[string][]byte, 2)
+	luaBuiltinModules = make(map[string][]byte, 3)
 	for name, src := range map[string]string{
 		"tos20":  tos20LuaSrc,
 		"tos721": tos721LuaSrc,
+		"access": accessLuaSrc,
 	} {
 		bc, err := lua.CompileSourceToBytecode([]byte(src), name)
 		if err != nil {
@@ -323,6 +324,92 @@ M.handlers = {
         tos.revert("TOS721: unknown selector")
     end,
 }
+
+return M
+`
+
+// accessLuaSrc is the Role-Based Access Control (RBAC) stdlib.
+//
+// Usage inside a contract:
+//
+//	local AC = tos.import("access")
+//	AC.init()            -- call at top-level; idempotent one-time initialisation
+//	AC.requireRole("MINTER")  -- guard sensitive functions
+//
+// AC.init()
+//
+//	Must be called at the TOP LEVEL of the contract script (not inside a
+//	function).  On the first ever call to the contract it records tos.caller
+//	as the DEFAULT_ADMIN.  Subsequent calls are no-ops (O(1) SLOAD check).
+//
+// Role functions:
+//
+//	AC.hasRole(role, addr)       → bool
+//	AC.requireRole(role)         — revert if tos.caller lacks role
+//	AC.grantRole(role, addr)     — caller must hold DEFAULT_ADMIN
+//	AC.revokeRole(role, addr)    — caller must hold DEFAULT_ADMIN
+//	AC.renounceRole(role)        — caller surrenders their own role
+//
+// Events:
+//
+//	RoleGranted(string role, address account, address sender)
+//	RoleRevoked(string role, address account, address sender)
+//
+// Storage keys (prefixed "__ac" to minimise collision risk):
+//
+//	__ac_init   — tos.get/set uint256 flag; 1 once initialised
+//	_roles      — tos.mapGet/mapSet("_roles", addr, role) uint256 flag (1=granted)
+const accessLuaSrc = `
+local M = {}
+
+local ADMIN_ROLE = "DEFAULT_ADMIN"
+local INIT_KEY   = "__ac_init"
+
+-- init() — idempotent one-shot initialiser.
+-- On the first transaction ever received by the contract, records tos.caller
+-- as the DEFAULT_ADMIN.  All subsequent calls return immediately.
+function M.init()
+    if tos.get(INIT_KEY) ~= nil then return end
+    tos.set(INIT_KEY, 1)
+    tos.mapSet("_roles", tos.caller, ADMIN_ROLE, 1)
+    tos.emit("RoleGranted", "string", ADMIN_ROLE,
+             "address", tos.caller, "address", tos.caller)
+end
+
+-- hasRole(role, addr) → bool
+function M.hasRole(role, addr)
+    return tos.mapGet("_roles", addr, role) == 1
+end
+
+-- requireRole(role) — revert if tos.caller does not hold role
+function M.requireRole(role)
+    if not M.hasRole(role, tos.caller) then
+        tos.revert("access: missing role " .. role)
+    end
+end
+
+-- grantRole(role, addr) — caller must hold DEFAULT_ADMIN
+function M.grantRole(role, addr)
+    M.requireRole(ADMIN_ROLE)
+    tos.mapSet("_roles", addr, role, 1)
+    tos.emit("RoleGranted", "string", role,
+             "address", addr, "address", tos.caller)
+end
+
+-- revokeRole(role, addr) — caller must hold DEFAULT_ADMIN
+function M.revokeRole(role, addr)
+    M.requireRole(ADMIN_ROLE)
+    tos.mapSet("_roles", addr, role, 0)
+    tos.emit("RoleRevoked", "string", role,
+             "address", addr, "address", tos.caller)
+end
+
+-- renounceRole(role) — caller surrenders their own role
+function M.renounceRole(role)
+    tos.mapSet("_roles", tos.caller, role, 0)
+    tos.emit("RoleRevoked", "string", role,
+             "address", tos.caller, "address", tos.caller)
+end
 
 return M
 `

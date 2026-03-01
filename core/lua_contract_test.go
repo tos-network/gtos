@@ -4819,3 +4819,190 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		}
 	})
 }
+
+// TestLuaContractAccess tests the tos.import("access") RBAC stdlib.
+//
+// The fixed tx signer (addr1) derived from key1 is the DEFAULT_ADMIN after
+// calling AC.init() — because tos.caller on the first transaction equals addr1.
+func TestLuaContractAccess(t *testing.T) {
+	// addr1 is derived from the fixed test key used by runLuaTx* helpers.
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	// hasRoleSlot returns the storage slot where _roles[addr][role] is stored.
+	hasRoleSlot := func(addr common.Address, role string) common.Hash {
+		return luaMapSlot("_roles", []string{addr.Hex(), role})
+	}
+
+	t.Run("init_grants_default_admin", func(t *testing.T) {
+		// After AC.init() the tx signer (addr1) must have DEFAULT_ADMIN.
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+			assert(AC.hasRole("DEFAULT_ADMIN", tos.caller),
+			       "caller should be DEFAULT_ADMIN after init")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		// Also verify it's reflected in raw storage.
+		state, _ := bc.State()
+		slot := state.GetState(addr, hasRoleSlot(addr1, "DEFAULT_ADMIN"))
+		if slot[31] != 1 {
+			t.Errorf("storage _roles[addr1][DEFAULT_ADMIN]: want 1, got %d", slot[31])
+		}
+	})
+
+	t.Run("has_role_false_before_grant", func(t *testing.T) {
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+			assert(not AC.hasRole("MINTER", tos.caller),
+			       "caller should NOT have MINTER before grant")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("grant_role_works_for_admin", func(t *testing.T) {
+		// Admin (addr1) grants MINTER to themselves; hasRole returns true.
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+			AC.grantRole("MINTER", tos.caller)
+			assert(AC.hasRole("MINTER", tos.caller), "caller should have MINTER after grant")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		slot := state.GetState(addr, hasRoleSlot(addr1, "MINTER"))
+		if slot[31] != 1 {
+			t.Errorf("storage _roles[addr1][MINTER]: want 1, got %d", slot[31])
+		}
+	})
+
+	t.Run("revoke_role_removes_grant", func(t *testing.T) {
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+			AC.grantRole("MINTER", tos.caller)
+			assert(AC.hasRole("MINTER", tos.caller), "should have MINTER after grant")
+			AC.revokeRole("MINTER", tos.caller)
+			assert(not AC.hasRole("MINTER", tos.caller), "should NOT have MINTER after revoke")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		slot := state.GetState(addr, hasRoleSlot(addr1, "MINTER"))
+		if slot[31] != 0 {
+			t.Errorf("storage _roles[addr1][MINTER]: want 0 after revoke, got %d", slot[31])
+		}
+	})
+
+	t.Run("renounce_role_removes_own", func(t *testing.T) {
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+			AC.grantRole("OPERATOR", tos.caller)
+			assert(AC.hasRole("OPERATOR", tos.caller), "should have OPERATOR")
+			AC.renounceRole("OPERATOR")
+			assert(not AC.hasRole("OPERATOR", tos.caller), "should NOT have OPERATOR after renounce")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("non_admin_grant_reverts", func(t *testing.T) {
+		// codeB has its own access control; addr1 inits it directly (becomes admin).
+		// codeA then calls codeB with a "try_grant" signal — inside codeB, tos.caller
+		// is codeA (not addr1) → requireRole(DEFAULT_ADMIN) fails → codeB reverts.
+		codeB := `
+			local AC = tos.import("access")
+			AC.init()
+			if tos.msg.data == "0x01" then
+				AC.grantRole("HACKER", tos.caller)
+			end
+		`
+		codeA := fmt.Sprintf(`
+			-- Try the unauthorised grantRole: codeA calls codeB with signal 0x01.
+			-- Inside codeB, tos.caller = codeA (not addr1) → must revert.
+			local ok, _ = tos.call(%q, 0, "0x01")
+			assert(not ok, "expected non-admin grantRole to fail")
+		`, addrB)
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		// Step 1: addr1 calls codeB directly → AC.init() fires, addr1 = DEFAULT_ADMIN.
+		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+
+		// Step 2: addr1 calls codeA → codeA calls codeB with 0x01 → codeB reverts.
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+	})
+
+	t.Run("role_guards_contract_function", func(t *testing.T) {
+		// Full end-to-end: contract with a MINTER-guarded mint() function.
+		// AC.init() at top-level fires once on the first tx; tos.dispatch routes
+		// subsequent calls to their handlers.
+		code := `
+			local AC = tos.import("access")
+			AC.init()
+
+			tos.dispatch({
+				["mint()"] = function()
+					AC.requireRole("MINTER")
+					tos.set("minted", (tos.get("minted") or 0) + 1)
+				end,
+				["grant_minter(address)"] = function(addr)
+					AC.grantRole("MINTER", addr)
+				end,
+				["revoke_minter(address)"] = function(addr)
+					AC.revokeRole("MINTER", addr)
+				end,
+				fallback = function() end,
+			})
+		`
+
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+
+		// Tx 1: no calldata → fallback → AC.init() fires, addr1 = DEFAULT_ADMIN.
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		// Tx 2: mint() without MINTER role → must fail.
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint()"))
+
+		// Tx 3: grant_minter(addr1) → addr1 now has MINTER.
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "grant_minter(address)", "address", addr1))
+
+		// Tx 4: mint() with MINTER role → succeeds; minted = 1.
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint()"))
+
+		state, _ := bc.State()
+		mintedSlot := state.GetState(addr, luaStorageSlot("minted"))
+		if new(big.Int).SetBytes(mintedSlot[:]).Int64() != 1 {
+			t.Errorf("minted: want 1, got %d", new(big.Int).SetBytes(mintedSlot[:]).Int64())
+		}
+
+		// Tx 5: revoke_minter(addr1) → addr1 loses MINTER.
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "revoke_minter(address)", "address", addr1))
+
+		// Tx 6: mint() again → must fail (MINTER revoked).
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "mint()"))
+	})
+}
