@@ -4611,3 +4611,211 @@ func TestLuaContractTOS721(t *testing.T) {
 		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
 	})
 }
+
+// TestLuaContractDelegatecall tests tos.delegatecall — executes implementation
+// code in the proxy's storage/caller/value context (analogous to EVM DELEGATECALL).
+//
+// Layout (luaTestSetup2):
+//
+//	contractAddr  (0xCCCC…) — proxy   (codeA), 1 TOS balance
+//	contractAddrB (0xBBBB…) — impl    (codeB), 2 TOS balance
+//	addr1                   — tx sender,        10 TOS balance
+func TestLuaContractDelegatecall(t *testing.T) {
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	// readStr reads a string stored via tos.setStr(key, ...) from a contract's state.
+	readStr := func(state interface {
+		GetState(common.Address, common.Hash) common.Hash
+	}, addr common.Address, key string) string {
+		lenSlot := state.GetState(addr, luaStrLenSlot(key))
+		if lenSlot == (common.Hash{}) {
+			return ""
+		}
+		length := int(binary.BigEndian.Uint64(lenSlot[24:]) - 1)
+		if length <= 0 {
+			return ""
+		}
+		data := make([]byte, length)
+		base := luaStrLenSlot(key)
+		for i := 0; i < length; i += 32 {
+			chunk := state.GetState(addr, luaStrChunkSlot(base, i/32))
+			end := i + 32
+			if end > length {
+				end = length
+			}
+			copy(data[i:end], chunk[:end-i])
+		}
+		return string(data)
+	}
+
+	t.Run("storage_written_to_proxy_not_impl", func(t *testing.T) {
+		// impl writes tos.set("x", 99); because of delegatecall this write lands
+		// in proxy's storage, not in impl's storage.
+		codeB := `tos.set("x", 99)`
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.delegatecall(%q)
+			assert(ok, "delegatecall failed")
+		`, addrB)
+		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ := bc.State()
+
+		// proxy.x must be 99
+		proxyX := state.GetState(contractAddr, luaStorageSlot("x"))
+		if new(big.Int).SetBytes(proxyX[:]).Int64() != 99 {
+			t.Errorf("proxy.x: want 99, got %s", new(big.Int).SetBytes(proxyX[:]))
+		}
+		// impl.x must be 0 (untouched)
+		implX := state.GetState(contractAddrB, luaStorageSlot("x"))
+		if implX != (common.Hash{}) {
+			t.Errorf("impl.x: want 0, got %x", implX)
+		}
+	})
+
+	t.Run("caller_is_preserved", func(t *testing.T) {
+		// impl stores tos.caller (the external tx sender) via tos.setStr.
+		// In delegatecall semantics tos.caller must equal the original tx signer,
+		// not the proxy address.
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+		codeB := `tos.setStr("who", tos.caller)`
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.delegatecall(%q)
+			assert(ok, "delegatecall failed")
+		`, addrB)
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ := bc.State()
+
+		// "who" is stored in proxy's storage (delegatecall context).
+		got := readStr(state, contractAddr, "who")
+		if !strings.EqualFold(got, addr1.Hex()) {
+			t.Errorf("proxy.who: want %s, got %s", addr1.Hex(), got)
+		}
+	})
+
+	t.Run("self_is_proxy", func(t *testing.T) {
+		// impl stores tos.self; it must equal the proxy address, not impl's address.
+		codeB := `tos.setStr("me", tos.self)`
+		codeA := fmt.Sprintf(`
+			local ok, _ = tos.delegatecall(%q)
+			assert(ok, "delegatecall failed")
+		`, addrB)
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ := bc.State()
+
+		got := readStr(state, contractAddr, "me")
+		if !strings.EqualFold(got, contractAddr.Hex()) {
+			t.Errorf("proxy.me: want %s (proxy), got %s", contractAddr.Hex(), got)
+		}
+	})
+
+	t.Run("failed_impl_writes_reverted", func(t *testing.T) {
+		// proxy writes "x=42" before delegatecall (kept on impl failure).
+		// impl writes "y=99" to proxy storage then reverts.
+		// Expected: proxy.x=42 survives; proxy.y=0 (reverted).
+		codeB := `tos.set("y", 99); tos.revert("impl failed")`
+		codeA := fmt.Sprintf(`
+			tos.set("x", 42)
+			local ok, _ = tos.delegatecall(%q)
+			assert(not ok, "expected delegatecall to fail")
+		`, addrB)
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ := bc.State()
+
+		xSlot := state.GetState(contractAddr, luaStorageSlot("x"))
+		if new(big.Int).SetBytes(xSlot[:]).Int64() != 42 {
+			t.Errorf("proxy.x: want 42 (written before dc), got %s", new(big.Int).SetBytes(xSlot[:]))
+		}
+		ySlot := state.GetState(contractAddr, luaStorageSlot("y"))
+		if ySlot != (common.Hash{}) {
+			t.Errorf("proxy.y: want 0 (reverted by failed dc), got %x", ySlot)
+		}
+	})
+
+	t.Run("return_data_forwarded", func(t *testing.T) {
+		// impl returns a uint256 via tos.result; proxy decodes and emits it.
+		codeB := `tos.result("uint256", 12345)`
+		codeA := fmt.Sprintf(`
+			local ok, data = tos.delegatecall(%q)
+			assert(ok, "delegatecall failed")
+			assert(data ~= nil, "expected return data")
+			local val = tos.abi.decode(data, "uint256")
+			tos.emit("Val", "uint256", val)
+		`, addrB)
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		if len(receipt.Logs) < 1 {
+			t.Fatalf("expected Val log, got 0 logs")
+		}
+		got := new(big.Int).SetBytes(receipt.Logs[0].Data).Int64()
+		if got != 12345 {
+			t.Errorf("Val: want 12345, got %d", got)
+		}
+	})
+
+	t.Run("upgradeable_proxy_pattern", func(t *testing.T) {
+		// Proxy reads its "impl" slot for the logic address and forwards all calls
+		// via delegatecall.  Upgrading == writing a new address to "impl".
+		//
+		// v1 (addrB) sets version=1 in proxy's storage.
+		// Then the proxy upgrades its "impl" pointer to v2 (a freshly deployed child).
+		// v2 sets version=2.
+		// Final: proxy.version == 2.
+		//
+		// tos.msg.data is hex-encoded, so we distinguish calls by a 1-byte magic:
+		//   no data ("0x") → run current impl via delegatecall
+		//   "0x01"         → deploy v2 and update "impl" pointer
+		v1Code := `tos.set("version", 1)`
+		v2Code := `tos.set("version", 2)`
+
+		proxyCode := fmt.Sprintf(`
+			local data = tos.msg.data
+			if data == "0x01" then
+				-- upgrade: deploy v2 inline and update impl pointer
+				local v2 = tos.deploy(%q)
+				tos.setStr("impl", v2)
+			else
+				local impl = tos.getStr("impl")
+				if impl == nil or impl == "" then
+					-- first call: initialise pointer to v1
+					impl = %q
+					tos.setStr("impl", impl)
+				end
+				local ok, _ = tos.delegatecall(impl)
+				assert(ok, "delegatecall to impl failed")
+			end
+		`, v2Code, addrB)
+
+		bc, contractAddr, _, cleanup := luaTestSetup2(t, proxyCode, v1Code)
+		defer cleanup()
+
+		// Tx 1: no data → delegate to v1 (addrB) → proxy.version = 1.
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ := bc.State()
+		v := state.GetState(contractAddr, luaStorageSlot("version"))
+		if new(big.Int).SetBytes(v[:]).Int64() != 1 {
+			t.Errorf("after v1: proxy.version want 1, got %d", new(big.Int).SetBytes(v[:]).Int64())
+		}
+
+		// Tx 2: send 0x01 → deploy v2, write its address to proxy."impl".
+		runLuaTxWithData(t, bc, common.HexToAddress(addrA), big.NewInt(0), []byte{0x01})
+
+		// Tx 3: no data → delegate to v2 → proxy.version = 2.
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		state, _ = bc.State()
+		v = state.GetState(contractAddr, luaStorageSlot("version"))
+		if new(big.Int).SetBytes(v[:]).Int64() != 2 {
+			t.Errorf("after v2: proxy.version want 2, got %d", new(big.Int).SetBytes(v[:]).Int64())
+		}
+	})
+}

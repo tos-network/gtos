@@ -1660,6 +1660,112 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 2
 	}))
 
+	// tos.delegatecall(addr [, calldata]) → bool, string|nil
+	//   Executes the code stored at `addr` in the CURRENT contract's storage
+	//   context.  Analogous to EVM DELEGATECALL.
+	//
+	//   Semantics differ from tos.call in three critical ways:
+	//     • Storage — All tos.set / tos.get / tos.mapSet … inside the called code
+	//       operate on the CALLING contract's slots, not on addr's slots.
+	//     • tos.self  — reports the calling contract's address (not addr).
+	//     • tos.caller — preserved from the outer call (original msg.sender).
+	//     • tos.value  — preserved from the outer call (original msg.value).
+	//     • No value transfer at the delegatecall boundary.
+	//
+	//   Returns (true, returnData|nil) on success.
+	//   Returns (false, revertData|nil) on failure; storage changes are reverted.
+	//
+	//   Principal use case — upgradeable proxy:
+	//     -- proxy contract
+	//     local impl = tos.getStr("impl")          -- address of logic contract
+	//     local ok, ret = tos.delegatecall(impl, tos.msg.data)
+	//     require(ok, "proxy: delegatecall failed")
+	//
+	//   This lets you upgrade behaviour by pointing "impl" to a new contract
+	//   address while all state stays in the proxy's storage slots.
+	L.SetField(tosTable, "delegatecall", L.NewFunction(func(L *lua.LState) int {
+		if ctx.depth >= luaMaxCallDepth {
+			L.RaiseError("tos.delegatecall: max call depth (%d) exceeded", luaMaxCallDepth)
+			return 0
+		}
+
+		implAddrHex := L.CheckString(1)
+		implAddr := common.HexToAddress(implAddrHex)
+
+		var callData []byte
+		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+			callData = common.FromHex(L.CheckString(2))
+		}
+
+		// Compute remaining gas for the implementation.
+		parentUsedNow := L.GasUsed()
+		totalUsed := parentUsedNow + totalChildGas + primGasCharged
+		if totalUsed >= gasLimit {
+			L.RaiseError("tos.delegatecall: out of gas")
+			return 0
+		}
+		childGasLimit := gasLimit - totalUsed
+
+		// Fetch the implementation code; no-code address is a no-op (success).
+		implCode := st.state.GetCode(implAddr)
+		if len(implCode) == 0 {
+			L.Push(lua.LTrue)
+			L.Push(lua.LNil)
+			return 2
+		}
+
+		// Snapshot so implementation writes can be rolled back on failure.
+		// (Writes go to contractAddr's slots — not implAddr's — so this snapshot
+		// guards the caller's own storage.)
+		snap := st.state.Snapshot()
+
+		// The delegatecall context:
+		//   to:    contractAddr  — storage target = calling contract
+		//   from:  ctx.from      — msg.sender preserved (not the proxy)
+		//   value: ctx.value     — msg.value preserved
+		childCtx := luaCallCtx{
+			from:     ctx.from,     // preserve original msg.sender
+			to:       contractAddr, // run in THIS contract's storage namespace
+			value:    ctx.value,    // preserve msg.value
+			data:     callData,
+			depth:    ctx.depth + 1,
+			txOrigin: ctx.txOrigin,
+			txPrice:  ctx.txPrice,
+			readonly: ctx.readonly, // propagate staticcall constraint
+		}
+
+		childGasUsed, childReturnData, childRevertData, childErr := executeLuaVM(st, childCtx, implCode, childGasLimit)
+		totalChildGas += childGasUsed
+
+		// Update parent's gas ceiling.
+		newTotalUsed := parentUsedNow + totalChildGas + primGasCharged
+		if newTotalUsed < gasLimit {
+			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
+		} else {
+			L.SetGasLimit(parentUsedNow)
+		}
+
+		if childErr != nil {
+			// Revert all storage writes the implementation made to contractAddr.
+			st.state.RevertToSnapshot(snap)
+			L.Push(lua.LFalse)
+			if len(childRevertData) > 0 {
+				L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))
+			} else {
+				L.Push(lua.LNil)
+			}
+			return 2
+		}
+
+		L.Push(lua.LTrue)
+		if len(childReturnData) > 0 {
+			L.Push(lua.LString("0x" + common.Bytes2Hex(childReturnData)))
+		} else {
+			L.Push(lua.LNil)
+		}
+		return 2
+	}))
+
 	// ── Contract deployment ────────────────────────────────────────────────────
 
 	// tos.deploy(code [, value]) → string
