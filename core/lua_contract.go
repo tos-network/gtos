@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	gosha256 "crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -20,11 +21,11 @@ import (
 // Charged in addition to the per-opcode VM gas (1 gas per opcode).
 // Modelled loosely after EVM gas schedule but simplified for TOS.
 const (
-	luaGasSLoad    uint64 = 100  // per StateDB slot read
-	luaGasSStore   uint64 = 5000 // per StateDB slot write
-	luaGasBalance  uint64 = 400  // balance query
-	luaGasCodeSize uint64 = 700  // external code size check
-	luaGasTransfer uint64 = 2300 // value transfer base
+	luaGasSLoad      uint64 = 100   // per StateDB slot read
+	luaGasSStore     uint64 = 5000  // per StateDB slot write
+	luaGasBalance    uint64 = 400   // balance query
+	luaGasCodeSize   uint64 = 700   // external code size check
+	luaGasTransfer   uint64 = 2300  // value transfer base
 	luaGasLogBase    uint64 = 375   // log emission base
 	luaGasLogTopic   uint64 = 375   // per indexed topic (topics[1..3])
 	luaGasLogByte    uint64 = 8     // per byte of log data
@@ -178,8 +179,9 @@ func luaMapStrLenSlot(mapName string, keys []string) common.Hash {
 	return h
 }
 
-// executeLuaVM runs Lua source code `src` in a fresh Lua state under the given
-// call context, limited to `gasLimit` VM opcodes.
+// executeLuaVM runs Lua contract code `src` (either source or glua bytecode)
+// in a fresh Lua state under the given call context, limited to `gasLimit` VM
+// opcodes.
 //
 // Returns (total opcodes consumed including nested calls, return data, error).
 // returnData is non-nil only when the callee called tos.result(); in that
@@ -428,6 +430,40 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 	}
 	L.SetField(tosTable, "msg", msgTable)
+
+	// ── Built-in module loader ────────────────────────────────────────────────
+
+	// tos.import("moduleName") → table
+	//   Loads a whitelisted built-in TOS standard library module.
+	//   Unlike the removed stdlib require(), only pre-audited modules are available.
+	//
+	//   Available modules:
+	//     "tos20"  — ERC-20 compatible token standard (see core/lua_stdlib.go)
+	//
+	//   Example:
+	//     local T = tos.import("tos20")
+	//     T.init("MyToken", "MTK", 18, 1000000)
+	//     tos.dispatch(T.handlers)
+	L.SetField(tosTable, "import", L.NewFunction(func(L *lua.LState) int {
+		modName := L.CheckString(1)
+		bc, ok := luaBuiltinModules[modName]
+		if !ok {
+			L.RaiseError("tos.import: unknown module %q (available: tos20)", modName)
+			return 0
+		}
+		top := L.GetTop()
+		fn, err := L.LoadBytecode(bc)
+		if err != nil {
+			L.RaiseError("tos.import: module %q load error: %v", modName, err)
+			return 0
+		}
+		L.Push(fn)
+		if err := L.PCall(0, lua.MultRet, nil); err != nil {
+			L.RaiseError("tos.import: module %q: %v", modName, err)
+			return 0
+		}
+		return L.GetTop() - top
+	}))
 
 	// tos.abi  (sub-table — Ethereum ABI encode/decode)
 	abiTable := L.NewTable()
@@ -2432,7 +2468,20 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 
 	// ── Execute ───────────────────────────────────────────────────────────────
 
-	if err := L.DoString(string(src)); err != nil {
+	// Accept both pre-compiled bytecode and raw Lua source.
+	var fn *lua.LFunction
+	var loadErr error
+	if lua.IsBytecode(src) {
+		fn, loadErr = L.LoadBytecode(src)
+	} else {
+		fn, loadErr = L.Load(bytes.NewReader(src), "contract")
+	}
+	if loadErr != nil {
+		total := L.GasUsed() + totalChildGas + primGasCharged
+		return total, nil, nil, loadErr
+	}
+	L.Push(fn)
+	if err := L.PCall(0, lua.MultRet, nil); err != nil {
 		total := L.GasUsed() + totalChildGas + primGasCharged
 		// Check for clean return via tos.result().
 		if hasResult && strings.Contains(err.Error(), luaResultSignal) {
@@ -2447,7 +2496,8 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	return L.GasUsed() + totalChildGas + primGasCharged, nil, nil, nil
 }
 
-// applyLua executes the Lua contract stored at the destination address.
+// applyLua executes the Lua contract code (source or bytecode) stored at the
+// destination address.
 //
 // Gas model:
 //   - executeLuaVM is capped to st.gas total opcodes (including nested calls).

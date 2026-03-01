@@ -358,6 +358,8 @@ github.com/tklauser/numcpus v0.2.2 h1:oyhllyrScuYI6g+h/zUvNXNp1wy7x8qQy3t/piefld
 github.com/tklauser/numcpus v0.2.2/go.mod h1:x3qojaO3uyYt0i56EW/VUYs7uBvdl2fkfZFu0T9wgjM=
 github.com/tos-network/glua v0.0.0-20260228232945-7b83ebeefeef h1:3jDmsUYWPWDv/fP270AWrDzP3Uf0ib0kjXu7M8HYsiY=
 github.com/tos-network/glua v0.0.0-20260228232945-7b83ebeefeef/go.mod h1:Lm7oQCbqCJGMJ7pRzU31DuLvvhKhNXYMtUtPLWqbC24=
+github.com/tos-network/glua v0.0.0-20260228235438-db8438a53ca7 h1:uQK24Ur+3RojCuJeM5OcbXTXmoA+t9sTzoJmV7PJ2uU=
+github.com/tos-network/glua v0.0.0-20260228235438-db8438a53ca7/go.mod h1:Lm7oQCbqCJGMJ7pRzU31DuLvvhKhNXYMtUtPLWqbC24=
 github.com/tos-network/golua v0.0.0-20260228231511-57fcff8270ec h1:c2S5/q7Y3MsiuZ6SwfFFObx2oAhs+QFTJTJKgIIHJe0=
 github.com/tos-network/golua v0.0.0-20260228231511-57fcff8270ec/go.mod h1:7eWjXppSBCtnTnEm2GociBiiUfXhqnGXXKYU4dMjYH8=
 github.com/tos-network/gopher-lua v0.0.0-20260228111350-b862b02edd61 h1:YMfhQR9DtIIpN77tp3ymMVEEAnjx9LLr5p08yRLHS90=

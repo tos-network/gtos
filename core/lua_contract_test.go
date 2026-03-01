@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	lua "github.com/tos-network/glua"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
@@ -147,6 +148,48 @@ func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	return bc, contractAddr, bc.Stop
 }
 
+// luaTestSetupCodeBytes is like luaTestSetup, but accepts raw code bytes.
+// This is used to deploy precompiled glua bytecode in tests.
+func luaTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
+	t.Helper()
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	contractAddr = common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc: GenesisAlloc{
+			addr1: {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
+			contractAddr: {
+				Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)),
+				Code:    append([]byte(nil), code...),
+			},
+		},
+	}
+	gspec.MustCommit(db)
+	bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = addr1
+	return bc, contractAddr, bc.Stop
+}
+
+func luaTestSetupBytecode(t *testing.T, luaCode string) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
+	t.Helper()
+	bytecode, err := lua.CompileSourceToBytecode([]byte(luaCode), "<genesis-contract>")
+	if err != nil {
+		t.Fatalf("CompileSourceToBytecode: %v", err)
+	}
+	return luaTestSetupCodeBytes(t, bytecode)
+}
+
 // runLuaTx sends one tx (no calldata) and asserts Lua executed successfully.
 func runLuaTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
 	t.Helper()
@@ -182,16 +225,20 @@ func runLuaTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Addres
 
 // runLuaTxWithData sends one tx with custom calldata to contractAddr and
 // verifies that the Lua script executed successfully (receipt status == 1).
+// Builds on top of the current canonical head so sequential calls accumulate state.
 func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), data)
+	state, _ := bc.State()
+	nonce := state.GetNonce(addr1)
+	tx, err := signTestSignerTx(signer, key1, nonce, contractAddr, value, 500_000, big.NewInt(1), data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	genesis := bc.GetBlockByNumber(0)
-	blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+	parent := bc.CurrentBlock()
+	blocks, _ := GenerateChain(bc.Config(), parent, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
 		b.AddTx(tx)
 	})
 	if _, err := bc.InsertChain(blocks); err != nil {
@@ -3847,5 +3894,258 @@ func TestLuaContractStruct(t *testing.T) {
 		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
 		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+	})
+}
+
+// runLuaTxWithDataExpectFail sends a tx with calldata expecting failure (receipt status 0).
+// Builds on top of the current canonical head so sequential calls accumulate state.
+func runLuaTxWithDataExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
+	t.Helper()
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	signer := types.LatestSigner(bc.Config())
+	state, _ := bc.State()
+	nonce := state.GetNonce(addr1)
+	tx, err := signTestSignerTx(signer, key1, nonce, contractAddr, value, 500_000, big.NewInt(1), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := bc.CurrentBlock()
+	blocks, _ := GenerateChain(bc.Config(), parent, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+		b.AddTx(tx)
+	})
+	if _, err := bc.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	block := blocks[0]
+	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+	if len(receipts) == 0 {
+		t.Fatal("no receipts found for block")
+	}
+	if receipts[0].Status != types.ReceiptStatusFailed {
+		t.Fatalf("expected tx to fail (status=0), got status=%d", receipts[0].Status)
+	}
+}
+
+func TestLuaContractTOS20(t *testing.T) {
+	const supply = int64(1_000_000)
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	bob := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	const tokenCode = `
+		local T = tos.import("tos20")
+		T.init("MyToken", "MTK", 18, 1000000)
+		tos.dispatch(T.handlers)
+	`
+
+	t.Run("init_mints_supply_to_deployer", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		// First call: oncreate fires (mints 1 000 000 to addr1), totalSupply() dispatched.
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+
+		state, _ := bc.State()
+		supplySlot := state.GetState(addr, luaStorageSlot("_supply"))
+		gotSupply := new(big.Int).SetBytes(supplySlot[:]).Int64()
+		if gotSupply != supply {
+			t.Errorf("_supply: want %d, got %d", supply, gotSupply)
+		}
+		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		gotBal := new(big.Int).SetBytes(balSlot[:]).Int64()
+		if gotBal != supply {
+			t.Errorf("_bal[addr1]: want %d, got %d", supply, gotBal)
+		}
+	})
+
+	t.Run("metadata_stored", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+
+		state, _ := bc.State()
+		// _name and _symbol are stored via tos.setStr — their len slot must be non-zero.
+		if state.GetState(addr, luaStrLenSlot("_name")) == (common.Hash{}) {
+			t.Error("_name not stored")
+		}
+		if state.GetState(addr, luaStrLenSlot("_symbol")) == (common.Hash{}) {
+			t.Error("_symbol not stored")
+		}
+		decimalsSlot := state.GetState(addr, luaStorageSlot("_decimals"))
+		if new(big.Int).SetBytes(decimalsSlot[:]).Int64() != 18 {
+			t.Error("_decimals not 18")
+		}
+	})
+
+	t.Run("transfer_updates_balances", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", big.NewInt(100)))
+
+		state, _ := bc.State()
+		slotAlice := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		slotBob := state.GetState(addr, luaMapSlot("_bal", []string{bob.Hex()}))
+		balAlice := new(big.Int).SetBytes(slotAlice[:]).Int64()
+		balBob := new(big.Int).SetBytes(slotBob[:]).Int64()
+		if balAlice != supply-100 {
+			t.Errorf("alice bal: want %d, got %d", supply-100, balAlice)
+		}
+		if balBob != 100 {
+			t.Errorf("bob bal: want 100, got %d", balBob)
+		}
+	})
+
+	t.Run("transfer_emits_Transfer_event", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
+
+		block := bc.CurrentBlock()
+		receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipts")
+		}
+		sig := luaEventSig("Transfer", "address", "address", "uint256")
+		found := false
+		for _, l := range receipts[0].Logs {
+			if len(l.Topics) > 0 && l.Topics[0] == sig {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("Transfer event not emitted")
+		}
+	})
+
+	t.Run("approve_sets_allowance", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(500)))
+
+		state, _ := bc.State()
+		allowSlot := state.GetState(addr, luaMapSlot("_allow", []string{addr1.Hex(), bob.Hex()}))
+		gotAllow := new(big.Int).SetBytes(allowSlot[:]).Int64()
+		if gotAllow != 500 {
+			t.Errorf("allowance: want 500, got %d", gotAllow)
+		}
+	})
+
+	t.Run("approve_emits_Approval_event", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(200)))
+
+		block := bc.CurrentBlock()
+		receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
+		sig := luaEventSig("Approval", "address", "address", "uint256")
+		found := false
+		for _, l := range receipts[0].Logs {
+			if len(l.Topics) > 0 && l.Topics[0] == sig {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("Approval event not emitted")
+		}
+	})
+
+	t.Run("transfer_insufficient_balance_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", new(big.Int).SetInt64(supply+1)))
+	})
+
+	t.Run("transfer_to_zero_address_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		zero := common.Address{}
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+			buildCalldata(t, "transfer(address,uint256)", "address", zero, "uint256", big.NewInt(1)))
+	})
+
+	t.Run("unknown_selector_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		defer cleanup()
+
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
+	})
+
+	t.Run("unknown_module_reverts", func(t *testing.T) {
+		bc, addr, cleanup := luaTestSetup(t, `tos.import("notamodule")`)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+}
+
+func TestLuaContractBytecode(t *testing.T) {
+	t.Run("precompiled_bytecode_executes", func(t *testing.T) {
+		code := `
+			tos.set("counter", 2)
+		`
+		bc, addr, cleanup := luaTestSetupBytecode(t, code)
+		defer cleanup()
+
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		slot := state.GetState(addr, luaStorageSlot("counter"))
+		got := new(big.Int).SetBytes(slot[:]).Uint64()
+		if got != 2 {
+			t.Fatalf("counter: want 2, got %d", got)
+		}
+	})
+
+	t.Run("invalid_bytecode_reverts", func(t *testing.T) {
+		// Starts with GLBC magic but is not a valid bytecode payload.
+		invalid := []byte("GLBCbad")
+		bc, addr, cleanup := luaTestSetupCodeBytes(t, invalid)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("source_and_bytecode_match_semantics", func(t *testing.T) {
+		code := `
+			local v = tos.get("x") or 0
+			tos.set("x", v + 3)
+		`
+		srcBC, srcAddr, srcCleanup := luaTestSetup(t, code)
+		defer srcCleanup()
+		binBC, binAddr, binCleanup := luaTestSetupBytecode(t, code)
+		defer binCleanup()
+
+		runLuaTx(t, srcBC, srcAddr, big.NewInt(0))
+		runLuaTx(t, binBC, binAddr, big.NewInt(0))
+
+		srcState, _ := srcBC.State()
+		binState, _ := binBC.State()
+		srcSlot := srcState.GetState(srcAddr, luaStorageSlot("x"))
+		binSlot := binState.GetState(binAddr, luaStorageSlot("x"))
+		srcVal := new(big.Int).SetBytes(srcSlot[:]).Uint64()
+		binVal := new(big.Int).SetBytes(binSlot[:]).Uint64()
+		if srcVal != binVal {
+			t.Fatalf("source vs bytecode mismatch: source=%d bytecode=%d", srcVal, binVal)
+		}
 	})
 }
