@@ -1737,6 +1737,151 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		return 1
 	}))
 
+	// tos.create2(code, salt [, value]) → string
+	//   Deploys a new Lua contract at a DETERMINISTIC address and returns it as
+	//   "0x..." hex.  Analogous to EVM CREATE2.
+	//
+	//   Address derivation (collision-resistant):
+	//     codeHash = keccak256(code)
+	//     newAddr  = keccak256(0xff ++ contractAddr ++ salt ++ codeHash)[12:]
+	//   The address depends only on the deployer, the salt, and the code — not
+	//   on the deployer's nonce.  This lets callers predict child addresses
+	//   off-chain and enables counterfactual instantiation.
+	//
+	//   code:  Lua source string or glua bytecode (must not be empty).
+	//   salt:  32-byte value supplied as:
+	//            • hex string "0x…"  (≤ 32 bytes, right-aligned in [32]byte)
+	//            • decimal number    (uint256, big-endian [32]byte)
+	//          To use a text label, pass tos.keccak256("label") as the salt.
+	//   value: optional TOS wei to send to the new contract.
+	//
+	//   Gas: luaGasDeploy (32 000) + luaGasDeployByte (200) × len(code)
+	//
+	//   Reverts on: staticcall context, call-depth exceeded, empty code,
+	//               invalid/oversized salt, address already has code,
+	//               insufficient balance for value transfer.
+	//
+	//   Example — predict child address before deploying:
+	//     local salt     = tos.keccak256("v1")
+	//     local expected = tos.create2addr(tos.self, salt, childCode)
+	//     local actual   = tos.create2(childCode, salt)
+	//     assert(actual == expected)
+	L.SetField(tosTable, "create2", L.NewFunction(func(L *lua.LState) int {
+		if ctx.readonly {
+			L.RaiseError("tos.create2: contract deployment not allowed in staticcall")
+			return 0
+		}
+		if ctx.depth >= luaMaxCallDepth {
+			L.RaiseError("tos.create2: max call depth (%d) exceeded", luaMaxCallDepth)
+			return 0
+		}
+
+		code := L.CheckString(1)
+		if len(code) == 0 {
+			L.RaiseError("tos.create2: code must not be empty")
+			return 0
+		}
+
+		// Parse salt: hex "0x…" (right-aligned) or decimal uint256 (big-endian).
+		saltRaw := L.CheckString(2)
+		var salt [32]byte
+		if strings.HasPrefix(saltRaw, "0x") || strings.HasPrefix(saltRaw, "0X") {
+			b := common.FromHex(saltRaw)
+			if len(b) > 32 {
+				L.RaiseError("tos.create2: salt hex too long (%d bytes, max 32)", len(b))
+				return 0
+			}
+			copy(salt[32-len(b):], b) // right-align (big-endian)
+		} else {
+			n, ok := new(big.Int).SetString(saltRaw, 10)
+			if !ok || n.Sign() < 0 {
+				L.RaiseError("tos.create2: invalid salt %q — use a decimal number, hex string, or tos.keccak256(...)", saltRaw)
+				return 0
+			}
+			n.FillBytes(salt[:])
+		}
+
+		// Optional value transfer.
+		var deployValue *big.Int
+		if L.GetTop() >= 3 {
+			deployValue = luaParseBigInt(L, 3)
+			if deployValue == nil || deployValue.Sign() < 0 {
+				L.RaiseError("tos.create2: invalid value")
+				return 0
+			}
+		} else {
+			deployValue = new(big.Int)
+		}
+
+		// Gas: same model as tos.deploy.
+		chargePrimGas(luaGasDeploy + luaGasDeployByte*uint64(len(code)))
+
+		// Deterministic address: keccak256(0xff ++ deployer ++ salt ++ keccak256(code)).
+		codeHash := crypto.Keccak256([]byte(code))
+		newAddr := crypto.CreateAddress2(contractAddr, salt, codeHash)
+
+		// Reject collisions — CREATE2 to an address that already has code is an error.
+		if len(st.state.GetCode(newAddr)) > 0 {
+			L.RaiseError("tos.create2: address %s already has code", newAddr.Hex())
+			return 0
+		}
+
+		// Value transfer before code store (matches EVM CREATE2 order).
+		if deployValue.Sign() > 0 {
+			if !st.blockCtx.CanTransfer(st.state, contractAddr, deployValue) {
+				L.RaiseError("tos.create2: insufficient balance for value transfer")
+				return 0
+			}
+			st.blockCtx.Transfer(st.state, contractAddr, newAddr, deployValue)
+		}
+
+		st.state.SetCode(newAddr, []byte(code))
+
+		L.Push(lua.LString(newAddr.Hex()))
+		return 1
+	}))
+
+	// tos.create2addr(deployer, salt, code) → string
+	//   Pure address-prediction function: returns the CREATE2 address that
+	//   tos.create2(code, salt) would produce when called from `deployer`,
+	//   WITHOUT deploying any contract.  Useful for pre-computing child
+	//   addresses in factory contracts.
+	//
+	//   deployer: hex address string of the contract that will call tos.create2.
+	//   salt:     same format as tos.create2 (hex or decimal).
+	//   code:     the same code string that will be passed to tos.create2.
+	//
+	//   Gas: luaGasSLoad (cheap read-equivalent; no state modification).
+	L.SetField(tosTable, "create2addr", L.NewFunction(func(L *lua.LState) int {
+		deployerHex := L.CheckString(1)
+		deployer := common.HexToAddress(deployerHex)
+
+		saltRaw := L.CheckString(2)
+		var salt [32]byte
+		if strings.HasPrefix(saltRaw, "0x") || strings.HasPrefix(saltRaw, "0X") {
+			b := common.FromHex(saltRaw)
+			if len(b) > 32 {
+				L.RaiseError("tos.create2addr: salt hex too long (%d bytes, max 32)", len(b))
+				return 0
+			}
+			copy(salt[32-len(b):], b)
+		} else {
+			n, ok := new(big.Int).SetString(saltRaw, 10)
+			if !ok || n.Sign() < 0 {
+				L.RaiseError("tos.create2addr: invalid salt %q", saltRaw)
+				return 0
+			}
+			n.FillBytes(salt[:])
+		}
+
+		code := L.CheckString(3)
+		chargePrimGas(luaGasSLoad)
+		codeHash := crypto.Keccak256([]byte(code))
+		addr := crypto.CreateAddress2(deployer, salt, codeHash)
+		L.Push(lua.LString(addr.Hex()))
+		return 1
+	}))
+
 	// tos.compileBytecode(src) → string
 	//   Compiles a Lua source string to glua bytecode and returns it as a binary
 	//   string.  The result can be passed directly to tos.deploy() for efficient

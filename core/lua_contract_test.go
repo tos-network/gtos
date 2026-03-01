@@ -3638,6 +3638,150 @@ func TestLuaContractDeploy(t *testing.T) {
 	})
 }
 
+func TestLuaContractCreate2(t *testing.T) {
+	const childCode = `tos.set("ping", 42)`
+
+	// contractAddr is fixed by luaTestSetup.
+	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+
+	// expectedCreate2 computes the address that tos.create2 will produce.
+	expectedCreate2 := func(salt string, code string) common.Address {
+		var s [32]byte
+		b := common.FromHex(salt)
+		copy(s[32-len(b):], b)
+		return crypto.CreateAddress2(contractAddr, s, crypto.Keccak256([]byte(code)))
+	}
+
+	t.Run("deterministic_address_matches_create2addr", func(t *testing.T) {
+		// The address returned by tos.create2 must equal tos.create2addr prediction.
+		salt := "0x0000000000000000000000000000000000000000000000000000000000000001"
+		code := fmt.Sprintf(`
+			local salt = %q
+			local child = tos.create2(%q, salt)
+			local predicted = tos.create2addr(tos.self, salt, %q)
+			assert(child == predicted, "create2 addr mismatch: " .. tostring(child) .. " vs " .. tostring(predicted))
+		`, salt, childCode, childCode)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		_ = addr
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("address_matches_go_side_computation", func(t *testing.T) {
+		// The Go-computed address must equal what the contract returned.
+		salt := "0x000000000000000000000000000000000000000000000000000000000000cafe"
+		want := expectedCreate2(salt, childCode)
+
+		code := fmt.Sprintf(`
+			local child = tos.create2(%q, %q)
+			assert(child == %q, "wrong addr: " .. tostring(child))
+		`, childCode, salt, want.Hex())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("different_salts_give_different_addresses", func(t *testing.T) {
+		code := fmt.Sprintf(`
+			local a = tos.create2(%q, "0x01")
+			local b = tos.create2(%q, "0x02")
+			assert(a ~= b, "expected different addresses for different salts")
+		`, childCode, childCode)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("same_code_same_salt_collides", func(t *testing.T) {
+		// Second tos.create2 with identical (code, salt) should revert.
+		code := fmt.Sprintf(`
+			tos.create2(%q, "0x01")   -- first deploy succeeds
+			tos.create2(%q, "0x01")   -- collision → error
+		`, childCode, childCode)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("decimal_salt_works", func(t *testing.T) {
+		// Salt can also be a decimal number string.
+		saltNum := "999"
+		var s [32]byte
+		sn, _ := new(big.Int).SetString(saltNum, 10)
+		sn.FillBytes(s[:])
+		want := crypto.CreateAddress2(contractAddr, s, crypto.Keccak256([]byte(childCode)))
+
+		code := fmt.Sprintf(`
+			local child = tos.create2(%q, %q)
+			assert(child == %q, "decimal salt: wrong addr " .. tostring(child))
+		`, childCode, saltNum, want.Hex())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("deployed_child_is_callable", func(t *testing.T) {
+		// After tos.create2, the child's code is stored and tos.call works.
+		code := fmt.Sprintf(`
+			local child = tos.create2(%q, "0x42")
+			assert(tos.codeAt(child), "no code at child")
+			local ok = tos.call(child, 0)
+			assert(ok, "tos.call on create2 child failed")
+		`, childCode)
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		// Verify child state: ping=42.
+		salt := "0x42"
+		childAddr := expectedCreate2(salt, childCode)
+		state, _ := bc.State()
+		slot := state.GetState(childAddr, luaStorageSlot("ping"))
+		got := new(big.Int).SetBytes(slot[:]).Uint64()
+		if got != 42 {
+			t.Fatalf("child ping: want 42, got %d", got)
+		}
+	})
+
+	t.Run("create2_with_value_transfers_balance", func(t *testing.T) {
+		halfTOS := new(big.Int).Mul(big.NewInt(5e17), big.NewInt(1))
+		code := fmt.Sprintf(`
+			local child = tos.create2(%q, "0x77", %s)
+			local bal = tos.balance(child)
+			assert(bal == %s, "balance mismatch: " .. tostring(bal))
+		`, `tos.set([[x]],1)`, halfTOS.String(), halfTOS.String())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("create2_in_staticcall_reverts", func(t *testing.T) {
+		helperAddr := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+		callerCode := fmt.Sprintf(`
+			local ok = tos.staticcall(%q)
+			require(ok, "static call returned false unexpectedly")
+		`, helperAddr.Hex())
+		helperCode := fmt.Sprintf(`tos.create2(%q, "0x01")`, childCode)
+
+		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+	})
+
+	t.Run("create2addr_pure_prediction", func(t *testing.T) {
+		// tos.create2addr must not modify state — staticcall context is fine.
+		salt := "0x00000000000000000000000000000000000000000000000000000000deadbeef"
+		want := expectedCreate2(salt, childCode)
+		code := fmt.Sprintf(`
+			local predicted = tos.create2addr(tos.self, %q, %q)
+			assert(predicted == %q, "wrong prediction: " .. tostring(predicted))
+		`, salt, childCode, want.Hex())
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+}
+
 func TestLuaContractRevertError(t *testing.T) {
 	t.Run("plain_revert_unchanged", func(t *testing.T) {
 		// tos.revert("msg") still reverts the tx with no return data.
