@@ -8,12 +8,13 @@ import lua "github.com/tos-network/glua"
 var luaBuiltinModules map[string][]byte
 
 func init() {
-	luaBuiltinModules = make(map[string][]byte, 4)
+	luaBuiltinModules = make(map[string][]byte, 5)
 	for name, src := range map[string]string{
 		"tos20":    tos20LuaSrc,
 		"tos721":   tos721LuaSrc,
 		"access":   accessLuaSrc,
 		"timelock": timelockLuaSrc,
+		"pausable": pausableLuaSrc,
 	} {
 		bc, err := lua.CompileSourceToBytecode([]byte(src), name)
 		if err != nil {
@@ -530,6 +531,94 @@ end
 function M.eta(target, value, calldata, salt)
     local id = opId(target, value, calldata, salt)
     return tos.mapGet("_tl_ops", id)
+end
+
+return M
+`
+
+// pausableLuaSrc is the Pausable stdlib — an emergency-stop mechanism that
+// allows a designated pauser to halt sensitive contract functions.
+//
+// Usage inside a contract:
+//
+//	local PA = tos.import("pausable")
+//	PA.init()                  -- first caller becomes pauser; idempotent
+//	PA.requireNotPaused()      -- guard: reverts when paused
+//
+// Functions:
+//
+//	PA.init()                  — records tos.caller as pauser (one-shot)
+//	PA.paused()                → bool
+//	PA.pauser()                → address string
+//	PA.pause()                 — pauser only; reverts if already paused
+//	PA.unpause()               — pauser only; reverts if not paused
+//	PA.requireNotPaused()      — reverts with "pausable: paused" when paused
+//	PA.requirePaused()         — reverts with "pausable: not paused" when live
+//
+// Events:
+//
+//	Paused(address account)
+//	Unpaused(address account)
+//
+// Storage keys (prefixed "__pa" to minimise collision risk):
+//
+//	__pa_init   — tos.get/set uint256 flag; 1 once initialised
+//	__pa_admin  — tos.getStr/setStr; pauser address
+//	__pa_paused — tos.get/set; 1 = paused, 0 (or nil) = live
+const pausableLuaSrc = `
+local M = {}
+
+local INIT_KEY   = "__pa_init"
+local ADMIN_KEY  = "__pa_admin"
+local PAUSED_KEY = "__pa_paused"
+
+-- M.init() — idempotent one-shot initialiser.
+-- On the first transaction to the contract, records tos.caller as the pauser.
+-- The contract starts in the unpaused state.
+function M.init()
+    if tos.get(INIT_KEY) ~= nil then return end
+    tos.set(INIT_KEY, 1)
+    tos.setStr(ADMIN_KEY, tos.caller)
+end
+
+-- M.paused() → bool  — true when the contract is paused.
+function M.paused()
+    return (tos.get(PAUSED_KEY) or 0) ~= 0
+end
+
+-- M.pauser() → address string  — who can pause/unpause.
+function M.pauser()
+    return tos.getStr(ADMIN_KEY)
+end
+
+-- M.requireNotPaused() — reverts when the contract is paused.
+function M.requireNotPaused()
+    if M.paused() then
+        tos.revert("pausable: paused")
+    end
+end
+
+-- M.requirePaused() — reverts when the contract is NOT paused.
+function M.requirePaused()
+    if not M.paused() then
+        tos.revert("pausable: not paused")
+    end
+end
+
+-- M.pause() — pauser only; halts the contract.  Reverts if already paused.
+function M.pause()
+    tos.require(tos.caller == tos.getStr(ADMIN_KEY), "pausable: not pauser")
+    M.requireNotPaused()
+    tos.set(PAUSED_KEY, 1)
+    tos.emit("Paused", "address", tos.caller)
+end
+
+-- M.unpause() — pauser only; resumes the contract.  Reverts if not paused.
+function M.unpause()
+    tos.require(tos.caller == tos.getStr(ADMIN_KEY), "pausable: not pauser")
+    M.requirePaused()
+    tos.set(PAUSED_KEY, 0)
+    tos.emit("Unpaused", "address", tos.caller)
 end
 
 return M

@@ -5156,3 +5156,202 @@ func TestLuaContractTimelock(t *testing.T) {
 		_ = zero
 	})
 }
+
+// TestLuaContractPausable covers the tos.import("pausable") standard library:
+// emergency-stop pattern with a designated pauser, Paused/Unpaused events, and
+// requireNotPaused / requirePaused guards.
+func TestLuaContractPausable(t *testing.T) {
+	// addr1 is derived from the fixed test key used by runLuaTx* helpers.
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	// readStr reads a tos.setStr(key, ...) value from raw contract storage.
+	readStr := func(state interface {
+		GetState(common.Address, common.Hash) common.Hash
+	}, addr common.Address, key string) string {
+		lenSlot := state.GetState(addr, luaStrLenSlot(key))
+		if lenSlot == (common.Hash{}) {
+			return ""
+		}
+		length := int(binary.BigEndian.Uint64(lenSlot[24:]) - 1)
+		if length <= 0 {
+			return ""
+		}
+		data := make([]byte, length)
+		base := luaStrLenSlot(key)
+		for i := 0; i < length; i += 32 {
+			chunk := state.GetState(addr, luaStrChunkSlot(base, i/32))
+			end := i + 32
+			if end > length {
+				end = length
+			}
+			copy(data[i:end], chunk[:end-i])
+		}
+		return string(data)
+	}
+
+	t.Run("init_sets_deployer_as_pauser", func(t *testing.T) {
+		// After PA.init() the tx signer (addr1) must be stored as pauser in __pa_admin.
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			assert(PA.pauser() == tos.caller, "pauser must be deployer")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		// Verify raw storage: __pa_admin string == addr1.Hex().
+		state, _ := bc.State()
+		got := readStr(state, addr, "__pa_admin")
+		if !strings.EqualFold(got, addr1.Hex()) {
+			t.Errorf("__pa_admin: want %s, got %q", addr1.Hex(), got)
+		}
+	})
+
+	t.Run("starts_unpaused", func(t *testing.T) {
+		// Contract must report paused() == false right after init.
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			assert(not PA.paused(), "should start unpaused")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("pause_sets_paused_flag", func(t *testing.T) {
+		// Tx 1: init + pause.  Verify __pa_paused storage slot is 1.
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			PA.pause()
+			assert(PA.paused(), "should be paused after pause()")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		flag := state.GetState(addr, luaStorageSlot("__pa_paused"))
+		if flag[31] != 1 {
+			t.Errorf("__pa_paused: want 1, got %d", flag[31])
+		}
+	})
+
+	t.Run("unpause_clears_paused_flag", func(t *testing.T) {
+		// Tx 1: init + pause.
+		// Tx 2: unpause.  __pa_paused slot must be 0 afterwards.
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			if tos.msg.data == "0x" then
+				PA.pause()
+			elseif tos.msg.data == "0x01" then
+				PA.unpause()
+				assert(not PA.paused(), "should be live after unpause()")
+			end
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))             // Tx 1: pause
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: unpause
+
+		state, _ := bc.State()
+		flag := state.GetState(addr, luaStorageSlot("__pa_paused"))
+		if flag[31] != 0 {
+			t.Errorf("__pa_paused after unpause: want 0, got %d", flag[31])
+		}
+	})
+
+	t.Run("non_pauser_cannot_pause", func(t *testing.T) {
+		// codeA is the pausable contract; admin = addr1.
+		// codeB calls codeA.try_pause() via tos.call; tos.caller inside codeA = codeB ≠ addr1 → must fail.
+		selectorHex := "0x" + common.Bytes2Hex(crypto.Keccak256([]byte("try_pause()"))[:4])
+
+		codeA := `
+			local PA = tos.import("pausable")
+			PA.init()
+			tos.dispatch({
+				["try_pause()"] = function()
+					PA.pause()
+				end,
+				fallback = function() end,
+			})
+		`
+		codeB := fmt.Sprintf(`
+			local ok, _ = tos.call(%q, 0, %q)
+			assert(not ok, "non-pauser pause must fail")
+		`, addrA, selectorHex)
+
+		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		// Step 1: addr1 calls codeA directly → PA.init() fires, admin = addr1.
+		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+
+		// Step 2: addr1 calls codeB → codeB calls codeA.try_pause → tos.caller=codeB → fail.
+		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+	})
+
+	t.Run("double_pause_reverts", func(t *testing.T) {
+		// Tx 1: init + pause (data=0x).
+		// Tx 2: pause again (data=0x01) → must revert because __pa_paused=1.
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			if tos.msg.data == "0x" then
+				PA.pause()
+			elseif tos.msg.data == "0x01" then
+				PA.pause()   -- already paused → should revert tx
+			end
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTx(t, bc, addr, big.NewInt(0))                                       // Tx 1: pause ok
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: double-pause reverts
+	})
+
+	t.Run("require_not_paused_guards_function", func(t *testing.T) {
+		// Calldata routing:
+		//   0x    — init + pause
+		//   0x01  — try to call protected function while paused → must FAIL (tx reverts)
+		//   0x02  — unpause
+		//   0x03  — call protected function while live → must SUCCEED (sets "done"=1)
+		code := `
+			local PA = tos.import("pausable")
+			PA.init()
+			if tos.msg.data == "0x" then
+				PA.pause()
+			elseif tos.msg.data == "0x01" then
+				PA.requireNotPaused()   -- reverts whole tx because paused
+				tos.set("done", 1)
+			elseif tos.msg.data == "0x02" then
+				PA.unpause()
+			elseif tos.msg.data == "0x03" then
+				PA.requireNotPaused()   -- must pass; live again
+				tos.set("done", 1)
+			end
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+
+		runLuaTx(t, bc, addr, big.NewInt(0))                                           // Tx 1: pause
+		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: guarded fn reverts
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x02})              // Tx 3: unpause
+		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})              // Tx 4: guarded fn succeeds
+
+		state, _ := bc.State()
+		doneSlot := state.GetState(addr, luaStorageSlot("done"))
+		if doneSlot[31] != 1 {
+			t.Errorf("done: want 1 after successful guarded call, got %d", doneSlot[31])
+		}
+	})
+
+	_ = addrA
+	_ = addrB
+}
