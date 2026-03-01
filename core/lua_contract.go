@@ -29,8 +29,10 @@ const (
 	luaGasLogBase    uint64 = 375   // log emission base
 	luaGasLogTopic   uint64 = 375   // per indexed topic (topics[1..3])
 	luaGasLogByte    uint64 = 8     // per byte of log data
-	luaGasDeploy     uint64 = 32000 // CREATE base (mirrors EVM CREATE opcode cost)
-	luaGasDeployByte uint64 = 200   // per byte of deployed code
+	luaGasDeploy        uint64 = 32000 // CREATE base (mirrors EVM CREATE opcode cost)
+	luaGasDeployByte    uint64 = 200   // per byte of deployed code
+	luaGasCompileBase   uint64 = 5000  // tos.compileBytecode base (parse + IR + encode)
+	luaGasCompileByte   uint64 = 50    // per byte of Lua source compiled
 )
 
 // luaMaxCallDepth caps tos.call nesting to prevent stack-overflow DoS.
@@ -1680,7 +1682,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	//
 	//   Example — factory pattern:
 	//     local child = tos.deploy([[
-	//         tos.oncreate(function() tos.set("parent", tos.caller()) end)
+	//         tos.oncreate(function() tos.set("parent", tos.caller) end)
 	//     ]])
 	//     tos.set("child", child)
 	L.SetField(tosTable, "deploy", L.NewFunction(func(L *lua.LState) int {
@@ -1732,6 +1734,47 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		st.state.SetCode(newAddr, []byte(code))
 
 		L.Push(lua.LString(newAddr.Hex()))
+		return 1
+	}))
+
+	// tos.compileBytecode(src) → string
+	//   Compiles a Lua source string to glua bytecode and returns it as a binary
+	//   string.  The result can be passed directly to tos.deploy() for efficient
+	//   factory patterns: source is parsed and compiled once here, then the
+	//   resulting bytecode is stored on-chain and executed without re-parsing on
+	//   every call to the child contract.
+	//
+	//   Gas: luaGasCompileBase (5 000) + luaGasCompileByte (50) × len(src)
+	//
+	//   Errors: any Lua syntax error in src causes an immediate revert.
+	//   The bytecode format is validated by glua on load; it is safe to pass
+	//   untrusted bytecode to tos.deploy because executeLuaVM calls LoadBytecode
+	//   which validates opcode ranges and closure indices before execution.
+	//
+	//   Example — deploy a pre-compiled child contract:
+	//     local bc = tos.compileBytecode([[
+	//         tos.dispatch({
+	//             ["add(uint256,uint256)"] = function(a, b)
+	//                 tos.result("uint256", a + b)
+	//             end,
+	//         })
+	//     ]])
+	//     local child = tos.deploy(bc)
+	//     tos.set("child", child)
+	//
+	//   Without tos.compileBytecode:
+	//     local child = tos.deploy(luaSrc)   -- source re-parsed on every call
+	//   With tos.compileBytecode:
+	//     local child = tos.deploy(tos.compileBytecode(luaSrc))  -- bytecode stored
+	L.SetField(tosTable, "compileBytecode", L.NewFunction(func(L *lua.LState) int {
+		src := L.CheckString(1)
+		chargePrimGas(luaGasCompileBase + luaGasCompileByte*uint64(len(src)))
+		bc, err := lua.CompileSourceToBytecode([]byte(src), "<compileBytecode>")
+		if err != nil {
+			L.RaiseError("tos.compileBytecode: %v", err)
+			return 0
+		}
+		L.Push(lua.LString(bc))
 		return 1
 	}))
 

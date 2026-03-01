@@ -4148,4 +4148,87 @@ func TestLuaContractBytecode(t *testing.T) {
 			t.Fatalf("source vs bytecode mismatch: source=%d bytecode=%d", srcVal, binVal)
 		}
 	})
+
+	// tos.compileBytecode tests
+
+	t.Run("compileBytecode_result_is_deployable", func(t *testing.T) {
+		// Compile child source in-contract, then deploy the bytecode and call it.
+		// Child sets "ping"=7; verify the value in child's storage via Go.
+		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+		childAddr := crypto.CreateAddress(contractAddr, 0) // first deploy, nonce=0
+
+		code := `
+			local childSrc = "tos.set([[ping]], 7)"
+			local bc = tos.compileBytecode(childSrc)
+			local child = tos.deploy(bc)
+			local ok = tos.call(child, 0)
+			assert(ok, "tos.call on compiled-bytecode child failed")
+		`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		_ = addr
+		runLuaTx(t, bc, addr, big.NewInt(0))
+
+		state, _ := bc.State()
+		pingSlot := state.GetState(childAddr, luaStorageSlot("ping"))
+		got := new(big.Int).SetBytes(pingSlot[:]).Uint64()
+		if got != 7 {
+			t.Fatalf("child ping: want 7, got %d", got)
+		}
+	})
+
+	t.Run("compileBytecode_matches_source_deploy", func(t *testing.T) {
+		// Deploying compiled bytecode must produce the same runtime behaviour as
+		// deploying the equivalent source string directly.
+		// Both contracts use the same address (0xCCCC...) in separate chains,
+		// so the child address (nonce=0) is the same in both; compare child storage.
+		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+		childAddr := crypto.CreateAddress(contractAddr, 0)
+
+		childSrc := `tos.set([[val]], 55)`
+
+		srcCode := fmt.Sprintf(`
+			local child = tos.deploy(%q)
+			local ok = tos.call(child, 0)
+			assert(ok, "source-deploy call failed")
+		`, childSrc)
+		bcnCode := fmt.Sprintf(`
+			local bc = tos.compileBytecode(%q)
+			local child = tos.deploy(bc)
+			local ok = tos.call(child, 0)
+			assert(ok, "bytecode-deploy call failed")
+		`, childSrc)
+
+		srcBC, _, srcCleanup := luaTestSetup(t, srcCode)
+		defer srcCleanup()
+		binBC, _, binCleanup := luaTestSetup(t, bcnCode)
+		defer binCleanup()
+
+		runLuaTx(t, srcBC, contractAddr, big.NewInt(0))
+		runLuaTx(t, binBC, contractAddr, big.NewInt(0))
+
+		srcState, _ := srcBC.State()
+		binState, _ := binBC.State()
+		srcVal := srcState.GetState(childAddr, luaStorageSlot("val"))
+		binVal := binState.GetState(childAddr, luaStorageSlot("val"))
+		if srcVal != binVal {
+			t.Fatalf("source-deploy vs bytecode-deploy mismatch: src=%v bcn=%v", srcVal, binVal)
+		}
+	})
+
+	t.Run("compileBytecode_syntax_error_reverts", func(t *testing.T) {
+		// Passing syntactically invalid Lua to compileBytecode must revert the tx.
+		code := `tos.compileBytecode("this is not valid lua @@@@")`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
+
+	t.Run("compileBytecode_oog_on_huge_source", func(t *testing.T) {
+		// luaGasCompileByte=50; 10 000 bytes × 50 = 500 000 gas > tx gas limit → OOG.
+		code := `tos.compileBytecode(string.rep("x", 10000))`
+		bc, addr, cleanup := luaTestSetup(t, code)
+		defer cleanup()
+		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+	})
 }
