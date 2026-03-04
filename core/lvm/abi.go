@@ -1,4 +1,4 @@
-package core
+package lvm
 
 // Ethereum ABI encoding/decoding for TOS Lua contracts.
 //
@@ -263,13 +263,13 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 
 // ── Standard ABI encoding (abi.encode) ───────────────────────────────────────
 
-// luaABIEncodeBytes encodes Lua arguments starting at startArg (1-based) into
+// abiEncodeBytes encodes Lua arguments starting at startArg (1-based) into
 // raw ABI bytes. Arguments are (type-string, value) pairs. Returns empty slice
 // if no type-value pairs are provided.
 //
-// This is the shared engine used by both luaABIEncode (which adds "0x" prefix)
+// This is the shared engine used by both abiEncode (which adds "0x" prefix)
 // and tos.emit (which uses the raw bytes as log data).
-func luaABIEncodeBytes(L *lua.LState, startArg int) ([]byte, error) {
+func abiEncodeBytes(L *lua.LState, startArg int) ([]byte, error) {
 	nargs := L.GetTop() - (startArg - 1)
 	if nargs < 0 {
 		nargs = 0
@@ -305,10 +305,10 @@ func luaABIEncodeBytes(L *lua.LState, startArg int) ([]byte, error) {
 	return packed, nil
 }
 
-// luaABIEncode implements abi.encode("type", val, ...) → "0x" hex.
+// abiEncode implements abi.encode("type", val, ...) → "0x" hex.
 // Delegates to accounts/abi Arguments.Pack for spec-correct ABI encoding.
-func luaABIEncode(L *lua.LState) int {
-	packed, err := luaABIEncodeBytes(L, 1)
+func abiEncode(L *lua.LState) int {
+	packed, err := abiEncodeBytes(L, 1)
 	if err != nil {
 		L.RaiseError("abi.encode: %v", err)
 		return 0
@@ -319,9 +319,9 @@ func luaABIEncode(L *lua.LState) int {
 
 // ── Standard ABI decoding (abi.decode) ───────────────────────────────────────
 
-// luaABIDecode implements abi.decode(hexData, "type", ...) → val, val, ...
+// abiDecode implements abi.decode(hexData, "type", ...) → val, val, ...
 // Delegates to accounts/abi Arguments.Unpack for spec-correct ABI decoding.
-func luaABIDecode(L *lua.LState) int {
+func abiDecode(L *lua.LState) int {
 	nargs := L.GetTop()
 	if nargs < 2 {
 		L.RaiseError("abi.decode: at least 2 arguments required (data, type...)")
@@ -552,8 +552,8 @@ func abiPackedOne(typ abi.Type, val lua.LValue) ([]byte, error) {
 	}
 }
 
-// luaABIEncodePacked implements abi.encodePacked("type", val, ...) → "0x" hex.
-func luaABIEncodePacked(L *lua.LState) int {
+// abiEncodePacked implements abi.encodePacked("type", val, ...) → "0x" hex.
+func abiEncodePacked(L *lua.LState) int {
 	nargs := L.GetTop()
 	if nargs%2 != 0 {
 		L.RaiseError("abi.encodePacked: expected (type, value) pairs, got %d args", nargs)

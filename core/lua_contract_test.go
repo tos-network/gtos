@@ -15,6 +15,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	lvm "github.com/tos-network/gtos/core/lvm"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -306,7 +307,7 @@ func TestLuaContractRequireRevert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slot := luaStorageSlot("key")
+	slot := lvm.StorageSlot("key")
 	val := state.GetState(contractAddr, slot)
 	if val != (common.Hash{}) {
 		t.Errorf("expected storage slot to be zero after revert, got %x", val)
@@ -1896,14 +1897,14 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 
 	// Pre-compute the storage slots that B's tos.set/setStr/arrPush would write.
 	// We inject them directly into genesis so block-1 can read them via tos.at.
-	slotUint := func(key string) common.Hash { return luaStorageSlot(key) }
-	slotStrLen := func(key string) common.Hash { return luaStrLenSlot(key) }
+	slotUint := func(key string) common.Hash { return lvm.StorageSlot(key) }
+	slotStrLen := func(key string) common.Hash { return lvm.StrLenSlot(key) }
 	slotStrChunk := func(key string, i int) common.Hash {
-		return luaStrChunkSlot(luaStrLenSlot(key), i)
+		return lvm.StrChunkSlot(lvm.StrLenSlot(key), i)
 	}
-	slotArrLen := func(key string) common.Hash { return luaArrLenSlot(key) }
+	slotArrLen := func(key string) common.Hash { return lvm.ArrLenSlot(key) }
 	slotArrElem := func(key string, i uint64) common.Hash {
-		return luaArrElemSlot(luaArrLenSlot(key), i)
+		return lvm.ArrElemSlot(lvm.ArrLenSlot(key), i)
 	}
 
 	uint256Slot := func(v uint64) common.Hash {
@@ -2115,7 +2116,7 @@ func TestLuaContractCall(t *testing.T) {
 		runLuaTx(t, bc, common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"), big.NewInt(0))
 
 		state, _ := bc.State()
-		slot := luaStorageSlot("called")
+		slot := lvm.StorageSlot("called")
 		val := state.GetState(contractAddrB, slot)
 		if val[31] != 1 {
 			t.Errorf("contractAddrB.called: want 1, got %d", val[31])
@@ -2214,13 +2215,13 @@ func TestLuaContractCall(t *testing.T) {
 		state, _ := bc.State()
 
 		// A's "alive" slot must be 1.
-		aliveSlot := state.GetState(contractAddr, luaStorageSlot("alive"))
+		aliveSlot := state.GetState(contractAddr, lvm.StorageSlot("alive"))
 		if aliveSlot[31] != 1 {
 			t.Errorf("A.alive: want 1, got %d", aliveSlot[31])
 		}
 
 		// B's "dead" slot must be zero (reverted).
-		deadSlot := state.GetState(contractAddrB, luaStorageSlot("dead"))
+		deadSlot := state.GetState(contractAddrB, lvm.StorageSlot("dead"))
 		if deadSlot != (common.Hash{}) {
 			t.Errorf("B.dead: want 0 (reverted), got %x", deadSlot)
 		}
@@ -2282,7 +2283,7 @@ func TestLuaContractCall(t *testing.T) {
 			big.NewInt(0))
 
 		state, _ := bc.State()
-		storedSlot := state.GetState(contractAddrB, luaStorageSlot("stored"))
+		storedSlot := state.GetState(contractAddrB, lvm.StorageSlot("stored"))
 		got := new(big.Int).SetBytes(storedSlot[:])
 		if got.Int64() != 999 {
 			t.Errorf("B.stored: want 999, got %s", got)
@@ -2405,7 +2406,7 @@ func TestLuaContractCallResult(t *testing.T) {
 			big.NewInt(0))
 
 		state, _ := bc.State()
-		slot := state.GetState(contractAddrB, luaStorageSlot("written"))
+		slot := state.GetState(contractAddrB, lvm.StorageSlot("written"))
 		if slot[31] != 77 {
 			t.Errorf("B.written: want 77, got %d", slot[31])
 		}
@@ -2443,7 +2444,7 @@ func TestLuaContractCallResult(t *testing.T) {
 
 		// B's storage write must be absent (reverted).
 		state, _ := bc.State()
-		slot := state.GetState(contractAddrB, luaStorageSlot("shouldNotExist"))
+		slot := state.GetState(contractAddrB, lvm.StorageSlot("shouldNotExist"))
 		if slot != (common.Hash{}) {
 			t.Errorf("B.shouldNotExist: want zero (reverted), got %x", slot)
 		}
@@ -2492,11 +2493,11 @@ func TestLuaContractStaticCall(t *testing.T) {
 			t.Fatalf("expected Done log")
 		}
 		state, _ := bc.State()
-		aliveSlot := state.GetState(contractAddr, luaStorageSlot("alive"))
+		aliveSlot := state.GetState(contractAddr, lvm.StorageSlot("alive"))
 		if new(big.Int).SetBytes(aliveSlot[:]).Int64() != 42 {
 			t.Errorf("A.alive: want 42")
 		}
-		xSlot := state.GetState(contractAddrB, luaStorageSlot("x"))
+		xSlot := state.GetState(contractAddrB, lvm.StorageSlot("x"))
 		if xSlot != (common.Hash{}) {
 			t.Errorf("B.x: want zero (write blocked), got %x", xSlot)
 		}
@@ -2564,7 +2565,7 @@ func TestLuaContractStaticCall(t *testing.T) {
 	t.Run("dispatch_query_pattern", func(t *testing.T) {
 		// Full query pattern: A staticcalls B with ABI calldata for
 		// "totalSupply()"; B dispatches and returns a pre-seeded supply value.
-		supplySlot := luaStorageSlot("supply")
+		supplySlot := lvm.StorageSlot("supply")
 		var supplyVal common.Hash
 		big.NewInt(500000).FillBytes(supplyVal[:])
 
@@ -3201,8 +3202,8 @@ func TestLuaContractSend(t *testing.T) {
 		runLuaTx(t, bc, contractAddr, big.NewInt(0))
 
 		state, _ := bc.State()
-		before := state.GetState(contractAddr, luaStorageSlot("before"))
-		after := state.GetState(contractAddr, luaStorageSlot("after"))
+		before := state.GetState(contractAddr, lvm.StorageSlot("before"))
+		after := state.GetState(contractAddr, lvm.StorageSlot("after"))
 		if before[31] != 1 {
 			t.Errorf("before slot: want 1, got %d", before[31])
 		}
@@ -3506,7 +3507,7 @@ func TestLuaContractAddressUtils(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
-		val := state.GetState(addr, luaStorageSlot("ok"))
+		val := state.GetState(addr, lvm.StorageSlot("ok"))
 		if val[31] != 1 {
 			t.Errorf("ok slot: want 1, got %d", val[31])
 		}
@@ -3736,7 +3737,7 @@ func TestLuaContractCreate2(t *testing.T) {
 		salt := "0x42"
 		childAddr := expectedCreate2(salt, childCode)
 		state, _ := bc.State()
-		slot := state.GetState(childAddr, luaStorageSlot("ping"))
+		slot := state.GetState(childAddr, lvm.StorageSlot("ping"))
 		got := new(big.Int).SetBytes(slot[:]).Uint64()
 		if got != 42 {
 			t.Fatalf("child ping: want 42, got %d", got)
@@ -3890,7 +3891,7 @@ func TestLuaContractRevertError(t *testing.T) {
 		runLuaTx(t, bc, callerAddr, big.NewInt(0))
 
 		state, _ := bc.State()
-		v := state.GetState(calleeAddr, luaStorageSlot("x"))
+		v := state.GetState(calleeAddr, lvm.StorageSlot("x"))
 		if v != (common.Hash{}) {
 			t.Errorf("callee storage must be reverted, got x=%v", v)
 		}
@@ -4092,12 +4093,12 @@ func TestLuaContractTOS20(t *testing.T) {
 		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
 
 		state, _ := bc.State()
-		supplySlot := state.GetState(addr, luaStorageSlot("_supply"))
+		supplySlot := state.GetState(addr, lvm.StorageSlot("_supply"))
 		gotSupply := new(big.Int).SetBytes(supplySlot[:]).Int64()
 		if gotSupply != supply {
 			t.Errorf("_supply: want %d, got %d", supply, gotSupply)
 		}
-		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		balSlot := state.GetState(addr, lvm.MapSlot("_bal", []string{addr1.Hex()}))
 		gotBal := new(big.Int).SetBytes(balSlot[:]).Int64()
 		if gotBal != supply {
 			t.Errorf("_bal[addr1]: want %d, got %d", supply, gotBal)
@@ -4111,13 +4112,13 @@ func TestLuaContractTOS20(t *testing.T) {
 
 		state, _ := bc.State()
 		// _name and _symbol are stored via tos.setStr — their len slot must be non-zero.
-		if state.GetState(addr, luaStrLenSlot("_name")) == (common.Hash{}) {
+		if state.GetState(addr, lvm.StrLenSlot("_name")) == (common.Hash{}) {
 			t.Error("_name not stored")
 		}
-		if state.GetState(addr, luaStrLenSlot("_symbol")) == (common.Hash{}) {
+		if state.GetState(addr, lvm.StrLenSlot("_symbol")) == (common.Hash{}) {
 			t.Error("_symbol not stored")
 		}
-		decimalsSlot := state.GetState(addr, luaStorageSlot("_decimals"))
+		decimalsSlot := state.GetState(addr, lvm.StorageSlot("_decimals"))
 		if new(big.Int).SetBytes(decimalsSlot[:]).Int64() != 18 {
 			t.Error("_decimals not 18")
 		}
@@ -4132,8 +4133,8 @@ func TestLuaContractTOS20(t *testing.T) {
 			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", big.NewInt(100)))
 
 		state, _ := bc.State()
-		slotAlice := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
-		slotBob := state.GetState(addr, luaMapSlot("_bal", []string{bob.Hex()}))
+		slotAlice := state.GetState(addr, lvm.MapSlot("_bal", []string{addr1.Hex()}))
+		slotBob := state.GetState(addr, lvm.MapSlot("_bal", []string{bob.Hex()}))
 		balAlice := new(big.Int).SetBytes(slotAlice[:]).Int64()
 		balBob := new(big.Int).SetBytes(slotBob[:]).Int64()
 		if balAlice != supply-100 {
@@ -4179,7 +4180,7 @@ func TestLuaContractTOS20(t *testing.T) {
 			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(500)))
 
 		state, _ := bc.State()
-		allowSlot := state.GetState(addr, luaMapSlot("_allow", []string{addr1.Hex(), bob.Hex()}))
+		allowSlot := state.GetState(addr, lvm.MapSlot("_allow", []string{addr1.Hex(), bob.Hex()}))
 		gotAllow := new(big.Int).SetBytes(allowSlot[:]).Int64()
 		if gotAllow != 500 {
 			t.Errorf("allowance: want 500, got %d", gotAllow)
@@ -4254,7 +4255,7 @@ func TestLuaContractBytecode(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
-		slot := state.GetState(addr, luaStorageSlot("counter"))
+		slot := state.GetState(addr, lvm.StorageSlot("counter"))
 		got := new(big.Int).SetBytes(slot[:]).Uint64()
 		if got != 2 {
 			t.Fatalf("counter: want 2, got %d", got)
@@ -4284,8 +4285,8 @@ func TestLuaContractBytecode(t *testing.T) {
 
 		srcState, _ := srcBC.State()
 		binState, _ := binBC.State()
-		srcSlot := srcState.GetState(srcAddr, luaStorageSlot("x"))
-		binSlot := binState.GetState(binAddr, luaStorageSlot("x"))
+		srcSlot := srcState.GetState(srcAddr, lvm.StorageSlot("x"))
+		binSlot := binState.GetState(binAddr, lvm.StorageSlot("x"))
 		srcVal := new(big.Int).SetBytes(srcSlot[:]).Uint64()
 		binVal := new(big.Int).SetBytes(binSlot[:]).Uint64()
 		if srcVal != binVal {
@@ -4314,7 +4315,7 @@ func TestLuaContractBytecode(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
-		pingSlot := state.GetState(childAddr, luaStorageSlot("ping"))
+		pingSlot := state.GetState(childAddr, lvm.StorageSlot("ping"))
 		got := new(big.Int).SetBytes(pingSlot[:]).Uint64()
 		if got != 7 {
 			t.Fatalf("child ping: want 7, got %d", got)
@@ -4353,8 +4354,8 @@ func TestLuaContractBytecode(t *testing.T) {
 
 		srcState, _ := srcBC.State()
 		binState, _ := binBC.State()
-		srcVal := srcState.GetState(childAddr, luaStorageSlot("val"))
-		binVal := binState.GetState(childAddr, luaStorageSlot("val"))
+		srcVal := srcState.GetState(childAddr, lvm.StorageSlot("val"))
+		binVal := binState.GetState(childAddr, lvm.StorageSlot("val"))
 		if srcVal != binVal {
 			t.Fatalf("source-deploy vs bytecode-deploy mismatch: src=%v bcn=%v", srcVal, binVal)
 		}
@@ -4392,7 +4393,7 @@ func TestLuaContractTOS721(t *testing.T) {
 	readMapStr := func(state interface {
 		GetState(common.Address, common.Hash) common.Hash
 	}, contractAddr common.Address, mapName, key string) string {
-		base := luaMapStrLenSlot(mapName, []string{key})
+		base := lvm.MapStrLenSlot(mapName, []string{key})
 		lenSlot := state.GetState(contractAddr, base)
 		if lenSlot == (common.Hash{}) {
 			return ""
@@ -4400,7 +4401,7 @@ func TestLuaContractTOS721(t *testing.T) {
 		length := int(binary.BigEndian.Uint64(lenSlot[24:]) - 1)
 		data := make([]byte, length)
 		for i := 0; i < length; i += 32 {
-			chunk := state.GetState(contractAddr, luaStrChunkSlot(base, i/32))
+			chunk := state.GetState(contractAddr, lvm.StrChunkSlot(base, i/32))
 			end := i + 32
 			if end > length {
 				end = length
@@ -4422,14 +4423,14 @@ func TestLuaContractTOS721(t *testing.T) {
 		trigger(t, bc, addr)
 
 		state, _ := bc.State()
-		if state.GetState(addr, luaStrLenSlot("_name")) == (common.Hash{}) {
+		if state.GetState(addr, lvm.StrLenSlot("_name")) == (common.Hash{}) {
 			t.Error("_name not stored")
 		}
-		if state.GetState(addr, luaStrLenSlot("_symbol")) == (common.Hash{}) {
+		if state.GetState(addr, lvm.StrLenSlot("_symbol")) == (common.Hash{}) {
 			t.Error("_symbol not stored")
 		}
 		// _cowner is stored via tos.setStr; check the len slot is non-zero.
-		if state.GetState(addr, luaStrLenSlot("_cowner")) == (common.Hash{}) {
+		if state.GetState(addr, lvm.StrLenSlot("_cowner")) == (common.Hash{}) {
 			t.Error("_cowner not stored")
 		}
 	})
@@ -4451,7 +4452,7 @@ func TestLuaContractTOS721(t *testing.T) {
 		}
 
 		// balance of addr1 must be 1.
-		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		balSlot := state.GetState(addr, lvm.MapSlot("_bal", []string{addr1.Hex()}))
 		bal := new(big.Int).SetBytes(balSlot[:]).Int64()
 		if bal != 1 {
 			t.Errorf("balance of addr1: want 1, got %d", bal)
@@ -4503,8 +4504,8 @@ func TestLuaContractTOS721(t *testing.T) {
 		}
 
 		// addr1 balance = 0, bob balance = 1.
-		addr1BalSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
-		bobBalSlot := state.GetState(addr, luaMapSlot("_bal", []string{bob.Hex()}))
+		addr1BalSlot := state.GetState(addr, lvm.MapSlot("_bal", []string{addr1.Hex()}))
+		bobBalSlot := state.GetState(addr, lvm.MapSlot("_bal", []string{bob.Hex()}))
 		addr1Bal := new(big.Int).SetBytes(addr1BalSlot[:]).Int64()
 		bobBal := new(big.Int).SetBytes(bobBalSlot[:]).Int64()
 		if addr1Bal != 0 {
@@ -4597,7 +4598,7 @@ func TestLuaContractTOS721(t *testing.T) {
 		}
 
 		// Balance of addr1 must be 0.
-		balSlot := state.GetState(addr, luaMapSlot("_bal", []string{addr1.Hex()}))
+		balSlot := state.GetState(addr, lvm.MapSlot("_bal", []string{addr1.Hex()}))
 		bal := new(big.Int).SetBytes(balSlot[:]).Int64()
 		if bal != 0 {
 			t.Errorf("balance after burn: want 0, got %d", bal)
@@ -4628,7 +4629,7 @@ func TestLuaContractDelegatecall(t *testing.T) {
 	readStr := func(state interface {
 		GetState(common.Address, common.Hash) common.Hash
 	}, addr common.Address, key string) string {
-		lenSlot := state.GetState(addr, luaStrLenSlot(key))
+		lenSlot := state.GetState(addr, lvm.StrLenSlot(key))
 		if lenSlot == (common.Hash{}) {
 			return ""
 		}
@@ -4637,9 +4638,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			return ""
 		}
 		data := make([]byte, length)
-		base := luaStrLenSlot(key)
+		base := lvm.StrLenSlot(key)
 		for i := 0; i < length; i += 32 {
-			chunk := state.GetState(addr, luaStrChunkSlot(base, i/32))
+			chunk := state.GetState(addr, lvm.StrChunkSlot(base, i/32))
 			end := i + 32
 			if end > length {
 				end = length
@@ -4663,12 +4664,12 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		state, _ := bc.State()
 
 		// proxy.x must be 99
-		proxyX := state.GetState(contractAddr, luaStorageSlot("x"))
+		proxyX := state.GetState(contractAddr, lvm.StorageSlot("x"))
 		if new(big.Int).SetBytes(proxyX[:]).Int64() != 99 {
 			t.Errorf("proxy.x: want 99, got %s", new(big.Int).SetBytes(proxyX[:]))
 		}
 		// impl.x must be 0 (untouched)
-		implX := state.GetState(contractAddrB, luaStorageSlot("x"))
+		implX := state.GetState(contractAddrB, lvm.StorageSlot("x"))
 		if implX != (common.Hash{}) {
 			t.Errorf("impl.x: want 0, got %x", implX)
 		}
@@ -4731,11 +4732,11 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 
-		xSlot := state.GetState(contractAddr, luaStorageSlot("x"))
+		xSlot := state.GetState(contractAddr, lvm.StorageSlot("x"))
 		if new(big.Int).SetBytes(xSlot[:]).Int64() != 42 {
 			t.Errorf("proxy.x: want 42 (written before dc), got %s", new(big.Int).SetBytes(xSlot[:]))
 		}
-		ySlot := state.GetState(contractAddr, luaStorageSlot("y"))
+		ySlot := state.GetState(contractAddr, lvm.StorageSlot("y"))
 		if ySlot != (common.Hash{}) {
 			t.Errorf("proxy.y: want 0 (reverted by failed dc), got %x", ySlot)
 		}
@@ -4802,7 +4803,7 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		// Tx 1: no data → delegate to v1 (addrB) → proxy.version = 1.
 		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
-		v := state.GetState(contractAddr, luaStorageSlot("version"))
+		v := state.GetState(contractAddr, lvm.StorageSlot("version"))
 		if new(big.Int).SetBytes(v[:]).Int64() != 1 {
 			t.Errorf("after v1: proxy.version want 1, got %d", new(big.Int).SetBytes(v[:]).Int64())
 		}
@@ -4813,7 +4814,7 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		// Tx 3: no data → delegate to v2 → proxy.version = 2.
 		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ = bc.State()
-		v = state.GetState(contractAddr, luaStorageSlot("version"))
+		v = state.GetState(contractAddr, lvm.StorageSlot("version"))
 		if new(big.Int).SetBytes(v[:]).Int64() != 2 {
 			t.Errorf("after v2: proxy.version want 2, got %d", new(big.Int).SetBytes(v[:]).Int64())
 		}
@@ -4834,7 +4835,7 @@ func TestLuaContractAccess(t *testing.T) {
 
 	// hasRoleSlot returns the storage slot where _roles[addr][role] is stored.
 	hasRoleSlot := func(addr common.Address, role string) common.Hash {
-		return luaMapSlot("_roles", []string{addr.Hex(), role})
+		return lvm.MapSlot("_roles", []string{addr.Hex(), role})
 	}
 
 	t.Run("init_grants_default_admin", func(t *testing.T) {
@@ -4992,7 +4993,7 @@ func TestLuaContractAccess(t *testing.T) {
 			buildCalldata(t, "mint()"))
 
 		state, _ := bc.State()
-		mintedSlot := state.GetState(addr, luaStorageSlot("minted"))
+		mintedSlot := state.GetState(addr, lvm.StorageSlot("minted"))
 		if new(big.Int).SetBytes(mintedSlot[:]).Int64() != 1 {
 			t.Errorf("minted: want 1, got %d", new(big.Int).SetBytes(mintedSlot[:]).Int64())
 		}
@@ -5044,7 +5045,7 @@ func TestLuaContractTimelock(t *testing.T) {
 		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01})
 
 		state, _ := bc.State()
-		doneSlot := state.GetState(addr, luaStorageSlot("done"))
+		doneSlot := state.GetState(addr, lvm.StorageSlot("done"))
 		if doneSlot[31] != 1 {
 			t.Errorf("done: want 1, got %d", doneSlot[31])
 		}
@@ -5083,7 +5084,7 @@ func TestLuaContractTimelock(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
-		v := state.GetState(addr, luaStorageSlot("verified"))
+		v := state.GetState(addr, lvm.StorageSlot("verified"))
 		if v[31] != 1 {
 			t.Errorf("verified: want 1, got %d", v[31])
 		}
@@ -5149,7 +5150,7 @@ func TestLuaContractTimelock(t *testing.T) {
 		runLuaTxWithData(t, bc, contractAddrA, big.NewInt(0), []byte{0x01})
 
 		state, _ := bc.State()
-		triggeredSlot := state.GetState(contractAddrB, luaStorageSlot("triggered"))
+		triggeredSlot := state.GetState(contractAddrB, lvm.StorageSlot("triggered"))
 		if triggeredSlot[31] != 1 {
 			t.Errorf("codeB.triggered: want 1, got %d", triggeredSlot[31])
 		}
@@ -5172,7 +5173,7 @@ func TestLuaContractPausable(t *testing.T) {
 	readStr := func(state interface {
 		GetState(common.Address, common.Hash) common.Hash
 	}, addr common.Address, key string) string {
-		lenSlot := state.GetState(addr, luaStrLenSlot(key))
+		lenSlot := state.GetState(addr, lvm.StrLenSlot(key))
 		if lenSlot == (common.Hash{}) {
 			return ""
 		}
@@ -5181,9 +5182,9 @@ func TestLuaContractPausable(t *testing.T) {
 			return ""
 		}
 		data := make([]byte, length)
-		base := luaStrLenSlot(key)
+		base := lvm.StrLenSlot(key)
 		for i := 0; i < length; i += 32 {
-			chunk := state.GetState(addr, luaStrChunkSlot(base, i/32))
+			chunk := state.GetState(addr, lvm.StrChunkSlot(base, i/32))
 			end := i + 32
 			if end > length {
 				end = length
@@ -5237,7 +5238,7 @@ func TestLuaContractPausable(t *testing.T) {
 		runLuaTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
-		flag := state.GetState(addr, luaStorageSlot("__pa_paused"))
+		flag := state.GetState(addr, lvm.StorageSlot("__pa_paused"))
 		if flag[31] != 1 {
 			t.Errorf("__pa_paused: want 1, got %d", flag[31])
 		}
@@ -5262,7 +5263,7 @@ func TestLuaContractPausable(t *testing.T) {
 		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: unpause
 
 		state, _ := bc.State()
-		flag := state.GetState(addr, luaStorageSlot("__pa_paused"))
+		flag := state.GetState(addr, lvm.StorageSlot("__pa_paused"))
 		if flag[31] != 0 {
 			t.Errorf("__pa_paused after unpause: want 0, got %d", flag[31])
 		}
@@ -5346,7 +5347,7 @@ func TestLuaContractPausable(t *testing.T) {
 		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})              // Tx 4: guarded fn succeeds
 
 		state, _ := bc.State()
-		doneSlot := state.GetState(addr, luaStorageSlot("done"))
+		doneSlot := state.GetState(addr, lvm.StorageSlot("done"))
 		if doneSlot[31] != 1 {
 			t.Errorf("done: want 1 after successful guarded call, got %d", doneSlot[31])
 		}

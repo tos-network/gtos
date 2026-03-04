@@ -1,14 +1,14 @@
-package core
+package lvm
 
 import lua "github.com/tos-network/tolang"
 
-// luaBuiltinModules maps module names to pre-compiled bytecode.
+// builtinModules maps module names to pre-compiled bytecode.
 // Compiled once at package init from the Lua source constants below.
 // Loaded via tos.import("moduleName") inside contract scripts.
-var luaBuiltinModules map[string][]byte
+var builtinModules map[string][]byte
 
 func init() {
-	luaBuiltinModules = make(map[string][]byte, 5)
+	builtinModules = make(map[string][]byte, 5)
 	for name, src := range map[string]string{
 		"tos20":    tos20LuaSrc,
 		"tos721":   tos721LuaSrc,
@@ -20,7 +20,7 @@ func init() {
 		if err != nil {
 			panic("lua_stdlib: failed to pre-compile module " + name + ": " + err.Error())
 		}
-		luaBuiltinModules[name] = bc
+		builtinModules[name] = bc
 	}
 }
 
