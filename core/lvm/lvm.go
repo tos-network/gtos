@@ -5,6 +5,7 @@ import (
 	gosha256 "crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -165,6 +166,98 @@ func (l *LVM) Create(caller common.Address, code []byte, gas uint64, value *big.
 	return contractAddr, gas, nil
 }
 
+// CreatePackage deploys a .tor package archive to a new contract address.
+// The entire ZIP is stored as the contract's code; individual contracts within the
+// package are routed at call time by executePackage via the 4-byte dispatch tag.
+// Unlike Create, no code-size limit is enforced because packages legitimately
+// contain multiple compiled contracts.
+func (l *LVM) CreatePackage(caller common.Address, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	contractAddr = crypto.CreateAddress(caller, nonce)
+
+	codeHash := l.StateDB.GetCodeHash(contractAddr)
+	emptyCodeHash := crypto.Keccak256Hash(nil)
+	if l.StateDB.GetNonce(contractAddr) != 0 ||
+		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
+		return common.Address{}, gas, vm.ErrContractAddressCollision
+	}
+
+	// Gas: same per-byte rate as regular code deployment.
+	codeGas := uint64(len(torBytes)) * gasDeployByte
+	if gas < codeGas {
+		return common.Address{}, 0, ErrGasLimitExceeded
+	}
+	gas -= codeGas
+
+	if value != nil && value.Sign() > 0 {
+		if !l.Context.CanTransfer(l.StateDB, caller, value) {
+			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		}
+		l.Context.Transfer(l.StateDB, caller, contractAddr, value)
+	}
+
+	l.StateDB.CreateAccount(contractAddr)
+	l.StateDB.SetNonce(contractAddr, 1)
+	l.StateDB.SetCode(contractAddr, torBytes)
+	l.StateDB.SetNonce(caller, nonce+1)
+	return contractAddr, gas, nil
+}
+
+// executePackage routes a call to a named contract within a .tor package.
+//
+// Calldata layout (agreed between tolang lowering and gtos):
+//
+//	[0:4]  = keccak256("pkg:" + contractName)[:4]   — package dispatch tag
+//	[4:]   = selector + abi.encode(args...)          — passed to the contract as-is
+//
+// executePackage decodes the .tor archive, finds the contract whose dispatch tag
+// matches the first 4 calldata bytes, loads its .toc bytecode, strips the dispatch
+// tag, and calls Execute recursively.
+func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, torBytes []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
+	if len(ctx.Data) < 4 {
+		return 0, nil, nil, fmt.Errorf("package call: calldata must be at least 4 bytes (dispatch tag + selector)")
+	}
+	dispatchTag := ctx.Data[:4]
+
+	pkg, err := lua.DecodePackage(torBytes)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("package call: decode .tor: %w", err)
+	}
+
+	var manifest struct {
+		Contracts []struct {
+			Name string `json:"name"`
+			TOC  string `json:"toc"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+		return 0, nil, nil, fmt.Errorf("package call: manifest decode: %w", err)
+	}
+
+	for _, c := range manifest.Contracts {
+		if c.TOC == "" {
+			continue
+		}
+		tag := crypto.Keccak256([]byte("pkg:" + c.Name))[:4]
+		if !bytes.Equal(tag, dispatchTag) {
+			continue
+		}
+		tocBytes, ok := pkg.Files[c.TOC]
+		if !ok {
+			return 0, nil, nil, fmt.Errorf("package call: .toc file %q not found for contract %q", c.TOC, c.Name)
+		}
+		art, err := lua.DecodeArtifact(tocBytes)
+		if err != nil {
+			return 0, nil, nil, fmt.Errorf("package call: decode .toc for %q: %w", c.Name, err)
+		}
+		// Strip the 4-byte dispatch tag; the contract receives selector+args only.
+		childCtx := ctx
+		childCtx.Data = ctx.Data[4:]
+		return Execute(stateDB, blockCtx, chainConfig, childCtx, art.Bytecode, gasLimit)
+	}
+
+	return 0, nil, nil, fmt.Errorf("package call: no contract found for dispatch tag %x", dispatchTag)
+}
+
 // parseBigInt extracts a non-negative *big.Int from Lua argument n.
 // Accepts LUint256 or LString. Raises a Lua error on bad input.
 func parseBigInt(L *lua.LState, n int) *big.Int {
@@ -291,6 +384,19 @@ func MapStrLenSlot(mapName string, keys []string) common.Hash {
 // modify snapshot state itself (tos.call takes its own inner snapshot for
 // callee isolation).
 func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, src []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
+	// .tor (ZIP package): route to the named contract via calldata dispatch tag.
+	if lua.IsPackage(src) {
+		return executePackage(stateDB, blockCtx, chainConfig, ctx, src, gasLimit)
+	}
+	// .toc (compiled TOL artifact): extract embedded Lua bytecode and execute it.
+	if lua.IsArtifact(src) {
+		art, err := lua.DecodeArtifact(src)
+		if err != nil {
+			return 0, nil, nil, fmt.Errorf("lvm: decode .toc: %w", err)
+		}
+		src = art.Bytecode
+	}
+
 	contractAddr := ctx.To
 
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
@@ -2844,6 +2950,138 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		// Execute catches this and converts it to a (data, nil) return.
 		L.RaiseError(resultSignal)
 		return 0
+	}))
+
+	// ── Package calls ─────────────────────────────────────────────────────────
+
+	// tos.package_call(addr, contractName, calldata) → bool, retdata
+	//
+	// Low-level dispatch to a named contract within a .tor package at addr.
+	// Automatically prepends the 4-byte dispatch tag (keccak256("pkg:"+contractName)[:4])
+	// to the provided calldata before calling tos.call.
+	//
+	// calldata should be selector + abi.encode(args...) — no dispatch tag.
+	// This is the primitive emitted by the TOL compiler for cross-package calls
+	// (__tol_host_package_call in the TOL lowering prelude).
+	//
+	// Example (from TOL-compiled code):
+	//   local ok, ret = tos.package_call("0xabc...", "AgentRegistry", calldata)
+	L.SetField(tosTable, "package_call", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Depth >= maxCallDepth {
+			L.RaiseError("tos.package_call: max call depth (%d) exceeded", maxCallDepth)
+			return 0
+		}
+		addrHex := L.CheckString(1)
+		contractName := L.CheckString(2)
+		calleeAddr := common.HexToAddress(addrHex)
+
+		var callData []byte
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			callData = common.FromHex(L.CheckString(3))
+		}
+
+		// Prepend dispatch tag: keccak256("pkg:"+contractName)[:4]
+		tag := crypto.Keccak256([]byte("pkg:" + contractName))[:4]
+		fullData := append(tag, callData...)
+
+		parentUsedNow := L.GasUsed()
+		totalUsed := parentUsedNow + totalChildGas + primGasCharged
+		if totalUsed >= gasLimit {
+			L.RaiseError("tos.package_call: out of gas")
+			return 0
+		}
+		childGasLimit := gasLimit - totalUsed
+
+		calleeCode := stateDB.GetCode(calleeAddr)
+		if len(calleeCode) == 0 {
+			// No code at address — not a package.
+			L.Push(lua.LFalse)
+			L.Push(lua.LNil)
+			return 2
+		}
+
+		calleeSnap := stateDB.Snapshot()
+		childCtx := CallCtx{
+			From:     contractAddr,
+			To:       calleeAddr,
+			Value:    new(big.Int),
+			Data:     fullData,
+			Depth:    ctx.Depth + 1,
+			TxOrigin: ctx.TxOrigin,
+			TxPrice:  ctx.TxPrice,
+			Readonly: ctx.Readonly,
+		}
+		childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGasLimit)
+		totalChildGas += childGasUsed
+
+		newTotalUsed := parentUsedNow + totalChildGas + primGasCharged
+		if newTotalUsed < gasLimit {
+			L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
+		} else {
+			L.SetGasLimit(parentUsedNow)
+		}
+
+		if childErr != nil {
+			stateDB.RevertToSnapshot(calleeSnap)
+			L.Push(lua.LFalse)
+			if len(childRevertData) > 0 {
+				L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))
+			} else {
+				L.Push(lua.LNil)
+			}
+			return 2
+		}
+		L.Push(lua.LTrue)
+		if len(childReturnData) > 0 {
+			L.Push(lua.LString("0x" + common.Bytes2Hex(childReturnData)))
+		} else {
+			L.Push(lua.LNil)
+		}
+		return 2
+	}))
+
+	// tos.package(addr) → proxy table
+	//
+	// Returns a dynamic proxy for calling contracts within a .tor package at addr.
+	// Usage:
+	//   local ok, ret = tos.package("0xabc").AgentRegistry.call("0xSELECTOR...calldata")
+	//
+	// proxy.ContractName         → contract proxy table (dispatch tag auto-derived)
+	// contractProxy.call(data)   → tos.package_call(addr, contractName, data)
+	L.SetField(tosTable, "package", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+
+		// Build a package proxy: __index returns a per-contract proxy.
+		pkgProxy := L.NewTable()
+		pkgMeta := L.NewTable()
+		L.SetField(pkgMeta, "__index", L.NewFunction(func(L *lua.LState) int {
+			contractName := L.CheckString(2)
+
+			// Build a contract proxy: .call(data) dispatches to contractName.
+			contractProxy := L.NewTable()
+			L.SetField(contractProxy, "call", L.NewFunction(func(L *lua.LState) int {
+				var calldataHex string
+				if L.GetTop() >= 1 && L.Get(1) != lua.LNil {
+					calldataHex = L.CheckString(1)
+				}
+				// Delegate to tos.package_call.
+				pkgCallFn := L.GetField(tosTable, "package_call")
+				L.Push(pkgCallFn)
+				L.Push(lua.LString(addrHex))
+				L.Push(lua.LString(contractName))
+				L.Push(lua.LString(calldataHex))
+				if err := L.PCall(3, 2, nil); err != nil {
+					L.RaiseError("tos.package: %v", err)
+					return 0
+				}
+				return 2
+			}))
+			L.Push(contractProxy)
+			return 1
+		}))
+		L.SetMetatable(pkgProxy, pkgMeta)
+		L.Push(pkgProxy)
+		return 1
 	}))
 
 	// ── Inject globals ────────────────────────────────────────────────────────
