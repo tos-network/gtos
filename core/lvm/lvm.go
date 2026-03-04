@@ -5,6 +5,7 @@ import (
 	gosha256 "crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -67,6 +68,101 @@ type CallCtx struct {
 	TxPrice  *big.Int       // tx.gasprice: constant across all levels
 	Readonly bool           // if true, all state-mutating primitives raise an error
 	// (EVM STATICCALL semantics; propagates to nested calls)
+}
+
+// ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
+var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
+
+// TxContext contains per-transaction fields, constant across all nested calls.
+type TxContext struct {
+	Origin   common.Address // tx.origin
+	GasPrice *big.Int       // tx.gasprice
+}
+
+// LVM is the Lua Virtual Machine. Analogous to go-ethereum's EVM.
+type LVM struct {
+	Context     vm.BlockContext
+	TxContext
+	StateDB     vm.StateDB
+	chainConfig *params.ChainConfig
+}
+
+// NewLVM creates a new LVM instance bound to the given block context, tx context, state, and chain config.
+func NewLVM(blockCtx vm.BlockContext, txCtx TxContext, stateDB vm.StateDB, chainConfig *params.ChainConfig) *LVM {
+	return &LVM{Context: blockCtx, TxContext: txCtx, StateDB: stateDB, chainConfig: chainConfig}
+}
+
+// ChainConfig returns the chain configuration.
+func (l *LVM) ChainConfig() *params.ChainConfig { return l.chainConfig }
+
+// Call executes the LVM contract code at addr with the given calldata and gas budget.
+// Returns (returnData, leftOverGas, err). On failure the state is reverted.
+func (l *LVM) Call(caller common.Address, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	snapshot := l.StateDB.Snapshot()
+
+	if value != nil && value.Sign() > 0 {
+		if !l.Context.CanTransfer(l.StateDB, caller, value) {
+			return nil, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		}
+		l.Context.Transfer(l.StateDB, caller, addr, value)
+	}
+
+	ctx := CallCtx{
+		From: caller, To: addr, Value: value, Data: input,
+		Depth: 0, TxOrigin: l.Origin, TxPrice: l.GasPrice,
+	}
+	code := l.StateDB.GetCode(addr)
+	gasUsed, returnData, _, execErr := Execute(l.StateDB, l.Context, l.chainConfig, ctx, code, gas)
+	if execErr != nil {
+		l.StateDB.RevertToSnapshot(snapshot)
+		if strings.Contains(execErr.Error(), "gas limit exceeded") {
+			return nil, 0, ErrGasLimitExceeded
+		}
+		consumed := gasUsed
+		if consumed > gas {
+			consumed = gas
+		}
+		return nil, gas - consumed, execErr
+	}
+	if gasUsed > gas {
+		l.StateDB.RevertToSnapshot(snapshot)
+		return nil, 0, ErrGasLimitExceeded
+	}
+	return returnData, gas - gasUsed, nil
+}
+
+// Create deploys a new LVM contract. Code is stored directly at a CREATE-derived address;
+// no initcode is executed. nonce must be the pre-tx sender nonce (msg.Nonce()).
+func (l *LVM) Create(caller common.Address, code []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	contractAddr = crypto.CreateAddress(caller, nonce)
+
+	codeHash := l.StateDB.GetCodeHash(contractAddr)
+	emptyCodeHash := crypto.Keccak256Hash(nil)
+	if l.StateDB.GetNonce(contractAddr) != 0 ||
+		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
+		return common.Address{}, gas, vm.ErrContractAddressCollision
+	}
+	if uint64(len(code)) > params.MaxCodeSize {
+		return common.Address{}, gas, vm.ErrMaxCodeSizeExceeded
+	}
+
+	codeGas := uint64(len(code)) * gasDeployByte
+	if gas < codeGas {
+		return common.Address{}, 0, ErrGasLimitExceeded
+	}
+	gas -= codeGas
+
+	if value != nil && value.Sign() > 0 {
+		if !l.Context.CanTransfer(l.StateDB, caller, value) {
+			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		}
+		l.Context.Transfer(l.StateDB, caller, contractAddr, value)
+	}
+
+	l.StateDB.CreateAccount(contractAddr)
+	l.StateDB.SetNonce(contractAddr, 1)
+	l.StateDB.SetCode(contractAddr, code)
+	return contractAddr, gas, nil
 }
 
 // parseBigInt extracts a non-negative *big.Int from Lua argument n.

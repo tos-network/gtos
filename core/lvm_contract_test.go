@@ -19,16 +19,16 @@ import (
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
-// luaEventSig returns keccak256 of the canonical Ethereum event signature.
-// For a no-arg event: luaEventSig("Ping") → keccak256("Ping()")
-// For a typed event:  luaEventSig("Transfer", "address", "uint256")
+// lvmEventSig returns keccak256 of the canonical Ethereum event signature.
+// For a no-arg event: lvmEventSig("Ping") → keccak256("Ping()")
+// For a typed event:  lvmEventSig("Transfer", "address", "uint256")
 //
 //	→ keccak256("Transfer(address,uint256)")
 //
 // Use this in test assertions whenever you check receipt log topics produced
 // by tos.emit, since tos.emit uses the canonical signature (with types) as
 // topic[0] to be compatible with the Ethereum ABI event log specification.
-func luaEventSig(name string, types ...string) common.Hash {
+func lvmEventSig(name string, types ...string) common.Hash {
 	sig := name + "(" + strings.Join(types, ",") + ")"
 	return crypto.Keccak256Hash([]byte(sig))
 }
@@ -78,13 +78,13 @@ func abiSelector(sig string) string {
 	return "0x" + common.Bytes2Hex(h[:4])
 }
 
-// luaTestSetup2 returns a blockchain with TWO Lua contracts pre-deployed at
+// lvmTestSetup2 returns a blockchain with TWO Lua contracts pre-deployed at
 // genesis, used for cross-contract read tests.
 //
 //   - addr1 (key1):    10 TOS, used as tx sender
 //   - contractAddr:    codeA (the "caller" contract)
 //   - contractAddrB:   codeB (the "target" contract with state to be read)
-func luaTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractAddr, contractAddrB common.Address, cleanup func()) {
+func lvmTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractAddr, contractAddrB common.Address, cleanup func()) {
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
@@ -114,10 +114,10 @@ func luaTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractA
 	return bc, contractAddr, contractAddrB, bc.Stop
 }
 
-// luaTestSetup returns a blockchain with:
+// lvmTestSetup returns a blockchain with:
 //   - addr1 (key1): 10 TOS balance, used as tx sender
 //   - contractAddr:  Lua code pre-loaded via Genesis Code field
-func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
+func lvmTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
@@ -149,9 +149,9 @@ func luaTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	return bc, contractAddr, bc.Stop
 }
 
-// luaTestSetupCodeBytes is like luaTestSetup, but accepts raw code bytes.
+// lvmTestSetupCodeBytes is like lvmTestSetup, but accepts raw code bytes.
 // This is used to deploy precompiled glua bytecode in tests.
-func luaTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
+func lvmTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
@@ -182,24 +182,24 @@ func luaTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractA
 	return bc, contractAddr, bc.Stop
 }
 
-func luaTestSetupBytecode(t *testing.T, luaCode string) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
+func lvmTestSetupBytecode(t *testing.T, luaCode string) (bc *BlockChain, contractAddr common.Address, cleanup func()) {
 	t.Helper()
 	bytecode, err := lua.CompileSourceToBytecode([]byte(luaCode), "<genesis-contract>")
 	if err != nil {
 		t.Fatalf("CompileSourceToBytecode: %v", err)
 	}
-	return luaTestSetupCodeBytes(t, bytecode)
+	return lvmTestSetupCodeBytes(t, bytecode)
 }
 
-// runLuaTx sends one tx (no calldata) and asserts Lua executed successfully.
-func runLuaTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
+// runLvmTx sends one tx (no calldata) and asserts Lua executed successfully.
+func runLvmTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
 	t.Helper()
-	runLuaTxWithData(t, bc, contractAddr, value, nil)
+	runLvmTxWithData(t, bc, contractAddr, value, nil)
 }
 
-// runLuaTxExpectFail sends one tx expecting the Lua script to fail (revert/OOG).
+// runLvmTxExpectFail sends one tx expecting the Lua script to fail (revert/OOG).
 // It asserts the receipt status is 0 (failed).
-func runLuaTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
+func runLvmTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
@@ -224,10 +224,10 @@ func runLuaTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Addres
 	}
 }
 
-// runLuaTxWithData sends one tx with custom calldata to contractAddr and
+// runLvmTxWithData sends one tx with custom calldata to contractAddr and
 // verifies that the Lua script executed successfully (receipt status == 1).
 // Builds on top of the current canonical head so sequential calls accumulate state.
-func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
+func runLvmTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -257,50 +257,50 @@ func runLuaTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address,
 	}
 }
 
-// TestLuaContractStorageGetSet verifies tos.set / tos.get round-trip.
-func TestLuaContractStorageGetSet(t *testing.T) {
+// TestLvmContractStorageGetSet verifies tos.set / tos.get round-trip.
+func TestLvmContractStorageGetSet(t *testing.T) {
 	const code = `
 		tos.set("counter", 42)
 		local v = tos.get("counter")
 		assert(v == 42, "expected 42, got " .. tostring(v))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractStorageUnsetReturnsNil verifies unset keys return nil.
-func TestLuaContractStorageUnsetReturnsNil(t *testing.T) {
+// TestLvmContractStorageUnsetReturnsNil verifies unset keys return nil.
+func TestLvmContractStorageUnsetReturnsNil(t *testing.T) {
 	const code = `
 		local v = tos.get("nonexistent")
 		assert(v == nil, "expected nil for unset key")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractCallerAndValue verifies tos.caller and tos.value as properties.
-func TestLuaContractCallerAndValue(t *testing.T) {
+// TestLvmContractCallerAndValue verifies tos.caller and tos.value as properties.
+func TestLvmContractCallerAndValue(t *testing.T) {
 	code := `
 		assert(type(tos.caller) == "string", "caller should be string")
 		assert(#tos.caller > 0, "caller should not be empty")
 		assert(tos.value == 1000000000000000000, "expected 1 TOS in wei")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+	runLvmTx(t, bc, contractAddr, big.NewInt(params.TOS))
 }
 
-// TestLuaContractRequireRevert verifies that tos.require(false) reverts state.
-func TestLuaContractRequireRevert(t *testing.T) {
+// TestLvmContractRequireRevert verifies that tos.require(false) reverts state.
+func TestLvmContractRequireRevert(t *testing.T) {
 	const code = `
 		tos.set("key", 99)
 		tos.require(false, "deliberate revert")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTxExpectFail(t, bc, contractAddr, big.NewInt(0))
+	runLvmTxExpectFail(t, bc, contractAddr, big.NewInt(0))
 
 	// Verify: "key" slot must still be zero (revert worked).
 	state, err := bc.State()
@@ -314,60 +314,60 @@ func TestLuaContractRequireRevert(t *testing.T) {
 	}
 }
 
-// TestLuaContractGasLimit verifies that an infinite loop hits the gas cap.
-func TestLuaContractGasLimit(t *testing.T) {
+// TestLvmContractGasLimit verifies that an infinite loop hits the gas cap.
+func TestLvmContractGasLimit(t *testing.T) {
 	const code = `while true do end`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTxExpectFail(t, bc, contractAddr, big.NewInt(0))
+	runLvmTxExpectFail(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockChainID verifies tos.block.chainid is the configured chain ID.
-func TestLuaContractBlockChainID(t *testing.T) {
+// TestLvmContractBlockChainID verifies tos.block.chainid is the configured chain ID.
+func TestLvmContractBlockChainID(t *testing.T) {
 	const code = `
 		assert(tos.block.chainid == 1, "expected chainid 1, got " .. tostring(tos.block.chainid))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockGasLimit verifies tos.block.gaslimit is a positive value.
-func TestLuaContractBlockGasLimit(t *testing.T) {
+// TestLvmContractBlockGasLimit verifies tos.block.gaslimit is a positive value.
+func TestLvmContractBlockGasLimit(t *testing.T) {
 	const code = `
 		assert(tos.block.gaslimit > 0, "expected positive gaslimit, got " .. tostring(tos.block.gaslimit))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockBaseFee verifies tos.block.basefee is non-negative.
-func TestLuaContractBlockBaseFee(t *testing.T) {
+// TestLvmContractBlockBaseFee verifies tos.block.basefee is non-negative.
+func TestLvmContractBlockBaseFee(t *testing.T) {
 	const code = `
 		assert(tos.block.basefee >= 0, "expected non-negative basefee, got " .. tostring(tos.block.basefee))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractTxContext verifies tos.tx.origin and tos.tx.gasprice as properties.
-func TestLuaContractTxContext(t *testing.T) {
+// TestLvmContractTxContext verifies tos.tx.origin and tos.tx.gasprice as properties.
+func TestLvmContractTxContext(t *testing.T) {
 	const code = `
 		assert(type(tos.tx.origin) == "string" and #tos.tx.origin > 0, "origin should be non-empty string")
 		-- origin must equal caller for a simple (non-inner-call) tx
 		assert(tos.tx.origin == tos.caller, "origin should equal caller for top-level tx")
 		assert(tos.tx.gasprice >= 0, "gasprice should be non-negative")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractGasLeft verifies tos.gasleft() returns a positive decreasing value.
+// TestLvmContractGasLeft verifies tos.gasleft() returns a positive decreasing value.
 // gasleft() remains a function because its value changes with each opcode executed.
-func TestLuaContractGasLeft(t *testing.T) {
+func TestLvmContractGasLeft(t *testing.T) {
 	const code = `
 		local g1 = tos.gasleft()
 		assert(g1 > 0, "gasleft should be positive at start")
@@ -376,14 +376,14 @@ func TestLuaContractGasLeft(t *testing.T) {
 		local g2 = tos.gasleft()
 		assert(g2 < g1, "gasleft should decrease after doing work")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractNoPrefixAccess verifies that all tos.* primitives are also
+// TestLvmContractNoPrefixAccess verifies that all tos.* primitives are also
 // available without the "tos." prefix (caller, value, block.number, set(), …).
-func TestLuaContractNoPrefixAccess(t *testing.T) {
+func TestLvmContractNoPrefixAccess(t *testing.T) {
 	const code = `
 		-- properties
 		assert(type(caller) == "string" and #caller > 0, "caller")
@@ -402,27 +402,27 @@ func TestLuaContractNoPrefixAccess(t *testing.T) {
 		-- tos.* still works too
 		assert(tos.caller == caller, "tos.caller == caller")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+	runLvmTx(t, bc, contractAddr, big.NewInt(params.TOS))
 }
 
-// TestLuaContractKeccak256 verifies tos.keccak256 returns a deterministic hex string.
-func TestLuaContractKeccak256(t *testing.T) {
+// TestLvmContractKeccak256 verifies tos.keccak256 returns a deterministic hex string.
+func TestLvmContractKeccak256(t *testing.T) {
 	const code = `
 		local h = tos.keccak256("hello")
 		-- keccak256("hello") = 1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8
 		assert(type(h) == "string" and #h == 66, "keccak256 should be 66-char hex string (0x + 64)")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractMsgSender verifies Solidity-style msg.sender / msg.value aliases.
+// TestLvmContractMsgSender verifies Solidity-style msg.sender / msg.value aliases.
 // msg.sender == tos.caller == caller (same value, three spellings)
 // msg.value  == tos.value  == value  (same value, three spellings)
-func TestLuaContractMsgSender(t *testing.T) {
+func TestLvmContractMsgSender(t *testing.T) {
 	code := `
 		-- Solidity-style access
 		assert(type(msg.sender) == "string" and #msg.sender > 0, "msg.sender should be non-empty string")
@@ -433,15 +433,15 @@ func TestLuaContractMsgSender(t *testing.T) {
 		assert(msg.value  == tos.value,  "msg.value == tos.value")
 		assert(msg.value  == value,      "msg.value == value")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(params.TOS))
+	runLvmTx(t, bc, contractAddr, big.NewInt(params.TOS))
 }
 
 // ── Phase 2C tests ────────────────────────────────────────────────────────────
 
-// TestLuaContractSha256 verifies tos.sha256 returns a 66-char hex string.
-func TestLuaContractSha256(t *testing.T) {
+// TestLvmContractSha256 verifies tos.sha256 returns a 66-char hex string.
+func TestLvmContractSha256(t *testing.T) {
 	const code = `
 		local h = sha256("hello")
 		-- sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
@@ -450,16 +450,16 @@ func TestLuaContractSha256(t *testing.T) {
 		-- also accessible via tos prefix
 		assert(tos.sha256("hello") == h, "tos.sha256 == sha256")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractRipemd160 verifies tos.ripemd160 (and bare ripemd160):
+// TestLvmContractRipemd160 verifies tos.ripemd160 (and bare ripemd160):
 //   - Output is a 66-char "0x"-prefixed string (20-byte hash left-padded to 32 bytes).
 //   - Known test vector: ripemd160("hello") matches Go's goripemd160.
 //   - Accessible as both tos.ripemd160 and bare ripemd160 global.
-func TestLuaContractRipemd160(t *testing.T) {
+func TestLvmContractRipemd160(t *testing.T) {
 	// Compute the expected value using Go's ripemd160 package.
 	h := goripemd160.New()
 	h.Write([]byte("hello"))
@@ -485,13 +485,13 @@ func TestLuaContractRipemd160(t *testing.T) {
 		-- different inputs → different outputs
 		assert(tos.ripemd160("hello") ~= tos.ripemd160("world"), "collision")
 	`, want)
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractAddmod verifies tos.addmod computes (x+y)%k correctly.
-func TestLuaContractAddmod(t *testing.T) {
+// TestLvmContractAddmod verifies tos.addmod computes (x+y)%k correctly.
+func TestLvmContractAddmod(t *testing.T) {
 	const code = `
 		assert(addmod(1, 2, 3) == 0,  "(1+2)%3 == 0")
 		assert(addmod(5, 7, 4) == 0,  "(5+7)%4 == 0")
@@ -500,13 +500,13 @@ func TestLuaContractAddmod(t *testing.T) {
 		-- same via tos prefix
 		assert(tos.addmod(2, 3, 4) == 1, "tos.addmod")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractMulmod verifies tos.mulmod computes (x*y)%k correctly.
-func TestLuaContractMulmod(t *testing.T) {
+// TestLvmContractMulmod verifies tos.mulmod computes (x*y)%k correctly.
+func TestLvmContractMulmod(t *testing.T) {
 	const code = `
 		assert(mulmod(2, 3, 5)  == 1,  "(2*3)%5 == 1")
 		assert(mulmod(4, 4, 7)  == 2,  "(4*4)%7 == 2")
@@ -515,26 +515,26 @@ func TestLuaContractMulmod(t *testing.T) {
 		-- same via tos prefix
 		assert(tos.mulmod(3, 3, 4) == 1, "tos.mulmod")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractSelf verifies tos.self is the contract's own address.
-func TestLuaContractSelf(t *testing.T) {
-	// contractAddr is always 0xCCCC...CC (32 bytes) in luaTestSetup.
+// TestLvmContractSelf verifies tos.self is the contract's own address.
+func TestLvmContractSelf(t *testing.T) {
+	// contractAddr is always 0xCCCC...CC (32 bytes) in lvmTestSetup.
 	const code = `
 		assert(type(self) == "string" and #self > 0, "self should be non-empty string")
 		assert(self == tos.self, "self == tos.self")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
 	_ = contractAddr
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractBlockhash verifies blockhash returns nil or a 66-char hex string.
-func TestLuaContractBlockhash(t *testing.T) {
+// TestLvmContractBlockhash verifies blockhash returns nil or a 66-char hex string.
+func TestLvmContractBlockhash(t *testing.T) {
 	const code = `
 		-- Block 0 (genesis): may or may not be available depending on chain context.
 		local h = blockhash(0)
@@ -543,13 +543,13 @@ func TestLuaContractBlockhash(t *testing.T) {
 		-- A very far future block is never available.
 		assert(blockhash(999999999) == nil, "far-future blockhash should be nil")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractEcrecover verifies ecrecover returns the correct signer address.
-func TestLuaContractEcrecover(t *testing.T) {
+// TestLvmContractEcrecover verifies ecrecover returns the correct signer address.
+func TestLvmContractEcrecover(t *testing.T) {
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
@@ -572,15 +572,15 @@ func TestLuaContractEcrecover(t *testing.T) {
 	`, hashHex, v, r, s, addr1.Hex(),
 		hashHex, v, r, s)
 
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
 // ── Phase 2C: ABI encode/decode + msg.data/sig ───────────────────────────────
 
-// TestLuaContractABIEncodePacked verifies abi.encodePacked for scalar types.
-func TestLuaContractABIEncodePacked(t *testing.T) {
+// TestLvmContractABIEncodePacked verifies abi.encodePacked for scalar types.
+func TestLvmContractABIEncodePacked(t *testing.T) {
 	const code = `
 		-- uint8(1) packed = 1 byte = "0x01"
 		assert(abi.encodePacked("uint8", 1) == "0x01", "uint8 packed")
@@ -606,14 +606,14 @@ func TestLuaContractABIEncodePacked(t *testing.T) {
 		-- tos. prefix works too
 		assert(tos.abi.encodePacked("uint8", 7) == "0x07", "tos.abi.encodePacked")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIEncodeDecodeRoundTrip verifies encode→decode is lossless
+// TestLvmContractABIEncodeDecodeRoundTrip verifies encode→decode is lossless
 // for static types.
-func TestLuaContractABIEncodeDecodeRoundTrip(t *testing.T) {
+func TestLvmContractABIEncodeDecodeRoundTrip(t *testing.T) {
 	const code = `
 		-- static types round-trip
 		local encoded = abi.encode("uint256", 999, "bool", true, "uint8", 7)
@@ -635,13 +635,13 @@ func TestLuaContractABIEncodeDecodeRoundTrip(t *testing.T) {
 		local v = tos.abi.decode(enc3, "uint256")
 		assert(v == 42, "tos.abi roundtrip")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIEncodeDynamic verifies abi.encode/decode with dynamic types.
-func TestLuaContractABIEncodeDynamic(t *testing.T) {
+// TestLvmContractABIEncodeDynamic verifies abi.encode/decode with dynamic types.
+func TestLvmContractABIEncodeDynamic(t *testing.T) {
 	const code = `
 		-- string round-trip
 		local enc = abi.encode("string", "hello world")
@@ -666,28 +666,28 @@ func TestLuaContractABIEncodeDynamic(t *testing.T) {
 		assert(a == "foo", "two strings a")
 		assert(bstr == "bar", "two strings b")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIFunctionSelector verifies the Solidity function-selector
+// TestLvmContractABIFunctionSelector verifies the Solidity function-selector
 // pattern: keccak256("funcName(types)")[:4 bytes].
 // keccak256("transfer(address,uint256)") must equal 0xa9059cbb.
-func TestLuaContractABIFunctionSelector(t *testing.T) {
+func TestLvmContractABIFunctionSelector(t *testing.T) {
 	const code = `
 		local full = keccak256("transfer(address,uint256)")
 		local selector = full:sub(1, 10)  -- "0x" + 8 hex chars = 4 bytes
 		assert(#selector == 10, "selector length")
 		assert(selector == "0xa9059cbb", "transfer selector: " .. selector)
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractMsgData verifies msg.data and msg.sig carry the tx calldata.
-func TestLuaContractMsgData(t *testing.T) {
+// TestLvmContractMsgData verifies msg.data and msg.sig carry the tx calldata.
+func TestLvmContractMsgData(t *testing.T) {
 	const code = `
 		assert(type(msg.data) == "string", "msg.data should be string")
 		assert(msg.data:sub(1,2) == "0x", "msg.data should start with 0x")
@@ -700,13 +700,13 @@ func TestLuaContractMsgData(t *testing.T) {
 	`
 	// keccak256("foo()") selector = 0xc2985578, appended with 4 extra bytes
 	txData := common.FromHex("0xc298557812345678")
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTxWithData(t, bc, contractAddr, big.NewInt(0), txData)
+	runLvmTxWithData(t, bc, contractAddr, big.NewInt(0), txData)
 }
 
-// TestLuaContractABIAddress verifies abi.encode/decode roundtrip for the address type.
-func TestLuaContractABIAddress(t *testing.T) {
+// TestLvmContractABIAddress verifies abi.encode/decode roundtrip for the address type.
+func TestLvmContractABIAddress(t *testing.T) {
 	const code = `
 		-- tos.self is the contract's own 32-byte address
 		local addr = tos.self
@@ -723,14 +723,14 @@ func TestLuaContractABIAddress(t *testing.T) {
 		assert(a2 == addr, "addr in multi: " .. tostring(a2))
 		assert(n2 == 42, "uint256 in multi: " .. tostring(n2))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIFixedBytes verifies abi.encode/decode roundtrip for fixedBytes (bytes1, bytes32).
+// TestLvmContractABIFixedBytes verifies abi.encode/decode roundtrip for fixedBytes (bytes1, bytes32).
 // The unpack path returns a [N]byte reflect.Array; abiGoToLua extracts it via reflection.
-func TestLuaContractABIFixedBytes(t *testing.T) {
+func TestLvmContractABIFixedBytes(t *testing.T) {
 	const code = `
 		-- bytes1: single byte
 		local enc1 = abi.encode("bytes1", "0xab")
@@ -753,14 +753,14 @@ func TestLuaContractABIFixedBytes(t *testing.T) {
 		local decF = abi.decode(encF, "bytes32")
 		assert(decF == full, "bytes32 full roundtrip")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABISmallInts verifies abi.encode/decode for uint16/32/64 and int8/16/32/64.
+// TestLvmContractABISmallInts verifies abi.encode/decode for uint16/32/64 and int8/16/32/64.
 // These sizes return native Go int types from ReadInteger, not *big.Int.
-func TestLuaContractABISmallInts(t *testing.T) {
+func TestLvmContractABISmallInts(t *testing.T) {
 	const code = `
 		-- uint16 max (65535)
 		local v16 = abi.decode(abi.encode("uint16", 65535), "uint16")
@@ -795,13 +795,13 @@ func TestLuaContractABISmallInts(t *testing.T) {
 		local vI64 = abi.decode(abi.encode("int64", "-9223372036854775808"), "int64")
 		assert(vI64 == -9223372036854775808, "int64 min: " .. tostring(vI64))
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIEncodePackedExtended verifies encodePacked for negative ints and address.
-func TestLuaContractABIEncodePackedExtended(t *testing.T) {
+// TestLvmContractABIEncodePackedExtended verifies encodePacked for negative ints and address.
+func TestLvmContractABIEncodePackedExtended(t *testing.T) {
 	const code = `
 		-- int8(-1): two's complement 1 byte = 0xff
 		assert(abi.encodePacked("int8",  -1)   == "0xff",   "int8 -1 packed")
@@ -822,13 +822,13 @@ func TestLuaContractABIEncodePackedExtended(t *testing.T) {
 		-- bytes (dynamic) packed = raw bytes, no length prefix
 		assert(abi.encodePacked("bytes", "0xdeadbeef") == "0xdeadbeef", "bytes packed no prefix")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIErrors verifies that malformed calls raise errors catchable by pcall.
-func TestLuaContractABIErrors(t *testing.T) {
+// TestLvmContractABIErrors verifies that malformed calls raise errors catchable by pcall.
+func TestLvmContractABIErrors(t *testing.T) {
 	const code = `
 		-- odd number of args to encode (missing value)
 		local ok1, e1 = pcall(function() abi.encode("uint256") end)
@@ -851,13 +851,13 @@ func TestLuaContractABIErrors(t *testing.T) {
 		local ok5, e5 = pcall(function() abi.encodePacked("uint8") end)
 		assert(not ok5, "encodePacked odd args should error")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// TestLuaContractABIEdgeCases verifies boundary values and empty inputs.
-func TestLuaContractABIEdgeCases(t *testing.T) {
+// TestLvmContractABIEdgeCases verifies boundary values and empty inputs.
+func TestLvmContractABIEdgeCases(t *testing.T) {
 	const code = `
 		-- uint256 maximum
 		local maxU256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935"
@@ -883,14 +883,14 @@ func TestLuaContractABIEdgeCases(t *testing.T) {
 		local pz = abi.encodePacked("uint256", 0)
 		assert(pz == "0x" .. string.rep("00", 32), "encodePacked uint256 zero")
 	`
-	bc, contractAddr, cleanup := luaTestSetup(t, code)
+	bc, contractAddr, cleanup := lvmTestSetup(t, code)
 	defer cleanup()
-	runLuaTx(t, bc, contractAddr, big.NewInt(0))
+	runLvmTx(t, bc, contractAddr, big.NewInt(0))
 }
 
-// runLuaTxGetReceipt is like runLuaTxWithData but also returns the receipt so
+// runLvmTxGetReceipt is like runLvmTxWithData but also returns the receipt so
 // callers can inspect logs, status, etc.
-func runLuaTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
+func runLvmTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
@@ -916,27 +916,27 @@ func runLuaTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Addres
 	return receipts[0]
 }
 
-// TestLuaContractEmit verifies tos.emit produces correct receipt logs.
+// TestLvmContractEmit verifies tos.emit produces correct receipt logs.
 //
 // Checks:
 //   - topic[0] == keccak256(canonicalSig) where canonicalSig = "EventName(types...)"
 //   - data == ABI-encoded non-indexed payload
 //   - multiple events in one execution each appear in logs
 //   - emit with no data produces empty Data bytes
-func TestLuaContractEmit(t *testing.T) {
+func TestLvmContractEmit(t *testing.T) {
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
 	t.Run("single_event_no_data", func(t *testing.T) {
 		const code = `tos.emit("Ping")`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := luaEventSig("Ping")
+		wantTopic := lvmEventSig("Ping")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0]: got %s, want %s", log.Topics[0].Hex(), wantTopic.Hex())
 		}
@@ -950,14 +950,14 @@ func TestLuaContractEmit(t *testing.T) {
 
 	t.Run("event_with_uint256_payload", func(t *testing.T) {
 		const code = `tos.emit("Transfer", "uint256", 42)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := luaEventSig("Transfer", "uint256")
+		wantTopic := lvmEventSig("Transfer", "uint256")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0] mismatch")
 		}
@@ -976,14 +976,14 @@ func TestLuaContractEmit(t *testing.T) {
 			local recipient = "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF"
 			tos.emit("Transfer", "address", tos.caller, "address", recipient, "uint256", 1000)
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		wantTopic := luaEventSig("Transfer", "address", "address", "uint256")
+		wantTopic := lvmEventSig("Transfer", "address", "address", "uint256")
 		if log.Topics[0] != wantTopic {
 			t.Errorf("topic[0] mismatch")
 		}
@@ -1010,16 +1010,16 @@ func TestLuaContractEmit(t *testing.T) {
 			tos.emit("Event2")
 			tos.emit("Event3", "uint256", 99)
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 3 {
 			t.Fatalf("expected 3 logs, got %d", len(receipt.Logs))
 		}
 		wantTopics := []common.Hash{
-			luaEventSig("Event1"),
-			luaEventSig("Event2"),
-			luaEventSig("Event3", "uint256"),
+			lvmEventSig("Event1"),
+			lvmEventSig("Event2"),
+			lvmEventSig("Event3", "uint256"),
 		}
 		for i, want := range wantTopics {
 			if receipt.Logs[i].Topics[0] != want {
@@ -1034,7 +1034,7 @@ func TestLuaContractEmit(t *testing.T) {
 			tos.emit("ShouldNotAppear")
 			tos.revert("oops")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		signer := types.LatestSigner(bc.Config())
@@ -1058,7 +1058,7 @@ func TestLuaContractEmit(t *testing.T) {
 	})
 }
 
-// TestLuaContractStrStorage verifies tos.setStr / tos.getStr.
+// TestLvmContractStrStorage verifies tos.setStr / tos.getStr.
 //
 // Checks:
 //   - nil returned for unset key
@@ -1066,15 +1066,15 @@ func TestLuaContractEmit(t *testing.T) {
 //   - exact 32-byte string (single full chunk)
 //   - long string spanning multiple chunks
 //   - overwrite replaces previous value
-func TestLuaContractStrStorage(t *testing.T) {
+func TestLvmContractStrStorage(t *testing.T) {
 	t.Run("unset_returns_nil", func(t *testing.T) {
 		const code = `
 			local v = tos.getStr("missing")
 			assert(v == nil, "expected nil for unset key, got: " .. tostring(v))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("short_string_roundtrip", func(t *testing.T) {
@@ -1083,9 +1083,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			local v = tos.getStr("greeting")
 			assert(v == "hello, world!", "roundtrip: " .. tostring(v))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("exact_32_byte_string", func(t *testing.T) {
@@ -1096,9 +1096,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			local v = tos.getStr("key32")
 			assert(v == s, "32-byte roundtrip failed: len=" .. #v)
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("long_string_multi_chunk", func(t *testing.T) {
@@ -1110,9 +1110,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			assert(#v == 100, "length: " .. #v)
 			assert(v == s, "content mismatch")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("overwrite", func(t *testing.T) {
@@ -1122,9 +1122,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			local v = tos.getStr("k")
 			assert(v == "second", "overwrite: " .. tostring(v))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("empty_string", func(t *testing.T) {
@@ -1133,9 +1133,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			local v = tos.getStr("e")
 			assert(v == "", "empty: got " .. tostring(v))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("independent_keys", func(t *testing.T) {
@@ -1145,9 +1145,9 @@ func TestLuaContractStrStorage(t *testing.T) {
 			assert(tos.getStr("a") == "alpha", "a")
 			assert(tos.getStr("b") == "beta",  "b")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("str_and_uint_namespaces_separate", func(t *testing.T) {
@@ -1158,15 +1158,15 @@ func TestLuaContractStrStorage(t *testing.T) {
 			assert(tos.get("x") == 99, "uint slot corrupted: " .. tostring(tos.get("x")))
 			assert(tos.getStr("x") == "hello", "str slot corrupted: " .. tostring(tos.getStr("x")))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractSelector verifies tos.selector(sig) produces the correct
+// TestLvmContractSelector verifies tos.selector(sig) produces the correct
 // 4-byte keccak function selector.
-func TestLuaContractSelector(t *testing.T) {
+func TestLvmContractSelector(t *testing.T) {
 	cases := []struct {
 		sig  string
 		want string // "0x" + 8 hex chars
@@ -1184,16 +1184,16 @@ func TestLuaContractSelector(t *testing.T) {
 				local sel = tos.selector(%q)
 				assert(sel == %q, "selector: got " .. sel .. " want " .. %q)
 			`, sig, want, want)
-			bc, contractAddr, cleanup := luaTestSetup(t, code)
+			bc, contractAddr, cleanup := lvmTestSetup(t, code)
 			defer cleanup()
-			runLuaTx(t, bc, contractAddr, big.NewInt(0))
+			runLvmTx(t, bc, contractAddr, big.NewInt(0))
 		})
 	}
 }
 
-// TestLuaContractDispatch verifies tos.dispatch routes calldata to the correct
+// TestLvmContractDispatch verifies tos.dispatch routes calldata to the correct
 // Lua handler and decodes arguments.
-func TestLuaContractDispatch(t *testing.T) {
+func TestLvmContractDispatch(t *testing.T) {
 
 	t.Run("no_data_is_noop", func(t *testing.T) {
 		// dispatch with no msg.data and no fallback = no-op (no error).
@@ -1204,9 +1204,9 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		// No calldata → dispatch is a no-op → no logs emitted.
 		if len(receipt.Logs) != 0 {
 			t.Errorf("expected 0 logs for no-data call, got %d", len(receipt.Logs))
@@ -1222,14 +1222,14 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		data := buildCalldata(t, "ping()")
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != luaEventSig("Ping") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Ping") {
 			t.Errorf("wrong event topic")
 		}
 	})
@@ -1244,11 +1244,11 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		// Calldata: store(uint256 42)
 		data := buildCalldata(t, "store(uint256)", "uint256", big.NewInt(42))
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
@@ -1267,13 +1267,13 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 		recipient := common.HexToAddress("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF")
 		data := buildCalldata(t, "transfer(address,uint256)", "address", recipient, "uint256", big.NewInt(1000))
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 Transfer log, got %d", len(receipt.Logs))
 		}
@@ -1303,15 +1303,15 @@ func TestLuaContractDispatch(t *testing.T) {
 				["bar()"] = function() tos.emit("Bar") end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		// Call bar() — Foo must not be emitted.
 		data := buildCalldata(t, "bar()")
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != luaEventSig("Bar") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Bar") {
 			t.Errorf("wrong event: expected Bar")
 		}
 	})
@@ -1324,15 +1324,15 @@ func TestLuaContractDispatch(t *testing.T) {
 				[""] = function()        tos.emit("Fallback") end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		// Send calldata for unknown selector "0xdeadbeef".
 		data := []byte{0xde, 0xad, 0xbe, 0xef}
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != luaEventSig("Fallback") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Fallback") {
 			t.Errorf("expected Fallback event")
 		}
 	})
@@ -1344,13 +1344,13 @@ func TestLuaContractDispatch(t *testing.T) {
 				[""] = function() tos.emit("Received") end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != luaEventSig("Received") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Received") {
 			t.Errorf("expected Received event")
 		}
 	})
@@ -1362,7 +1362,7 @@ func TestLuaContractDispatch(t *testing.T) {
 				["known()"] = function() tos.emit("Known") end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		// Send calldata with an unknown selector — dispatch should revert.
 		unknownSelector := []byte{0x12, 0x34, 0x56, 0x78}
@@ -1393,7 +1393,7 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		data := buildCalldata(t, "badOp()")
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -1428,21 +1428,21 @@ func TestLuaContractDispatch(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		data := buildCalldata(t, "register(string,bool)", "string", "Alice", "bool", true)
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
-		if receipt.Logs[0].Topics[0] != luaEventSig("Registered", "string") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Registered", "string") {
 			t.Errorf("expected Registered event")
 		}
 	})
 }
 
-// TestLuaContractOncreate verifies tos.oncreate constructor semantics.
-func TestLuaContractOncreate(t *testing.T) {
+// TestLvmContractOncreate verifies tos.oncreate constructor semantics.
+func TestLvmContractOncreate(t *testing.T) {
 
 	t.Run("runs_once_on_first_call", func(t *testing.T) {
 		// The constructor sets "owner" and emits Deployed.
@@ -1453,15 +1453,15 @@ func TestLuaContractOncreate(t *testing.T) {
 				tos.emit("Deployed")
 			end)
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
 		// First call: constructor runs → Deployed event emitted.
-		receipt1 := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt1 := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt1.Logs) != 1 {
 			t.Fatalf("first call: expected 1 log (Deployed), got %d", len(receipt1.Logs))
 		}
-		if receipt1.Logs[0].Topics[0] != luaEventSig("Deployed") {
+		if receipt1.Logs[0].Topics[0] != lvmEventSig("Deployed") {
 			t.Errorf("first call: expected Deployed event")
 		}
 
@@ -1501,11 +1501,11 @@ func TestLuaContractOncreate(t *testing.T) {
 		`
 		// "getOwner()" just emits an event; the address decode is tricky in Lua,
 		// so just verify the contract succeeds and emits on first call.
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
 		// First call with no calldata: constructor runs, dispatch is no-op.
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		// Constructor ran (no emit here), dispatch no-op → 0 logs.
 		if len(receipt.Logs) != 0 {
 			t.Errorf("expected 0 logs on first bare call, got %d", len(receipt.Logs))
@@ -1522,7 +1522,7 @@ func TestLuaContractOncreate(t *testing.T) {
 				tos.revert("constructor failed")
 			end)
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
 		// First call: constructor reverts → tx must fail.
@@ -1544,17 +1544,17 @@ func TestLuaContractOncreate(t *testing.T) {
 	})
 }
 
-// TestLuaContractArrayStorage verifies tos.arrPush/arrPop/arrGet/arrSet/arrLen.
-func TestLuaContractArrayStorage(t *testing.T) {
+// TestLvmContractArrayStorage verifies tos.arrPush/arrPop/arrGet/arrSet/arrLen.
+func TestLvmContractArrayStorage(t *testing.T) {
 
 	t.Run("empty_array_len_is_zero", func(t *testing.T) {
 		const code = `
 			local n = tos.arrLen("items")
 			assert(n == 0, "empty len: " .. tostring(n))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("push_and_len", func(t *testing.T) {
@@ -1564,9 +1564,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			tos.arrPush("nums", 30)
 			assert(tos.arrLen("nums") == 3, "len after 3 pushes: " .. tostring(tos.arrLen("nums")))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("get_elements", func(t *testing.T) {
@@ -1578,9 +1578,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(tos.arrGet("v", 2) == 200, "v[2]: " .. tostring(tos.arrGet("v", 2)))
 			assert(tos.arrGet("v", 3) == 300, "v[3]: " .. tostring(tos.arrGet("v", 3)))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("get_out_of_bounds_returns_nil", func(t *testing.T) {
@@ -1591,9 +1591,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(tos.arrGet("a", -1)  == nil, "negative index")
 			assert(tos.arrGet("empty", 1) == nil, "empty array")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("set_overwrites", func(t *testing.T) {
@@ -1604,16 +1604,16 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(tos.arrGet("x", 1) == 99, "set [1]: " .. tostring(tos.arrGet("x", 1)))
 			assert(tos.arrGet("x", 2) == 2,  "set [2] unchanged: " .. tostring(tos.arrGet("x", 2)))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("set_out_of_bounds_reverts", func(t *testing.T) {
 		const code = `tos.arrSet("z", 1, 5)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, contractAddr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("pop_basic", func(t *testing.T) {
@@ -1624,9 +1624,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(v == 22, "pop: " .. tostring(v))
 			assert(tos.arrLen("q") == 1, "len after pop: " .. tostring(tos.arrLen("q")))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("pop_empty_returns_nil", func(t *testing.T) {
@@ -1634,9 +1634,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			local v = tos.arrPop("empty")
 			assert(v == nil, "pop empty: " .. tostring(v))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("push_pop_round_trip", func(t *testing.T) {
@@ -1652,9 +1652,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			end
 			assert(tos.arrLen("s") == 0, "len=0 after all pops")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("independent_keys", func(t *testing.T) {
@@ -1667,9 +1667,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(tos.arrLen("a") == 1, "len a")
 			assert(tos.arrLen("b") == 1, "len b")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("arr_and_scalar_namespaces_separate", func(t *testing.T) {
@@ -1680,9 +1680,9 @@ func TestLuaContractArrayStorage(t *testing.T) {
 			assert(tos.get("k") == 42,       "scalar k not corrupted")
 			assert(tos.arrGet("k", 1) == 99, "array k not corrupted")
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("dispatch_with_array", func(t *testing.T) {
@@ -1695,10 +1695,10 @@ func TestLuaContractArrayStorage(t *testing.T) {
 				end,
 			})
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		data := buildCalldata(t, "enroll(uint256)", "uint256", big.NewInt(42))
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
@@ -1715,7 +1715,7 @@ func TestLuaContractArrayStorage(t *testing.T) {
 	})
 }
 
-// TestLuaContractMapping verifies tos.mapGet / tos.mapSet / tos.mapGetStr /
+// TestLvmContractMapping verifies tos.mapGet / tos.mapSet / tos.mapGetStr /
 // tos.mapSetStr and the tos.at proxy mapGet / mapGetStr.
 //
 // Covers:
@@ -1727,7 +1727,7 @@ func TestLuaContractArrayStorage(t *testing.T) {
 //     in different namespaces → different values
 //   - mapSet reverts in staticcall
 //   - tos.at(addr).mapGet reads another contract's mapping
-func TestLuaContractMapping(t *testing.T) {
+func TestLvmContractMapping(t *testing.T) {
 	t.Run("single_key_uint256", func(t *testing.T) {
 		const code = `
 			tos.mapSet("balance", "alice", 1000)
@@ -1735,9 +1735,9 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(v == 1000, "expected 1000, got " .. tostring(v))
 			assert(tos.mapGet("balance", "bob") == nil, "unset key should be nil")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("proxy_single_key_uint256", func(t *testing.T) {
@@ -1749,9 +1749,9 @@ func TestLuaContractMapping(t *testing.T) {
 			-- interchangeable with mapGet/mapSet
 			assert(tos.mapGet("balance", "alice") == 1000, "compat with mapGet")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("nested_two_keys", func(t *testing.T) {
@@ -1764,9 +1764,9 @@ func TestLuaContractMapping(t *testing.T) {
 			-- different owner shares no storage with owner1
 			assert(tos.mapGet("allowance", "owner2", "spender1") == nil, "different owner")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("proxy_nested_two_keys_uint256", func(t *testing.T) {
@@ -1783,9 +1783,9 @@ func TestLuaContractMapping(t *testing.T) {
 			-- interchangeable with mapGet/mapSet
 			assert(tos.mapGet("allowance", "owner1", "spender1") == 500, "compat with mapGet")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("single_key_string", func(t *testing.T) {
@@ -1795,9 +1795,9 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(s == "CoolNFT", "expected CoolNFT, got " .. tostring(s))
 			assert(tos.mapGetStr("name", "token2") == nil, "unset key should be nil")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("nested_string", func(t *testing.T) {
@@ -1808,9 +1808,9 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(tos.mapGetStr("meta", "nft1", "owner2") == "Bob",   "owner2")
 			assert(tos.mapGetStr("meta", "nft2", "owner1") == nil,     "different nft")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("namespace_isolation_from_set_get", func(t *testing.T) {
@@ -1824,9 +1824,9 @@ func TestLuaContractMapping(t *testing.T) {
 			-- tos.mapGet reads the map namespace
 			assert(tos.mapGet("balance", "alice") == 42, "mapGet should be 42")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("mapGet_unset_nil", func(t *testing.T) {
@@ -1834,14 +1834,14 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(tos.mapGet("x", "k") == nil, "unset uint256 slot is nil")
 			assert(tos.mapGetStr("x", "k") == nil, "unset string slot is nil")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("mapSet_readonly_reverts", func(t *testing.T) {
 		// staticcall B (which tries tos.mapSet) → must return false.
-		// Uses the same fixed-address pattern as TestLuaContractStaticCall.
+		// Uses the same fixed-address pattern as TestLvmContractStaticCall.
 		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 		calleeCode := `tos.mapSet("x", "k", 1)`
@@ -1849,9 +1849,9 @@ func TestLuaContractMapping(t *testing.T) {
 			local ok = tos.staticcall(%q, "")
 			assert(not ok, "mapSet inside staticcall should fail")
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, _, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 	})
 
 	t.Run("proxy_mapGet_reads_own_state", func(t *testing.T) {
@@ -1865,9 +1865,9 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(proxy.mapGet("pts", "bob")   == 33, "bob via proxy")
 			assert(proxy.mapGet("pts", "carol") == nil, "unset via proxy")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("proxy_mapGetStr_reads_own_state", func(t *testing.T) {
@@ -1877,13 +1877,13 @@ func TestLuaContractMapping(t *testing.T) {
 			assert(proxy.mapGetStr("tag", "nft1") == "Dragon", "nft1 via proxy")
 			assert(proxy.mapGetStr("tag", "nft2") == nil, "unset via proxy")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractCrossContractRead verifies tos.at(addr) and tos.codeAt(addr).
+// TestLvmContractCrossContractRead verifies tos.at(addr) and tos.codeAt(addr).
 //
 // Two contracts are pre-deployed at genesis:
 //   - contractAddrB: "source" — has pre-written state via genesis storage
@@ -1893,7 +1893,7 @@ func TestLuaContractMapping(t *testing.T) {
 // Because genesis contracts can't run Lua at block-0 (no transactions), we
 // pre-populate contractAddrB's storage slots directly in the genesis alloc
 // via the same slot derivation used by applyLua.
-func TestLuaContractCrossContractRead(t *testing.T) {
+func TestLvmContractCrossContractRead(t *testing.T) {
 
 	// Pre-compute the storage slots that B's tos.set/setStr/arrPush would write.
 	// We inject them directly into genesis so block-1 can read them via tos.at.
@@ -1999,13 +1999,13 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 	defer bc.Stop()
 
-	receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+	receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 	if len(receipt.Logs) != 7 {
 		t.Fatalf("expected 7 logs, got %d", len(receipt.Logs))
 	}
 
 	// Log 0: Score = 42
-	if receipt.Logs[0].Topics[0] != luaEventSig("Score", "uint256") {
+	if receipt.Logs[0].Topics[0] != lvmEventSig("Score", "uint256") {
 		t.Errorf("log[0] not Score")
 	}
 	if receipt.Logs[0].Data[31] != 42 {
@@ -2013,7 +2013,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 1: Name = "hello" (ABI-encoded string)
-	if receipt.Logs[1].Topics[0] != luaEventSig("Name", "string") {
+	if receipt.Logs[1].Topics[0] != lvmEventSig("Name", "string") {
 		t.Errorf("log[1] not Name")
 	}
 	// ABI-encoded string: offset(32) + length(32) + data(32 padded) = 96 bytes
@@ -2026,7 +2026,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 2: ArrLen = 1
-	if receipt.Logs[2].Topics[0] != luaEventSig("ArrLen", "uint256") {
+	if receipt.Logs[2].Topics[0] != lvmEventSig("ArrLen", "uint256") {
 		t.Errorf("log[2] not ArrLen")
 	}
 	if receipt.Logs[2].Data[31] != 1 {
@@ -2034,7 +2034,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 3: ArrElem = 99
-	if receipt.Logs[3].Topics[0] != luaEventSig("ArrElem", "uint256") {
+	if receipt.Logs[3].Topics[0] != lvmEventSig("ArrElem", "uint256") {
 		t.Errorf("log[3] not ArrElem")
 	}
 	if receipt.Logs[3].Data[31] != 99 {
@@ -2042,7 +2042,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 4: Balance = 2 TOS
-	if receipt.Logs[4].Topics[0] != luaEventSig("Balance", "uint256") {
+	if receipt.Logs[4].Topics[0] != lvmEventSig("Balance", "uint256") {
 		t.Errorf("log[4] not Balance")
 	}
 	twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
@@ -2052,7 +2052,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 5: HasCode = true (addrB has code)
-	if receipt.Logs[5].Topics[0] != luaEventSig("HasCode", "bool") {
+	if receipt.Logs[5].Topics[0] != lvmEventSig("HasCode", "bool") {
 		t.Errorf("log[5] not HasCode")
 	}
 	if receipt.Logs[5].Data[31] != 1 {
@@ -2060,7 +2060,7 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 
 	// Log 6: NoCode = false (zero address has no code)
-	if receipt.Logs[6].Topics[0] != luaEventSig("NoCode", "bool") {
+	if receipt.Logs[6].Topics[0] != lvmEventSig("NoCode", "bool") {
 		t.Errorf("log[6] not NoCode")
 	}
 	if receipt.Logs[6].Data[31] != 0 {
@@ -2068,9 +2068,9 @@ func TestLuaContractCrossContractRead(t *testing.T) {
 	}
 }
 
-// TestLuaContractCall tests tos.call — inter-contract calls with value
+// TestLvmContractCall tests tos.call — inter-contract calls with value
 // forwarding, calldata, caller identity, and revert isolation.
-func TestLuaContractCall(t *testing.T) {
+func TestLvmContractCall(t *testing.T) {
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
@@ -2088,11 +2088,11 @@ func TestLuaContractCall(t *testing.T) {
 			tos.require(ok, "plain transfer failed")
 		`, noCodeAddr.Hex(), quarterTOS.Text(10))
 
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, `-- codeB unused`)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, `-- codeB unused`)
 		defer cleanup()
 		_ = contractAddr
 
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 
 		state, _ := bc.State()
 		got := state.GetBalance(noCodeAddr)
@@ -2110,10 +2110,10 @@ func TestLuaContractCall(t *testing.T) {
 			tos.require(ok, "call failed")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		runLuaTx(t, bc, common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"), big.NewInt(0))
 
 		state, _ := bc.State()
 		slot := lvm.StorageSlot("called")
@@ -2133,10 +2133,10 @@ func TestLuaContractCall(t *testing.T) {
 		`
 		codeA := fmt.Sprintf(`tos.call(%q)`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2145,7 +2145,7 @@ func TestLuaContractCall(t *testing.T) {
 		}
 
 		// Log 0: Sender — should be contractAddr (A), not addr1 (EOA)
-		if receipt.Logs[0].Topics[0] != luaEventSig("Sender", "address") {
+		if receipt.Logs[0].Topics[0] != lvmEventSig("Sender", "address") {
 			t.Errorf("log[0] topic mismatch")
 		}
 		wantSender := contractAddr
@@ -2156,7 +2156,7 @@ func TestLuaContractCall(t *testing.T) {
 		}
 
 		// Log 1: Origin — should be addr1 (the original EOA)
-		if receipt.Logs[1].Topics[0] != luaEventSig("Origin", "address") {
+		if receipt.Logs[1].Topics[0] != lvmEventSig("Origin", "address") {
 			t.Errorf("log[1] topic mismatch")
 		}
 		gotOrigin := common.BytesToAddress(receipt.Logs[1].Data)
@@ -2176,10 +2176,10 @@ func TestLuaContractCall(t *testing.T) {
 			tos.require(ok, "value forward failed")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", halfTOS.Text(10))
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2205,10 +2205,10 @@ func TestLuaContractCall(t *testing.T) {
 			tos.call(%q)   -- returns false; ignored here
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		runLuaTx(t, bc,
+		runLvmTx(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0))
 
@@ -2240,10 +2240,10 @@ func TestLuaContractCall(t *testing.T) {
 			end
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2275,10 +2275,10 @@ func TestLuaContractCall(t *testing.T) {
 			tos.require(ok, "calldata call failed")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		runLuaTx(t, bc,
+		runLvmTx(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0))
 
@@ -2291,9 +2291,9 @@ func TestLuaContractCall(t *testing.T) {
 	})
 }
 
-// TestLuaContractCallResult tests tos.result() — callee sets return data that
+// TestLvmContractCallResult tests tos.result() — callee sets return data that
 // the caller receives as the second value of tos.call().
-func TestLuaContractCallResult(t *testing.T) {
+func TestLvmContractCallResult(t *testing.T) {
 	t.Run("uint256_return", func(t *testing.T) {
 		// B returns a uint256; A decodes it and emits it.
 		codeB := `tos.result("uint256", 12345)`
@@ -2304,10 +2304,10 @@ func TestLuaContractCallResult(t *testing.T) {
 			tos.emit("Got", "uint256", val)
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2341,10 +2341,10 @@ func TestLuaContractCallResult(t *testing.T) {
 			tos.emit("Balance", "uint256", bal)
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2371,10 +2371,10 @@ func TestLuaContractCallResult(t *testing.T) {
 			end
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2398,10 +2398,10 @@ func TestLuaContractCallResult(t *testing.T) {
 			tos.require(ok, "call failed")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		runLuaTx(t, bc,
+		runLvmTx(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0))
 
@@ -2431,10 +2431,10 @@ func TestLuaContractCallResult(t *testing.T) {
 			tos.emit("OK", "uint256", 1)
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, _, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
-		receipt := runLuaTxGetReceipt(t, bc,
+		receipt := runLvmTxGetReceipt(t, bc,
 			common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
 			big.NewInt(0), nil)
 
@@ -2451,9 +2451,9 @@ func TestLuaContractCallResult(t *testing.T) {
 	})
 }
 
-// TestLuaContractStaticCall tests tos.staticcall — read-only inter-contract
+// TestLvmContractStaticCall tests tos.staticcall — read-only inter-contract
 // calls that enforce no state mutations in the callee.
-func TestLuaContractStaticCall(t *testing.T) {
+func TestLvmContractStaticCall(t *testing.T) {
 	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -2465,9 +2465,9 @@ func TestLuaContractStaticCall(t *testing.T) {
 			local val = tos.abi.decode(data, "uint256")
 			tos.emit("Val", "uint256", val)
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Val log, got 0")
 		}
@@ -2486,9 +2486,9 @@ func TestLuaContractStaticCall(t *testing.T) {
 			if ok then tos.revert("expected false") end
 			tos.emit("Done", "uint256", 1)
 		`, addrB)
-		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Done log")
 		}
@@ -2511,9 +2511,9 @@ func TestLuaContractStaticCall(t *testing.T) {
 			if ok then tos.revert("expected false") end
 			tos.emit("Done", "uint256", 1)
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Done log")
 		}
@@ -2527,9 +2527,9 @@ func TestLuaContractStaticCall(t *testing.T) {
 			if ok then tos.revert("expected false") end
 			tos.emit("Done", "uint256", 1)
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Errorf("expected exactly 1 log (Done), got %d", len(receipt.Logs))
 		}
@@ -2551,9 +2551,9 @@ func TestLuaContractStaticCall(t *testing.T) {
 			local val = tos.abi.decode(data, "uint256")
 			tos.emit("Val", "uint256", val)
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Val log")
 		}
@@ -2613,7 +2613,7 @@ func TestLuaContractStaticCall(t *testing.T) {
 		}
 		defer bc.Stop()
 
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Supply log")
 		}
@@ -2623,7 +2623,7 @@ func TestLuaContractStaticCall(t *testing.T) {
 	})
 }
 
-// TestLuaContractEmitIndexed verifies Phase 3B indexed event topics.
+// TestLvmContractEmitIndexed verifies Phase 3B indexed event topics.
 //
 // EVM log specification for indexed parameters:
 //   - topic[0] = keccak256(canonicalSig) — always
@@ -2632,19 +2632,19 @@ func TestLuaContractStaticCall(t *testing.T) {
 //     reference types (string, bytes, T[]): keccak256(ABI-encode(value))
 //   - data = ABI-encoded non-indexed params (same as before)
 //   - EVM max is 3 indexed params; a 4th raises an error
-func TestLuaContractEmitIndexed(t *testing.T) {
+func TestLvmContractEmitIndexed(t *testing.T) {
 
 	t.Run("indexed_uint256_as_topic", func(t *testing.T) {
 		// "uint256 indexed" appears as topic[1], NOT in log data.
 		const code = `tos.emit("Stored", "uint256 indexed", 42)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		if log.Topics[0] != luaEventSig("Stored", "uint256") {
+		if log.Topics[0] != lvmEventSig("Stored", "uint256") {
 			t.Errorf("topic[0] mismatch: got %s", log.Topics[0].Hex())
 		}
 		if len(log.Topics) != 2 {
@@ -2663,14 +2663,14 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 		const code = `tos.emit("Transfer", "address indexed", tos.caller, "uint256", 1000)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		if log.Topics[0] != luaEventSig("Transfer", "address", "uint256") {
+		if log.Topics[0] != lvmEventSig("Transfer", "address", "uint256") {
 			t.Errorf("topic[0] mismatch")
 		}
 		if len(log.Topics) != 2 {
@@ -2695,9 +2695,9 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 			"uint256 indexed", 1,
 			"uint256 indexed", 2,
 			"uint256 indexed", 3)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
@@ -2705,7 +2705,7 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 		if len(log.Topics) != 4 {
 			t.Fatalf("expected 4 topics (sig + 3 indexed), got %d", len(log.Topics))
 		}
-		if log.Topics[0] != luaEventSig("Approval", "uint256", "uint256", "uint256") {
+		if log.Topics[0] != lvmEventSig("Approval", "uint256", "uint256", "uint256") {
 			t.Errorf("topic[0] mismatch")
 		}
 		if log.Topics[1][31] != 1 || log.Topics[2][31] != 2 || log.Topics[3][31] != 3 {
@@ -2724,7 +2724,7 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 			"uint256 indexed", 2,
 			"uint256 indexed", 3,
 			"uint256 indexed", 4)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		signer := types.LatestSigner(bc.Config())
@@ -2746,14 +2746,14 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 	t.Run("indexed_string_is_keccak", func(t *testing.T) {
 		// Indexed string → topic = keccak256(ABI-encode("hello")).
 		const code = `tos.emit("Named", "string indexed", "hello")`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		if log.Topics[0] != luaEventSig("Named", "string") {
+		if log.Topics[0] != lvmEventSig("Named", "string") {
 			t.Errorf("topic[0] mismatch")
 		}
 		if len(log.Topics) != 2 {
@@ -2774,14 +2774,14 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 	t.Run("prefix_indexed_syntax", func(t *testing.T) {
 		// "indexed type" prefix works identically to "type indexed" suffix.
 		const code = `tos.emit("Foo", "indexed uint256", 7)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		if log.Topics[0] != luaEventSig("Foo", "uint256") {
+		if log.Topics[0] != lvmEventSig("Foo", "uint256") {
 			t.Errorf("topic[0] mismatch")
 		}
 		if len(log.Topics) != 2 {
@@ -2799,14 +2799,14 @@ func TestLuaContractEmitIndexed(t *testing.T) {
 		const code = `tos.emit("Transfer",
 			"address indexed", tos.caller,
 			"uint256", 500)`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
 		if len(receipt.Logs) != 1 {
 			t.Fatalf("expected 1 log, got %d", len(receipt.Logs))
 		}
 		log := receipt.Logs[0]
-		if log.Topics[0] != luaEventSig("Transfer", "address", "uint256") {
+		if log.Topics[0] != lvmEventSig("Transfer", "address", "uint256") {
 			t.Errorf("topic[0] mismatch")
 		}
 		if len(log.Topics) != 2 {
@@ -2836,10 +2836,10 @@ func mustABIType(t *testing.T, typStr string) abi.Type {
 	return typ
 }
 
-// runLuaTxWithGasLimit sends a nil-data tx with a custom gas limit.
+// runLvmTxWithGasLimit sends a nil-data tx with a custom gas limit.
 // Returns true if the Lua contract executed successfully (receipt status=1),
 // false if it failed (OOG, revert, etc.).
-func runLuaTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Address, gasLimit uint64) bool {
+func runLvmTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Address, gasLimit uint64) bool {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
@@ -2862,7 +2862,7 @@ func runLuaTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Addr
 	return receipts[0].Status == types.ReceiptStatusSuccessful
 }
 
-// TestLuaContractPrimGas verifies that primitive calls charge gas on top of the
+// TestLvmContractPrimGas verifies that primitive calls charge gas on top of the
 // per-opcode VM gas:
 //   - Each primitive charges at least its defined constant worth of gas.
 //   - A script that calls an expensive primitive OOGs when the gas budget is
@@ -2872,21 +2872,21 @@ func runLuaTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Addr
 // Gas budget arithmetic (all values approximate):
 //
 //	st.gas = gasLimit - params.TxGas (3000) - zero_data_cost (0)
-func TestLuaContractPrimGas(t *testing.T) {
+func TestLvmContractPrimGas(t *testing.T) {
 	// tightOOG verifies that a tight gasLimit causes OOG, and a comfortable one
 	// succeeds.  oogLimit must result in st.gas < primCost; okLimit must give
 	// st.gas > primCost + ~50 opcodes overhead.
 	tightOOG := func(t *testing.T, code string, oogLimit, okLimit uint64) {
 		t.Helper()
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		if runLuaTxWithGasLimit(t, bc, contractAddr, oogLimit) {
+		if runLvmTxWithGasLimit(t, bc, contractAddr, oogLimit) {
 			t.Fatalf("gasLimit=%d: expected OOG, got success", oogLimit)
 		}
 		// Fresh bc for the success case (cannot reuse the same bc for a second block 1).
-		bc2, contractAddr2, cleanup2 := luaTestSetup(t, code)
+		bc2, contractAddr2, cleanup2 := lvmTestSetup(t, code)
 		defer cleanup2()
-		if !runLuaTxWithGasLimit(t, bc2, contractAddr2, okLimit) {
+		if !runLvmTxWithGasLimit(t, bc2, contractAddr2, okLimit) {
 			t.Fatalf("gasLimit=%d: expected success, got failure", okLimit)
 		}
 	}
@@ -2939,9 +2939,9 @@ func TestLuaContractPrimGas(t *testing.T) {
 			assert(g1 - g2 >= 5000,
 				"gasleft should decrease by >= 5000 after tos.set, got " .. tostring(g1-g2))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 
 	t.Run("gasleft_reflects_get_charge", func(t *testing.T) {
@@ -2953,13 +2953,13 @@ func TestLuaContractPrimGas(t *testing.T) {
 			assert(g1 - g2 >= 100,
 				"gasleft should decrease by >= 100 after tos.get, got " .. tostring(g1-g2))
 		`
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractMappingProxy tests tos.mapping() and tos.mappingStr() — the
+// TestLvmContractMappingProxy tests tos.mapping() and tos.mappingStr() — the
 // metamethod-backed proxy tables that let Lua code use table-index syntax for
 // on-chain named mappings:
 //
@@ -2969,7 +2969,7 @@ func TestLuaContractPrimGas(t *testing.T) {
 //
 // Slot derivation is identical to tos.mapGet/Set, so the two APIs are fully
 // interchangeable.
-func TestLuaContractMappingProxy(t *testing.T) {
+func TestLvmContractMappingProxy(t *testing.T) {
 	t.Run("uint256_roundtrip", func(t *testing.T) {
 		const code = `
 			local bal = tos.mapping("balance")
@@ -2979,9 +2979,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(bal["bob"]   == 500,  "bob")
 			assert(bal["carol"] == nil,  "unset key is nil")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("string_roundtrip", func(t *testing.T) {
@@ -2993,9 +2993,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(tag["nft2"] == "Phoenix", "nft2")
 			assert(tag["nft3"] == nil,       "unset key is nil")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("compat_with_mapGet_mapSet", func(t *testing.T) {
@@ -3010,9 +3010,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			proxy["bob"] = 33
 			assert(tos.mapGet("pts", "bob") == 33, "mapGet should see proxy value")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("string_compat_with_mapGetStr_mapSetStr", func(t *testing.T) {
@@ -3027,9 +3027,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			proxy["token2"] = "RareItem"
 			assert(tos.mapGetStr("meta", "token2") == "RareItem", "mapGetStr should see proxy value")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("depth2_nested_uint256", func(t *testing.T) {
@@ -3042,9 +3042,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(allowance["alice"]["carol"] == 250, "alice->carol")
 			assert(allowance["dave"]["bob"]    == nil, "dave->bob unset")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("depth2_compat_with_nested_mapGet", func(t *testing.T) {
@@ -3057,9 +3057,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			m["owner2"]["spender1"] = 333
 			assert(tos.mapGet("allow", "owner2", "spender1") == 333, "mapGet sees depth2 value")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("namespace_isolation_from_set", func(t *testing.T) {
@@ -3071,9 +3071,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(tos.get("score") == 99, "tos.get must be unchanged")
 			assert(m["alice"] == 42,       "mapping must be 42")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("mapping_newindex_readonly_reverts", func(t *testing.T) {
@@ -3088,9 +3088,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			local ok = tos.staticcall(%q, "")
 			assert(not ok, "mapping write inside staticcall should fail")
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, _, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 	})
 
 	t.Run("mappingStr_newindex_readonly_reverts", func(t *testing.T) {
@@ -3104,9 +3104,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			local ok = tos.staticcall(%q, "")
 			assert(not ok, "mappingStr write inside staticcall should fail")
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, _, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 	})
 
 	t.Run("at_proxy_mapping_reads", func(t *testing.T) {
@@ -3120,9 +3120,9 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(ro["bob"]   == 33,  "at proxy bob")
 			assert(ro["carol"] == nil, "at proxy unset")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("at_proxy_mappingStr_reads", func(t *testing.T) {
@@ -3134,16 +3134,16 @@ func TestLuaContractMappingProxy(t *testing.T) {
 			assert(ro["nft1"] == "Dragon", "at proxy nft1")
 			assert(ro["nft2"] == nil,      "at proxy unset")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractSend tests tos.send(addr, amount) — the soft-failure variant
+// TestLvmContractSend tests tos.send(addr, amount) — the soft-failure variant
 // of tos.transfer that returns a bool instead of reverting.
 // Equivalent to Solidity's payable(addr).send(amount).
-func TestLuaContractSend(t *testing.T) {
+func TestLvmContractSend(t *testing.T) {
 	t.Run("success_transfers_balance", func(t *testing.T) {
 		// Contract starts with 1 TOS; send 0.5 TOS to recipient.
 		recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
@@ -3154,9 +3154,9 @@ func TestLuaContractSend(t *testing.T) {
 			assert(ok == true, "send should succeed, got " .. tostring(ok))
 		`, recipient.Hex(), halfTOS.Text(10))
 
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 
 		state, _ := bc.State()
 		got := state.GetBalance(recipient)
@@ -3175,9 +3175,9 @@ func TestLuaContractSend(t *testing.T) {
 			assert(ok == false, "send should return false on insufficient balance")
 		`, recipient.Hex(), twoTOS.Text(10))
 
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 
 		state, _ := bc.State()
 		got := state.GetBalance(recipient)
@@ -3197,9 +3197,9 @@ func TestLuaContractSend(t *testing.T) {
 			tos.set("after", 2)
 		`, twoTOS.Text(10))
 
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 
 		state, _ := bc.State()
 		before := state.GetState(contractAddr, lvm.StorageSlot("before"))
@@ -3224,9 +3224,9 @@ func TestLuaContractSend(t *testing.T) {
 			local ok = tos.staticcall(%q, "")
 			assert(ok, "callee should not revert even though send returned false")
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, _, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 	})
 
 	t.Run("zero_amount_succeeds", func(t *testing.T) {
@@ -3237,18 +3237,18 @@ func TestLuaContractSend(t *testing.T) {
 			assert(ok == true, "send(0) should succeed")
 		`, recipient.Hex())
 
-		bc, contractAddr, cleanup := luaTestSetup(t, code)
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, contractAddr, big.NewInt(0))
+		runLvmTx(t, bc, contractAddr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractBytes tests the tos.bytes.* utility sub-table.
+// TestLvmContractBytes tests the tos.bytes.* utility sub-table.
 //
 // tos.bytes bridges the two representations used in TOS Lua:
 //   - hex strings  ("0x...")  — returned by abi.encode, keccak256, msg.data
 //   - binary strings          — accepted by keccak256, sha256, etc.
-func TestLuaContractBytes(t *testing.T) {
+func TestLvmContractBytes(t *testing.T) {
 	t.Run("fromhex_tohex_roundtrip", func(t *testing.T) {
 		const code = `
 			local hex = "0xdeadbeef"
@@ -3257,9 +3257,9 @@ func TestLuaContractBytes(t *testing.T) {
 			assert(tos.bytes.tohex(bin) == hex,
 				"tohex(fromhex) roundtrip failed: " .. tos.bytes.tohex(bin))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("fromhex_empty_string", func(t *testing.T) {
@@ -3268,9 +3268,9 @@ func TestLuaContractBytes(t *testing.T) {
 			assert(#bin == 0, "empty hex should give empty binary")
 			assert(tos.bytes.tohex(bin) == "0x", "tohex of empty should be 0x")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("fromhex_no_prefix", func(t *testing.T) {
@@ -3280,9 +3280,9 @@ func TestLuaContractBytes(t *testing.T) {
 			assert(#bin == 4, "bare hex: expected 4 bytes")
 			assert(tos.bytes.tohex(bin) == "0xdeadbeef", "bare hex roundtrip")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("len", func(t *testing.T) {
@@ -3291,9 +3291,9 @@ func TestLuaContractBytes(t *testing.T) {
 			assert(tos.bytes.len("abc")     == 3, "ascii")
 			assert(tos.bytes.len("\x00\xff") == 2, "binary with null and 0xff")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("slice_with_length", func(t *testing.T) {
@@ -3306,9 +3306,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local tail = tos.bytes.slice(bin, 4, 4)
 			assert(tos.bytes.tohex(tail) == "0x01020304", "tail: " .. tos.bytes.tohex(tail))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("slice_without_length", func(t *testing.T) {
@@ -3320,9 +3320,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local full = tos.bytes.slice(bin, 0)
 			assert(tos.bytes.tohex(full) == "0xdeadbeef01020304", "full")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("slice_oob_reverts", func(t *testing.T) {
@@ -3335,9 +3335,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local ok2 = pcall(function() tos.bytes.slice(bin, 2, 10) end)
 			assert(not ok2, "slice length past end should revert")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("fromUint256_toUint256_roundtrip", func(t *testing.T) {
@@ -3348,9 +3348,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local m = tos.bytes.toUint256(b)
 			assert(m == n, "roundtrip: want " .. tostring(n) .. " got " .. tostring(m))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("fromUint256_with_size", func(t *testing.T) {
@@ -3369,9 +3369,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local b0 = tos.bytes.fromUint256(0, 1)
 			assert(#b0 == 1 and tos.bytes.toUint256(b0) == 0, "zero in 1 byte")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("fromUint256_overflow_reverts", func(t *testing.T) {
@@ -3380,9 +3380,9 @@ func TestLuaContractBytes(t *testing.T) {
 			local ok = pcall(function() tos.bytes.fromUint256(256, 1) end)
 			assert(not ok, "256 in 1 byte should revert")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("hash_abi_encoded_data", func(t *testing.T) {
@@ -3399,15 +3399,15 @@ func TestLuaContractBytes(t *testing.T) {
 			assert(hash == %q, "hash mismatch: " .. hash)
 		`, want)
 
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 }
 
-// TestLuaContractAddressUtils tests tos.ZERO_ADDRESS, tos.MAX_UINT256,
+// TestLvmContractAddressUtils tests tos.ZERO_ADDRESS, tos.MAX_UINT256,
 // tos.isAddress(), and tos.toAddress().
-func TestLuaContractAddressUtils(t *testing.T) {
+func TestLvmContractAddressUtils(t *testing.T) {
 	t.Run("ZERO_ADDRESS", func(t *testing.T) {
 		// TOS addresses are 32 bytes = 64 hex chars.
 		want := common.Address{}.Hex() // "0x" + 64 zeros
@@ -3416,9 +3416,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 				"ZERO_ADDRESS: " .. tostring(tos.ZERO_ADDRESS))
 			assert(#tos.ZERO_ADDRESS == 66, "ZERO_ADDRESS must be 66 chars (0x + 64)")
 		`, want)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("MAX_UINT256", func(t *testing.T) {
@@ -3429,9 +3429,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			assert(tos.MAX_UINT256 + 1 == 0, "MAX_UINT256 + 1 should wrap to 0")
 			assert(tos.MAX_UINT256 == %s, "MAX_UINT256 value mismatch")
 		`, max.Text(10))
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("isAddress_valid", func(t *testing.T) {
@@ -3443,9 +3443,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			assert(tos.isAddress(tos.ZERO_ADDRESS) == true, "zero address is valid")
 			assert(tos.isAddress(tos.self) == true, "self is valid")
 		`, "0x"+addr64, addr64)
-		bc, addr2, cleanup := luaTestSetup(t, code)
+		bc, addr2, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr2, big.NewInt(0))
+		runLvmTx(t, bc, addr2, big.NewInt(0))
 	})
 
 	t.Run("isAddress_invalid", func(t *testing.T) {
@@ -3457,9 +3457,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			assert(tos.isAddress("0x" .. string.rep("g", 64)) == false, "non-hex chars")
 			assert(tos.isAddress("hello") == false, "plaintext")
 		`)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("toAddress_normalises", func(t *testing.T) {
@@ -3473,9 +3473,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			local zero = tos.toAddress("0x0")
 			assert(zero == tos.ZERO_ADDRESS, "0x0 -> ZERO_ADDRESS: " .. zero)
 		`, raw)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("toAddress_consistent_storage_key", func(t *testing.T) {
@@ -3488,9 +3488,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			assert(tos.mapGet("bal", canon)              == 999, "canonical read")
 			assert(tos.mapGet("bal", tos.toAddress(raw)) == 999, "normalised read")
 		`, raw)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("typical_transfer_guard", func(t *testing.T) {
@@ -3502,9 +3502,9 @@ func TestLuaContractAddressUtils(t *testing.T) {
 			require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
 			tos.set("ok", 1)
 		`, validAddr)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		val := state.GetState(addr, lvm.StorageSlot("ok"))
@@ -3514,7 +3514,7 @@ func TestLuaContractAddressUtils(t *testing.T) {
 	})
 }
 
-func TestLuaContractDeploy(t *testing.T) {
+func TestLvmContractDeploy(t *testing.T) {
 	// childCode is a minimal contract used as the deployed child in most subtests.
 	const childCode = `
 		tos.oncreate(function()
@@ -3532,9 +3532,9 @@ func TestLuaContractDeploy(t *testing.T) {
 			local child = tos.deploy(%q)
 			assert(child == %q, "wrong address: " .. tostring(child))
 		`, childCode, want.Hex())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("deployed_code_is_callable", func(t *testing.T) {
@@ -3546,9 +3546,9 @@ func TestLuaContractDeploy(t *testing.T) {
 			local ok = tos.call(child, 0)
 			assert(ok, "tos.call failed")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("successive_deploys_differ", func(t *testing.T) {
@@ -3558,9 +3558,9 @@ func TestLuaContractDeploy(t *testing.T) {
 			local b = tos.deploy("tos.set([[x]],2)")
 			assert(a ~= b, "expected different addresses")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("second_address_matches_nonce1", func(t *testing.T) {
@@ -3573,9 +3573,9 @@ func TestLuaContractDeploy(t *testing.T) {
 			local b = tos.deploy("tos.set([[x]],2)") -- nonce 1
 			assert(b == %q, "wrong nonce-1 addr: " .. tostring(b))
 		`, want1.Hex())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("deploy_with_value_transfers_balance", func(t *testing.T) {
@@ -3590,16 +3590,16 @@ func TestLuaContractDeploy(t *testing.T) {
 			local bal = tos.balance(child)
 			assert(bal == %s, "balance mismatch: " .. tostring(bal))
 		`, halfTOS.String(), halfTOS.String())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("empty_code_reverts", func(t *testing.T) {
 		code := `tos.deploy("")`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("insufficient_balance_reverts", func(t *testing.T) {
@@ -3608,9 +3608,9 @@ func TestLuaContractDeploy(t *testing.T) {
 		code := fmt.Sprintf(`
 			tos.deploy("tos.set([[x]],1)", %s)
 		`, twoTOS.String())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("deploy_in_staticcall_reverts", func(t *testing.T) {
@@ -3624,25 +3624,25 @@ func TestLuaContractDeploy(t *testing.T) {
 		`, helperAddr.Hex())
 		helperCode := `tos.deploy("tos.set([[x]],1)")`
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("oog_on_huge_code", func(t *testing.T) {
 		// A very large code string should exhaust gas (luaGasDeployByte=200 × N bytes).
 		// 2500 bytes × 200 = 500 000 gas > typical tx gas limit of 500 000 → OOG.
 		code := fmt.Sprintf(`tos.deploy(string.rep("x", 2500))`)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 }
 
-func TestLuaContractCreate2(t *testing.T) {
+func TestLvmContractCreate2(t *testing.T) {
 	const childCode = `tos.set("ping", 42)`
 
-	// contractAddr is fixed by luaTestSetup.
+	// contractAddr is fixed by lvmTestSetup.
 	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
 
 	// expectedCreate2 computes the address that tos.create2 will produce.
@@ -3662,10 +3662,10 @@ func TestLuaContractCreate2(t *testing.T) {
 			local predicted = tos.create2addr(tos.self, salt, %q)
 			assert(child == predicted, "create2 addr mismatch: " .. tostring(child) .. " vs " .. tostring(predicted))
 		`, salt, childCode, childCode)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		_ = addr
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("address_matches_go_side_computation", func(t *testing.T) {
@@ -3677,9 +3677,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			local child = tos.create2(%q, %q)
 			assert(child == %q, "wrong addr: " .. tostring(child))
 		`, childCode, salt, want.Hex())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("different_salts_give_different_addresses", func(t *testing.T) {
@@ -3688,9 +3688,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			local b = tos.create2(%q, "0x02")
 			assert(a ~= b, "expected different addresses for different salts")
 		`, childCode, childCode)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("same_code_same_salt_collides", func(t *testing.T) {
@@ -3699,9 +3699,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			tos.create2(%q, "0x01")   -- first deploy succeeds
 			tos.create2(%q, "0x01")   -- collision → error
 		`, childCode, childCode)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("decimal_salt_works", func(t *testing.T) {
@@ -3716,9 +3716,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			local child = tos.create2(%q, %q)
 			assert(child == %q, "decimal salt: wrong addr " .. tostring(child))
 		`, childCode, saltNum, want.Hex())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("deployed_child_is_callable", func(t *testing.T) {
@@ -3729,9 +3729,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			local ok = tos.call(child, 0)
 			assert(ok, "tos.call on create2 child failed")
 		`, childCode)
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		// Verify child state: ping=42.
 		salt := "0x42"
@@ -3751,9 +3751,9 @@ func TestLuaContractCreate2(t *testing.T) {
 			local bal = tos.balance(child)
 			assert(bal == %s, "balance mismatch: " .. tostring(bal))
 		`, `tos.set([[x]],1)`, halfTOS.String(), halfTOS.String())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("create2_in_staticcall_reverts", func(t *testing.T) {
@@ -3764,9 +3764,9 @@ func TestLuaContractCreate2(t *testing.T) {
 		`, helperAddr.Hex())
 		helperCode := fmt.Sprintf(`tos.create2(%q, "0x01")`, childCode)
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("create2addr_pure_prediction", func(t *testing.T) {
@@ -3777,18 +3777,18 @@ func TestLuaContractCreate2(t *testing.T) {
 			local predicted = tos.create2addr(tos.self, %q, %q)
 			assert(predicted == %q, "wrong prediction: " .. tostring(predicted))
 		`, salt, childCode, want.Hex())
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 }
 
-func TestLuaContractRevertError(t *testing.T) {
+func TestLvmContractRevertError(t *testing.T) {
 	t.Run("plain_revert_unchanged", func(t *testing.T) {
 		// tos.revert("msg") still reverts the tx with no return data.
-		bc, addr, cleanup := luaTestSetup(t, `tos.revert("plain error")`)
+		bc, addr, cleanup := lvmTestSetup(t, `tos.revert("plain error")`)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("named_error_data_returned_to_caller", func(t *testing.T) {
@@ -3810,9 +3810,9 @@ func TestLuaContractRevertError(t *testing.T) {
 				"wrong selector: " .. tostring(string.sub(ret, 1, 10)))
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", wantSel)
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("decode_error_roundtrip", func(t *testing.T) {
@@ -3829,9 +3829,9 @@ func TestLuaContractRevertError(t *testing.T) {
 			assert(b == 256, "b: " .. tostring(b))
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("no_args_named_error", func(t *testing.T) {
@@ -3849,9 +3849,9 @@ func TestLuaContractRevertError(t *testing.T) {
 				"wrong selector: " .. tostring(ret))
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", wantSel)
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("plain_revert_returns_nil_data", func(t *testing.T) {
@@ -3863,16 +3863,16 @@ func TestLuaContractRevertError(t *testing.T) {
 			assert(ret == nil, "plain revert must return nil data, got: " .. tostring(ret))
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 	})
 
 	t.Run("odd_args_reverts", func(t *testing.T) {
 		// tos.revert("Name", "uint256") — missing value → named error with odd args raises error.
-		bc, addr, cleanup := luaTestSetup(t, `tos.revert("Name", "uint256")`)
+		bc, addr, cleanup := lvmTestSetup(t, `tos.revert("Name", "uint256")`)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("state_reverted_on_named_error", func(t *testing.T) {
@@ -3886,9 +3886,9 @@ func TestLuaContractRevertError(t *testing.T) {
 			assert(not ok, "must revert")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, callerAddr, calleeAddr, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, calleeAddr, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 
 		state, _ := bc.State()
 		v := state.GetState(calleeAddr, lvm.StorageSlot("x"))
@@ -3907,13 +3907,13 @@ func TestLuaContractRevertError(t *testing.T) {
 			assert(v == 42, "v: " .. tostring(v))
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, calleeCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, calleeCode)
 		defer cleanup()
-		runLuaTx(t, bc, callerAddr, big.NewInt(0))
+		runLvmTx(t, bc, callerAddr, big.NewInt(0))
 	})
 }
 
-func TestLuaContractStruct(t *testing.T) {
+func TestLvmContractStruct(t *testing.T) {
 	t.Run("get_set_roundtrip", func(t *testing.T) {
 		code := `
 			local Account = tos.struct("Account", "balance:uint256", "nonce:uint256")
@@ -3922,9 +3922,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(a.balance == 1000, "balance: " .. tostring(a.balance))
 			assert(a.nonce   == 5,    "nonce: "   .. tostring(a.nonce))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("unset_field_is_zero_or_false", func(t *testing.T) {
@@ -3934,9 +3934,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(v.x    == 0,     "x should be 0, got " .. tostring(v.x))
 			assert(v.flag == false, "flag should be false")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("partial_set_leaves_other_fields", func(t *testing.T) {
@@ -3948,9 +3948,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(v.a == 10, "a: " .. tostring(v.a))
 			assert(v.b == 20, "b: " .. tostring(v.b))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("getField_setField", func(t *testing.T) {
@@ -3960,9 +3960,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(S.getField("k", "x") == 99,  "x: " .. tostring(S.getField("k", "x")))
 			assert(S.getField("k", "y") == 0,   "y should be 0")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("bool_field", func(t *testing.T) {
@@ -3975,9 +3975,9 @@ func TestLuaContractStruct(t *testing.T) {
 			S.setField("k", "flag", false)
 			assert(S.getField("k", "flag") == false, "flag should now be false")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("namespace_isolation", func(t *testing.T) {
@@ -3990,9 +3990,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(A.getField("k", "x") == 1, "A.x: " .. tostring(A.getField("k", "x")))
 			assert(B.getField("k", "x") == 2, "B.x: " .. tostring(B.getField("k", "x")))
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("key_isolation", func(t *testing.T) {
@@ -4004,9 +4004,9 @@ func TestLuaContractStruct(t *testing.T) {
 			assert(S.getField("alice", "v") == 10, "alice")
 			assert(S.getField("bob",   "v") == 20, "bob")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("unknown_field_reverts", func(t *testing.T) {
@@ -4014,16 +4014,16 @@ func TestLuaContractStruct(t *testing.T) {
 			local S = tos.struct("SUnknown", "a:uint256")
 			S.getField("k", "z")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("unsupported_type_reverts", func(t *testing.T) {
 		code := `tos.struct("SBad", "x:int256")`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("set_in_staticcall_reverts", func(t *testing.T) {
@@ -4036,15 +4036,15 @@ func TestLuaContractStruct(t *testing.T) {
 			require(ok, "staticcall must fail")
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
-		bc, callerAddr, _, cleanup := luaTestSetup2(t, callerCode, helperCode)
+		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, callerAddr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, callerAddr, big.NewInt(0))
 	})
 }
 
-// runLuaTxWithDataExpectFail sends a tx with calldata expecting failure (receipt status 0).
+// runLvmTxWithDataExpectFail sends a tx with calldata expecting failure (receipt status 0).
 // Builds on top of the current canonical head so sequential calls accumulate state.
-func runLuaTxWithDataExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
+func runLvmTxWithDataExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -4072,7 +4072,7 @@ func runLuaTxWithDataExpectFail(t *testing.T, bc *BlockChain, contractAddr commo
 	}
 }
 
-func TestLuaContractTOS20(t *testing.T) {
+func TestLvmContractTOS20(t *testing.T) {
 	const supply = int64(1_000_000)
 
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -4086,11 +4086,11 @@ func TestLuaContractTOS20(t *testing.T) {
 	`
 
 	t.Run("init_mints_supply_to_deployer", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
 		// First call: oncreate fires (mints 1 000 000 to addr1), totalSupply() dispatched.
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
 
 		state, _ := bc.State()
 		supplySlot := state.GetState(addr, lvm.StorageSlot("_supply"))
@@ -4106,9 +4106,9 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("metadata_stored", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
 
 		state, _ := bc.State()
 		// _name and _symbol are stored via tos.setStr — their len slot must be non-zero.
@@ -4125,11 +4125,11 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("transfer_updates_balances", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", big.NewInt(100)))
 
 		state, _ := bc.State()
@@ -4146,11 +4146,11 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("transfer_emits_Transfer_event", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
 
 		block := bc.CurrentBlock()
@@ -4158,7 +4158,7 @@ func TestLuaContractTOS20(t *testing.T) {
 		if len(receipts) == 0 {
 			t.Fatal("no receipts")
 		}
-		sig := luaEventSig("Transfer", "address", "address", "uint256")
+		sig := lvmEventSig("Transfer", "address", "address", "uint256")
 		found := false
 		for _, l := range receipts[0].Logs {
 			if len(l.Topics) > 0 && l.Topics[0] == sig {
@@ -4172,11 +4172,11 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("approve_sets_allowance", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(500)))
 
 		state, _ := bc.State()
@@ -4188,16 +4188,16 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("approve_emits_Approval_event", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(200)))
 
 		block := bc.CurrentBlock()
 		receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
-		sig := luaEventSig("Approval", "address", "address", "uint256")
+		sig := lvmEventSig("Approval", "address", "address", "uint256")
 		found := false
 		for _, l := range receipts[0].Logs {
 			if len(l.Topics) > 0 && l.Topics[0] == sig {
@@ -4211,48 +4211,48 @@ func TestLuaContractTOS20(t *testing.T) {
 	})
 
 	t.Run("transfer_insufficient_balance_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transfer(address,uint256)", "address", bob, "uint256", new(big.Int).SetInt64(supply+1)))
 	})
 
 	t.Run("transfer_to_zero_address_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
 		zero := common.Address{}
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transfer(address,uint256)", "address", zero, "uint256", big.NewInt(1)))
 	})
 
 	t.Run("unknown_selector_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, tokenCode)
+		bc, addr, cleanup := lvmTestSetup(t, tokenCode)
 		defer cleanup()
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "totalSupply()"))
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
 	})
 
 	t.Run("unknown_module_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, `tos.import("notamodule")`)
+		bc, addr, cleanup := lvmTestSetup(t, `tos.import("notamodule")`)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 }
 
-func TestLuaContractBytecode(t *testing.T) {
+func TestLvmContractBytecode(t *testing.T) {
 	t.Run("precompiled_bytecode_executes", func(t *testing.T) {
 		code := `
 			tos.set("counter", 2)
 		`
-		bc, addr, cleanup := luaTestSetupBytecode(t, code)
+		bc, addr, cleanup := lvmTestSetupBytecode(t, code)
 		defer cleanup()
 
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		slot := state.GetState(addr, lvm.StorageSlot("counter"))
@@ -4265,9 +4265,9 @@ func TestLuaContractBytecode(t *testing.T) {
 	t.Run("invalid_bytecode_reverts", func(t *testing.T) {
 		// Starts with GLBC magic but is not a valid bytecode payload.
 		invalid := []byte("GLBCbad")
-		bc, addr, cleanup := luaTestSetupCodeBytes(t, invalid)
+		bc, addr, cleanup := lvmTestSetupCodeBytes(t, invalid)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("source_and_bytecode_match_semantics", func(t *testing.T) {
@@ -4275,13 +4275,13 @@ func TestLuaContractBytecode(t *testing.T) {
 			local v = tos.get("x") or 0
 			tos.set("x", v + 3)
 		`
-		srcBC, srcAddr, srcCleanup := luaTestSetup(t, code)
+		srcBC, srcAddr, srcCleanup := lvmTestSetup(t, code)
 		defer srcCleanup()
-		binBC, binAddr, binCleanup := luaTestSetupBytecode(t, code)
+		binBC, binAddr, binCleanup := lvmTestSetupBytecode(t, code)
 		defer binCleanup()
 
-		runLuaTx(t, srcBC, srcAddr, big.NewInt(0))
-		runLuaTx(t, binBC, binAddr, big.NewInt(0))
+		runLvmTx(t, srcBC, srcAddr, big.NewInt(0))
+		runLvmTx(t, binBC, binAddr, big.NewInt(0))
 
 		srcState, _ := srcBC.State()
 		binState, _ := binBC.State()
@@ -4309,10 +4309,10 @@ func TestLuaContractBytecode(t *testing.T) {
 			local ok = tos.call(child, 0)
 			assert(ok, "tos.call on compiled-bytecode child failed")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		_ = addr
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		pingSlot := state.GetState(childAddr, lvm.StorageSlot("ping"))
@@ -4344,13 +4344,13 @@ func TestLuaContractBytecode(t *testing.T) {
 			assert(ok, "bytecode-deploy call failed")
 		`, childSrc)
 
-		srcBC, _, srcCleanup := luaTestSetup(t, srcCode)
+		srcBC, _, srcCleanup := lvmTestSetup(t, srcCode)
 		defer srcCleanup()
-		binBC, _, binCleanup := luaTestSetup(t, bcnCode)
+		binBC, _, binCleanup := lvmTestSetup(t, bcnCode)
 		defer binCleanup()
 
-		runLuaTx(t, srcBC, contractAddr, big.NewInt(0))
-		runLuaTx(t, binBC, contractAddr, big.NewInt(0))
+		runLvmTx(t, srcBC, contractAddr, big.NewInt(0))
+		runLvmTx(t, binBC, contractAddr, big.NewInt(0))
 
 		srcState, _ := srcBC.State()
 		binState, _ := binBC.State()
@@ -4364,21 +4364,21 @@ func TestLuaContractBytecode(t *testing.T) {
 	t.Run("compileBytecode_syntax_error_reverts", func(t *testing.T) {
 		// Passing syntactically invalid Lua to compileBytecode must revert the tx.
 		code := `tos.compileBytecode("this is not valid lua @@@@")`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("compileBytecode_oog_on_huge_source", func(t *testing.T) {
 		// luaGasCompileByte=50; 10 000 bytes × 50 = 500 000 gas > tx gas limit → OOG.
 		code := `tos.compileBytecode(string.rep("x", 10000))`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 }
 
-func TestLuaContractTOS721(t *testing.T) {
+func TestLvmContractTOS721(t *testing.T) {
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 	bob := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
@@ -4414,11 +4414,11 @@ func TestLuaContractTOS721(t *testing.T) {
 	// trigger fires the first call to set up oncreate (mints nothing in TOS-721).
 	trigger := func(t *testing.T, bc *BlockChain, addr common.Address) {
 		t.Helper()
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "name()"))
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), buildCalldata(t, "name()"))
 	}
 
 	t.Run("metadata_stored", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
@@ -4436,11 +4436,11 @@ func TestLuaContractTOS721(t *testing.T) {
 	})
 
 	t.Run("mint_stores_owner_and_balance", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
 
 		state, _ := bc.State()
@@ -4460,16 +4460,16 @@ func TestLuaContractTOS721(t *testing.T) {
 	})
 
 	t.Run("mint_emits_Transfer_from_zero", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
 
 		block := bc.CurrentBlock()
 		receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
-		sig := luaEventSig("Transfer", "address", "address", "uint256")
+		sig := lvmEventSig("Transfer", "address", "address", "uint256")
 		found := false
 		for _, l := range receipts[0].Logs {
 			if len(l.Topics) > 0 && l.Topics[0] == sig {
@@ -4483,16 +4483,16 @@ func TestLuaContractTOS721(t *testing.T) {
 	})
 
 	t.Run("transfer_updates_owner_and_balances", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
 		// Mint token 1 to addr1 (owner == caller == addr1).
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
 
 		// addr1 transfers token 1 to bob (addr1 == token owner → authorized).
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transferFrom(address,address,uint256)", "address", addr1, "address", bob, "uint256", big.NewInt(1)))
 
 		state, _ := bc.State()
@@ -4517,13 +4517,13 @@ func TestLuaContractTOS721(t *testing.T) {
 	})
 
 	t.Run("approve_sets_storage", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "approve(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
 
 		state, _ := bc.State()
@@ -4535,18 +4535,18 @@ func TestLuaContractTOS721(t *testing.T) {
 
 	t.Run("unauthorized_transfer_reverts", func(t *testing.T) {
 		// Mint token 1 to bob; addr1 (the tx signer) has no authorization → must revert.
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", bob, "uint256", big.NewInt(1)))
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "transferFrom(address,address,uint256)", "address", bob, "address", addr1, "uint256", big.NewInt(1)))
 	})
 
 	t.Run("non_owner_mint_reverts", func(t *testing.T) {
-		// luaTestSetup2: codeA → 0xCCCC… (attacker), codeB → 0xBBBB… (NFT).
+		// lvmTestSetup2: codeA → 0xCCCC… (attacker), codeB → 0xBBBB… (NFT).
 		// Sequence:
 		//   1. addr1 calls NFT (0xBBBB…) to trigger oncreate → _cowner = addr1
 		//   2. addr1 calls attacker (0xCCCC…); attacker calls NFT mint as 0xCCCC…
@@ -4559,34 +4559,34 @@ func TestLuaContractTOS721(t *testing.T) {
 			require(not ok, "mint should have been rejected")
 		`, nftAddr.Hex(), "0x"+common.Bytes2Hex(mintData))
 
-		bc, attackerAddr, _, cleanup := luaTestSetup2(t, attackerCode, nftCode)
+		bc, attackerAddr, _, cleanup := lvmTestSetup2(t, attackerCode, nftCode)
 		defer cleanup()
 
 		// Step 1: trigger oncreate on the NFT → _cowner = addr1.
-		runLuaTxWithData(t, bc, nftAddr, big.NewInt(0), buildCalldata(t, "name()"))
+		runLvmTxWithData(t, bc, nftAddr, big.NewInt(0), buildCalldata(t, "name()"))
 		// Step 2: addr1 calls the attacker; attacker tries to mint as 0xCCCC… → rejected.
-		runLuaTxWithData(t, bc, attackerAddr, big.NewInt(0), nil)
+		runLvmTxWithData(t, bc, attackerAddr, big.NewInt(0), nil)
 	})
 
 	t.Run("double_mint_same_token_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
 	})
 
 	t.Run("burn_removes_token", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
 
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint(address,uint256)", "address", addr1, "uint256", big.NewInt(1)))
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "burn(uint256)", "uint256", big.NewInt(1)))
 
 		state, _ := bc.State()
@@ -4606,22 +4606,22 @@ func TestLuaContractTOS721(t *testing.T) {
 	})
 
 	t.Run("unknown_selector_reverts", func(t *testing.T) {
-		bc, addr, cleanup := luaTestSetup(t, nftCode)
+		bc, addr, cleanup := lvmTestSetup(t, nftCode)
 		defer cleanup()
 		trigger(t, bc, addr)
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), buildCalldata(t, "bogus()"))
 	})
 }
 
-// TestLuaContractDelegatecall tests tos.delegatecall — executes implementation
+// TestLvmContractDelegatecall tests tos.delegatecall — executes implementation
 // code in the proxy's storage/caller/value context (analogous to EVM DELEGATECALL).
 //
-// Layout (luaTestSetup2):
+// Layout (lvmTestSetup2):
 //
 //	contractAddr  (0xCCCC…) — proxy   (codeA), 1 TOS balance
 //	contractAddrB (0xBBBB…) — impl    (codeB), 2 TOS balance
 //	addr1                   — tx sender,        10 TOS balance
-func TestLuaContractDelegatecall(t *testing.T) {
+func TestLvmContractDelegatecall(t *testing.T) {
 	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -4658,9 +4658,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			local ok, _ = tos.delegatecall(%q)
 			assert(ok, "delegatecall failed")
 		`, addrB)
-		bc, contractAddr, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 
 		// proxy.x must be 99
@@ -4687,9 +4687,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			local ok, _ = tos.delegatecall(%q)
 			assert(ok, "delegatecall failed")
 		`, addrB)
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 
 		// "who" is stored in proxy's storage (delegatecall context).
@@ -4706,9 +4706,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			local ok, _ = tos.delegatecall(%q)
 			assert(ok, "delegatecall failed")
 		`, addrB)
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 
 		got := readStr(state, contractAddr, "me")
@@ -4727,9 +4727,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			local ok, _ = tos.delegatecall(%q)
 			assert(not ok, "expected delegatecall to fail")
 		`, addrB)
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 
 		xSlot := state.GetState(contractAddr, lvm.StorageSlot("x"))
@@ -4752,9 +4752,9 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			local val = tos.abi.decode(data, "uint256")
 			tos.emit("Val", "uint256", val)
 		`, addrB)
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		receipt := runLuaTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
+		receipt := runLvmTxGetReceipt(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil)
 		if len(receipt.Logs) < 1 {
 			t.Fatalf("expected Val log, got 0 logs")
 		}
@@ -4797,11 +4797,11 @@ func TestLuaContractDelegatecall(t *testing.T) {
 			end
 		`, v2Code, addrB)
 
-		bc, contractAddr, _, cleanup := luaTestSetup2(t, proxyCode, v1Code)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, proxyCode, v1Code)
 		defer cleanup()
 
 		// Tx 1: no data → delegate to v1 (addrB) → proxy.version = 1.
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ := bc.State()
 		v := state.GetState(contractAddr, lvm.StorageSlot("version"))
 		if new(big.Int).SetBytes(v[:]).Int64() != 1 {
@@ -4809,10 +4809,10 @@ func TestLuaContractDelegatecall(t *testing.T) {
 		}
 
 		// Tx 2: send 0x01 → deploy v2, write its address to proxy."impl".
-		runLuaTxWithData(t, bc, common.HexToAddress(addrA), big.NewInt(0), []byte{0x01})
+		runLvmTxWithData(t, bc, common.HexToAddress(addrA), big.NewInt(0), []byte{0x01})
 
 		// Tx 3: no data → delegate to v2 → proxy.version = 2.
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 		state, _ = bc.State()
 		v = state.GetState(contractAddr, lvm.StorageSlot("version"))
 		if new(big.Int).SetBytes(v[:]).Int64() != 2 {
@@ -4821,12 +4821,12 @@ func TestLuaContractDelegatecall(t *testing.T) {
 	})
 }
 
-// TestLuaContractAccess tests the tos.import("access") RBAC stdlib.
+// TestLvmContractAccess tests the tos.import("access") RBAC stdlib.
 //
 // The fixed tx signer (addr1) derived from key1 is the DEFAULT_ADMIN after
 // calling AC.init() — because tos.caller on the first transaction equals addr1.
-func TestLuaContractAccess(t *testing.T) {
-	// addr1 is derived from the fixed test key used by runLuaTx* helpers.
+func TestLvmContractAccess(t *testing.T) {
+	// addr1 is derived from the fixed test key used by runLvmTx* helpers.
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
@@ -4846,9 +4846,9 @@ func TestLuaContractAccess(t *testing.T) {
 			assert(AC.hasRole("DEFAULT_ADMIN", tos.caller),
 			       "caller should be DEFAULT_ADMIN after init")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		// Also verify it's reflected in raw storage.
 		state, _ := bc.State()
@@ -4865,9 +4865,9 @@ func TestLuaContractAccess(t *testing.T) {
 			assert(not AC.hasRole("MINTER", tos.caller),
 			       "caller should NOT have MINTER before grant")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("grant_role_works_for_admin", func(t *testing.T) {
@@ -4878,9 +4878,9 @@ func TestLuaContractAccess(t *testing.T) {
 			AC.grantRole("MINTER", tos.caller)
 			assert(AC.hasRole("MINTER", tos.caller), "caller should have MINTER after grant")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		slot := state.GetState(addr, hasRoleSlot(addr1, "MINTER"))
@@ -4898,9 +4898,9 @@ func TestLuaContractAccess(t *testing.T) {
 			AC.revokeRole("MINTER", tos.caller)
 			assert(not AC.hasRole("MINTER", tos.caller), "should NOT have MINTER after revoke")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		slot := state.GetState(addr, hasRoleSlot(addr1, "MINTER"))
@@ -4918,9 +4918,9 @@ func TestLuaContractAccess(t *testing.T) {
 			AC.renounceRole("OPERATOR")
 			assert(not AC.hasRole("OPERATOR", tos.caller), "should NOT have OPERATOR after renounce")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("non_admin_grant_reverts", func(t *testing.T) {
@@ -4941,14 +4941,14 @@ func TestLuaContractAccess(t *testing.T) {
 			assert(not ok, "expected non-admin grantRole to fail")
 		`, addrB)
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
 		// Step 1: addr1 calls codeB directly → AC.init() fires, addr1 = DEFAULT_ADMIN.
-		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
 
 		// Step 2: addr1 calls codeA → codeA calls codeB with 0x01 → codeB reverts.
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 	})
 
 	t.Run("role_guards_contract_function", func(t *testing.T) {
@@ -4974,22 +4974,22 @@ func TestLuaContractAccess(t *testing.T) {
 			})
 		`
 
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
 		// Tx 1: no calldata → fallback → AC.init() fires, addr1 = DEFAULT_ADMIN.
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		// Tx 2: mint() without MINTER role → must fail.
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint()"))
 
 		// Tx 3: grant_minter(addr1) → addr1 now has MINTER.
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "grant_minter(address)", "address", addr1))
 
 		// Tx 4: mint() with MINTER role → succeeds; minted = 1.
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint()"))
 
 		state, _ := bc.State()
@@ -4999,21 +4999,21 @@ func TestLuaContractAccess(t *testing.T) {
 		}
 
 		// Tx 5: revoke_minter(addr1) → addr1 loses MINTER.
-		runLuaTxWithData(t, bc, addr, big.NewInt(0),
+		runLvmTxWithData(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "revoke_minter(address)", "address", addr1))
 
 		// Tx 6: mint() again → must fail (MINTER revoked).
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0),
 			buildCalldata(t, "mint()"))
 	})
 }
 
-// TestLuaContractTimelock tests the tos.import("timelock") stdlib.
+// TestLvmContractTimelock tests the tos.import("timelock") stdlib.
 //
 // Block timestamps advance by 3 s per block (PeriodMs=3000 in the test config).
 // Tests use delay=0 (immediate) or delay=60 (needs many blocks) to cover both
 // ready and not-ready execution paths.
-func TestLuaContractTimelock(t *testing.T) {
+func TestLvmContractTimelock(t *testing.T) {
 	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 	const zero = "0x0000000000000000000000000000000000000000"
@@ -5035,14 +5035,14 @@ func TestLuaContractTimelock(t *testing.T) {
 				tos.set("done", 1)
 			end
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
 		// Tx 1: empty calldata → init + schedule.
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		// Tx 2: data=0x01 → execute.
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01})
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01})
 
 		state, _ := bc.State()
 		doneSlot := state.GetState(addr, lvm.StorageSlot("done"))
@@ -5061,9 +5061,9 @@ func TestLuaContractTimelock(t *testing.T) {
 			-- Execute immediately (same block): block.timestamp < eta → revert.
 			TL.execute(tos.ZERO_ADDRESS, 0, "0x", "s60")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTxExpectFail(t, bc, addr, big.NewInt(0))
+		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("cancel_prevents_execute", func(t *testing.T) {
@@ -5079,9 +5079,9 @@ func TestLuaContractTimelock(t *testing.T) {
 			assert(not ok, "execute after cancel should fail")
 			tos.set("verified", 1)
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		v := state.GetState(addr, lvm.StorageSlot("verified"))
@@ -5112,14 +5112,14 @@ func TestLuaContractTimelock(t *testing.T) {
 			assert(not ok, "non-admin schedule must fail")
 		`, addrA, selectorHex)
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
 		// Step 1: addr1 calls codeA directly → TL.init fires, admin = addr1.
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 
 		// Step 2: addr1 calls codeB → codeB calls codeA.try_schedule → fail.
-		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
 	})
 
 	t.Run("scheduled_call_executes_target", func(t *testing.T) {
@@ -5140,14 +5140,14 @@ func TestLuaContractTimelock(t *testing.T) {
 			end
 		`, addrB, addrB)
 
-		bc, contractAddrA, contractAddrB, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, contractAddrA, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
 		// Tx 1: schedule (data = empty → "0x").
-		runLuaTx(t, bc, contractAddrA, big.NewInt(0))
+		runLvmTx(t, bc, contractAddrA, big.NewInt(0))
 
 		// Tx 2: execute (data = 0x01, block.timestamp += 3 → eta check passes).
-		runLuaTxWithData(t, bc, contractAddrA, big.NewInt(0), []byte{0x01})
+		runLvmTxWithData(t, bc, contractAddrA, big.NewInt(0), []byte{0x01})
 
 		state, _ := bc.State()
 		triggeredSlot := state.GetState(contractAddrB, lvm.StorageSlot("triggered"))
@@ -5158,11 +5158,11 @@ func TestLuaContractTimelock(t *testing.T) {
 	})
 }
 
-// TestLuaContractPausable covers the tos.import("pausable") standard library:
+// TestLvmContractPausable covers the tos.import("pausable") standard library:
 // emergency-stop pattern with a designated pauser, Paused/Unpaused events, and
 // requireNotPaused / requirePaused guards.
-func TestLuaContractPausable(t *testing.T) {
-	// addr1 is derived from the fixed test key used by runLuaTx* helpers.
+func TestLvmContractPausable(t *testing.T) {
+	// addr1 is derived from the fixed test key used by runLvmTx* helpers.
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 
@@ -5201,9 +5201,9 @@ func TestLuaContractPausable(t *testing.T) {
 			PA.init()
 			assert(PA.pauser() == tos.caller, "pauser must be deployer")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		// Verify raw storage: __pa_admin string == addr1.Hex().
 		state, _ := bc.State()
@@ -5220,9 +5220,9 @@ func TestLuaContractPausable(t *testing.T) {
 			PA.init()
 			assert(not PA.paused(), "should start unpaused")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
 	t.Run("pause_sets_paused_flag", func(t *testing.T) {
@@ -5233,9 +5233,9 @@ func TestLuaContractPausable(t *testing.T) {
 			PA.pause()
 			assert(PA.paused(), "should be paused after pause()")
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))
+		runLvmTx(t, bc, addr, big.NewInt(0))
 
 		state, _ := bc.State()
 		flag := state.GetState(addr, lvm.StorageSlot("__pa_paused"))
@@ -5257,10 +5257,10 @@ func TestLuaContractPausable(t *testing.T) {
 				assert(not PA.paused(), "should be live after unpause()")
 			end
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))             // Tx 1: pause
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: unpause
+		runLvmTx(t, bc, addr, big.NewInt(0))             // Tx 1: pause
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: unpause
 
 		state, _ := bc.State()
 		flag := state.GetState(addr, lvm.StorageSlot("__pa_paused"))
@@ -5289,14 +5289,14 @@ func TestLuaContractPausable(t *testing.T) {
 			assert(not ok, "non-pauser pause must fail")
 		`, addrA, selectorHex)
 
-		bc, _, _, cleanup := luaTestSetup2(t, codeA, codeB)
+		bc, _, _, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
 
 		// Step 1: addr1 calls codeA directly → PA.init() fires, admin = addr1.
-		runLuaTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
 
 		// Step 2: addr1 calls codeB → codeB calls codeA.try_pause → tos.caller=codeB → fail.
-		runLuaTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
+		runLvmTx(t, bc, common.HexToAddress(addrB), big.NewInt(0))
 	})
 
 	t.Run("double_pause_reverts", func(t *testing.T) {
@@ -5311,10 +5311,10 @@ func TestLuaContractPausable(t *testing.T) {
 				PA.pause()   -- already paused → should revert tx
 			end
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLuaTx(t, bc, addr, big.NewInt(0))                                       // Tx 1: pause ok
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: double-pause reverts
+		runLvmTx(t, bc, addr, big.NewInt(0))                                       // Tx 1: pause ok
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: double-pause reverts
 	})
 
 	t.Run("require_not_paused_guards_function", func(t *testing.T) {
@@ -5338,13 +5338,13 @@ func TestLuaContractPausable(t *testing.T) {
 				tos.set("done", 1)
 			end
 		`
-		bc, addr, cleanup := luaTestSetup(t, code)
+		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
-		runLuaTx(t, bc, addr, big.NewInt(0))                                           // Tx 1: pause
-		runLuaTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: guarded fn reverts
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x02})              // Tx 3: unpause
-		runLuaTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})              // Tx 4: guarded fn succeeds
+		runLvmTx(t, bc, addr, big.NewInt(0))                                           // Tx 1: pause
+		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: guarded fn reverts
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x02})              // Tx 3: unpause
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})              // Tx 4: guarded fn succeeds
 
 		state, _ := bc.State()
 		doneSlot := state.GetState(addr, lvm.StorageSlot("done"))

@@ -26,7 +26,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/crypto"
+	lvm "github.com/tos-network/gtos/core/lvm"
 	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
@@ -50,6 +50,7 @@ type StateTransition struct {
 	state       vm.StateDB
 	blockCtx    vm.BlockContext
 	chainConfig *params.ChainConfig
+	lvm         *lvm.LVM
 }
 
 // Message represents a message sent to a contract.
@@ -143,6 +144,8 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 
 // NewStateTransition initialises and returns a new state transition object.
 func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) *StateTransition {
+	txCtx := lvm.TxContext{Origin: msg.From(), GasPrice: msg.TxPrice()}
+	l := lvm.NewLVM(blockCtx, txCtx, statedb, chainConfig)
 	return &StateTransition{
 		gp:          gp,
 		msg:         msg,
@@ -154,6 +157,7 @@ func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfi
 		state:       statedb,
 		blockCtx:    blockCtx,
 		chainConfig: chainConfig,
+		lvm:         l,
 	}
 }
 
@@ -220,7 +224,7 @@ func (st *StateTransition) preCheck() error {
 // TransitionDb transitions the state by applying the current message.
 //
 // GTOS transaction rules:
-//  1. Contract creation branch (To == nil): standard CREATE — derive address, collision-check,
+//  1. LVM contract deployment (To == nil): standard CREATE — derive address, collision-check,
 //     charge 200 gas/byte for code storage, set code at the new address.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. KV router address (params.KVRouterAddress): parse tx.Data and apply KV put directly
@@ -253,7 +257,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		vmerr = st.applyCreate()
+		_, st.gas, vmerr = st.lvm.Create(msg.From(), st.data, st.gas, msg.Value(), st.msg.Nonce())
+		if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
+			vmerr = ErrIntrinsicGas
+		}
 	} else {
 		toAddr := st.to()
 
@@ -282,8 +289,13 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				// Data with no contract code at destination: reject
 				vmerr = ErrContractNotSupported
 			} else if len(toCode) > 0 {
-				// Destination has Lua contract code: execute it.
-				vmerr = st.applyLua(toCode)
+				// Destination has LVM contract code: execute it.
+				var ret []byte
+				ret, st.gas, vmerr = st.lvm.Call(msg.From(), toAddr, msg.Data(), st.gas, msg.Value())
+				_ = ret
+				if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
+					vmerr = ErrIntrinsicGas
+				}
 			} else {
 				// Plain TOS transfer
 				if msg.Value().Sign() > 0 {
@@ -317,47 +329,6 @@ func stateWordToUint64(h common.Hash) uint64 {
 	return new(big.Int).SetBytes(h.Bytes()).Uint64()
 }
 
-// applyCreate implements standard Ethereum CREATE semantics for Lua contract deployment.
-// The transaction data is stored as the contract code at the derived address.
-// No initcode execution occurs; tos.oncreate() runs on the first call instead.
-func (st *StateTransition) applyCreate() error {
-	// Derive contract address from sender and nonce (pre-increment nonce was already applied).
-	contractAddr := crypto.CreateAddress(st.msg.From(), st.msg.Nonce()-1)
-
-	// Collision check.
-	codeHash := st.state.GetCodeHash(contractAddr)
-	if st.state.GetNonce(contractAddr) != 0 ||
-		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
-		return vm.ErrContractAddressCollision
-	}
-
-	// Code size limit.
-	if len(st.data) > int(params.MaxCodeSize) {
-		return vm.ErrMaxCodeSizeExceeded
-	}
-
-	// Code storage gas: 200 gas/byte (EIP-158 standard).
-	const createDataGas = uint64(200)
-	codeGas := uint64(len(st.data)) * createDataGas
-	if st.gas < codeGas {
-		return ErrIntrinsicGas
-	}
-	st.gas -= codeGas
-
-	// Optional value transfer to the new contract.
-	if v := st.msg.Value(); v != nil && v.Sign() > 0 {
-		if !st.blockCtx.CanTransfer(st.state, st.msg.From(), v) {
-			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, st.msg.From().Hex())
-		}
-		st.blockCtx.Transfer(st.state, st.msg.From(), contractAddr, v)
-	}
-
-	// Create account, set nonce to 1 (EIP-158), store code.
-	st.state.CreateAccount(contractAddr)
-	st.state.SetNonce(contractAddr, 1)
-	st.state.SetCode(contractAddr, st.data)
-	return nil
-}
 
 func (st *StateTransition) applyKVPut(msg Message) error {
 	if msg.Value() != nil && msg.Value().Sign() != 0 {

@@ -11,7 +11,7 @@ import (
 )
 
 // writeBufSnapshot is a point-in-time copy of all overlay maps, used to
-// support Snapshot/RevertToSnapshot for Lua contract execution.
+// support Snapshot/RevertToSnapshot for LVM contract execution.
 type writeBufSnapshot struct {
 	balances map[common.Address]*big.Int
 	nonces   map[common.Address]uint64
@@ -218,8 +218,8 @@ func (b *WriteBufStateDB) SubRefund(_ uint64)                   {}
 func (b *WriteBufStateDB) GetRefund() uint64                    { return 0 }
 func (b *WriteBufStateDB) AddPreimage(_ common.Hash, _ []byte)  {}
 // Snapshot captures a deep copy of the current overlay state and returns an
-// opaque ID that can be passed to RevertToSnapshot. Used by applyLua to undo
-// state changes when a Lua contract reverts.
+// opaque ID that can be passed to RevertToSnapshot. Used by lvm.Call to undo
+// state changes when an LVM contract reverts.
 func (b *WriteBufStateDB) Snapshot() int {
 	snap := writeBufSnapshot{
 		balances: make(map[common.Address]*big.Int, len(b.balances)),
