@@ -1,6 +1,6 @@
 package core
 
-import lua "github.com/tos-network/glua"
+import lua "github.com/tos-network/tolang"
 
 // luaBuiltinModules maps module names to pre-compiled bytecode.
 // Compiled once at package init from the Lua source constants below.

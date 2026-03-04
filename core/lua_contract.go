@@ -9,7 +9,7 @@ import (
 	"math/big"
 	"strings"
 
-	lua "github.com/tos-network/glua"
+	lua "github.com/tos-network/tolang"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
@@ -68,12 +68,12 @@ type luaCallCtx struct {
 }
 
 // luaParseBigInt extracts a non-negative *big.Int from Lua argument n.
-// Accepts LNumber or LString. Raises a Lua error on bad input.
+// Accepts LUint256 or LString. Raises a Lua error on bad input.
 func luaParseBigInt(L *lua.LState, n int) *big.Int {
 	var s string
 	switch v := L.CheckAny(n).(type) {
-	case lua.LNumber:
-		s = string(v)
+	case lua.LUint256:
+		s = v.String()
 	case lua.LString:
 		s = string(v)
 	default:
@@ -89,12 +89,12 @@ func luaParseBigInt(L *lua.LState, n int) *big.Int {
 }
 
 // luaParseUint256Value parses an LValue as a non-negative uint256 integer.
-// Accepts LNumber or numeric LString.
+// Accepts LUint256 or numeric LString.
 func luaParseUint256Value(v lua.LValue) (*big.Int, error) {
 	var s string
 	switch x := v.(type) {
-	case lua.LNumber:
-		s = string(x)
+	case lua.LUint256:
+		s = x.String()
 	case lua.LString:
 		s = string(x)
 	default:
@@ -258,12 +258,12 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 1
 		}
 		n := new(big.Int).SetBytes(val[:])
-		L.Push(lua.LNumber(n.Text(10)))
+		L.Push(luBig(n))
 		return 1
 	}))
 
 	// tos.set(key, value)
-	//   Stores a uint256 value (LNumber or numeric string) in contract storage.
+	//   Stores a uint256 value (LUint256 or numeric string) in contract storage.
 	L.SetField(tosTable, "set", L.NewFunction(func(L *lua.LState) int {
 		if ctx.readonly {
 			L.RaiseError("tos.set: state modification not allowed in staticcall")
@@ -273,8 +273,8 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		key := L.CheckString(1)
 		var numStr string
 		switch v := L.CheckAny(2).(type) {
-		case lua.LNumber:
-			numStr = string(v)
+		case lua.LUint256:
+			numStr = v.String()
 		case lua.LString:
 			numStr = string(v)
 		default:
@@ -299,9 +299,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 		chargePrimGas(luaGasTransfer)
 		addrHex := L.CheckString(1)
-		amountNum := L.CheckNumber(2)
+		amountNum := L.CheckUint256(2)
 		to := common.HexToAddress(addrHex)
-		amount, ok := new(big.Int).SetString(string(amountNum), 10)
+		amount, ok := new(big.Int).SetString(amountNum.String(), 10)
 		if !ok || amount.Sign() < 0 {
 			L.RaiseError("tos.transfer: invalid amount")
 		}
@@ -328,9 +328,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 1
 		}
 		addrHex := L.CheckString(1)
-		amountNum := L.CheckNumber(2)
+		amountNum := L.CheckUint256(2)
 		to := common.HexToAddress(addrHex)
-		amount, ok := new(big.Int).SetString(string(amountNum), 10)
+		amount, ok := new(big.Int).SetString(amountNum.String(), 10)
 		if !ok || amount.Sign() < 0 {
 			L.Push(lua.LFalse)
 			return 1
@@ -352,9 +352,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		addr := common.HexToAddress(addrHex)
 		bal := st.state.GetBalance(addr)
 		if bal == nil {
-			L.Push(lua.LNumber("0"))
+			L.Push(lua.LUint256Zero)
 		} else {
-			L.Push(lua.LNumber(bal.Text(10)))
+			L.Push(luBig(bal))
 		}
 		return 1
 	}))
@@ -371,23 +371,23 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	{
 		v := ctx.value
 		if v == nil || v.Sign() == 0 {
-			L.SetField(tosTable, "value", lua.LNumber("0"))
+			L.SetField(tosTable, "value", lua.LUint256Zero)
 		} else {
-			L.SetField(tosTable, "value", lua.LNumber(v.Text(10)))
+			L.SetField(tosTable, "value", luBig(v))
 		}
 	}
 
 	// tos.block  (sub-table — static block context values)
 	blockTable := L.NewTable()
-	L.SetField(blockTable, "number", lua.LNumber(st.blockCtx.BlockNumber.Text(10)))
-	L.SetField(blockTable, "timestamp", lua.LNumber(st.blockCtx.Time.Text(10)))
+	L.SetField(blockTable, "number", luBig(st.blockCtx.BlockNumber))
+	L.SetField(blockTable, "timestamp", luBig(st.blockCtx.Time))
 	L.SetField(blockTable, "coinbase", lua.LString(st.blockCtx.Coinbase.Hex()))
-	L.SetField(blockTable, "chainid", lua.LNumber(st.chainConfig.ChainID.Text(10)))
-	L.SetField(blockTable, "gaslimit", lua.LNumber(new(big.Int).SetUint64(st.blockCtx.GasLimit).Text(10)))
+	L.SetField(blockTable, "chainid", luBig(st.chainConfig.ChainID))
+	L.SetField(blockTable, "gaslimit", lua.Lu256FromUint64(st.blockCtx.GasLimit))
 	if st.blockCtx.BaseFee != nil {
-		L.SetField(blockTable, "basefee", lua.LNumber(st.blockCtx.BaseFee.Text(10)))
+		L.SetField(blockTable, "basefee", luBig(st.blockCtx.BaseFee))
 	} else {
-		L.SetField(blockTable, "basefee", lua.LNumber("0"))
+		L.SetField(blockTable, "basefee", lua.LUint256Zero)
 	}
 	L.SetField(tosTable, "block", blockTable)
 
@@ -395,9 +395,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	txTable := L.NewTable()
 	L.SetField(txTable, "origin", lua.LString(ctx.txOrigin.Hex()))
 	if ctx.txPrice != nil {
-		L.SetField(txTable, "gasprice", lua.LNumber(ctx.txPrice.Text(10)))
+		L.SetField(txTable, "gasprice", luBig(ctx.txPrice))
 	} else {
-		L.SetField(txTable, "gasprice", lua.LNumber("0"))
+		L.SetField(txTable, "gasprice", lua.LUint256Zero)
 	}
 	L.SetField(tosTable, "tx", txTable)
 
@@ -411,9 +411,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	{
 		v := ctx.value
 		if v == nil || v.Sign() == 0 {
-			L.SetField(msgTable, "value", lua.LNumber("0"))
+			L.SetField(msgTable, "value", lua.LUint256Zero)
 		} else {
-			L.SetField(msgTable, "value", lua.LNumber(v.Text(10)))
+			L.SetField(msgTable, "value", luBig(v))
 		}
 	}
 	{
@@ -507,7 +507,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		if used < gasLimit {
 			remaining = gasLimit - used
 		}
-		L.Push(lua.LNumber(new(big.Int).SetUint64(remaining).Text(10)))
+		L.Push(lua.Lu256FromUint64(remaining))
 		return 1
 	}))
 
@@ -691,7 +691,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	//   but explicit and safe for binary data.
 	L.SetField(bytesTable, "len", L.NewFunction(func(L *lua.LState) int {
 		s := L.CheckString(1)
-		L.Push(lua.LNumber(new(big.Int).SetInt64(int64(len(s))).Text(10)))
+		L.Push(lua.Lu256FromUint64(uint64(len(s))))
 		return 1
 	}))
 
@@ -773,7 +773,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			return 0
 		}
 		n := new(big.Int).SetBytes(b)
-		L.Push(lua.LNumber(n.Text(10)))
+		L.Push(luBig(n))
 		return 1
 	}))
 
@@ -789,7 +789,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 		result := new(big.Int).Add(x, y)
 		result.Mod(result, k)
-		L.Push(lua.LNumber(result.Text(10)))
+		L.Push(luBig(result))
 		return 1
 	}))
 
@@ -803,7 +803,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		}
 		result := new(big.Int).Mul(x, y)
 		result.Mod(result, k)
-		L.Push(lua.LNumber(result.Text(10)))
+		L.Push(luBig(result))
 		return 1
 	}))
 
@@ -840,7 +840,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 	//   allow[owner][spender] = tos.MAX_UINT256  -- unlimited approval
 	{
 		max := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
-		L.SetField(tosTable, "MAX_UINT256", lua.LNumber(max.Text(10)))
+		L.SetField(tosTable, "MAX_UINT256", luBig(max))
 	}
 
 	// tos.isAddress(str) → bool
@@ -922,7 +922,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		base := luaArrLenSlot(key)
 		raw := st.state.GetState(contractAddr, base)
 		n := new(big.Int).SetBytes(raw[:])
-		L.Push(lua.LNumber(n.Text(10)))
+		L.Push(luBig(n))
 		return 1
 	}))
 
@@ -947,7 +947,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		elemSlot := luaArrElemSlot(base, i0)
 		val := st.state.GetState(contractAddr, elemSlot)
 		n := new(big.Int).SetBytes(val[:])
-		L.Push(lua.LNumber(n.Text(10)))
+		L.Push(luBig(n))
 		return 1
 	}))
 
@@ -1023,7 +1023,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 		new(big.Int).SetUint64(lastIdx).FillBytes(lenSlot[:])
 		st.state.SetState(contractAddr, base, lenSlot)
 
-		L.Push(lua.LNumber(n.Text(10)))
+		L.Push(luBig(n))
 		return 1
 	}))
 
@@ -1119,9 +1119,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				return lua.LBool(raw[31] != 0)
 			default: // uint256
 				if raw == (common.Hash{}) {
-					return lua.LNumber("0")
+					return lua.LUint256Zero
 				}
-				return lua.LNumber(new(big.Int).SetBytes(raw[:]).Text(10))
+				return luBig(new(big.Int).SetBytes(raw[:]))
 			}
 		}
 
@@ -1250,7 +1250,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				return 1
 			}
 			n := new(big.Int).SetBytes(val[:])
-			L.Push(lua.LNumber(n.Text(10)))
+			L.Push(luBig(n))
 			return 1
 		}))
 
@@ -1282,7 +1282,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			base := luaArrLenSlot(key)
 			raw := st.state.GetState(target, base)
 			n := new(big.Int).SetBytes(raw[:])
-			L.Push(lua.LNumber(n.Text(10)))
+			L.Push(luBig(n))
 			return 1
 		}))
 
@@ -1306,7 +1306,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			elemSlot := luaArrElemSlot(base, i0)
 			val := st.state.GetState(target, elemSlot)
 			n := new(big.Int).SetBytes(val[:])
-			L.Push(lua.LNumber(n.Text(10)))
+			L.Push(luBig(n))
 			return 1
 		}))
 
@@ -1314,9 +1314,9 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			chargePrimGas(luaGasBalance)
 			bal := st.state.GetBalance(target)
 			if bal == nil {
-				L.Push(lua.LNumber("0"))
+				L.Push(lua.LUint256Zero)
 			} else {
-				L.Push(lua.LNumber(bal.Text(10)))
+				L.Push(luBig(bal))
 			}
 			return 1
 		}))
@@ -1338,7 +1338,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				L.Push(lua.LNil)
 				return 1
 			}
-			L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+			L.Push(luBig(new(big.Int).SetBytes(val[:])))
 			return 1
 		}))
 
@@ -1385,7 +1385,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				if val == (common.Hash{}) {
 					L.Push(lua.LNil)
 				} else {
-					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+					L.Push(luBig(new(big.Int).SetBytes(val[:])))
 				}
 				return 1
 			}))
@@ -2394,7 +2394,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 			L.Push(lua.LNil)
 			return 1
 		}
-		L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+		L.Push(luBig(new(big.Int).SetBytes(val[:])))
 		return 1
 	}))
 
@@ -2538,7 +2538,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				if val == (common.Hash{}) {
 					L.Push(lua.LNil)
 				} else {
-					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+					L.Push(luBig(new(big.Int).SetBytes(val[:])))
 				}
 				return 1
 			}))
@@ -2573,7 +2573,7 @@ func executeLuaVM(st *StateTransition, ctx luaCallCtx, src []byte, gasLimit uint
 				if val == (common.Hash{}) {
 					L.Push(lua.LNil)
 				} else {
-					L.Push(lua.LNumber(new(big.Int).SetBytes(val[:]).Text(10)))
+					L.Push(luBig(new(big.Int).SetBytes(val[:])))
 				}
 				return 1
 			}))

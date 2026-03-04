@@ -9,9 +9,7 @@ import (
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
-	"github.com/tos-network/gtos/core"
 	coreuno "github.com/tos-network/gtos/core/uno"
-	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 )
 
@@ -395,87 +393,6 @@ func TestUNOUnshieldValidation(t *testing.T) {
 	rpcErr, ok = err.(*rpcAPIError)
 	if !ok || rpcErr.code != rpcErrNotImplemented {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestSetCodeValidation(t *testing.T) {
-	api := &TOSAPI{}
-	var err error
-
-	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
-		Code: hexutil.Bytes{0x60, 0x00},
-		TTL:  1,
-	})
-	if err == nil {
-		t.Fatalf("expected invalid params error for from")
-	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
-	}
-
-	_, err = api.SetCode(context.Background(), RPCSetCodeArgs{
-		RPCTxCommonArgs: RPCTxCommonArgs{From: common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")},
-		Code:            hexutil.Bytes{0x60, 0x00},
-		TTL:             0,
-	})
-	if err == nil {
-		t.Fatalf("expected invalid ttl error")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidTTL {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
-	}
-}
-
-func TestEstimateSetCodeGasValidation(t *testing.T) {
-	api := &TOSAPI{}
-
-	_, err := api.EstimateSetCodeGas(hexutil.Bytes{0x60, 0x00}, 0)
-	if err == nil {
-		t.Fatalf("expected invalid ttl error")
-	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidTTL {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidTTL)
-	}
-
-	oversized := make(hexutil.Bytes, int(params.MaxCodeSize)+1)
-	_, err = api.EstimateSetCodeGas(oversized, 1)
-	if err == nil {
-		t.Fatalf("expected oversized code error")
-	}
-	rpcErr, ok = err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrCodeTooLarge {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrCodeTooLarge)
-	}
-
-	gas, err := api.EstimateSetCodeGas(hexutil.Bytes{0x00, 0x01}, 1)
-	if err != nil {
-		t.Fatalf("unexpected estimate error: %v", err)
-	}
-	payload, err := core.EncodeSetCodePayload(1, hexutil.Bytes{0x00, 0x01})
-	if err != nil {
-		t.Fatalf("unexpected payload encode error: %v", err)
-	}
-	want, err := core.EstimateSetCodePayloadGas(payload, 1)
-	if err != nil {
-		t.Fatalf("unexpected intrinsic gas error: %v", err)
-	}
-	if uint64(gas) != want {
-		t.Fatalf("unexpected estimated gas %d, want %d", gas, want)
 	}
 }
 

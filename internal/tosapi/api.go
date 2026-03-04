@@ -874,37 +874,8 @@ func (s *BlockChainAPI) GetCode(ctx context.Context, address common.Address, blo
 	if state == nil || header == nil || err != nil {
 		return nil, err
 	}
-	expireAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeExpireAtSlot).Bytes()).Uint64()
-	if expireAt != 0 && header.Number != nil && header.Number.Uint64() >= expireAt {
-		return hexutil.Bytes{}, state.Error()
-	}
 	code := state.GetCode(address)
 	return code, state.Error()
-}
-
-// GetCodeMeta returns code TTL metadata at the given address and block context.
-func (s *BlockChainAPI) GetCodeMeta(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*RPCCodeMetaResult, error) {
-	if err := enforceHistoryRetentionByBlockArg(s.b, blockNrOrHash); err != nil {
-		return nil, err
-	}
-	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
-	if state == nil || header == nil || err != nil {
-		return nil, err
-	}
-	createdAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeCreatedAtSlot).Bytes()).Uint64()
-	expireAt := new(big.Int).SetBytes(state.GetState(address, core.SetCodeExpireAtSlot).Bytes()).Uint64()
-	code := state.GetCode(address)
-	if len(code) == 0 && createdAt == 0 && expireAt == 0 {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "code not found"}
-	}
-	expired := expireAt != 0 && header.Number != nil && header.Number.Uint64() >= expireAt
-	return &RPCCodeMetaResult{
-		Address:   address,
-		CodeHash:  state.GetCodeHash(address),
-		CreatedAt: hexutil.Uint64(createdAt),
-		ExpireAt:  hexutil.Uint64(expireAt),
-		Expired:   expired,
-	}, state.Error()
 }
 
 // GetStorageAt returns the storage from the state at the given address, key and
@@ -1532,7 +1503,7 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 	from := rpcTxFrom(signer, tx)
 
 	if tx.To() == nil {
-		log.Info("Submitted setCode transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "value", tx.Value())
+		log.Info("Submitted contract creation", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "value", tx.Value())
 	} else {
 		log.Info("Submitted transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "recipient", tx.To(), "value", tx.Value())
 	}
@@ -1987,20 +1958,6 @@ type RPCSetSignerArgs struct {
 type RPCBuildTxResult struct {
 	Tx  map[string]interface{} `json:"tx"`
 	Raw hexutil.Bytes          `json:"raw"`
-}
-
-type RPCSetCodeArgs struct {
-	RPCTxCommonArgs
-	Code hexutil.Bytes  `json:"code"`
-	TTL  hexutil.Uint64 `json:"ttl"`
-}
-
-type RPCCodeMetaResult struct {
-	Address   common.Address `json:"address"`
-	CodeHash  common.Hash    `json:"codeHash"`
-	CreatedAt hexutil.Uint64 `json:"createdAt"`
-	ExpireAt  hexutil.Uint64 `json:"expireAt"`
-	Expired   bool           `json:"expired"`
 }
 
 type RPCPutKVArgs struct {
@@ -2469,93 +2426,6 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 		},
 		Raw: raw,
 	}, nil
-}
-
-func (s *TOSAPI) EstimateSetCodeGas(code hexutil.Bytes, ttl hexutil.Uint64) (hexutil.Uint64, error) {
-	if _, _, err := validateAndComputeExpireBlock(ttl, s.currentHead()); err != nil {
-		return 0, err
-	}
-	if len(code) > int(params.MaxCodeSize) {
-		return 0, &rpcAPIError{
-			code:    rpcErrCodeTooLarge,
-			message: "code size exceeds limit",
-			data: map[string]interface{}{
-				"maxCodeSize": params.MaxCodeSize,
-				"got":         len(code),
-			},
-		}
-	}
-	payload, err := core.EncodeSetCodePayload(uint64(ttl), code)
-	if err != nil {
-		return 0, newRPCInvalidParamsError("ttl", "invalid setCode payload")
-	}
-	gas, err := core.EstimateSetCodePayloadGas(payload, uint64(ttl))
-	if err != nil {
-		return 0, err
-	}
-	return hexutil.Uint64(gas), nil
-}
-
-func (s *TOSAPI) SetCode(ctx context.Context, args RPCSetCodeArgs) (common.Hash, error) {
-	if args.From == (common.Address{}) {
-		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
-	}
-	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
-		return common.Hash{}, err
-	}
-	if len(args.Code) > int(params.MaxCodeSize) {
-		return common.Hash{}, &rpcAPIError{
-			code:    rpcErrCodeTooLarge,
-			message: "code size exceeds limit",
-			data: map[string]interface{}{
-				"maxCodeSize": params.MaxCodeSize,
-				"got":         len(args.Code),
-			},
-		}
-	}
-	// Keep validation-only behavior for tests or dry skeleton instances.
-	if s == nil || s.b == nil {
-		return common.Hash{}, newRPCNotImplementedError("tos_setCode")
-	}
-	payload, err := core.EncodeSetCodePayload(uint64(args.TTL), args.Code)
-	if err != nil {
-		return common.Hash{}, newRPCInvalidParamsError("ttl", "invalid setCode payload")
-	}
-	// Build a creation-style transaction (to=nil), reserved by GTOS for setCode payload.
-	input := hexutil.Bytes(payload)
-	from := args.From
-	zero := hexutil.Big{}
-	txArgs := TransactionArgs{
-		From:  &from,
-		To:    nil,
-		Gas:   args.Gas,
-		Value: &zero,
-		Nonce: args.Nonce,
-		Input: &input,
-		// Internal-only bypass: tos_setCode is the only RPC that may build to=nil tx.
-		allowSetCodeCreation: true,
-	}
-	if txArgs.Gas == nil {
-		intrinsic, gasErr := core.EstimateSetCodePayloadGas(payload, uint64(args.TTL))
-		if gasErr != nil {
-			return common.Hash{}, gasErr
-		}
-		gas := hexutil.Uint64(intrinsic)
-		txArgs.Gas = &gas
-	}
-	if err := txArgs.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	return SubmitTransaction(ctx, s.b, signed)
 }
 
 func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, error) {

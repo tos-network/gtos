@@ -185,26 +185,23 @@ func TestEstimateStorageFirstGas(t *testing.T) {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
 	}
 
-	setCodePayloadBytes, err := core.EncodeSetCodePayload(3, []byte{0x60, 0x00})
-	if err != nil {
-		t.Fatalf("encode setCode payload: %v", err)
-	}
-	setCodePayload := hexutil.Bytes(setCodePayloadBytes)
-	setCodeGas, err := estimateStorageFirstGas(TransactionArgs{
-		From:                 &from,
-		To:                   nil,
-		Input:                &setCodePayload,
-		allowSetCodeCreation: true,
+	// Contract creation (to=nil): standard CREATE gas = intrinsic + 200 gas/byte.
+	luaCode := hexutil.Bytes{0x60, 0x00, 0x60, 0x01}
+	createGas, err := estimateStorageFirstGas(TransactionArgs{
+		From:  &from,
+		To:    nil,
+		Input: &luaCode,
 	})
 	if err != nil {
-		t.Fatalf("setCode gas estimate failed: %v", err)
+		t.Fatalf("create gas estimate failed: %v", err)
 	}
-	wantSetCode, err := core.EstimateSetCodePayloadGas(setCodePayloadBytes, 3)
+	wantIntrinsic, err := core.IntrinsicGas(luaCode, nil, true, true, true)
 	if err != nil {
-		t.Fatalf("setCode intrinsic helper failed: %v", err)
+		t.Fatalf("intrinsic gas failed: %v", err)
 	}
-	if uint64(setCodeGas) != wantSetCode {
-		t.Fatalf("unexpected setCode gas: have %d want %d", setCodeGas, wantSetCode)
+	wantCreate := wantIntrinsic + uint64(len(luaCode))*200
+	if uint64(createGas) != wantCreate {
+		t.Fatalf("unexpected create gas: have %d want %d", createGas, wantCreate)
 	}
 }
 

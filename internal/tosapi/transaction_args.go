@@ -40,9 +40,6 @@ type TransactionArgs struct {
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	SignerType *string           `json:"signerType,omitempty"`
 
-	// Internal control flag (not exposed via JSON-RPC):
-	// allow to=nil only for tos_setCode-owned construction path.
-	allowSetCodeCreation bool
 }
 
 // from retrieves the transaction sender address.
@@ -83,11 +80,8 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		return errors.New(`both "data" and "input" are set and not equal. Please use "input" to pass transaction call data`)
 	}
 	if args.To == nil {
-		if !args.allowSetCodeCreation {
-			return errors.New(`to=nil is reserved for tos_setCode; use tos_setCode instead`)
-		}
 		if len(args.data()) == 0 {
-			return errors.New(`setCode requires non-empty input data`)
+			return errors.New(`contract creation requires non-empty input data`)
 		}
 	}
 	// Estimate the gas usage if necessary.
@@ -103,7 +97,6 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 			Value:                args.Value,
 			Data:                 (*hexutil.Bytes)(&data),
 			AccessList:           args.AccessList,
-			allowSetCodeCreation: args.allowSetCodeCreation,
 		}
 		estimated, err := estimateStorageFirstGas(callArgs)
 		if err != nil {
@@ -143,18 +136,16 @@ func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
 		accessList = *args.AccessList
 	}
 	if args.To == nil {
-		if !args.allowSetCodeCreation {
-			return 0, newRPCInvalidParamsError("to", "to=nil is reserved for tos_setCode")
-		}
-		payload, err := core.DecodeSetCodePayload(data)
-		if err != nil {
-			return 0, newRPCInvalidParamsError("input", "invalid setCode payload")
-		}
-		gas, err := core.EstimateSetCodePayloadGas(data, payload.TTL)
+		// Standard CREATE: intrinsic gas + 200 gas/byte for code storage.
+		intrinsic, err := core.IntrinsicGas(data, accessList, true, true, true)
 		if err != nil {
 			return 0, err
 		}
-		return hexutil.Uint64(gas), nil
+		codeGas := uint64(len(data)) * 200
+		if intrinsic > ^uint64(0)-codeGas {
+			return 0, core.ErrGasUintOverflow
+		}
+		return hexutil.Uint64(intrinsic + codeGas), nil
 	}
 	to := *args.To
 	if to == params.SystemActionAddress {

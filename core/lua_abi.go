@@ -21,7 +21,7 @@ import (
 
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
-	lua "github.com/tos-network/glua"
+	lua "github.com/tos-network/tolang"
 )
 
 // ── Lua ↔ Go value conversion ─────────────────────────────────────────────────
@@ -41,8 +41,8 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 	case abi.UintTy, abi.IntTy:
 		var s string
 		switch u := val.(type) {
-		case lua.LNumber:
-			s = string(u)
+		case lua.LUint256:
+			s = u.String()
 		case lua.LString:
 			s = string(u)
 		default:
@@ -92,8 +92,8 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 		switch u := val.(type) {
 		case lua.LBool:
 			return bool(u), nil
-		case lua.LNumber:
-			return string(u) != "0", nil
+		case lua.LUint256:
+			return u.String() != "0", nil
 		default:
 			return nil, fmt.Errorf("bool: expected boolean or number, got %T", val)
 		}
@@ -159,37 +159,43 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 // uint256Mod = 2^256, used for signed→uint256 sign-extension.
 var uint256Mod = new(big.Int).Lsh(big.NewInt(1), 256)
 
-// signedToLNumber converts a signed integer value to LNumber using two's
-// complement uint256 representation, consistent with the Lua VM's own unary
-// minus semantics (-1 == 2^256-1).
-func signedToLNumber(n *big.Int) lua.LNumber {
+// luBig converts a *big.Int to LUint256 via its decimal string representation.
+// It is the package-level shorthand used throughout the Lua contract bindings.
+func luBig(n *big.Int) lua.LUint256 {
+	return lua.LVAsUint256(lua.LString(n.Text(10)))
+}
+
+// bigIntToLU256 converts a *big.Int to LUint256 via its decimal string.
+// Negative values are sign-extended to two's complement uint256 (e.g. -1 → 2^256-1),
+// consistent with the Lua VM's own unary-minus semantics.
+func bigIntToLU256(n *big.Int) lua.LUint256 {
 	if n.Sign() < 0 {
 		n = new(big.Int).Add(n, uint256Mod)
 	}
-	return lua.LNumber(n.Text(10))
+	return lua.LVAsUint256(lua.LString(n.Text(10)))
 }
 
 // abiGoToLua converts a Go value returned by accounts/abi Unpack to a Lua value.
 //
 // Signed integer types (intN) are returned as their two's complement uint256
-// representation so they are valid LNumber values in the Lua VM:
+// representation so they are valid LUint256 values in the Lua VM:
 //
-//	int8(-1)   → LNumber("2^256-1")   — matches Lua's own -1 literal
-//	int8(-128) → LNumber("2^256-128")
+//	int8(-1)   → LUint256(2^256-1)   — matches Lua's own -1 literal
+//	int8(-128) → LUint256(2^256-128)
 func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 	switch typ.T {
 	case abi.UintTy:
 		switch v := val.(type) {
 		case uint8:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return lua.Lu256FromUint64(uint64(v)), nil
 		case uint16:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return lua.Lu256FromUint64(uint64(v)), nil
 		case uint32:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return lua.Lu256FromUint64(uint64(v)), nil
 		case uint64:
-			return lua.LNumber(fmt.Sprintf("%d", v)), nil
+			return lua.Lu256FromUint64(v), nil
 		case *big.Int:
-			return lua.LNumber(v.Text(10)), nil
+			return lua.LVAsUint256(lua.LString(v.Text(10))), nil
 		default:
 			return nil, fmt.Errorf("unexpected Go uint type %T", val)
 		}
@@ -197,15 +203,15 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 	case abi.IntTy:
 		switch v := val.(type) {
 		case int8:
-			return signedToLNumber(big.NewInt(int64(v))), nil
+			return bigIntToLU256(big.NewInt(int64(v))), nil
 		case int16:
-			return signedToLNumber(big.NewInt(int64(v))), nil
+			return bigIntToLU256(big.NewInt(int64(v))), nil
 		case int32:
-			return signedToLNumber(big.NewInt(int64(v))), nil
+			return bigIntToLU256(big.NewInt(int64(v))), nil
 		case int64:
-			return signedToLNumber(big.NewInt(v)), nil
+			return bigIntToLU256(big.NewInt(v)), nil
 		case *big.Int:
-			return signedToLNumber(new(big.Int).Set(v)), nil
+			return bigIntToLU256(new(big.Int).Set(v)), nil
 		default:
 			return nil, fmt.Errorf("unexpected Go int type %T", val)
 		}
@@ -446,8 +452,8 @@ func abiPackedOne(typ abi.Type, val lua.LValue) ([]byte, error) {
 	case abi.UintTy, abi.IntTy:
 		var s string
 		switch u := val.(type) {
-		case lua.LNumber:
-			s = string(u)
+		case lua.LUint256:
+			s = u.String()
 		case lua.LString:
 			s = string(u)
 		default:
@@ -485,8 +491,8 @@ func abiPackedOne(typ abi.Type, val lua.LValue) ([]byte, error) {
 				return []byte{1}, nil
 			}
 			return []byte{0}, nil
-		case lua.LNumber:
-			if string(u) != "0" {
+		case lua.LUint256:
+			if u.String() != "0" {
 				return []byte{1}, nil
 			}
 			return []byte{0}, nil

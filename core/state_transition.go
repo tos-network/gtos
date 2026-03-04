@@ -26,6 +26,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
@@ -102,8 +103,6 @@ func (result *ExecutionResult) Revert() []byte {
 // ErrContractNotSupported is returned when a transaction attempts to deploy or
 // call a smart contract, which is not supported in GTOS.
 var ErrContractNotSupported = errors.New("smart contract execution not supported in GTOS")
-
-var ErrCodeAlreadyActive = errors.New("active code already exists")
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
 func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isReducedDataGas bool) (uint64, error) {
@@ -207,7 +206,7 @@ func (st *StateTransition) preCheck() error {
 				st.msg.From().Hex(), stNonce)
 		}
 		// Sender must be an EOA for non-creation transactions.
-		// The to==nil path is reserved for setCode payload transactions.
+		// Contract creation (to==nil) does not require an EOA sender.
 		if st.msg.To() != nil {
 			if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
 				return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
@@ -221,7 +220,8 @@ func (st *StateTransition) preCheck() error {
 // TransitionDb transitions the state by applying the current message.
 //
 // GTOS transaction rules:
-//  1. Contract creation branch (To == nil): reserved for setCode payload transaction.
+//  1. Contract creation branch (To == nil): standard CREATE — derive address, collision-check,
+//     charge 200 gas/byte for code storage, set code at the new address.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. KV router address (params.KVRouterAddress): parse tx.Data and apply KV put directly
 //  4. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
@@ -253,7 +253,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		vmerr = st.applySetCode(msg)
+		vmerr = st.applyCreate()
 	} else {
 		toAddr := st.to()
 
@@ -317,38 +317,45 @@ func stateWordToUint64(h common.Hash) uint64 {
 	return new(big.Int).SetBytes(h.Bytes()).Uint64()
 }
 
-func (st *StateTransition) applySetCode(msg Message) error {
-	if msg.Value() != nil && msg.Value().Sign() != 0 {
-		return ErrContractNotSupported
+// applyCreate implements standard Ethereum CREATE semantics for Lua contract deployment.
+// The transaction data is stored as the contract code at the derived address.
+// No initcode execution occurs; tos.oncreate() runs on the first call instead.
+func (st *StateTransition) applyCreate() error {
+	// Derive contract address from sender and nonce (pre-increment nonce was already applied).
+	contractAddr := crypto.CreateAddress(st.msg.From(), st.msg.Nonce()-1)
+
+	// Collision check.
+	codeHash := st.state.GetCodeHash(contractAddr)
+	if st.state.GetNonce(contractAddr) != 0 ||
+		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
+		return vm.ErrContractAddressCollision
 	}
-	payload, err := DecodeSetCodePayload(st.data)
-	if err != nil {
-		return ErrContractNotSupported
+
+	// Code size limit.
+	if len(st.data) > int(params.MaxCodeSize) {
+		return vm.ErrMaxCodeSizeExceeded
 	}
-	if len(payload.Code) > int(params.MaxCodeSize) {
-		return ErrContractNotSupported
-	}
-	currentBlock := st.blockCtx.BlockNumber.Uint64()
-	if payload.TTL > math.MaxUint64-currentBlock {
-		return ErrContractNotSupported
-	}
-	from := msg.From()
-	expireAt := stateWordToUint64(st.state.GetState(from, SetCodeExpireAtSlot))
-	code := st.state.GetCode(from)
-	if len(code) > 0 && (expireAt == 0 || currentBlock < expireAt) {
-		return ErrCodeAlreadyActive
-	}
-	ttlGas, err := SetCodeTTLGas(payload.TTL)
-	if err != nil {
-		return ErrContractNotSupported
-	}
-	if st.gas < ttlGas {
+
+	// Code storage gas: 200 gas/byte (EIP-158 standard).
+	const createDataGas = uint64(200)
+	codeGas := uint64(len(st.data)) * createDataGas
+	if st.gas < codeGas {
 		return ErrIntrinsicGas
 	}
-	st.gas -= ttlGas
-	st.state.SetCode(from, payload.Code)
-	st.state.SetState(from, SetCodeCreatedAtSlot, uint64ToStateWord(currentBlock))
-	st.state.SetState(from, SetCodeExpireAtSlot, uint64ToStateWord(currentBlock+payload.TTL))
+	st.gas -= codeGas
+
+	// Optional value transfer to the new contract.
+	if v := st.msg.Value(); v != nil && v.Sign() > 0 {
+		if !st.blockCtx.CanTransfer(st.state, st.msg.From(), v) {
+			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, st.msg.From().Hex())
+		}
+		st.blockCtx.Transfer(st.state, st.msg.From(), contractAddr, v)
+	}
+
+	// Create account, set nonce to 1 (EIP-158), store code.
+	st.state.CreateAccount(contractAddr)
+	st.state.SetNonce(contractAddr, 1)
+	st.state.SetCode(contractAddr, st.data)
 	return nil
 }
 

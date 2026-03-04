@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	lua "github.com/tos-network/glua"
+	lua "github.com/tos-network/tolang"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
