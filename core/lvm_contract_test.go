@@ -3524,12 +3524,12 @@ func TestLvmContractDeploy(t *testing.T) {
 	`
 
 	t.Run("returns_deterministic_address", func(t *testing.T) {
-		// The address returned by tos.deploy must equal crypto.CreateAddress(contractAddr, 0).
+		// The address returned by tos.create must equal crypto.CreateAddress(contractAddr, 0).
 		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
 		want := crypto.CreateAddress(contractAddr, 0)
 
 		code := fmt.Sprintf(`
-			local child = tos.deploy(%q)
+			local child = tos.create(%q)
 			assert(child == %q, "wrong address: " .. tostring(child))
 		`, childCode, want.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3538,10 +3538,10 @@ func TestLvmContractDeploy(t *testing.T) {
 	})
 
 	t.Run("deployed_code_is_callable", func(t *testing.T) {
-		// After tos.deploy, tos.codeAt should return true and tos.call should work.
+		// After tos.create, tos.codeAt should return true and tos.call should work.
 		code := `
 			local src = "tos.set([[hit]], 99)"
-			local child = tos.deploy(src)
+			local child = tos.create(src)
 			assert(tos.codeAt(child), "no code at child")
 			local ok = tos.call(child, 0)
 			assert(ok, "tos.call failed")
@@ -3552,10 +3552,10 @@ func TestLvmContractDeploy(t *testing.T) {
 	})
 
 	t.Run("successive_deploys_differ", func(t *testing.T) {
-		// Two tos.deploy calls from same contract yield different addresses (nonce increments).
+		// Two tos.create calls from same contract yield different addresses (nonce increments).
 		code := `
-			local a = tos.deploy("tos.set([[x]],1)")
-			local b = tos.deploy("tos.set([[x]],2)")
+			local a = tos.create("tos.set([[x]],1)")
+			local b = tos.create("tos.set([[x]],2)")
 			assert(a ~= b, "expected different addresses")
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3569,8 +3569,8 @@ func TestLvmContractDeploy(t *testing.T) {
 		want1 := crypto.CreateAddress(contractAddr, 1)
 
 		code := fmt.Sprintf(`
-			tos.deploy("tos.set([[x]],1)")       -- nonce 0
-			local b = tos.deploy("tos.set([[x]],2)") -- nonce 1
+			tos.create("tos.set([[x]],1)")       -- nonce 0
+			local b = tos.create("tos.set([[x]],2)") -- nonce 1
 			assert(b == %q, "wrong nonce-1 addr: " .. tostring(b))
 		`, want1.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3582,11 +3582,11 @@ func TestLvmContractDeploy(t *testing.T) {
 		// Contract has 1 TOS; deploy with 0.5 TOS → child gets 0.5 TOS.
 		halfTOS := new(big.Int).Mul(big.NewInt(5e17), big.NewInt(1))
 		code := fmt.Sprintf(`
-			local child = tos.deploy("", %s)  -- empty code → should revert
+			local child = tos.create("", %s)  -- empty code → should revert
 		`, halfTOS.String())
 		// empty code reverts — test value transfer with non-empty code instead:
 		code = fmt.Sprintf(`
-			local child = tos.deploy("tos.set([[x]],1)", %s)
+			local child = tos.create("tos.set([[x]],1)", %s)
 			local bal = tos.balance(child)
 			assert(bal == %s, "balance mismatch: " .. tostring(bal))
 		`, halfTOS.String(), halfTOS.String())
@@ -3596,7 +3596,7 @@ func TestLvmContractDeploy(t *testing.T) {
 	})
 
 	t.Run("empty_code_reverts", func(t *testing.T) {
-		code := `tos.deploy("")`
+		code := `tos.create("")`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
@@ -3606,7 +3606,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		// Contract has 1 TOS; try to deploy with 2 TOS → should revert.
 		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
 		code := fmt.Sprintf(`
-			tos.deploy("tos.set([[x]],1)", %s)
+			tos.create("tos.set([[x]],1)", %s)
 		`, twoTOS.String())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -3614,7 +3614,7 @@ func TestLvmContractDeploy(t *testing.T) {
 	})
 
 	t.Run("deploy_in_staticcall_reverts", func(t *testing.T) {
-		// helperCode (at 0xBBBB...) tries tos.deploy — raises an error in a static context.
+		// helperCode (at 0xBBBB...) tries tos.create — raises an error in a static context.
 		// callerCode staticcalls the helper; if the helper fails, staticcall returns false.
 		// require(ok) then propagates the failure, making the outer tx revert.
 		helperAddr := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
@@ -3622,7 +3622,7 @@ func TestLvmContractDeploy(t *testing.T) {
 			local ok = tos.staticcall(%q)
 			require(ok, "deploy in staticcall must fail")
 		`, helperAddr.Hex())
-		helperCode := `tos.deploy("tos.set([[x]],1)")`
+		helperCode := `tos.create("tos.set([[x]],1)")`
 
 		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
@@ -3632,7 +3632,7 @@ func TestLvmContractDeploy(t *testing.T) {
 	t.Run("oog_on_huge_code", func(t *testing.T) {
 		// A very large code string should exhaust gas (luaGasDeployByte=200 × N bytes).
 		// 2500 bytes × 200 = 500 000 gas > typical tx gas limit of 500 000 → OOG.
-		code := fmt.Sprintf(`tos.deploy(string.rep("x", 2500))`)
+		code := fmt.Sprintf(`tos.create(string.rep("x", 2500))`)
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		runLvmTxExpectFail(t, bc, addr, big.NewInt(0))
@@ -4305,7 +4305,7 @@ func TestLvmContractBytecode(t *testing.T) {
 		code := `
 			local childSrc = "tos.set([[ping]], 7)"
 			local bc = tos.compileBytecode(childSrc)
-			local child = tos.deploy(bc)
+			local child = tos.create(bc)
 			local ok = tos.call(child, 0)
 			assert(ok, "tos.call on compiled-bytecode child failed")
 		`
@@ -4333,13 +4333,13 @@ func TestLvmContractBytecode(t *testing.T) {
 		childSrc := `tos.set([[val]], 55)`
 
 		srcCode := fmt.Sprintf(`
-			local child = tos.deploy(%q)
+			local child = tos.create(%q)
 			local ok = tos.call(child, 0)
 			assert(ok, "source-deploy call failed")
 		`, childSrc)
 		bcnCode := fmt.Sprintf(`
 			local bc = tos.compileBytecode(%q)
-			local child = tos.deploy(bc)
+			local child = tos.create(bc)
 			local ok = tos.call(child, 0)
 			assert(ok, "bytecode-deploy call failed")
 		`, childSrc)
@@ -4783,7 +4783,7 @@ func TestLvmContractDelegatecall(t *testing.T) {
 			local data = tos.msg.data
 			if data == "0x01" then
 				-- upgrade: deploy v2 inline and update impl pointer
-				local v2 = tos.deploy(%q)
+				local v2 = tos.create(%q)
 				tos.setStr("impl", v2)
 			else
 				local impl = tos.getStr("impl")

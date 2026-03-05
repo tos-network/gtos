@@ -353,7 +353,7 @@ if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
 |-------|----------|-----|
 | `tos.call` orphaned snapshot on balance-check failure | `lvm.go` | Guard moved before `Snapshot()`; no snapshot taken on balance failure |
 | Sub-call gas: missing 63/64 reservation rule | `lvm.go` (4 sites) | `childGasLimit = available - available/64` |
-| `tos.deploy` nonce written before balance guard | `lvm.go` | Balance check hoisted before any state mutation |
+| `tos.create` nonce written before balance guard | `lvm.go` | Balance check hoisted before any state mutation |
 | `LVM.Create` / `LVM.CreatePackage` no snapshot | `lvm.go` | `Snapshot()` inserted after guards, before first state write |
 
 ---

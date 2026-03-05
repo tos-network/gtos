@@ -1996,14 +1996,14 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 	// ── Contract deployment ────────────────────────────────────────────────────
 
-	// tos.deploy(code [, value]) → string
+	// tos.create(code [, value]) → string
 	//   Deploys a new Lua contract and returns its address as "0x..." hex.
 	//   Analogous to EVM CREATE.
 	//
 	//   Address derivation (deterministic):
 	//     newAddr = keccak256(RLP(contractAddr, nonce))
 	//   The deploying contract's nonce is incremented after each successful
-	//   deploy, so successive tos.deploy calls from the same contract yield
+	//   deploy, so successive tos.create calls from the same contract yield
 	//   distinct addresses.
 	//
 	//   code:  Lua source string (must not be empty)
@@ -2015,23 +2015,23 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//               insufficient balance for value transfer.
 	//
 	//   Example — factory pattern:
-	//     local child = tos.deploy([[
+	//     local child = tos.create([[
 	//         tos.oncreate(function() tos.set("parent", tos.caller) end)
 	//     ]])
 	//     tos.set("child", child)
-	L.SetField(tosTable, "deploy", L.NewFunction(func(L *lua.LState) int {
+	L.SetField(tosTable, "create", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
-			L.RaiseError("tos.deploy: contract deployment not allowed in staticcall")
+			L.RaiseError("tos.create: contract deployment not allowed in staticcall")
 			return 0
 		}
 		if ctx.Depth >= maxCallDepth {
-			L.RaiseError("tos.deploy: max call depth (%d) exceeded", maxCallDepth)
+			L.RaiseError("tos.create: max call depth (%d) exceeded", maxCallDepth)
 			return 0
 		}
 
 		code := L.CheckString(1)
 		if len(code) == 0 {
-			L.RaiseError("tos.deploy: code must not be empty")
+			L.RaiseError("tos.create: code must not be empty")
 			return 0
 		}
 
@@ -2040,7 +2040,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		if L.GetTop() >= 2 {
 			deployValue = parseBigInt(L, 2)
 			if deployValue == nil || deployValue.Sign() < 0 {
-				L.RaiseError("tos.deploy: invalid value")
+				L.RaiseError("tos.create: invalid value")
 				return 0
 			}
 		} else {
@@ -2056,7 +2056,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 		// Guard check before any state mutation.
 		if deployValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
-			L.RaiseError("tos.deploy: insufficient balance for value transfer")
+			L.RaiseError("tos.create: insufficient balance for value transfer")
 			return 0
 		}
 
@@ -2148,7 +2148,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			deployValue = new(big.Int)
 		}
 
-		// Gas: same model as tos.deploy.
+		// Gas: same model as tos.create.
 		chargePrimGas(gasDeploy + gasDeployByte*uint64(len(code)))
 
 		// Deterministic address: keccak256(0xff ++ deployer ++ salt ++ keccak256(code)).
@@ -2219,7 +2219,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 	// tos.compileBytecode(src) → string
 	//   Compiles a Lua source string to glua bytecode and returns it as a binary
-	//   string.  The result can be passed directly to tos.deploy() for efficient
+	//   string.  The result can be passed directly to tos.create() for efficient
 	//   factory patterns: source is parsed and compiled once here, then the
 	//   resulting bytecode is stored on-chain and executed without re-parsing on
 	//   every call to the child contract.
@@ -2228,7 +2228,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//
 	//   Errors: any Lua syntax error in src causes an immediate revert.
 	//   The bytecode format is validated by glua on load; it is safe to pass
-	//   untrusted bytecode to tos.deploy because Execute calls LoadBytecode
+	//   untrusted bytecode to tos.create because Execute calls LoadBytecode
 	//   which validates opcode ranges and closure indices before execution.
 	//
 	//   Example — deploy a pre-compiled child contract:
@@ -2239,13 +2239,13 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//             end,
 	//         })
 	//     ]])
-	//     local child = tos.deploy(bc)
+	//     local child = tos.create(bc)
 	//     tos.set("child", child)
 	//
 	//   Without tos.compileBytecode:
-	//     local child = tos.deploy(luaSrc)   -- source re-parsed on every call
+	//     local child = tos.create(luaSrc)   -- source re-parsed on every call
 	//   With tos.compileBytecode:
-	//     local child = tos.deploy(tos.compileBytecode(luaSrc))  -- bytecode stored
+	//     local child = tos.create(tos.compileBytecode(luaSrc))  -- bytecode stored
 	L.SetField(tosTable, "compileBytecode", L.NewFunction(func(L *lua.LState) int {
 		src := L.CheckString(1)
 		chargePrimGas(gasCompileBase + gasCompileByte*uint64(len(src)))
