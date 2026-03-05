@@ -41,8 +41,8 @@ const (
 )
 
 // GTOSPriceWei is the protocol-fixed tx price for GTOS transactions.
-// 0.043 gwei = 43,000,000 wei.
-const GTOSPriceWei int64 = 43_000_000
+// 10 gwei = 10,000,000,000 wei.
+const GTOSPriceWei int64 = 10_000_000_000
 
 // GTOSPrice returns the protocol-fixed tx price as a new big.Int.
 func GTOSPrice() *big.Int {
