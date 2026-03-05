@@ -216,35 +216,28 @@ if fsv, ok := p.engine.(consensus.FinalizedStateVerifier); ok {
 
 ---
 
-## Open Issues (Not Yet Fixed)
 
 ### HIGH-1 — Sysaction executes state changes when remaining gas is insufficient
 
-**File**: `core/state_transition.go:267–275`
+**File**: `core/state_transition.go`
 
-```go
-gasUsed, execErr := sysaction.Execute(msg, st.state, ...)
-// handler has already run — state changes are committed
-if st.gas >= gasUsed {
-    st.gas -= gasUsed
-} else {
-    st.gas = 0   // silent clamp; no out-of-gas error returned
-}
-vmerr = execErr
-```
+#### Problem
 
-If the remaining gas after intrinsic deduction is below `params.SysActionGas`, the handler
-still executes and commits its state changes. This violates the principle that insufficient
-gas must prevent execution.
+The sysaction handler was called unconditionally. If the remaining gas after intrinsic
+deduction was below `params.SysActionGas`, the handler still executed and committed its
+state changes, with the gas balance silently clamped to zero. This violates the principle
+that insufficient gas must prevent execution.
 
-**Recommended fix:**
+#### Fix
+
+The handler is now guarded by a pre-execution gas check:
 
 ```go
 if st.gas < params.SysActionGas {
     st.gas = 0
-    vmerr = ErrOutOfGas
+    vmerr = vm.ErrOutOfGas
 } else {
-    gasUsed, execErr := sysaction.Execute(msg, st.state, ...)
+    gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
     st.gas -= gasUsed
     vmerr = execErr
 }
@@ -254,36 +247,40 @@ if st.gas < params.SysActionGas {
 
 ### HIGH-2 — EOA check skipped for contract-creation transactions
 
-**File**: `core/state_transition.go:212–219`
+**File**: `core/state_transition.go`
+
+#### Problem
+
+The sender EOA check was wrapped in `if st.msg.To() != nil`, meaning a `To == nil`
+transaction originating from a contract address was accepted without error. While
+contract addresses have no associated private key (making this path practically
+unreachable), it represents a protocol-level gap.
+
+#### Fix
+
+The `if st.msg.To() != nil` guard is removed; the EOA check is now unconditional:
 
 ```go
-// Current — guarded by To != nil; skipped for contract creation
-if st.msg.To() != nil {
-    if codeHash := st.state.GetCodeHash(st.msg.From()); ... { return ErrSenderNoEOA }
+// Sender must always be an EOA — contract addresses have no private key.
+if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
+    return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA, ...)
 }
 ```
-
-A `To == nil` transaction from an address that has deployed code is not rejected.
-In practice, Lua contract addresses have no associated private key, so this path is
-unreachable — but it represents a protocol-level gap.
-
-**Recommended fix**: Remove the `if st.msg.To() != nil` wrapper; always check EOA.
 
 ---
 
 ### MEDIUM-1 — `tos.arrPush` array length overflow at `math.MaxUint64`
 
-**File**: `core/lvm/lvm.go:1221`
+**File**: `core/lvm/lvm.go`
 
-```go
-length := new(big.Int).SetBytes(raw[:]).Uint64()
-new(big.Int).SetUint64(length + 1).FillBytes(...)  // wraps to 0 if length == MaxUint64
-```
+#### Problem
 
-Gas cost makes this unreachable via normal array operations, but an explicit guard is
-good defensive practice.
+`arrPush` read the array length as `uint64`, then computed `length + 1` without an
+overflow guard. If `length == math.MaxUint64`, the addition wraps to 0, silently
+corrupting the stored length. Gas cost makes this unreachable via normal operations,
+but the missing guard is a latent defect.
 
-**Recommended fix**:
+#### Fix
 
 ```go
 if length == math.MaxUint64 {
@@ -296,17 +293,18 @@ if length == math.MaxUint64 {
 
 ### MEDIUM-2 — Unchecked integer cast in `tos.bytes.slice` / `tos.bytes.fromUint256`
 
-**File**: `core/lvm/lvm.go:934, 941, 970`
+**File**: `core/lvm/lvm.go`
 
-```go
-offset := int(parseBigInt(L, 2).Int64())  // silently truncates if value > MaxInt64
-```
+#### Problem
 
-A value above `math.MaxInt64` wraps to a negative integer. The subsequent bounds check
-still rejects it, but the error message is misleading and a future code change could
-expose real memory-safety risk.
+`tos.bytes.slice` and `tos.bytes.fromUint256` called `.Int64()` on the parsed big.Int
+without first verifying the value fits in int64. A value above `math.MaxInt64` wraps to
+a negative integer; the subsequent bounds check still rejected it, but with a misleading
+error message and latent memory-safety risk for future callers.
 
-**Recommended fix**:
+#### Fix
+
+All three call sites now use `IsInt64()` + `Sign() >= 0` before casting:
 
 ```go
 v := parseBigInt(L, 2)
@@ -321,29 +319,29 @@ offset := int(v.Int64())
 
 ### MEDIUM-3 — DPoS `gasLimit` missing lower bound and parent-relative constraint
 
-**File**: `consensus/dpos/dpos.go:398–400`
+**File**: `consensus/dpos/dpos.go`
 
-```go
-if header.GasLimit > params.MaxGasLimit { return error }
-// Missing: lower bound check (gasLimit > 0)
-// Missing: parent-relative change bound (|cur - parent| < parent / GasLimitBoundDivisor)
-```
+#### Problem
 
-A block with `gasLimit == 0` passes header validation but causes every transaction to
-fail immediately. Rapid gas limit oscillation across blocks can disrupt miner transaction
-selection.
+`verifyHeader` only checked `header.GasLimit > params.MaxGasLimit`. A block with
+`gasLimit == 0` passed validation but caused every transaction to fail immediately.
+There was also no bound on how rapidly the gas limit could change between consecutive
+blocks, allowing disruptive oscillation.
 
-**Recommended fix**:
+#### Fix
+
+Two additional checks are inserted before the existing upper-bound check:
 
 ```go
 if header.GasLimit == 0 {
     return errors.New("invalid gasLimit: zero")
 }
+// ... upper bound check ...
+// Parent-relative change bound
 diff := int64(parent.GasLimit) - int64(header.GasLimit)
 if diff < 0 { diff = -diff }
 if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
-    return fmt.Errorf("invalid gas limit: have %d, want %d ±%d",
-        header.GasLimit, parent.GasLimit, parent.GasLimit/params.GasLimitBoundDivisor-1)
+    return fmt.Errorf("invalid gas limit: have %d, want %d ±%d", ...)
 }
 ```
 
@@ -360,12 +358,6 @@ if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
 
 ---
 
-## Fix Priority
+## All Issues Resolved
 
-| Priority | ID | File | Description |
-|----------|----|------|-------------|
-| P1 | HIGH-1 | `state_transition.go:267` | Sysaction executes despite insufficient gas |
-| P1 | HIGH-2 | `state_transition.go:214` | EOA check skipped for Create txs |
-| P2 | MEDIUM-1 | `lvm.go:1221` | `arrPush` length overflow guard |
-| P2 | MEDIUM-2 | `lvm.go:934,941,970` | Integer cast requires range pre-check |
-| P2 | MEDIUM-3 | `dpos.go:398` | `gasLimit` lower bound + parent-relative constraint |
+All findings from this audit have been fixed and committed. No open issues remain.

@@ -395,8 +395,30 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		}
 	}
 
+	if header.GasLimit == 0 {
+		return errors.New("invalid gasLimit: zero")
+	}
 	if header.GasLimit > params.MaxGasLimit {
 		return fmt.Errorf("invalid gasLimit: have %v, max %v", header.GasLimit, params.MaxGasLimit)
+	}
+	if number > 0 {
+		// Gas limit must not change by more than 1/GasLimitBoundDivisor of the parent's limit.
+		var parent *types.Header
+		if len(parents) > 0 {
+			parent = parents[len(parents)-1]
+		} else {
+			parent = chain.GetHeaderByNumber(number - 1)
+		}
+		if parent != nil {
+			diff := int64(parent.GasLimit) - int64(header.GasLimit)
+			if diff < 0 {
+				diff = -diff
+			}
+			if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
+				return fmt.Errorf("invalid gas limit: have %d, want %d ±%d",
+					header.GasLimit, parent.GasLimit, parent.GasLimit/params.GasLimitBoundDivisor-1)
+			}
+		}
 	}
 
 	// Genesis is always valid (no parent, no seal).

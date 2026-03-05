@@ -209,13 +209,10 @@ func (st *StateTransition) preCheck() error {
 			return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
 				st.msg.From().Hex(), stNonce)
 		}
-		// Sender must be an EOA for non-creation transactions.
-		// Contract creation (to==nil) does not require an EOA sender.
-		if st.msg.To() != nil {
-			if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
-				return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
-					st.msg.From().Hex(), codeHash)
-			}
+		// Sender must always be an EOA — contract addresses have no private key.
+		if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
+			return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
+				st.msg.From().Hex(), codeHash)
 		}
 	}
 	return st.buyGas()
@@ -270,14 +267,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
-			gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
-			// Deduct sysaction-specific gas on top of intrinsic gas.
-			if st.gas >= gasUsed {
-				st.gas -= gasUsed
-			} else {
+			// Guard: handler must not execute if remaining gas is below the flat sysaction cost.
+			if st.gas < params.SysActionGas {
 				st.gas = 0
+				vmerr = vm.ErrOutOfGas
+			} else {
+				gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
+				st.gas -= gasUsed
+				vmerr = execErr
 			}
-			vmerr = execErr
 		} else if toAddr == params.KVRouterAddress {
 			vmerr = st.applyKVPut(msg)
 		} else if toAddr == params.PrivacyRouterAddress {

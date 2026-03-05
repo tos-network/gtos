@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 
@@ -957,15 +958,25 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//     local args = tos.bytes.slice(bin, 4)     -- remaining bytes
 	L.SetField(bytesTable, "slice", L.NewFunction(func(L *lua.LState) int {
 		s := []byte(L.CheckString(1))
-		offset := int(parseBigInt(L, 2).Int64())
-		if offset < 0 || offset > len(s) {
+		offsetBig := parseBigInt(L, 2)
+		if !offsetBig.IsInt64() || offsetBig.Sign() < 0 {
+			L.RaiseError("tos.bytes.slice: offset out of range")
+			return 0
+		}
+		offset := int(offsetBig.Int64())
+		if offset > len(s) {
 			L.RaiseError("tos.bytes.slice: offset %d out of range (len=%d)", offset, len(s))
 			return 0
 		}
 		var result []byte
 		if L.GetTop() >= 3 {
-			length := int(parseBigInt(L, 3).Int64())
-			if length < 0 || offset+length > len(s) {
+			lengthBig := parseBigInt(L, 3)
+			if !lengthBig.IsInt64() || lengthBig.Sign() < 0 {
+				L.RaiseError("tos.bytes.slice: length out of range")
+				return 0
+			}
+			length := int(lengthBig.Int64())
+			if offset+length > len(s) {
 				L.RaiseError("tos.bytes.slice: offset+length %d out of range (len=%d)", offset+length, len(s))
 				return 0
 			}
@@ -993,11 +1004,12 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		}
 		size := 32
 		if L.GetTop() >= 2 {
-			size = int(parseBigInt(L, 2).Int64())
-			if size <= 0 || size > 32 {
+			sizeBig := parseBigInt(L, 2)
+			if !sizeBig.IsInt64() || sizeBig.Sign() <= 0 || sizeBig.Int64() > 32 {
 				L.RaiseError("tos.bytes.fromUint256: size must be 1–32")
 				return 0
 			}
+			size = int(sizeBig.Int64())
 		}
 		raw := n.Bytes() // minimal big-endian; no leading zeros
 		if len(raw) > size {
@@ -1238,6 +1250,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		base := ArrLenSlot(key)
 		raw := stateDB.GetState(contractAddr, base)
 		length := new(big.Int).SetBytes(raw[:]).Uint64()
+		if length == math.MaxUint64 {
+			L.RaiseError("tos.arrPush: array length overflow")
+			return 0
+		}
 
 		var elemSlot common.Hash
 		val.FillBytes(elemSlot[:])
