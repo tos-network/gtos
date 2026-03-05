@@ -75,10 +75,6 @@ type CallCtx struct {
 // ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
 var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
 
-// ErrDirectTOCDeploymentForbidden is returned by Create when the code is a .toc artifact.
-// All TOL contracts must be deployed as .tor packages via CreatePackage().
-var ErrDirectTOCDeploymentForbidden = errors.New("lvm: direct .toc deployment is not allowed; use CreatePackage() with a .tor archive")
-
 // TxContext contains per-transaction fields, constant across all nested calls.
 type TxContext struct {
 	Origin   common.Address // tx.origin
@@ -138,58 +134,23 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	return returnData, gas - gasUsed, nil
 }
 
-// Create deploys a new LVM contract. Code is stored directly at a CREATE-derived address;
-// no initcode is executed. nonce must be the pre-tx sender nonce (msg.Nonce()).
-func (l *LVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
-	callerAddr := caller.Address()
-	contractAddr = crypto.CreateAddress(callerAddr, nonce)
-
-	// Reject direct .toc deployment — all TOL contracts must be deployed as .tor packages.
-	if lua.IsArtifact(code) {
-		return common.Address{}, 0, ErrDirectTOCDeploymentForbidden
-	}
-	codeHash := l.StateDB.GetCodeHash(contractAddr)
-	emptyCodeHash := crypto.Keccak256Hash(nil)
-	if l.StateDB.GetNonce(contractAddr) != 0 ||
-		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
-		return common.Address{}, gas, vm.ErrContractAddressCollision
-	}
-	if uint64(len(code)) > params.MaxCodeSize {
-		return common.Address{}, gas, vm.ErrMaxCodeSizeExceeded
-	}
-
-	codeGas := uint64(len(code)) * gasDeployByte
-	if gas < codeGas {
-		return common.Address{}, 0, ErrGasLimitExceeded
-	}
-	gas -= codeGas
-
-	if value != nil && value.Sign() > 0 {
-		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
-			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
-		}
-	}
-
-	snapshot := l.StateDB.Snapshot() // reserved for future initcode revert path
-	_ = snapshot
-	if value != nil && value.Sign() > 0 {
-		l.Context.Transfer(l.StateDB, callerAddr, contractAddr, value)
-	}
-
-	l.StateDB.CreateAccount(contractAddr)
-	l.StateDB.SetNonce(contractAddr, 1)
-	l.StateDB.SetCode(contractAddr, code)
-	return contractAddr, gas, nil
-}
-
-// CreatePackage deploys a .tor package archive to a new contract address.
+// Create deploys a .tor package archive to a new contract address.
 // The entire ZIP is stored as the contract's code; individual contracts within the
 // package are routed at call time by executePackage via the 4-byte dispatch tag.
-// Unlike Create, no code-size limit is enforced because packages legitimately
-// contain multiple compiled contracts.
-func (l *LVM) CreatePackage(caller ContractRef, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+// Only .tor packages are accepted — direct .toc bytecode deployment is rejected.
+// nonce must be the pre-tx sender nonce (msg.Nonce()).
+func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
 	callerAddr := caller.Address()
 	contractAddr = crypto.CreateAddress(callerAddr, nonce)
+
+	// Only .tor packages are accepted.
+	if !lua.IsPackage(torBytes) {
+		return common.Address{}, 0, fmt.Errorf("lvm: only .tor package archives may be deployed; raw .toc bytecode is not accepted")
+	}
+	// Reject oversized packages.
+	if uint64(len(torBytes)) > params.MaxPackageSize {
+		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(torBytes), params.MaxPackageSize)
+	}
 
 	codeHash := l.StateDB.GetCodeHash(contractAddr)
 	emptyCodeHash := crypto.Keccak256Hash(nil)
@@ -198,37 +159,33 @@ func (l *LVM) CreatePackage(caller ContractRef, torBytes []byte, gas uint64, val
 		return common.Address{}, gas, vm.ErrContractAddressCollision
 	}
 
-	// Gas: same per-byte rate as regular code deployment.
 	codeGas := uint64(len(torBytes)) * gasDeployByte
 	if gas < codeGas {
 		return common.Address{}, 0, ErrGasLimitExceeded
 	}
 	gas -= codeGas
 
-	// Validate dispatch tag uniqueness across all contracts in the package,
-	// aligned with go-ethereum's ABI selector uniqueness enforcement at deploy time.
-	{
-		pkg, decErr := lua.DecodePackage(torBytes)
-		if decErr != nil {
-			return common.Address{}, gas, fmt.Errorf("lvm: invalid .tor package: %w", decErr)
+	// Validate the package manifest and check dispatch tag uniqueness.
+	pkg, decErr := lua.DecodePackage(torBytes)
+	if decErr != nil {
+		return common.Address{}, gas, fmt.Errorf("lvm: invalid .tor package: %w", decErr)
+	}
+	var manifest struct {
+		Contracts []struct {
+			Name string `json:"name"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+		return common.Address{}, gas, fmt.Errorf("lvm: .tor manifest decode: %w", err)
+	}
+	seenTags := make(map[[4]byte]string, len(manifest.Contracts))
+	for _, c := range manifest.Contracts {
+		var tag [4]byte
+		copy(tag[:], crypto.Keccak256([]byte("pkg:"+c.Name))[:4])
+		if prev, conflict := seenTags[tag]; conflict {
+			return common.Address{}, gas, fmt.Errorf("lvm: dispatch tag collision between %q and %q in package", prev, c.Name)
 		}
-		var manifest struct {
-			Contracts []struct {
-				Name string `json:"name"`
-			} `json:"contracts"`
-		}
-		if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
-			return common.Address{}, gas, fmt.Errorf("lvm: .tor manifest decode: %w", err)
-		}
-		seenTags := make(map[[4]byte]string, len(manifest.Contracts))
-		for _, c := range manifest.Contracts {
-			var tag [4]byte
-			copy(tag[:], crypto.Keccak256([]byte("pkg:"+c.Name))[:4])
-			if prev, conflict := seenTags[tag]; conflict {
-				return common.Address{}, gas, fmt.Errorf("lvm: dispatch tag collision between %q and %q in package", prev, c.Name)
-			}
-			seenTags[tag] = c.Name
-		}
+		seenTags[tag] = c.Name
 	}
 
 	if value != nil && value.Sign() > 0 {

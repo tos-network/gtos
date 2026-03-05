@@ -34,7 +34,8 @@ const (
 	TxAccessListStorageKeyGas uint64 = 1900  // Per storage key specified in a transaction access list
 
 	InitialBaseFee = 1000000000 // Initial base fee for dynamic-fee blocks.
-	MaxCodeSize    = 64 * 1024  // Maximum bytecode size permitted for code storage writes.
+	MaxCodeSize    = 64 * 1024   // Maximum bytecode size permitted for raw code storage writes (EIP-170 compatible).
+	MaxPackageSize = 512 * 1024  // Maximum .tor package size permitted for TOL contract deployment.
 	// Additional gas charged per ttl block for KV record retention.
 	KVTTLBlockGas uint64 = 1
 
