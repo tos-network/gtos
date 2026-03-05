@@ -805,19 +805,28 @@ Consequences:
 
 ---
 
-## Open Issues Summary
+## Issues Summary
 
 | ID | Severity | Area | Title | Status |
 |----|----------|------|-------|--------|
-| SEC-1 | CRITICAL | Parallel | LVM cross-contract storage conflict → double-spend | Open |
-| SEC-2 | HIGH | LVM | `string.rep` + ungassed hashes → OOM/CPU DoS | Open |
-| SEC-3 | HIGH | .tor | ZIP bomb in `DecodePackage` — no decompressed-size limit | Open |
-| SEC-4 | MEDIUM | Parallel | Block gas check deferred to merge phase | Open |
-| SEC-5 | MEDIUM | LVM | Reentrancy: no protocol-level guard | Open |
-| SEC-6 | MEDIUM | LVM | Sentinel strings detectable by contract code | Open |
-| SEC-7 | LOW | LVM | `tos.keccak256` raw-bytes vs hex inconsistency | Open |
+| SEC-1 | CRITICAL | Parallel | LVM cross-contract storage conflict → double-spend | **Fixed** |
+| SEC-2 | HIGH | LVM | `string.rep` + ungassed hashes → OOM/CPU DoS | **Fixed** |
+| SEC-3 | HIGH | .tor | ZIP bomb in `DecodePackage` — no decompressed-size limit | **Fixed** |
+| SEC-4 | MEDIUM | Parallel | Block gas check deferred to merge phase | **Fixed** |
+| SEC-5 | MEDIUM | LVM | Reentrancy: no protocol-level guard | **Fixed** |
+| SEC-6 | MEDIUM | LVM | Sentinel strings detectable by contract code | **Fixed** |
+| SEC-7 | LOW | LVM | `tos.keccak256` raw-bytes vs hex inconsistency | **Fixed** |
 | SEC-8 | LOW | .tor | On-chain runtime diverges from published `.tor` | **Fixed** |
 
-**SEC-1, SEC-2, SEC-3** must be resolved before any LVM contract deployment is accepted on mainnet.
-**SEC-4, SEC-5, SEC-6** must be resolved before the first external contract developer onboarding.
-**SEC-7, SEC-8** can be addressed via documentation and tooling releases.
+### Fix Summary (2026-03-05)
+
+| ID | Fix location | Key change |
+|----|-------------|------------|
+| SEC-1 | `params/tos_params.go`, `core/parallel/analyze.go`, `executor.go` | Added `LVMSerialAddress` sentinel; `AnalyzeTx` accepts `StateReader`, injects sentinel for any call to code-bearing address → all LVM calls serialized |
+| SEC-2 | `core/lvm/lvm.go`, `tolang/stringlib.go` | Per-byte `chargePrimGas` on keccak256/sha256/ripemd160/bytes.fromhex/tohex/slice; `string.rep` output cap (1 MiB, int64 arithmetic); `string.gsub` output cap |
+| SEC-3 | `tolang/tol_package.go` | `io.LimitReader` per entry (4 MiB) + total size limit (16 MiB) in `DecodePackage` |
+| SEC-4 | `core/parallel/executor.go` | Pre-level gas-sum check before goroutine launch; returns `ErrGasLimitReached` without executing if sum exceeds pool |
+| SEC-5 | `core/lvm/stdlib.go` | Added `reentrancy_guard` built-in module with `nonReentrant/exit/entered` named-guard helpers |
+| SEC-6 | `core/lvm/lvm.go` | Replaced string sentinels with unexported LUserData typed sentinels; `isResultSignal`/`isRevertSignal` use `errors.As` + pointer comparison |
+| SEC-7 | `core/lvm/lvm.go` | Added warning docstring to `tos.keccak256`; added `tos.keccak256hex` convenience wrapper |
+| SEC-8 | `core/lvm/lvm.go` | `buildRuntimePackage` removed; `SetCode(contractAddr, pkgBytes)` stores full original package |
