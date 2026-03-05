@@ -239,10 +239,16 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var (
 		msg              = st.msg
 		contractCreation = msg.To() == nil
+		ret              []byte // return data from LVM call, passed through to ExecutionResult
 	)
 
 	// Increment nonce for all real transactions.
 	st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
+
+	// Warm sender, recipient, and explicit access-list entries (EIP-2929/2930).
+	// GTOS has no EVM precompiles, so the precompile slice is nil.
+	// This aligns with go-ethereum's PrepareAccessList call in TransitionDb.
+	st.state.PrepareAccessList(msg.From(), msg.To(), nil, msg.AccessList())
 
 	// Subtract intrinsic gas
 	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, true, true)
@@ -290,9 +296,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				vmerr = ErrContractNotSupported
 			} else if len(toCode) > 0 {
 				// Destination has LVM contract code: execute it.
-				var ret []byte
 				ret, st.gas, vmerr = st.lvm.Call(lvm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
-				_ = ret
 				if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
 					vmerr = ErrIntrinsicGas
 				}
@@ -305,8 +309,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		}
 	}
 
-	// Refund gas
-	st.refundGas(params.RefundQuotient)
+	// Refund gas — use EIP-3529 quotient (cap = gasUsed/5), aligned with post-London go-ethereum.
+	st.refundGas(params.RefundQuotientEIP3529)
 
 	// Pay miner fee by fixed txPrice
 	effectiveTip := st.txPrice
@@ -317,7 +321,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
-		ReturnData: nil,
+		ReturnData: ret,
 	}, nil
 }
 

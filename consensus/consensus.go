@@ -121,6 +121,16 @@ type Engine interface {
 	Close() error
 }
 
+// FinalizedStateVerifier is an optional extension of Engine for consensus
+// implementations that need to verify on-chain state after transaction
+// execution (e.g. comparing epoch validator lists against a registry).
+// Aligned with go-ethereum's pattern of optional engine capability interfaces.
+type FinalizedStateVerifier interface {
+	// VerifyFinalizedState checks engine-specific invariants against the post-tx
+	// statedb.  Called by StateProcessor.Process after engine.Finalize().
+	VerifyFinalizedState(header *types.Header, state *state.StateDB) error
+}
+
 // PoW is a consensus engine based on proof-of-work.
 type PoW interface {
 	Engine

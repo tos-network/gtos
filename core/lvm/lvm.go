@@ -204,6 +204,32 @@ func (l *LVM) CreatePackage(caller ContractRef, torBytes []byte, gas uint64, val
 	}
 	gas -= codeGas
 
+	// Validate dispatch tag uniqueness across all contracts in the package,
+	// aligned with go-ethereum's ABI selector uniqueness enforcement at deploy time.
+	{
+		pkg, decErr := lua.DecodePackage(torBytes)
+		if decErr != nil {
+			return common.Address{}, gas, fmt.Errorf("lvm: invalid .tor package: %w", decErr)
+		}
+		var manifest struct {
+			Contracts []struct {
+				Name string `json:"name"`
+			} `json:"contracts"`
+		}
+		if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+			return common.Address{}, gas, fmt.Errorf("lvm: .tor manifest decode: %w", err)
+		}
+		seenTags := make(map[[4]byte]string, len(manifest.Contracts))
+		for _, c := range manifest.Contracts {
+			var tag [4]byte
+			copy(tag[:], crypto.Keccak256([]byte("pkg:"+c.Name))[:4])
+			if prev, conflict := seenTags[tag]; conflict {
+				return common.Address{}, gas, fmt.Errorf("lvm: dispatch tag collision between %q and %q in package", prev, c.Name)
+			}
+			seenTags[tag] = c.Name
+		}
+	}
+
 	if value != nil && value.Sign() > 0 {
 		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
 			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())

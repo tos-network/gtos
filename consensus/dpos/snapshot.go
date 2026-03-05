@@ -167,13 +167,9 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		snap.Recents[slot] = signer // record at slot, not block number
 
 		// Epoch boundary: update validator set from header.Extra.
-		//
-		// R2-H1 NOTE (accepted MVP limitation): apply() has no access to StateDB,
-		// so it cannot independently verify that header.Extra matches validator
-		// registry state. Honest nodes use FinalizeAndAssemble which always reads
-		// validator registry state correctly.
-		// A byzantine validator (with <50% stake) could embed a wrong list,
-		// but cannot sustain a fork since honest nodes build on the honest chain.
+		// Extra is verified against the on-chain registry by VerifyFinalizedState
+		// (consensus.FinalizedStateVerifier), called from StateProcessor.Process
+		// after transaction execution — same state window used by FinalizeAndAssemble.
 		if number%snap.config.Epoch == 0 {
 			validators, err := parseEpochValidators(header.Extra, snap.config)
 			if err != nil {

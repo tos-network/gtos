@@ -662,6 +662,13 @@ func (d *DPoS) VerifyEpochExtra(header *types.Header, statedb *state.StateDB) er
 	return nil
 }
 
+// VerifyFinalizedState implements consensus.FinalizedStateVerifier.
+// It delegates to VerifyEpochExtra, enabling StateProcessor to use the
+// consensus package interface rather than a local ad-hoc interface.
+func (d *DPoS) VerifyFinalizedState(header *types.Header, st *state.StateDB) error {
+	return d.VerifyEpochExtra(header, st)
+}
+
 // Finalize implements consensus.Engine, adding the block reward.
 func (d *DPoS) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	st *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {

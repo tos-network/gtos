@@ -38,9 +38,12 @@ const (
 	// Additional gas charged per ttl block for KV record retention.
 	KVTTLBlockGas uint64 = 1
 
-	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before refund-limit rules,
-	// up to half the consumed gas could be refunded. Redefined as 1/5th in refund-limit rules
-	RefundQuotient uint64 = 2
+	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before EIP-3529,
+	// up to half the consumed gas could be refunded (quotient=2). EIP-3529 (London) reduced the
+	// cap to 1/5th (quotient=5) to mitigate gas-token griefing.
+	// GTOS adopts the post-London value unconditionally.
+	RefundQuotient         uint64 = 2 // pre-London (kept for reference)
+	RefundQuotientEIP3529  uint64 = 5 // post-London — GTOS uses this
 )
 
 var (

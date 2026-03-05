@@ -30,12 +30,6 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
-// epochExtraVerifier is a subset of consensus.Engine implemented by DPoS.
-// Using a local interface avoids importing consensus/dpos from core (import cycle).
-type epochExtraVerifier interface {
-	VerifyEpochExtra(header *types.Header, statedb *state.StateDB) error
-}
-
 // StateProcessor is a basic Processor, which takes care of transitioning
 // state from one point to another.
 //
@@ -100,10 +94,12 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
 
-	// Issue-1 fix: For epoch blocks, verify that Extra's validator list matches
-	// the on-chain registry state so a byzantine proposer cannot forge the set.
-	if ev, ok := p.engine.(epochExtraVerifier); ok {
-		if err := ev.VerifyEpochExtra(header, statedb); err != nil {
+	// For engines that implement FinalizedStateVerifier (e.g. DPoS), verify
+	// engine-specific post-tx invariants — such as epoch validator list integrity.
+	// Uses the consensus package interface rather than a local ad-hoc interface,
+	// aligned with go-ethereum's optional-capability engine extension pattern.
+	if fsv, ok := p.engine.(consensus.FinalizedStateVerifier); ok {
+		if err := fsv.VerifyFinalizedState(header, statedb); err != nil {
 			return nil, nil, 0, err
 		}
 	}
