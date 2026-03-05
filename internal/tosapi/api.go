@@ -25,7 +25,6 @@ import (
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	cryptouno "github.com/tos-network/gtos/crypto/uno"
-	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/params"
@@ -1960,28 +1959,6 @@ type RPCBuildTxResult struct {
 	Raw hexutil.Bytes          `json:"raw"`
 }
 
-type RPCPutKVArgs struct {
-	RPCTxCommonArgs
-	Namespace string         `json:"namespace"`
-	Key       hexutil.Bytes  `json:"key"`
-	Value     hexutil.Bytes  `json:"value"`
-	TTL       hexutil.Uint64 `json:"ttl"`
-}
-
-type RPCKVResult struct {
-	Namespace string        `json:"namespace"`
-	Key       hexutil.Bytes `json:"key"`
-	Value     hexutil.Bytes `json:"value"`
-}
-
-type RPCKVMetaResult struct {
-	Namespace string         `json:"namespace"`
-	Key       hexutil.Bytes  `json:"key"`
-	CreatedAt hexutil.Uint64 `json:"createdAt"`
-	ExpireAt  hexutil.Uint64 `json:"expireAt"`
-	Expired   bool           `json:"expired"`
-}
-
 type RPCUNOShieldArgs struct {
 	RPCTxCommonArgs
 	Amount              hexutil.Uint64 `json:"amount"`
@@ -2103,31 +2080,6 @@ func resolveBlockArg(block *rpc.BlockNumberOrHash) rpc.BlockNumberOrHash {
 		return rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	}
 	return *block
-}
-
-func validateAndComputeExpireBlock(ttl hexutil.Uint64, currentBlock uint64) (uint64, uint64, error) {
-	if ttl == 0 {
-		return 0, 0, &rpcAPIError{
-			code:    rpcErrInvalidTTL,
-			message: "invalid ttl",
-			data: map[string]interface{}{
-				"reason": "ttl must be greater than zero",
-			},
-		}
-	}
-	delta := uint64(ttl)
-	if delta > ^uint64(0)-currentBlock {
-		return 0, 0, &rpcAPIError{
-			code:    rpcErrInvalidTTL,
-			message: "invalid ttl",
-			data: map[string]interface{}{
-				"reason":       "ttl overflows expire block",
-				"currentBlock": currentBlock,
-				"ttl":          delta,
-			},
-		}
-	}
-	return currentBlock, currentBlock + delta, nil
 }
 
 // GetChainProfile returns chain identity and storage/retention profile.
@@ -2428,59 +2380,6 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 	}, nil
 }
 
-func (s *TOSAPI) PutKV(ctx context.Context, args RPCPutKVArgs) (common.Hash, error) {
-	if args.From == (common.Address{}) {
-		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
-	}
-	if strings.TrimSpace(args.Namespace) == "" {
-		return common.Hash{}, newRPCInvalidParamsError("namespace", "must not be empty")
-	}
-	if _, _, err := validateAndComputeExpireBlock(args.TTL, s.currentHead()); err != nil {
-		return common.Hash{}, err
-	}
-	// Keep validation-only behavior for tests or dry skeleton instances.
-	if s == nil || s.b == nil {
-		return common.Hash{}, newRPCNotImplementedError("tos_putKV")
-	}
-	payload, err := kvstore.EncodePutPayload(args.Namespace, args.Key, args.Value, uint64(args.TTL))
-	if err != nil {
-		return common.Hash{}, newRPCInvalidParamsError("data", "invalid kv payload")
-	}
-	to := params.KVRouterAddress
-	input := hexutil.Bytes(payload)
-	from := args.From
-	zero := hexutil.Big{}
-	txArgs := TransactionArgs{
-		From:  &from,
-		To:    &to,
-		Gas:   args.Gas,
-		Value: &zero,
-		Nonce: args.Nonce,
-		Input: &input,
-	}
-	if txArgs.Gas == nil {
-		estimate, gasErr := kvstore.EstimatePutPayloadGas(payload, uint64(args.TTL))
-		if gasErr != nil {
-			return common.Hash{}, gasErr
-		}
-		gas := hexutil.Uint64(estimate)
-		txArgs.Gas = &gas
-	}
-	if err := txArgs.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	return SubmitTransaction(ctx, s.b, signed)
-}
-
 func (s *TOSAPI) UnoShield(ctx context.Context, args RPCUNOShieldArgs) (common.Hash, error) {
 	if args.From == (common.Address{}) {
 		return common.Hash{}, newRPCInvalidParamsError("from", "must not be zero address")
@@ -2644,72 +2543,6 @@ func (s *TOSAPI) UnoUnshield(ctx context.Context, args RPCUNOUnshieldArgs) (comm
 		return common.Hash{}, err
 	}
 	return SubmitTransaction(ctx, s.b, signed)
-}
-
-func (s *TOSAPI) GetKV(ctx context.Context, from common.Address, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVResult, error) {
-	if from == (common.Address{}) {
-		return nil, newRPCInvalidParamsError("from", "must not be zero address")
-	}
-	if strings.TrimSpace(namespace) == "" {
-		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
-	}
-	if s == nil || s.b == nil {
-		return nil, newRPCNotImplementedError("tos_getKV")
-	}
-	resolved := resolveBlockArg(blockNrOrHash)
-	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
-		return nil, err
-	}
-	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
-	if err != nil {
-		return nil, err
-	}
-	if state == nil || header == nil {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
-	}
-	value, _, found := kvstore.Get(state, from, namespace, key, header.Number.Uint64())
-	if !found {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
-	}
-	return &RPCKVResult{
-		Namespace: namespace,
-		Key:       key,
-		Value:     hexutil.Bytes(value),
-	}, nil
-}
-
-func (s *TOSAPI) GetKVMeta(ctx context.Context, from common.Address, namespace string, key hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCKVMetaResult, error) {
-	if from == (common.Address{}) {
-		return nil, newRPCInvalidParamsError("from", "must not be zero address")
-	}
-	if strings.TrimSpace(namespace) == "" {
-		return nil, newRPCInvalidParamsError("namespace", "must not be empty")
-	}
-	if s == nil || s.b == nil {
-		return nil, newRPCNotImplementedError("tos_getKVMeta")
-	}
-	resolved := resolveBlockArg(blockNrOrHash)
-	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
-		return nil, err
-	}
-	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
-	if err != nil {
-		return nil, err
-	}
-	if state == nil || header == nil {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv state not found"}
-	}
-	meta := kvstore.GetMeta(state, from, namespace, key, header.Number.Uint64())
-	if !meta.Exists {
-		return nil, &rpcAPIError{code: rpcErrNotFound, message: "kv not found"}
-	}
-	return &RPCKVMetaResult{
-		Namespace: namespace,
-		Key:       key,
-		CreatedAt: hexutil.Uint64(meta.CreatedAt),
-		ExpireAt:  hexutil.Uint64(meta.ExpireAt),
-		Expired:   false, // record is live; expired records are filtered by GetMeta
-	}, nil
 }
 
 func (s *TOSAPI) GetUNOCiphertext(ctx context.Context, address common.Address, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCUNOCiphertextResult, error) {

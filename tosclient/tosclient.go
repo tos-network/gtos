@@ -99,33 +99,6 @@ type CodeObjectMeta struct {
 	Expired   bool
 }
 
-// PutKVArgs is the argument object for tos_putKV.
-type PutKVArgs struct {
-	From      common.Address  `json:"from"`
-	Nonce     *hexutil.Uint64 `json:"nonce,omitempty"`
-	Gas       *hexutil.Uint64 `json:"gas,omitempty"`
-	Namespace string          `json:"namespace"`
-	Key       hexutil.Bytes   `json:"key"`
-	Value     hexutil.Bytes   `json:"value"`
-	TTL       hexutil.Uint64  `json:"ttl"`
-}
-
-// KVResult is an active KV read result.
-type KVResult struct {
-	Namespace string
-	Key       []byte
-	Value     []byte
-}
-
-// KVMetaResult is KV metadata result.
-type KVMetaResult struct {
-	Namespace string
-	Key       []byte
-	CreatedAt uint64
-	ExpireAt  uint64
-	Expired   bool
-}
-
 // DPoSValidatorInfo is validator status at a specific block.
 type DPoSValidatorInfo struct {
 	Address            common.Address
@@ -329,51 +302,6 @@ func (ec *Client) GetCodeObjectMeta(ctx context.Context, codeHash common.Hash, b
 	}
 	return &CodeObjectMeta{
 		CodeHash:  raw.CodeHash,
-		CreatedAt: uint64(raw.CreatedAt),
-		ExpireAt:  uint64(raw.ExpireAt),
-		Expired:   raw.Expired,
-	}, nil
-}
-
-// PutKV submits a KV upsert with ttl.
-func (ec *Client) PutKV(ctx context.Context, args PutKVArgs) (common.Hash, error) {
-	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_putKV", args)
-	return txHash, err
-}
-
-// GetKV reads an active KV value.
-func (ec *Client) GetKV(ctx context.Context, namespace string, key []byte, blockNumber *big.Int) (*KVResult, error) {
-	var raw struct {
-		Namespace string        `json:"namespace"`
-		Key       hexutil.Bytes `json:"key"`
-		Value     hexutil.Bytes `json:"value"`
-	}
-	if err := ec.c.CallContext(ctx, &raw, "tos_getKV", namespace, hexutil.Bytes(key), toBlockNumArg(blockNumber)); err != nil {
-		return nil, err
-	}
-	return &KVResult{
-		Namespace: raw.Namespace,
-		Key:       []byte(raw.Key),
-		Value:     []byte(raw.Value),
-	}, nil
-}
-
-// GetKVMeta reads KV metadata.
-func (ec *Client) GetKVMeta(ctx context.Context, namespace string, key []byte, blockNumber *big.Int) (*KVMetaResult, error) {
-	var raw struct {
-		Namespace string         `json:"namespace"`
-		Key       hexutil.Bytes  `json:"key"`
-		CreatedAt hexutil.Uint64 `json:"createdAt"`
-		ExpireAt  hexutil.Uint64 `json:"expireAt"`
-		Expired   bool           `json:"expired"`
-	}
-	if err := ec.c.CallContext(ctx, &raw, "tos_getKVMeta", namespace, hexutil.Bytes(key), toBlockNumArg(blockNumber)); err != nil {
-		return nil, err
-	}
-	return &KVMetaResult{
-		Namespace: raw.Namespace,
-		Key:       []byte(raw.Key),
 		CreatedAt: uint64(raw.CreatedAt),
 		ExpireAt:  uint64(raw.ExpireAt),
 		Expired:   raw.Expired,

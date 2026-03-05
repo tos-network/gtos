@@ -18,7 +18,6 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
-	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/tosdb"
@@ -144,28 +143,6 @@ func TestEstimateStorageFirstGas(t *testing.T) {
 	}
 	if uint64(systemGas) != wantSystem {
 		t.Fatalf("unexpected system action gas: have %d want %d", systemGas, wantSystem)
-	}
-
-	kvPayloadBytes, err := kvstore.EncodePutPayload("app", []byte("k"), []byte("v"), 7)
-	if err != nil {
-		t.Fatalf("encode kv payload: %v", err)
-	}
-	kvPayload := hexutil.Bytes(kvPayloadBytes)
-	toKV := params.KVRouterAddress
-	kvGas, err := estimateStorageFirstGas(TransactionArgs{
-		From:  &from,
-		To:    &toKV,
-		Input: &kvPayload,
-	})
-	if err != nil {
-		t.Fatalf("kv gas estimate failed: %v", err)
-	}
-	wantKV, err := kvstore.EstimatePutPayloadGas(kvPayloadBytes, 7)
-	if err != nil {
-		t.Fatalf("kv intrinsic helper failed: %v", err)
-	}
-	if uint64(kvGas) != wantKV {
-		t.Fatalf("unexpected kv gas: have %d want %d", kvGas, wantKV)
 	}
 
 	callData := hexutil.Bytes{0x60, 0x00}
@@ -321,3 +298,8 @@ func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent)
 }
 
 func (b *backendMock) Engine() consensus.Engine { return nil }
+
+func rpcBlockPtr(number rpc.BlockNumber) *rpc.BlockNumberOrHash {
+	v := rpc.BlockNumberOrHashWithNumber(number)
+	return &v
+}

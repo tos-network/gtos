@@ -13,11 +13,6 @@ var (
 	// and are executed outside the TVM by the state processor.
 	SystemActionAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000001")
 
-	// KVRouterAddress is the dedicated recipient for KV put transactions.
-	// Transactions sent to this address are parsed by core/state_transition.go
-	// as GTOS KV payloads and written directly to state storage.
-	KVRouterAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000002")
-
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.
 	ValidatorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000003")
 

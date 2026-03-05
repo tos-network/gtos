@@ -13,7 +13,6 @@ import (
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
@@ -150,17 +149,6 @@ func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
 	to := *args.To
 	if to == params.SystemActionAddress {
 		gas, err := estimateSystemActionGas(data)
-		if err != nil {
-			return 0, err
-		}
-		return hexutil.Uint64(gas), nil
-	}
-	if to == params.KVRouterAddress {
-		payload, err := kvstore.DecodePutPayload(data)
-		if err != nil {
-			return 0, newRPCInvalidParamsError("input", "invalid kv payload")
-		}
-		gas, err := kvstore.EstimatePutPayloadGas(data, payload.TTL)
 		if err != nil {
 			return 0, err
 		}

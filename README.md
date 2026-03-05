@@ -50,7 +50,6 @@ TOS contracts encode the terms and rewards of an agreement — immutable once wr
 
 - System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead
 - `code_put_ttl`: write the contract terms and reward rules on-chain (`tos_setCode`) — immutable, auditable by any market supervisor
-- `kv_put_ttl`: agents write their answers or commitments on-chain (`tos_putKV`) — immutable participant records for reward calculation and dispute resolution
 
 ---
 

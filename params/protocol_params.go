@@ -35,8 +35,6 @@ const (
 
 	InitialBaseFee = 1000000000 // Initial base fee for dynamic-fee blocks.
 	MaxCodeSize = 512 * 1024  // Maximum .tor package size permitted for TOL contract deployment.
-	// Additional gas charged per ttl block for KV record retention.
-	KVTTLBlockGas uint64 = 1
 
 	// RefundQuotient caps how much used gas can be refunded after a transaction.
 	// The legacy cap was gasUsed/2; the stricter cap is gasUsed/5 to prevent

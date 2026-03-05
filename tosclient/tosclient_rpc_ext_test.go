@@ -30,13 +30,8 @@ type rpcExtTestService struct {
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
 
-	lastGetKVNamespace string
-	lastGetKVKey       hexutil.Bytes
-	lastGetKVBlock     string
-
 	lastSetSignerArgs   SetSignerArgs
 	lastBuildSignerArgs SetSignerArgs
-	lastPutKVArgs       PutKVArgs
 	lastDPoSQueryAddress common.Address
 	lastDPoSQueryBlock   string
 }
@@ -156,42 +151,6 @@ func (s *rpcExtTestService) GetCodeObjectMeta(codeHash common.Hash, block string
 		CodeHash:  codeHash,
 		CreatedAt: hexutil.Uint64(10),
 		ExpireAt:  hexutil.Uint64(110),
-		Expired:   false,
-	}
-}
-
-func (s *rpcExtTestService) PutKV(args PutKVArgs) common.Hash {
-	s.lastPutKVArgs = args
-	return common.HexToHash("0x3")
-}
-
-func (s *rpcExtTestService) GetKV(namespace string, key hexutil.Bytes, block string) interface{} {
-	s.lastGetKVNamespace = namespace
-	s.lastGetKVKey = key
-	s.lastGetKVBlock = block
-	return struct {
-		Namespace string        `json:"namespace"`
-		Key       hexutil.Bytes `json:"key"`
-		Value     hexutil.Bytes `json:"value"`
-	}{
-		Namespace: namespace,
-		Key:       key,
-		Value:     hexutil.Bytes("value"),
-	}
-}
-
-func (s *rpcExtTestService) GetKVMeta(namespace string, key hexutil.Bytes, block string) interface{} {
-	return struct {
-		Namespace string         `json:"namespace"`
-		Key       hexutil.Bytes  `json:"key"`
-		CreatedAt hexutil.Uint64 `json:"createdAt"`
-		ExpireAt  hexutil.Uint64 `json:"expireAt"`
-		Expired   bool           `json:"expired"`
-	}{
-		Namespace: namespace,
-		Key:       key,
-		CreatedAt: hexutil.Uint64(11),
-		ExpireAt:  hexutil.Uint64(111),
 		Expired:   false,
 	}
 }
@@ -356,24 +315,6 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 		t.Fatalf("unexpected code meta: %+v", meta)
 	}
 
-	kv, err := client.GetKV(ctx, "ns", []byte("k"), big.NewInt(20))
-	if err != nil {
-		t.Fatalf("GetKV error: %v", err)
-	}
-	if svc.lastGetKVBlock != "0x14" {
-		t.Fatalf("GetKV block arg = %q, want 0x14", svc.lastGetKVBlock)
-	}
-	if kv.Namespace != "ns" || string(kv.Key) != "k" || string(kv.Value) != "value" {
-		t.Fatalf("unexpected kv result: %+v", kv)
-	}
-
-	kvMeta, err := client.GetKVMeta(ctx, "ns", []byte("k"), nil)
-	if err != nil {
-		t.Fatalf("GetKVMeta error: %v", err)
-	}
-	if kvMeta.CreatedAt != 11 || kvMeta.ExpireAt != 111 || kvMeta.Expired {
-		t.Fatalf("unexpected kv meta: %+v", kvMeta)
-	}
 }
 
 func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
@@ -405,20 +346,6 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	}
 	if tx == nil || len(tx.Raw) != 2 || tx.Raw[0] != 0xaa {
 		t.Fatalf("unexpected buildSetSignerTx result: %+v", tx)
-	}
-
-	kvHash, err := client.PutKV(ctx, PutKVArgs{
-		From:      from,
-		Namespace: "ns",
-		Key:       hexutil.Bytes("k"),
-		Value:     hexutil.Bytes("v"),
-		TTL:       hexutil.Uint64(300),
-	})
-	if err != nil {
-		t.Fatalf("PutKV error: %v", err)
-	}
-	if kvHash != common.HexToHash("0x3") {
-		t.Fatalf("unexpected putKV hash: %s", kvHash.Hex())
 	}
 
 	validators, err := client.DPoSGetValidators(ctx, nil)

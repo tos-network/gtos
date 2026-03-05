@@ -12,7 +12,6 @@ import (
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
-	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
 )
@@ -41,14 +40,6 @@ func sysActionMsg(from common.Address, nonce uint64) types.Message {
 	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
 		params.TxGas+params.SysActionGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
 		[]byte(`{"action":"VALIDATOR_REGISTER"}`), nil, true)
-}
-
-func kvPutMsg(from common.Address, nonce uint64, ttl uint64) types.Message {
-	dst := params.KVRouterAddress
-	data, _ := kvstore.EncodePutPayload("ns", []byte("key"), []byte("val"), ttl)
-	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
-		data, nil, true)
 }
 
 func unoCipher(seed byte) uno.Ciphertext {
@@ -187,23 +178,6 @@ func TestAnalyzeTxSysAction(t *testing.T) {
 	}
 }
 
-func TestAnalyzeTxKVPut(t *testing.T) {
-	sender := addr("0x44")
-	msg := kvPutMsg(sender, 0, 100)
-	as := AnalyzeTx(msg)
-
-	if _, ok := as.WriteAddrs[sender]; !ok {
-		t.Error("sender should be in WriteAddrs for KV put")
-	}
-	// With lazy expiry, no global index slot — KVRouterAddress must NOT appear.
-	if len(as.WriteSlots[params.KVRouterAddress]) != 0 {
-		t.Error("KVRouterAddress must have no write slots (lazy expiry: no global index)")
-	}
-	if _, ok := as.WriteAddrs[params.KVRouterAddress]; ok {
-		t.Error("KVRouterAddress must not be in WriteAddrs (lazy expiry: no global index)")
-	}
-}
-
 func TestAnalyzeTxTwoSysActionsConflict(t *testing.T) {
 	a := AnalyzeTx(sysActionMsg(addr("0xAA"), 0))
 	b := AnalyzeTx(sysActionMsg(addr("0xBB"), 0))
@@ -226,22 +200,6 @@ func TestAnalyzeTxCrossSenderNoConflict(t *testing.T) {
 	b := AnalyzeTx(plainMsg(addr("0xA200"), addr("0xB200"), 0, 10))
 	if a.Conflicts(&b) {
 		t.Error("independent transfers should not conflict")
-	}
-}
-
-func TestAnalyzeTxKVDifferentSendersNoConflict(t *testing.T) {
-	// With lazy expiry there is no shared global index slot — KV puts from
-	// different senders never conflict regardless of TTL.
-	a := AnalyzeTx(kvPutMsg(addr("0xC1"), 0, 100))
-	b := AnalyzeTx(kvPutMsg(addr("0xC2"), 0, 100))
-	if a.Conflicts(&b) {
-		t.Error("KV puts from different senders should not conflict (same TTL, lazy expiry)")
-	}
-
-	c := AnalyzeTx(kvPutMsg(addr("0xD1"), 0, 100))
-	d := AnalyzeTx(kvPutMsg(addr("0xD2"), 0, 200))
-	if c.Conflicts(&d) {
-		t.Error("KV puts from different senders should not conflict (different TTL, lazy expiry)")
 	}
 }
 

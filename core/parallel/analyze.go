@@ -7,9 +7,6 @@ import (
 )
 
 // AnalyzeTx returns the static access set for a transaction message.
-// With lazy expiry, SetCode and KV Put write only the sender's own state —
-// no shared global index slots — so different-sender txs of these types
-// are conflict-free and execute in level 0.
 func AnalyzeTx(msg types.Message) AccessSet {
 	sender := msg.From()
 	as := AccessSet{
@@ -32,9 +29,6 @@ func AnalyzeTx(msg types.Message) AccessSet {
 	case params.SystemActionAddress:
 		// System action: conflicts with any other system action via ValidatorRegistryAddress.
 		as.WriteAddrs[params.ValidatorRegistryAddress] = struct{}{}
-
-	case params.KVRouterAddress:
-		// KV Put: writes sender KV slots only.
 
 	case params.PrivacyRouterAddress:
 		// UNO transactions are serialized in MVP for deterministic proof/state handling.

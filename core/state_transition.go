@@ -27,7 +27,6 @@ import (
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	lvm "github.com/tos-network/gtos/core/lvm"
-	"github.com/tos-network/gtos/kvstore"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -224,10 +223,9 @@ func (st *StateTransition) preCheck() error {
 //  1. LVM contract deployment (To == nil): standard CREATE — derive address, collision-check,
 //     charge 200 gas/byte for code storage, set code at the new address.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
-//  3. KV router address (params.KVRouterAddress): parse tx.Data and apply KV put directly
-//  4. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
-//  5. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  6. Transactions with non-empty data to other non-system addresses: rejected
+//  3. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
+//  4. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
+//  5. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
@@ -276,8 +274,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				st.gas -= gasUsed
 				vmerr = execErr
 			}
-		} else if toAddr == params.KVRouterAddress {
-			vmerr = st.applyKVPut(msg)
 		} else if toAddr == params.PrivacyRouterAddress {
 			vmerr = st.applyUNO(msg)
 		} else {
@@ -328,31 +324,6 @@ func uint64ToStateWord(v uint64) common.Hash {
 
 func stateWordToUint64(h common.Hash) uint64 {
 	return new(big.Int).SetBytes(h.Bytes()).Uint64()
-}
-
-
-func (st *StateTransition) applyKVPut(msg Message) error {
-	if msg.Value() != nil && msg.Value().Sign() != 0 {
-		return ErrContractNotSupported
-	}
-	payload, err := kvstore.DecodePutPayload(st.data)
-	if err != nil {
-		return ErrContractNotSupported
-	}
-	currentBlock := st.blockCtx.BlockNumber.Uint64()
-	if payload.TTL > math.MaxUint64-currentBlock {
-		return ErrContractNotSupported
-	}
-	ttlGas, err := kvstore.KVTTLGas(payload.TTL)
-	if err != nil {
-		return ErrContractNotSupported
-	}
-	if st.gas < ttlGas {
-		return ErrIntrinsicGas
-	}
-	st.gas -= ttlGas
-	kvstore.Put(st.state, msg.From(), payload.Namespace, payload.Key, payload.Value, currentBlock, currentBlock+payload.TTL)
-	return nil
 }
 
 func (st *StateTransition) applyUNO(msg Message) error {
