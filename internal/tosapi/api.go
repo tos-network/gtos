@@ -43,6 +43,13 @@ func NewTOSAPI(b Backend) *TOSAPI {
 	return &TOSAPI{b}
 }
 
+// GasPrice returns the fixed TOS gas price: 1 gwei (1e9 wei).
+// TOS uses a fixed gas price model; this value is constant regardless of network load.
+func (s *TOSAPI) GasPrice(ctx context.Context) *hexutil.Big {
+	oneGwei := new(big.Int).SetUint64(1_000_000_000)
+	return (*hexutil.Big)(oneGwei)
+}
+
 // MaxPriorityFeePerGas returns a suggestion for a gas tip cap for dynamic fee transactions.
 func (s *TOSAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
 	tipcap, err := s.b.SuggestGasTipCap(ctx)
