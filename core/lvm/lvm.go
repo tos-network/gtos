@@ -148,8 +148,8 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 		return common.Address{}, 0, fmt.Errorf("lvm: only .tor package archives may be deployed; raw .toc bytecode is not accepted")
 	}
 	// Reject oversized packages.
-	if uint64(len(torBytes)) > params.MaxPackageSize {
-		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(torBytes), params.MaxPackageSize)
+	if uint64(len(torBytes)) > params.MaxCodeSize {
+		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(torBytes), params.MaxCodeSize)
 	}
 
 	codeHash := l.StateDB.GetCodeHash(contractAddr)
