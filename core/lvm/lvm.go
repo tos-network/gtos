@@ -222,7 +222,7 @@ func buildRuntimePackage(deployPkgBytes []byte, initTOCPath string) ([]byte, err
 		Contracts []struct {
 			Name      string `json:"name"`
 			Artifact  string `json:"toc,omitempty"`
-			Interface string `json:"toi,omitempty"`
+			Interface string `json:"abi,omitempty"`
 		} `json:"contracts"`
 	}
 	if err := json.Unmarshal(pkg.ManifestJSON, &m); err != nil {
