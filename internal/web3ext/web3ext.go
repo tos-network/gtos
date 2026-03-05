@@ -570,23 +570,6 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
-			name: 'setCode',
-			call: 'tos_setCode',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'estimateSetCodeGas',
-			call: 'tos_estimateSetCodeGas',
-			params: 2,
-			outputFormatter: web3._extend.utils.toDecimal
-		}),
-		new web3._extend.Method({
-			name: 'getCodeMeta',
-			call: 'tos_getCodeMeta',
-			params: 2,
-			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
 			name: 'putKV',
 			call: 'tos_putKV',
 			params: 1
