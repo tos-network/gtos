@@ -206,51 +206,17 @@ func SplitDeployDataAndConstructorArgs(data []byte) (pkgBytes []byte, ctorArgs [
 	return nil, nil, fmt.Errorf("lvm: deploy data does not contain a valid .tor package (no valid ZIP EOCD found)")
 }
 
-// buildRuntimePackage strips init_code (and signature/publisher_key) from a
-// deploy package, producing the on-chain runtime package that gets stored via
-// SetCode.  The runtime package retains all contracts and their artifacts;
-// only the constructor-only init_code artifact is removed.
-func buildRuntimePackage(deployPkgBytes []byte, initCodePath string) ([]byte, error) {
-	pkg, err := lua.DecodePackage(deployPkgBytes)
-	if err != nil {
-		return nil, fmt.Errorf("buildRuntimePackage: decode: %w", err)
-	}
-	// Parse only the fields we need to carry forward.
-	var m struct {
-		Name      string `json:"name"`
-		Version   string `json:"version"`
-		Contracts []struct {
-			Name      string `json:"name"`
-			Artifact  string `json:"toc,omitempty"`
-			Interface string `json:"abi,omitempty"`
-		} `json:"contracts"`
-	}
-	if err := json.Unmarshal(pkg.ManifestJSON, &m); err != nil {
-		return nil, fmt.Errorf("buildRuntimePackage: manifest decode: %w", err)
-	}
-	// Build new files map without init_code.
-	newFiles := make(map[string][]byte, len(pkg.Files))
-	for k, v := range pkg.Files {
-		if k != initCodePath {
-			newFiles[k] = v
-		}
-	}
-	newManifest, err := json.Marshal(m)
-	if err != nil {
-		return nil, fmt.Errorf("buildRuntimePackage: manifest encode: %w", err)
-	}
-	return lua.EncodePackage(newManifest, newFiles)
-}
-
 // Create deploys a .tor package archive to a new contract address.
 //
 // If the deploy package manifest contains both `main_contract` and `init_code`
-// fields, the init/runtime split is applied (Ethereum-style constructor execution):
-//  1. The init_code artifact is executed once with IsCreate=true and constructorArgs.
-//  2. On success, only the runtime package (init_code stripped) is stored on-chain.
-//  3. On failure, the snapshot is fully reverted.
+// fields, the init_code artifact is executed once with IsCreate=true and
+// constructorArgs (Ethereum-style constructor). On failure, the snapshot is
+// fully reverted.
 //
-// Packages without main_contract/init_code are stored as-is (legacy path).
+// The full original deploy package (including init_code and signature fields)
+// is stored on-chain via SetCode, allowing auditors to reconstruct and verify
+// the original publisher signature at any time.
+//
 // Only .tor packages are accepted; raw .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
 func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
@@ -311,7 +277,6 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	// Determine whether this package uses the init/runtime split.
 	hasInitRuntime := deployManifest.MainContract != "" && deployManifest.InitCode != ""
 
-	var runtimePkgBytes []byte
 	var initArtifactBytecode []byte
 
 	if hasInitRuntime {
@@ -344,18 +309,10 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 			return common.Address{}, gas, fmt.Errorf("lvm: init_code decode: %w", err)
 		}
 		initArtifactBytecode = initArt.Bytecode
-
-		// Build runtime package (strips init_code + signature fields).
-		runtimePkgBytes, err = buildRuntimePackage(pkgBytes, deployManifest.InitCode)
-		if err != nil {
-			return common.Address{}, gas, fmt.Errorf("lvm: build runtime package: %w", err)
-		}
-	} else {
-		runtimePkgBytes = pkgBytes
 	}
 
-	// Charge code storage gas based on runtime package size.
-	codeGas := uint64(len(runtimePkgBytes)) * gasDeployByte
+	// Charge code storage gas based on full deploy package size.
+	codeGas := uint64(len(pkgBytes)) * gasDeployByte
 	if gas < codeGas {
 		return common.Address{}, 0, ErrGasLimitExceeded
 	}
@@ -377,7 +334,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 
 	l.StateDB.CreateAccount(contractAddr)
 	l.StateDB.SetNonce(contractAddr, 1)
-	l.StateDB.SetCode(contractAddr, runtimePkgBytes)
+	l.StateDB.SetCode(contractAddr, pkgBytes)
 	l.StateDB.SetNonce(callerAddr, nonce+1)
 
 	if hasInitRuntime {

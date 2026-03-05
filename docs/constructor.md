@@ -88,36 +88,25 @@ Important:
 
 ## Runtime Package Persistence
 
-After successful init:
+After successful init, `SetCode` stores the **original, unmodified `deployPkgBytes`**
+verbatim — including the `init_code` artifact, `signature`, and `publisher_key` fields.
 
-1. Produce `runtimePkgBytes` from deploy package by removing:
-   - manifest field `init_code`
-   - the `init_code` file entry itself
-2. Keep `contracts` unchanged.
-3. Store only `runtimePkgBytes` via `SetCode`.
+No stripping step is performed.
 
-This guarantees normal package routing can never dispatch to init code.
+This means:
+- `stateDB.GetCode(contractAddr)` returns the exact bytes the deployer submitted.
+- The publisher Ed25519 signature remains verifiable on-chain at any time.
+- Normal call routing is still safe: `executePackage` only dispatches to contracts
+  listed in `manifest.contracts`; the `init_code` path is only reachable when
+  `IsCreate=true`, which is set exclusively inside `Create`.
 
-### Package Signature and Runtime Package
-
-The `.tor` package signature covers the original deploy package (`deployPkgBytes`), computed
-as `keccak256(manifestJSON_without_signature || sorted_file_contents)`. Removing `init_code`
-from the manifest and files invalidates this signature.
-
-**Decision: Runtime package carries no signature; signature is verified at deploy time only.**
-
-Rationale:
-- Signature semantics are "publisher vouches for this artifact" — relevant at deploy time,
-  not for the on-chain runtime state.
-- This mirrors EVM: a signed deploy transaction covers the initcode; the stored runtime
-  bytecode is a chain-state derivation and carries no signature.
-- No runtime rewriting of signature fields is needed; the stored runtime package simply
-  omits the `signature` and `publisher_key` manifest fields alongside `init_code`.
+### Package Signature
 
 Verification timing:
 1. `Create()` entry: verify signature on `deployPkgBytes` (optional policy, not a
    mandatory consensus rule — same as today).
-2. `Call()` / `executePackage()`: no signature check on stored runtime package.
+2. `Call()` / `executePackage()`: signature fields are present in stored code but
+   not re-verified on each call (no performance impact).
 
 ---
 
@@ -197,9 +186,8 @@ Suggested rollout:
 2. `core/lvm/lvm.go`
    - `CallCtx.IsCreate`
    - `SplitDeployDataAndConstructorArgs`
-   - new create flow (init execute -> runtime package persist)
+   - new create flow (init execute -> SetCode full package)
    - manifest parse/validation for `main_contract` + `init_code`
-   - runtime-package rewrite helper
    - `Execute()` calldata + create-context lifecycle enforcement
 3. `docs/lua-vm-integration.md`
    - update docs to constructor-at-create and init/runtime separation
@@ -222,7 +210,7 @@ Add tests:
 2. Init revert rolls back create completely.
 3. Missing/invalid `main_contract` fails deploy.
 4. Missing/invalid `init_code` fails deploy.
-5. Stored runtime package excludes `init_code`.
+5. Stored on-chain code equals original `deployPkgBytes` (including `init_code`).
 6. Normal call cannot trigger init path.
 7. `tos.create` / `tos.create2` run child init at create-time.
 8. Non-struct function dispatch still works when `oninvoke` receives selector-only (args decoded from `tos.calldata`).

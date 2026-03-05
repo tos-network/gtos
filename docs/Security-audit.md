@@ -777,27 +777,31 @@ Consider adding a `tos.keccak256hex(hexStr)` convenience wrapper that calls `tos
 
 ### SEC-8 — LOW: On-Chain Runtime Package Diverges from Published `.tor`
 
-**File:** `core/lvm/lvm.go:213-243` (`buildRuntimePackage`)
+**Status: Fixed**
 
-#### Problem
+**File:** `core/lvm/lvm.go` (`LVM.Create`)
 
-`buildRuntimePackage` strips the `init_toc` constructor artifact plus `signature` and `publisher_key` fields before storing the package on-chain. The bytes stored at `stateDB.GetCode(contractAddr)` do not match any file the developer published. An auditor cannot reconstruct the original `.tor` archive from on-chain data or verify the publisher's signature.
+#### Problem (original)
+
+The former `buildRuntimePackage` function stripped `init_code`, `signature`, and
+`publisher_key` fields before calling `SetCode`. The bytes stored on-chain did not
+match any file the developer published, making signature verification impossible
+after deployment.
 
 #### Fix
 
-Store the SHA-256 (or Keccak-256) hash of the **original full deploy package** in a reserved storage slot at deploy time:
+`buildRuntimePackage` has been removed. `LVM.Create` now calls
+`SetCode(contractAddr, pkgBytes)` with the original, unmodified deploy package bytes.
+The full `.tor` archive — including `init_code` artifact, `signature`, and
+`publisher_key` — is stored on-chain verbatim.
 
-```go
-// core/lvm/lvm.go — inside LVM.Create, after successful deployment
-deployHash := crypto.Keccak256Hash(pkgBytes)
-deployHashSlot := crypto.Keccak256Hash([]byte("gtos.deploy.hash"))
-l.StateDB.SetState(contractAddr, deployHashSlot, deployHash)
-```
-
-Publish the hash in the deployment receipt. Off-chain tooling (`toskey verify`, block explorer) can:
-1. Fetch the deploy hash from the contract's storage slot.
-2. Retrieve the original `.tor` from a content-addressed store (IPFS, Arweave) by its hash.
-3. Verify the publisher signature against the full package.
+Consequences:
+- `stateDB.GetCode(contractAddr)` returns the exact bytes the deployer submitted.
+- Auditors and block explorers can verify the Ed25519 publisher signature directly
+  from on-chain data without consulting any external store.
+- `init_code` is stored but never dispatched: `Execute` / `executePackage` only
+  routes calls to contracts listed in `manifest.contracts`; the `init_code` path
+  is only reachable when `IsCreate=true`, which is set exclusively inside `Create`.
 
 ---
 
@@ -812,7 +816,7 @@ Publish the hash in the deployment receipt. Off-chain tooling (`toskey verify`, 
 | SEC-5 | MEDIUM | LVM | Reentrancy: no protocol-level guard | Open |
 | SEC-6 | MEDIUM | LVM | Sentinel strings detectable by contract code | Open |
 | SEC-7 | LOW | LVM | `tos.keccak256` raw-bytes vs hex inconsistency | Open |
-| SEC-8 | LOW | .tor | On-chain runtime diverges from published `.tor` | Open |
+| SEC-8 | LOW | .tor | On-chain runtime diverges from published `.tor` | **Fixed** |
 
 **SEC-1, SEC-2, SEC-3** must be resolved before any LVM contract deployment is accepted on mainnet.
 **SEC-4, SEC-5, SEC-6** must be resolved before the first external contract developer onboarding.
