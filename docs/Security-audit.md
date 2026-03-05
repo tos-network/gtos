@@ -358,6 +358,462 @@ if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
 
 ---
 
-## All Issues Resolved
+## All Previous Issues Resolved
 
-All findings from this audit have been fixed and committed. No open issues remain.
+All findings from the initial audit have been fixed and committed.
+
+---
+
+# Second Audit — 2026-03-05
+
+**Scope:** Three major divergences from go-ethereum reviewed in depth:
+1. Parallel execution (`core/parallel/`)
+2. EVM → LVM replacement (`core/lvm/lvm.go`, tolang)
+3. `.tor` package deployment format
+
+**Reviewed files:** `core/parallel/analyze.go`, `core/parallel/executor.go`, `core/parallel/writebuf.go`, `core/lvm/lvm.go`, `core/state_processor.go`, `core/state_transition.go`, tolang `tol_tor.go`, `linit.go`, `stringlib.go`.
+
+---
+
+## Open Issues
+
+---
+
+### SEC-1 — CRITICAL: LVM Cross-Contract Storage Conflict Undetected (Double-Spend)
+
+**File:** `core/parallel/analyze.go:28-40`, `core/parallel/writebuf.go:93-99`
+
+#### Problem
+
+`AnalyzeTx` only marks the **top-level `to` address** in the static access set:
+
+```go
+default:
+    // Comment says "Plain TOS transfer" but LVM calls also hit this branch.
+    as.WriteAddrs[*to] = struct{}{}
+    as.ReadAddrs[*to] = struct{}{}
+```
+
+LVM contracts can write to **arbitrary third-party storage slots** via `tos.call`, `tos.transfer`, and `tos.delegatecall`. When two parallel transactions call different top-level contracts (A and B) that both internally write the same storage slot of a shared contract T (e.g., a TOS-20 token), the conflict detector sees no overlap and places both in the same execution level.
+
+`WriteBufStateDB.Merge` applies storage writes as **absolute overwrites**, not deltas:
+
+```go
+// core/parallel/writebuf.go:93-99
+for addr, slots := range b.storage {
+    for slot, val := range slots {
+        dst.SetState(addr, slot, val)  // absolute write — last merge wins
+    }
+}
+```
+
+**Attack scenario:**
+
+- Parent state: `T.slot[X] = 600` (user X holds 600 token units)
+- Tx1 calls Contract A → A internally calls `T.transferFrom(X, Y, 100)` → WriteBuf1: `T.slot[X] = 500`
+- Tx2 calls Contract B → B internally calls `T.transferFrom(X, Z, 50)` → WriteBuf2: `T.slot[X] = 550`
+- Conflict check: `{sender1, A}` vs `{sender2, B}` → **no conflict detected** → same level
+- Merge Tx1: `T.slot[X] = 500` ✓
+- Merge Tx2: `T.slot[X] = 550` — **overwrites Tx1; 100-unit deduction vanishes**
+
+X is debited only 50 instead of 150. The attacker receives 100 tokens for free.
+
+#### Fix
+
+**Option A (Recommended — serialize all LVM calls):**
+
+Add a `StateReader` parameter to `AnalyzeTx` and fall back to a global conflict sentinel whenever the destination address has contract code. This forces all LVM-call transactions to be serialized against each other.
+
+```go
+// core/parallel/analyze.go
+
+// lvmSerialSentinel is written to the access set of every LVM contract call
+// so that all such calls conflict with each other and execute serially.
+var lvmSerialSentinel = params.LVMSerialAddress // a fixed reserved address
+
+func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
+    // ... existing setup ...
+    switch *to {
+    case params.SystemActionAddress:
+        as.WriteAddrs[params.ValidatorRegistryAddress] = struct{}{}
+    case params.PrivacyRouterAddress:
+        as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
+    default:
+        as.WriteAddrs[*to] = struct{}{}
+        as.ReadAddrs[*to] = struct{}{}
+        // If the destination has LVM code it may write to arbitrary addresses.
+        // Force serialization by marking a global sentinel address.
+        if statedb.HasCode(*to) {
+            as.WriteAddrs[lvmSerialSentinel] = struct{}{}
+        }
+    }
+    return as
+}
+```
+
+**Option B (Future — dynamic write-set tracking):**
+
+Record which slots are actually written during parallel execution. After the goroutine phase, check for overlap between write sets from transactions in the same level. Re-execute overlapping transactions serially. This preserves parallelism for non-conflicting LVM calls at the cost of occasional re-execution.
+
+**Option C (Not sufficient alone — storage delta merge):**
+
+Change storage Merge to apply slot-level deltas instead of absolute values. This is correct only for purely additive semantics (token balances) and cannot be applied to general state (flags, counters reset to zero, enums). Do not use this as the sole fix.
+
+---
+
+### SEC-2 — HIGH: `string.rep` + Ungassed Hash Functions → Memory/CPU DoS
+
+**File:** `core/lvm/lvm.go:999-1026`, tolang `stringlib.go:strRep`
+
+#### Problem
+
+`string.rep(s, n)` is a Go function call that costs **1 Lua VM opcode** regardless of output size. The tolang fork has no maximum-length guard:
+
+```go
+// tolang stringlib.go
+func strRep(L *LState) int {
+    str := L.CheckString(1)
+    n   := L.CheckInt(2)
+    L.Push(LString(strings.Repeat(str, n)))  // no size limit
+```
+
+The following LVM primitives do **not charge per-byte gas** on their input:
+
+| Primitive | Missing charge |
+|---|---|
+| `tos.keccak256(data)` | No `len(data)` gas |
+| `tos.sha256(data)` | No `len(data)` gas |
+| `tos.ripemd160(data)` | No `len(data)` gas |
+| `tos.bytes.fromhex(hex)` | No `len(hex)/2` gas |
+| `tos.bytes.slice(bin, off, len)` | No `len` gas |
+| `string.find(s, pat)` | Complex regex, O(N) CPU |
+| `string.gsub(s, pat, repl)` | Complex regex, O(N) CPU |
+
+A malicious contract can construct a gigabyte-scale string in a handful of opcodes and pass it to any of the above:
+
+```lua
+-- ~4 Lua opcodes; attempts to allocate 1 GB and hash it
+tos.keccak256(string.rep("x", 1000000000))
+```
+
+#### Impact
+
+A single on-chain transaction can cause an out-of-memory crash or a multi-second CPU stall on every validator node simultaneously, halting block production.
+
+#### Fix
+
+**Step 1 — Add per-byte gas to hash and binary primitives (`core/lvm/lvm.go`):**
+
+```go
+// tos.keccak256
+L.SetField(tosTable, "keccak256", L.NewFunction(func(L *lua.LState) int {
+    data := L.CheckString(1)
+    chargePrimGas(1 + uint64(len(data)))  // 1 base + 1 per byte
+    h := crypto.Keccak256Hash([]byte(data))
+    L.Push(lua.LString(h.Hex()))
+    return 1
+}))
+// Apply the same pattern to tos.sha256, tos.ripemd160,
+// tos.bytes.fromhex, tos.bytes.slice, tos.bytes.tohex.
+```
+
+**Step 2 — Add a hard maximum-length guard in tolang `stringlib.go`:**
+
+```go
+const maxStringBytes = 1 << 20 // 1 MB hard cap
+
+func strRep(L *LState) int {
+    str := L.CheckString(1)
+    n   := L.CheckInt(2)
+    sep := L.OptString(3, "")
+    if n > 0 && int64(len(str)+len(sep))*int64(n) > maxStringBytes {
+        L.RaiseError("string.rep: result exceeds maximum string size (%d bytes)", maxStringBytes)
+        return 0
+    }
+    // ... existing logic
+```
+
+**Step 3 — Cap `string.gsub` accumulated output size** in tolang `stringlib.go`: track total bytes produced by replacements and raise an error once the cap is exceeded.
+
+---
+
+### SEC-3 — HIGH: ZIP Bomb in `.tor` Package Decode
+
+**File:** tolang `tol_tor.go:241`
+
+#### Problem
+
+`DecodePackage` reads each ZIP entry with no decompressed-size limit:
+
+```go
+rc, err := f.Open()
+body, err := io.ReadAll(rc)  // no size cap on decompressed content
+```
+
+`MaxCodeSize = 512 KB` is enforced on the **compressed** `.tor` bytes (`core/lvm/lvm.go:272`). ZIP DEFLATE compression can achieve ratios of 1000:1 or higher. A valid 512 KB `.tor` file can decompress to 500 MB or more.
+
+`DecodePackage` is called **twice per deployment** (once in `SplitDeployDataAndConstructorArgs` and once in `Create`) and once per call via `executePackage`. Every validator invokes it on every transaction that targets an LVM contract.
+
+#### Impact
+
+A single deployment transaction causes out-of-memory crashes on all validator nodes. The compressed file passes the `MaxCodeSize` check; the decompressed expansion exhausts available memory before the check can reject it.
+
+#### Fix
+
+Apply `io.LimitReader` per-entry and accumulate a total-size counter in `DecodePackage` (tolang `tol_tor.go`):
+
+```go
+const maxDecompressedEntry = 2 * 1024 * 1024  // 2 MB per entry
+const maxDecompressedTotal = 8 * 1024 * 1024  // 8 MB total package
+
+func DecodePackage(data []byte) (*Package, error) {
+    zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+    if err != nil {
+        return nil, fmt.Errorf("invalid tor zip: %w", err)
+    }
+    var totalBytes int64
+    for _, f := range zr.File {
+        // ...
+        rc, err := f.Open()
+        if err != nil {
+            return nil, err
+        }
+        lr := io.LimitReader(rc, maxDecompressedEntry+1)
+        body, err := io.ReadAll(lr)
+        _ = rc.Close()
+        if err != nil {
+            return nil, err
+        }
+        if int64(len(body)) > maxDecompressedEntry {
+            return nil, fmt.Errorf("tor entry %q exceeds decompressed size limit", f.Name)
+        }
+        totalBytes += int64(len(body))
+        if totalBytes > maxDecompressedTotal {
+            return nil, fmt.Errorf("tor package total decompressed size exceeds limit")
+        }
+        // ... existing logic
+    }
+```
+
+Additionally, cache the decoded `*Package` in the StateDB keyed by code hash so that repeated calls to the same contract do not re-decompress the archive on every invocation.
+
+---
+
+### SEC-4 — MEDIUM: Block-Level Gas Check Deferred to Merge Phase
+
+**File:** `core/parallel/executor.go:168-173`
+
+#### Problem
+
+In go-ethereum's serial execution, `buyGas()` is called **before** a transaction executes. If the transaction's declared gas exceeds the remaining block gas, execution is skipped with no CPU cost.
+
+In GTOS's parallel executor, all transactions in a level execute first against individual per-tx gas pools, and the block-level gas check happens **after execution** during the serial merge phase:
+
+```go
+// Checked after parallel execution completes — too late
+if msgs[txIdx].Gas() > gp.Gas() {
+    return nil, nil, 0, ErrGasLimitReached
+}
+```
+
+A malicious block proposer can include transactions whose total declared gas exceeds the block gas limit. All validators execute every transaction in parallel (doing real CPU work), then reject the block at merge time. The proposer forfeits the block reward; the validators waste a full block slot of compute.
+
+#### Fix
+
+Pre-filter each level before spawning goroutines: if the level's total declared gas exceeds remaining block gas, return `ErrGasLimitReached` immediately without executing any transaction.
+
+```go
+// core/parallel/executor.go — before the goroutine launch loop
+for _, level := range levels {
+    var levelGas uint64
+    for _, txIdx := range level {
+        g := msgs[txIdx].Gas()
+        if levelGas+g < levelGas { // overflow guard
+            levelGas = math.MaxUint64
+            break
+        }
+        levelGas += g
+    }
+    if levelGas > gp.Gas() {
+        return nil, nil, 0, ErrGasLimitReached
+    }
+    // ... existing goroutine launch
+}
+```
+
+A stronger mitigation is to validate total block gas usage during `VerifyHeader` so that nodes can reject over-gas blocks before executing any transactions at all.
+
+---
+
+### SEC-5 — MEDIUM: LVM Contract Reentrancy — No Protocol-Level Guard
+
+**File:** `core/lvm/lvm.go:1951-1956`
+
+#### Problem
+
+`tos.call` transfers value to the callee **before** executing callee code — identical to EVM `CALL` ordering:
+
+```go
+// Transfer happens before callee execution
+if callValue.Sign() > 0 {
+    blockCtx.Transfer(stateDB, contractAddr, calleeAddr, callValue)
+}
+// Callee runs here and can call back into the caller before its state is updated
+childGasUsed, ... := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGasLimit)
+```
+
+A malicious callee can re-enter the caller before the caller updates its own state, enabling classic reentrancy attacks (e.g., repeatedly draining a contract's balance before the internal balance mapping is decremented).
+
+#### Fix
+
+No single protocol-level fix is appropriate because it would break legitimate re-entrancy patterns. The correct approach is defense-in-depth via documentation and standard library primitives.
+
+**Add a `reentrancy_guard` built-in module** to `core/lvm/stdlib.go`:
+
+```lua
+-- reentrancy_guard standard library (pseudo-code)
+local M = {}
+local _lock_key = "_reentrancy_lock"
+
+function M.nonReentrant()
+    if tos.get(_lock_key) ~= 0 then
+        tos.revert("ReentrancyGuard: reentrant call")
+    end
+    tos.set(_lock_key, 1)
+end
+
+function M.exit()
+    tos.set(_lock_key, 0)
+end
+return M
+```
+
+**Enforce checks-effects-interactions in all standard library contracts** (`tos20`, `tos721`, etc.): update state before making any external calls or value transfers.
+
+**Document the pattern prominently** in the contract development guide, with explicit warnings on `tos.call` and `tos.transfer`.
+
+---
+
+### SEC-6 — MEDIUM: Internal Sentinel Strings Detectable by Contract Code
+
+**File:** `core/lvm/lvm.go:51-57`
+
+#### Problem
+
+`Execute` distinguishes clean returns and structured reverts from true errors by matching sentinel strings in the error message:
+
+```go
+const resultSignal    = "__tos_internal_result__"
+const revertDataSignal = "__tos_revert_data__"
+
+if hasResult && strings.Contains(err.Error(), resultSignal) { ... }
+if hasRevertData && strings.Contains(err.Error(), revertDataSignal) { ... }
+```
+
+Boolean gates (`hasResult`, `hasRevertData`) prevent direct spoofing today. However, if a future code path sets `hasResult = true` prematurely before an attacker-controlled error string containing the sentinel is raised, the LVM would misclassify an error as a clean return — committing state and returning fabricated data.
+
+#### Fix
+
+Replace string-based detection with unexported Go error types that are structurally impossible to produce from Lua:
+
+```go
+// Unexported — cannot be constructed by contract code
+type lvmResultSignal  struct{ data []byte }
+type lvmRevertSignal  struct{ data []byte }
+
+func (e *lvmResultSignal) Error() string { return "lvm: result signal (internal)" }
+func (e *lvmRevertSignal) Error() string { return "lvm: revert signal (internal)" }
+```
+
+`tos.result()` and `tos.revert()` store data in these typed values. `Execute` detects them with `errors.As` rather than `strings.Contains`:
+
+```go
+var resultSig *lvmResultSignal
+if errors.As(err, &resultSig) {
+    return total, resultSig.data, nil, nil
+}
+var revertSig *lvmRevertSignal
+if errors.As(err, &revertSig) {
+    return total, nil, revertSig.data, fmt.Errorf("revert with data")
+}
+```
+
+This eliminates the string-matching surface entirely, regardless of what strings Lua code raises.
+
+---
+
+### SEC-7 — LOW: `tos.keccak256` Accepts Raw Bytes, Not Hex
+
+**File:** `core/lvm/lvm.go:999-1005`
+
+#### Problem
+
+`tos.keccak256` hashes the raw UTF-8 bytes of its argument, not decoded hex bytes:
+
+```lua
+tos.keccak256("0xdeadbeef")
+-- hashes the 10 ASCII characters "0xdeadbeef", NOT the 4 bytes 0xde 0xad 0xbe 0xef
+```
+
+This is inconsistent with other hex-aware primitives (`tos.abi.encode`, `tos.bytes.fromhex`) and produces silent bugs when computing Solidity-compatible message hashes or EIP-712 digests.
+
+#### Fix
+
+Update the `tos.keccak256` docstring with an explicit warning and correct usage example:
+
+```go
+// tos.keccak256(data) → "0x..." hex (32 bytes)
+//
+// WARNING: `data` is treated as raw bytes, NOT as a hex string.
+// To hash hex-encoded input, decode it first:
+//
+//   correct:   tos.keccak256(tos.bytes.fromhex("0xdeadbeef"))  -- hashes 4 bytes
+//   incorrect: tos.keccak256("0xdeadbeef")                     -- hashes 10 ASCII chars
+```
+
+Consider adding a `tos.keccak256hex(hexStr)` convenience wrapper that calls `tos.bytes.fromhex` internally, making the common Solidity-compatible pattern safe by default.
+
+---
+
+### SEC-8 — LOW: On-Chain Runtime Package Diverges from Published `.tor`
+
+**File:** `core/lvm/lvm.go:213-243` (`buildRuntimePackage`)
+
+#### Problem
+
+`buildRuntimePackage` strips the `init_toc` constructor artifact plus `signature` and `publisher_key` fields before storing the package on-chain. The bytes stored at `stateDB.GetCode(contractAddr)` do not match any file the developer published. An auditor cannot reconstruct the original `.tor` archive from on-chain data or verify the publisher's signature.
+
+#### Fix
+
+Store the SHA-256 (or Keccak-256) hash of the **original full deploy package** in a reserved storage slot at deploy time:
+
+```go
+// core/lvm/lvm.go — inside LVM.Create, after successful deployment
+deployHash := crypto.Keccak256Hash(pkgBytes)
+deployHashSlot := crypto.Keccak256Hash([]byte("gtos.deploy.hash"))
+l.StateDB.SetState(contractAddr, deployHashSlot, deployHash)
+```
+
+Publish the hash in the deployment receipt. Off-chain tooling (`toskey verify`, block explorer) can:
+1. Fetch the deploy hash from the contract's storage slot.
+2. Retrieve the original `.tor` from a content-addressed store (IPFS, Arweave) by its hash.
+3. Verify the publisher signature against the full package.
+
+---
+
+## Open Issues Summary
+
+| ID | Severity | Area | Title | Status |
+|----|----------|------|-------|--------|
+| SEC-1 | CRITICAL | Parallel | LVM cross-contract storage conflict → double-spend | Open |
+| SEC-2 | HIGH | LVM | `string.rep` + ungassed hashes → OOM/CPU DoS | Open |
+| SEC-3 | HIGH | .tor | ZIP bomb in `DecodePackage` — no decompressed-size limit | Open |
+| SEC-4 | MEDIUM | Parallel | Block gas check deferred to merge phase | Open |
+| SEC-5 | MEDIUM | LVM | Reentrancy: no protocol-level guard | Open |
+| SEC-6 | MEDIUM | LVM | Sentinel strings detectable by contract code | Open |
+| SEC-7 | LOW | LVM | `tos.keccak256` raw-bytes vs hex inconsistency | Open |
+| SEC-8 | LOW | .tor | On-chain runtime diverges from published `.tor` | Open |
+
+**SEC-1, SEC-2, SEC-3** must be resolved before any LVM contract deployment is accepted on mainnet.
+**SEC-4, SEC-5, SEC-6** must be resolved before the first external contract developer onboarding.
+**SEC-7, SEC-8** can be addressed via documentation and tooling releases.
