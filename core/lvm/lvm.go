@@ -152,7 +152,7 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 // package are routed at call time by executePackage via the 4-byte dispatch tag.
 // Only .tor packages are accepted — direct .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
-func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+func (l *LVM) Create(caller ContractRef, pkgBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
 	// Reject creation when call depth exceeds the limit.
 	if l.depth > callCreateDepth {
 		return common.Address{}, gas, vm.ErrDepth
@@ -168,12 +168,12 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 	contractAddr = crypto.CreateAddress(callerAddr, nonce)
 
 	// Only .tor packages are accepted.
-	if !lua.IsPackage(torBytes) {
+	if !lua.IsPackage(pkgBytes) {
 		return common.Address{}, 0, fmt.Errorf("lvm: only .tor package archives may be deployed; raw .toc bytecode is not accepted")
 	}
 	// Reject oversized packages.
-	if uint64(len(torBytes)) > params.MaxCodeSize {
-		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(torBytes), params.MaxCodeSize)
+	if uint64(len(pkgBytes)) > params.MaxCodeSize {
+		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(pkgBytes), params.MaxCodeSize)
 	}
 
 	codeHash := l.StateDB.GetCodeHash(contractAddr)
@@ -183,14 +183,14 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 		return common.Address{}, gas, vm.ErrContractAddressCollision
 	}
 
-	codeGas := uint64(len(torBytes)) * gasDeployByte
+	codeGas := uint64(len(pkgBytes)) * gasDeployByte
 	if gas < codeGas {
 		return common.Address{}, 0, ErrGasLimitExceeded
 	}
 	gas -= codeGas
 
 	// Validate the package manifest and check dispatch tag uniqueness.
-	pkg, decErr := lua.DecodePackage(torBytes)
+	pkg, decErr := lua.DecodePackage(pkgBytes)
 	if decErr != nil {
 		return common.Address{}, gas, fmt.Errorf("lvm: invalid .tor package: %w", decErr)
 	}
@@ -229,7 +229,7 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 
 	l.StateDB.CreateAccount(contractAddr)
 	l.StateDB.SetNonce(contractAddr, 1)
-	l.StateDB.SetCode(contractAddr, torBytes)
+	l.StateDB.SetCode(contractAddr, pkgBytes)
 	l.StateDB.SetNonce(callerAddr, nonce+1)
 	return contractAddr, gas, nil
 }
@@ -244,13 +244,13 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 // executePackage decodes the .tor archive, finds the contract whose dispatch tag
 // matches the first 4 calldata bytes, loads its .toc bytecode, strips the dispatch
 // tag, and calls Execute recursively.
-func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, torBytes []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
+func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, pkgBytes []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
 	if len(ctx.Data) < 4 {
 		return 0, nil, nil, fmt.Errorf("package call: calldata must be at least 4 bytes (dispatch tag + selector)")
 	}
 	dispatchTag := ctx.Data[:4]
 
-	pkg, err := lua.DecodePackage(torBytes)
+	pkg, err := lua.DecodePackage(pkgBytes)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("package call: decode .tor: %w", err)
 	}
@@ -273,11 +273,11 @@ func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *p
 		if !bytes.Equal(tag, dispatchTag) {
 			continue
 		}
-		tocBytes, ok := pkg.Files[c.TOC]
+		artifactBytes, ok := pkg.Files[c.TOC]
 		if !ok {
 			return 0, nil, nil, fmt.Errorf("package call: .toc file %q not found for contract %q", c.TOC, c.Name)
 		}
-		art, err := lua.DecodeArtifact(tocBytes)
+		art, err := lua.DecodeArtifact(artifactBytes)
 		if err != nil {
 			return 0, nil, nil, fmt.Errorf("package call: decode .toc for %q: %w", c.Name, err)
 		}
