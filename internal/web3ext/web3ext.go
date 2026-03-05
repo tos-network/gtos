@@ -570,23 +570,6 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
-			name: 'putKV',
-			call: 'tos_putKV',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'getKV',
-			call: 'tos_getKV',
-			params: 4,
-			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null, null, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
-			name: 'getKVMeta',
-			call: 'tos_getKVMeta',
-			params: 4,
-			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null, null, web3._extend.formatters.inputBlockNumberFormatter]
-		}),
-		new web3._extend.Method({
 			name: 'sign',
 			call: 'tos_sign',
 			params: 2,

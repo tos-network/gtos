@@ -75,11 +75,17 @@ type CallCtx struct {
 // ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
 var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
 
+// ErrNonceUintOverflow is returned when the caller nonce would overflow uint64.
+var ErrNonceUintOverflow = errors.New("lvm: nonce uint64 overflow")
+
 // TxContext contains per-transaction fields, constant across all nested calls.
 type TxContext struct {
 	Origin   common.Address // tx.origin
 	GasPrice *big.Int       // tx.gasprice
 }
+
+// callCreateDepth is the maximum nesting depth for Create calls, matching EVM semantics.
+const callCreateDepth = 1024
 
 // LVM is the Lua Virtual Machine. Analogous to go-ethereum's EVM.
 type LVM struct {
@@ -87,6 +93,7 @@ type LVM struct {
 	TxContext
 	StateDB     vm.StateDB
 	chainConfig *params.ChainConfig
+	depth       int // current call/create nesting depth
 }
 
 // NewLVM creates a new LVM instance bound to the given block context, tx context, state, and chain config.
@@ -100,6 +107,12 @@ func (l *LVM) ChainConfig() *params.ChainConfig { return l.chainConfig }
 // Call executes the LVM contract code at addr with the given calldata and gas budget.
 // Returns (returnData, leftOverGas, err). On failure the state is reverted.
 func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	if l.depth > callCreateDepth {
+		return nil, gas, vm.ErrDepth
+	}
+	l.depth++
+	defer func() { l.depth-- }()
+
 	callerAddr := caller.Address()
 	snapshot := l.StateDB.Snapshot()
 
@@ -140,7 +153,18 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 // Only .tor packages are accepted — direct .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
 func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	// Reject creation when call depth exceeds the limit.
+	if l.depth > callCreateDepth {
+		return common.Address{}, gas, vm.ErrDepth
+	}
+
 	callerAddr := caller.Address()
+
+	// Guard against nonce overflow (uint64 wraps to 0, which would collide with fresh accounts).
+	if nonce+1 < nonce {
+		return common.Address{}, gas, ErrNonceUintOverflow
+	}
+
 	contractAddr = crypto.CreateAddress(callerAddr, nonce)
 
 	// Only .tor packages are accepted.
@@ -193,6 +217,9 @@ func (l *LVM) Create(caller ContractRef, torBytes []byte, gas uint64, value *big
 			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
 		}
 	}
+
+	l.depth++
+	defer func() { l.depth-- }()
 
 	snapshot := l.StateDB.Snapshot() // reserved for future initcode revert path
 	_ = snapshot
