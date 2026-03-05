@@ -65,7 +65,7 @@ type CallCtx struct {
 	To       common.Address // contract address being executed
 	Value    *big.Int       // msg.value for this call (nil treated as zero)
 	Data     []byte         // msg.data (calldata) for this call
-	IsCreate bool           // true when executing init_toc at deploy time
+	IsCreate bool           // true when executing init_code at deploy time
 	Depth    int            // nesting depth (0 = top-level tx call)
 	TxOrigin common.Address // tx.origin: the original EOA, constant across all levels
 	TxPrice  *big.Int       // tx.gasprice: constant across all levels
@@ -206,11 +206,11 @@ func SplitDeployDataAndConstructorArgs(data []byte) (pkgBytes []byte, ctorArgs [
 	return nil, nil, fmt.Errorf("lvm: deploy data does not contain a valid .tor package (no valid ZIP EOCD found)")
 }
 
-// buildRuntimePackage strips init_toc (and signature/publisher_key) from a
+// buildRuntimePackage strips init_code (and signature/publisher_key) from a
 // deploy package, producing the on-chain runtime package that gets stored via
 // SetCode.  The runtime package retains all contracts and their artifacts;
-// only the constructor-only init_toc artifact is removed.
-func buildRuntimePackage(deployPkgBytes []byte, initTOCPath string) ([]byte, error) {
+// only the constructor-only init_code artifact is removed.
+func buildRuntimePackage(deployPkgBytes []byte, initCodePath string) ([]byte, error) {
 	pkg, err := lua.DecodePackage(deployPkgBytes)
 	if err != nil {
 		return nil, fmt.Errorf("buildRuntimePackage: decode: %w", err)
@@ -228,10 +228,10 @@ func buildRuntimePackage(deployPkgBytes []byte, initTOCPath string) ([]byte, err
 	if err := json.Unmarshal(pkg.ManifestJSON, &m); err != nil {
 		return nil, fmt.Errorf("buildRuntimePackage: manifest decode: %w", err)
 	}
-	// Build new files map without init_toc.
+	// Build new files map without init_code.
 	newFiles := make(map[string][]byte, len(pkg.Files))
 	for k, v := range pkg.Files {
-		if k != initTOCPath {
+		if k != initCodePath {
 			newFiles[k] = v
 		}
 	}
@@ -244,13 +244,13 @@ func buildRuntimePackage(deployPkgBytes []byte, initTOCPath string) ([]byte, err
 
 // Create deploys a .tor package archive to a new contract address.
 //
-// If the deploy package manifest contains both `main_contract` and `init_toc`
+// If the deploy package manifest contains both `main_contract` and `init_code`
 // fields, the init/runtime split is applied (Ethereum-style constructor execution):
-//  1. The init_toc artifact is executed once with IsCreate=true and constructorArgs.
-//  2. On success, only the runtime package (init_toc stripped) is stored on-chain.
+//  1. The init_code artifact is executed once with IsCreate=true and constructorArgs.
+//  2. On success, only the runtime package (init_code stripped) is stored on-chain.
 //  3. On failure, the snapshot is fully reverted.
 //
-// Packages without main_contract/init_toc are stored as-is (legacy path).
+// Packages without main_contract/init_code are stored as-is (legacy path).
 // Only .tor packages are accepted; raw .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
 func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
@@ -287,7 +287,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	}
 	var deployManifest struct {
 		MainContract string `json:"main_contract"`
-		InitTOC      string `json:"init_toc"`
+		InitCode      string `json:"init_code"`
 		Contracts    []struct {
 			Name     string `json:"name"`
 			Artifact string `json:"toc"`
@@ -309,7 +309,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	}
 
 	// Determine whether this package uses the init/runtime split.
-	hasInitRuntime := deployManifest.MainContract != "" && deployManifest.InitTOC != ""
+	hasInitRuntime := deployManifest.MainContract != "" && deployManifest.InitCode != ""
 
 	var runtimePkgBytes []byte
 	var initArtifactBytecode []byte
@@ -329,24 +329,24 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 		if !mainFound {
 			return common.Address{}, gas, fmt.Errorf("lvm: main_contract %q not found in contracts", deployManifest.MainContract)
 		}
-		// Validate init_toc exists and is not listed in contracts.
+		// Validate init_code exists and is not listed in contracts.
 		for _, c := range deployManifest.Contracts {
-			if c.Artifact == deployManifest.InitTOC {
-				return common.Address{}, gas, fmt.Errorf("lvm: init_toc %q must not be listed in contracts", deployManifest.InitTOC)
+			if c.Artifact == deployManifest.InitCode {
+				return common.Address{}, gas, fmt.Errorf("lvm: init_code %q must not be listed in contracts", deployManifest.InitCode)
 			}
 		}
-		initArtifactBytes, ok := pkg.Files[deployManifest.InitTOC]
+		initArtifactBytes, ok := pkg.Files[deployManifest.InitCode]
 		if !ok {
-			return common.Address{}, gas, fmt.Errorf("lvm: init_toc file %q not found in package", deployManifest.InitTOC)
+			return common.Address{}, gas, fmt.Errorf("lvm: init_code file %q not found in package", deployManifest.InitCode)
 		}
 		initArt, err := lua.DecodeArtifact(initArtifactBytes)
 		if err != nil {
-			return common.Address{}, gas, fmt.Errorf("lvm: init_toc decode: %w", err)
+			return common.Address{}, gas, fmt.Errorf("lvm: init_code decode: %w", err)
 		}
 		initArtifactBytecode = initArt.Bytecode
 
-		// Build runtime package (strips init_toc + signature fields).
-		runtimePkgBytes, err = buildRuntimePackage(pkgBytes, deployManifest.InitTOC)
+		// Build runtime package (strips init_code + signature fields).
+		runtimePkgBytes, err = buildRuntimePackage(pkgBytes, deployManifest.InitCode)
 		if err != nil {
 			return common.Address{}, gas, fmt.Errorf("lvm: build runtime package: %w", err)
 		}
@@ -381,7 +381,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	l.StateDB.SetNonce(callerAddr, nonce+1)
 
 	if hasInitRuntime {
-		// Execute constructor (init_toc) at deploy time — mirrors EVM initcode.
+		// Execute constructor (init_code) at deploy time — mirrors EVM initcode.
 		ctorCtx := CallCtx{
 			From:     callerAddr,
 			To:       contractAddr,

@@ -1,10 +1,10 @@
-# Plan: Init/Runtime Split with `main_contract` + `init_toc`
+# Plan: Init/Runtime Split with `main_contract` + `init_code`
 
 ## Goal
 
 Adopt Ethereum-like init/runtime separation for TOL packages:
 
-1. Deploy executes init code (`init_toc`) once.
+1. Deploy executes init code (`init_code`) once.
 2. Chain state stores only runtime package code (no init code persisted).
 3. Normal calls cannot reach constructor/init path.
 
@@ -21,7 +21,7 @@ Required new fields:
   "name": "tokenpkg",
   "version": "1.0.0",
   "main_contract": "TRC20",
-  "init_toc": "bytecode/TRC20.init.toc",
+  "init_code": "bytecode/TRC20.init.toc",
   "contracts": [
     {"name":"TRC20","toc":"bytecode/TRC20.toc"},
     {"name":"Helper","toc":"bytecode/Helper.toc"}
@@ -33,8 +33,8 @@ Rules:
 
 1. `main_contract` must exist in `contracts`.
 2. `contracts[main_contract].toc` must be present and valid (this is runtime toc).
-3. `init_toc` must exist and decode as valid `.toc`.
-4. `init_toc` must **not** be listed in `contracts`.
+3. `init_code` must exist and decode as valid `.toc`.
+4. `init_code` must **not** be listed in `contracts`.
 5. Any mismatch => deployment reject (deterministic consensus behavior).
 
 No `runtime_toc` field is needed. Runtime toc is already defined by `contracts` entry of `main_contract`.
@@ -69,9 +69,9 @@ Deployment tx data:
 `Create()` uses `deployPkgBytes` and executes in this order:
 
 1. Decode deploy package and validate manifest.
-2. Resolve `main_contract` runtime toc and `init_toc`.
+2. Resolve `main_contract` runtime toc and `init_code`.
 3. Create account snapshot context.
-4. Execute `init_toc` with:
+4. Execute `init_code` with:
    - `ctx.IsCreate = true`
    - `ctx.To = new contract address`
    - `ctx.Data = ctorArgs`
@@ -81,8 +81,8 @@ Deployment tx data:
 
 Important:
 
-1. `init_toc` is execution-only, never stored on-chain.
-2. `init_toc` must not depend on runtime toc execution.
+1. `init_code` is execution-only, never stored on-chain.
+2. `init_code` must not depend on runtime toc execution.
 
 ---
 
@@ -91,8 +91,8 @@ Important:
 After successful init:
 
 1. Produce `runtimePkgBytes` from deploy package by removing:
-   - manifest field `init_toc`
-   - the `init_toc` file entry itself
+   - manifest field `init_code`
+   - the `init_code` file entry itself
 2. Keep `contracts` unchanged.
 3. Store only `runtimePkgBytes` via `SetCode`.
 
@@ -101,7 +101,7 @@ This guarantees normal package routing can never dispatch to init code.
 ### Package Signature and Runtime Package
 
 The `.tor` package signature covers the original deploy package (`deployPkgBytes`), computed
-as `keccak256(manifestJSON_without_signature || sorted_file_contents)`. Removing `init_toc`
+as `keccak256(manifestJSON_without_signature || sorted_file_contents)`. Removing `init_code`
 from the manifest and files invalidates this signature.
 
 **Decision: Runtime package carries no signature; signature is verified at deploy time only.**
@@ -112,7 +112,7 @@ Rationale:
 - This mirrors EVM: a signed deploy transaction covers the initcode; the stored runtime
   bytecode is a chain-state derivation and carries no signature.
 - No runtime rewriting of signature fields is needed; the stored runtime package simply
-  omits the `signature` and `publisher_key` manifest fields alongside `init_toc`.
+  omits the `signature` and `publisher_key` manifest fields alongside `init_code`.
 
 Verification timing:
 1. `Create()` entry: verify signature on `deployPkgBytes` (optional policy, not a
@@ -172,7 +172,7 @@ Keep semantics aligned with top-level Create:
 
 Suggested rollout:
 
-1. New compiler output always emits `main_contract` + `init_toc`.
+1. New compiler output always emits `main_contract` + `init_code`.
 2. Chain rule (recommended): reject deploy packages missing these fields after fork height.
 3. Pre-fork legacy behavior can be retained temporarily if needed.
 
@@ -198,7 +198,7 @@ Suggested rollout:
    - `CallCtx.IsCreate`
    - `SplitDeployDataAndConstructorArgs`
    - new create flow (init execute -> runtime package persist)
-   - manifest parse/validation for `main_contract` + `init_toc`
+   - manifest parse/validation for `main_contract` + `init_code`
    - runtime-package rewrite helper
    - `Execute()` calldata + create-context lifecycle enforcement
 3. `docs/lua-vm-integration.md`
@@ -221,8 +221,8 @@ Add tests:
 1. Init runs at deploy and storage is visible before first call.
 2. Init revert rolls back create completely.
 3. Missing/invalid `main_contract` fails deploy.
-4. Missing/invalid `init_toc` fails deploy.
-5. Stored runtime package excludes `init_toc`.
+4. Missing/invalid `init_code` fails deploy.
+5. Stored runtime package excludes `init_code`.
 6. Normal call cannot trigger init path.
 7. `tos.create` / `tos.create2` run child init at create-time.
 8. Non-struct function dispatch still works when `oninvoke` receives selector-only (args decoded from `tos.calldata`).
