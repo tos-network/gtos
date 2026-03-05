@@ -8,13 +8,14 @@ import lua "github.com/tos-network/tolang"
 var builtinModules map[string][]byte
 
 func init() {
-	builtinModules = make(map[string][]byte, 5)
+	builtinModules = make(map[string][]byte, 6)
 	for name, src := range map[string]string{
-		"tos20":    tos20LuaSrc,
-		"tos721":   tos721LuaSrc,
-		"access":   accessLuaSrc,
-		"timelock": timelockLuaSrc,
-		"pausable": pausableLuaSrc,
+		"tos20":            tos20LuaSrc,
+		"tos721":           tos721LuaSrc,
+		"access":           accessLuaSrc,
+		"timelock":         timelockLuaSrc,
+		"pausable":         pausableLuaSrc,
+		"reentrancy_guard": reentrancyGuardLuaSrc,
 	} {
 		bc, err := lua.CompileSourceToBytecode([]byte(src), name)
 		if err != nil {
@@ -618,6 +619,60 @@ function M.unpause()
     M.requirePaused()
     tos.set(PAUSED_KEY, 0)
     tos.emit("Unpaused", "address", tos.caller)
+end
+
+return M
+`
+
+// reentrancyGuardLuaSrc is a simple storage-slot-based reentrancy guard stdlib.
+//
+// Usage inside a contract:
+//
+//	local RG = tos.import("reentrancy_guard")
+//	RG.nonReentrant("myFunc")    -- place at the start of each guarded function
+//	-- ... function body following CEI pattern ...
+//	RG.exit("myFunc")            -- place at the end of each guarded function
+//
+// Pattern — CEI (Checks-Effects-Interactions):
+//
+//	["withdraw(uint256)"] = function(amount)
+//	    RG.nonReentrant("withdraw")
+//	    local bal = _bal(tos.caller)
+//	    require(bal >= amount, "insufficient balance")
+//	    tos.mapSet("_bal", tos.caller, bal - amount)  -- effect before interaction
+//	    local ok, _ = tos.call(tos.caller, amount, "0x")
+//	    RG.exit("withdraw")
+//	    require(ok, "transfer failed")
+//	    tos.result("bool", 1)
+//	end,
+//
+// Storage keys (prefixed "__rg" to minimise collision risk):
+//
+//	__rg_<name>  — tos.get/set uint256 flag; 1 = entered, 0 (or nil) = free
+const reentrancyGuardLuaSrc = `
+local M = {}
+
+-- M.nonReentrant(name) — revert if the named guard is already entered.
+-- Call at the START of guarded functions (before any state reads or effects).
+function M.nonReentrant(name)
+    local key = "__rg_" .. (name or "default")
+    if (tos.get(key) or 0) ~= 0 then
+        tos.revert("reentrancy_guard: reentrant call to " .. (name or "default"))
+    end
+    tos.set(key, 1)
+end
+
+-- M.exit(name) — clear the named guard.
+-- Call at the END of guarded functions (after all interactions).
+function M.exit(name)
+    local key = "__rg_" .. (name or "default")
+    tos.set(key, 0)
+end
+
+-- M.entered(name) → bool — query the guard state without modifying it.
+function M.entered(name)
+    local key = "__rg_" .. (name or "default")
+    return (tos.get(key) or 0) ~= 0
 end
 
 return M

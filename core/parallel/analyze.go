@@ -6,8 +6,18 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
+// StateReader is the subset of vm.StateDB used by AnalyzeTx to detect
+// code-bearing addresses without importing the full vm package.
+type StateReader interface {
+	GetCodeSize(addr common.Address) int
+}
+
 // AnalyzeTx returns the static access set for a transaction message.
-func AnalyzeTx(msg types.Message) AccessSet {
+//
+// statedb is used to detect LVM contract calls: any transaction whose
+// destination holds on-chain code is assigned params.LVMSerialAddress as a
+// write address, forcing it into a serial execution level (SEC-1 fix).
+func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	sender := msg.From()
 	as := AccessSet{
 		ReadAddrs:  make(map[common.Address]struct{}),
@@ -38,6 +48,14 @@ func AnalyzeTx(msg types.Message) AccessSet {
 		// Plain TOS transfer: writes recipient balance.
 		as.WriteAddrs[*to] = struct{}{}
 		as.ReadAddrs[*to] = struct{}{}
+
+		// SEC-1: LVM contract calls cannot be statically analyzed for cross-contract
+		// storage writes. Serialise any call to a code-bearing address by injecting
+		// LVMSerialAddress into the write set so all such transactions fall into the
+		// same execution level.
+		if statedb != nil && statedb.GetCodeSize(*to) > 0 {
+			as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
+		}
 	}
 
 	return as

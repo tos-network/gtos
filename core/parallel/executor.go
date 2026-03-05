@@ -98,7 +98,7 @@ func ExecuteParallel(
 	// Build access sets and execution levels.
 	accessSets := make([]AccessSet, len(txs))
 	for i, msg := range msgs {
-		accessSets[i] = AnalyzeTx(msg)
+		accessSets[i] = AnalyzeTx(msg, statedb)
 	}
 	levels := BuildLevels(accessSets)
 	// Conservative fallback: if the block coinbase also appears as a tx sender,
@@ -125,6 +125,19 @@ func ExecuteParallel(
 	)
 
 	for _, level := range levels {
+		// SEC-4: Pre-level gas check — verify the sum of all tx gas limits in this
+		// level fits within the remaining block gas pool before spawning goroutines.
+		// This prevents a malicious proposer from forcing wasted parallel work by
+		// including a level whose aggregate gas far exceeds the remaining limit.
+		var levelGasSum uint64
+		for _, txIdx := range level {
+			txGas := msgs[txIdx].Gas()
+			if txGas > gp.Gas()-levelGasSum {
+				return nil, nil, 0, ErrGasLimitReached
+			}
+			levelGasSum += txGas
+		}
+
 		// Give each tx in this level its own immutable copy of current state.
 		// state.StateDB is not safe for concurrent reads (internal hasher cache),
 		// so every WriteBufStateDB must have an exclusive parent copy.

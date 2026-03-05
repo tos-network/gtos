@@ -45,16 +45,41 @@ const (
 // Lua call frames are heavier than EVM frames.
 const maxCallDepth = 8
 
-// resultSignal is the sentinel raised by tos.result() to signal a clean
-// return (not an error).  It is long and prefixed to minimise collision with
-// user Lua code that might call error() with an arbitrary string.
-const resultSignal = "__tos_internal_result__"
+// lvmResultSentinelType is the unexported type used as the LUserData value
+// for the clean-return signal raised by tos.result().  Its address is unique
+// per binary; Lua contract code cannot construct a matching LUserData without
+// access to this unexported pointer, preventing string-based spoofing.
+type lvmResultSentinelType struct{}
 
-// revertDataSignal is raised by tos.revert("ErrorName", ...) when structured
-// ABI-encoded revert data is attached.  Execute detects this sentinel and
-// returns the data to the caller (tos.call / tos.staticcall) as the 2nd return
-// value on failure, analogous to EVM custom errors.
-const revertDataSignal = "__tos_revert_data__"
+// lvmResultSentinel is the package-level singleton used as the userdata value.
+var lvmResultSentinel = new(lvmResultSentinelType)
+
+// lvmRevertSentinelType is the unexported type used as the LUserData value
+// for structured revert data raised by tos.revert("ErrorName", ...).
+type lvmRevertSentinelType struct{}
+
+// lvmRevertSentinel is the package-level singleton used as the revert userdata value.
+var lvmRevertSentinel = new(lvmRevertSentinelType)
+
+// isResultSignal reports whether err is the typed result signal raised by tos.result().
+func isResultSignal(err error) bool {
+	var apiErr *lua.ApiError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	ud, ok := apiErr.Object.(*lua.LUserData)
+	return ok && ud != nil && ud.Value == lvmResultSentinel
+}
+
+// isRevertSignal reports whether err is the typed revert signal raised by tos.revert().
+func isRevertSignal(err error) bool {
+	var apiErr *lua.ApiError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	ud, ok := apiErr.Object.(*lua.LUserData)
+	return ok && ud != nil && ud.Value == lvmRevertSentinel
+}
 
 // CallCtx is the per-invocation execution context for a Lua contract call.
 // Top-level calls initialise it from StateTransition.msg; nested tos.call
@@ -605,14 +630,14 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	}
 
 	// capturedResult holds ABI-encoded return data set by tos.result().
-	// hasResult gates the resultSignal check so user code can't spoof it
-	// by calling error(resultSignal) directly.
+	// hasResult gates the isResultSignal check — user code cannot set this
+	// without calling the Go-level tos.result closure.
 	var capturedResult []byte
 	var hasResult bool
 
 	// capturedRevertData holds structured ABI-encoded error data set by
 	// tos.revert("ErrorName", "type", val, ...).  hasRevertData gates the
-	// revertDataSignal check to prevent spoofing.
+	// isRevertSignal check to prevent accidental matches.
 	var capturedRevertData []byte
 	var hasRevertData bool
 
@@ -949,14 +974,47 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		}
 		capturedRevertData = append(selector, encoded...)
 		hasRevertData = true
-		L.RaiseError(revertDataSignal)
+		// Raise the typed revert sentinel (same approach as tos.result above).
+		ud := L.NewUserData()
+		ud.Value = lvmRevertSentinel
+		L.Error(ud, 0)
 		return 0
 	}))
 
 	// tos.keccak256(data) → string
+	//
+	// WARNING: data is treated as raw bytes, not as a hex string.
+	// To hash ABI-encoded or hex data, convert first:
+	//   local hash = tos.keccak256(tos.bytes.fromhex(tos.abi.encode("uint256", 42)))
+	// To hash a hex-encoded input directly, use tos.keccak256hex(hexStr).
 	L.SetField(tosTable, "keccak256", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
+		chargePrimGas(1 + uint64(len(data))) // SEC-2: per-byte gas to prevent hash-DoS
 		h := crypto.Keccak256Hash([]byte(data))
+		L.Push(lua.LString(h.Hex()))
+		return 1
+	}))
+
+	// tos.keccak256hex(hexStr) → string
+	//
+	// Convenience wrapper: decodes a "0x..."-prefixed hex string and returns the
+	// keccak256 hash of the decoded bytes.  Equivalent to:
+	//   tos.keccak256(tos.bytes.fromhex(hexStr))
+	// but more concise.
+	L.SetField(tosTable, "keccak256hex", L.NewFunction(func(L *lua.LState) int {
+		hexStr := strings.TrimPrefix(L.CheckString(1), "0x")
+		hexStr = strings.TrimPrefix(hexStr, "0X")
+		if len(hexStr)%2 != 0 {
+			L.RaiseError("tos.keccak256hex: odd-length hex string")
+			return 0
+		}
+		b, err := hex.DecodeString(hexStr)
+		if err != nil {
+			L.RaiseError("tos.keccak256hex: invalid hex: %v", err)
+			return 0
+		}
+		chargePrimGas(1 + uint64(len(b))) // SEC-2: per-byte gas
+		h := crypto.Keccak256Hash(b)
 		L.Push(lua.LString(h.Hex()))
 		return 1
 	}))
@@ -964,6 +1022,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// tos.sha256(data) → string
 	L.SetField(tosTable, "sha256", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
+		chargePrimGas(1 + uint64(len(data))) // SEC-2: per-byte gas to prevent hash-DoS
 		h := gosha256.Sum256([]byte(data))
 		L.Push(lua.LString("0x" + common.Bytes2Hex(h[:])))
 		return 1
@@ -972,6 +1031,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// tos.ripemd160(data) → string  (20-byte "0x..." hex, zero-padded to 32 bytes like EVM)
 	L.SetField(tosTable, "ripemd160", L.NewFunction(func(L *lua.LState) int {
 		data := L.CheckString(1)
+		chargePrimGas(1 + uint64(len(data))) // SEC-2: per-byte gas to prevent hash-DoS
 		h := goripemd160.New()
 		h.Write([]byte(data))
 		result := h.Sum(nil) // 20 bytes
@@ -1055,6 +1115,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.bytes.fromhex: invalid hex: %v", err)
 			return 0
 		}
+		chargePrimGas(1 + uint64(len(b))) // SEC-2: per-byte gas for decoded output
 		L.Push(lua.LString(b))
 		return 1
 	}))
@@ -1066,6 +1127,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//     local hex = tos.bytes.tohex("\xde\xad\xbe\xef")  -- "0xdeadbeef"
 	L.SetField(bytesTable, "tohex", L.NewFunction(func(L *lua.LState) int {
 		b := []byte(L.CheckString(1))
+		chargePrimGas(1 + uint64(len(b))) // SEC-2: per-byte gas for encoding work
 		L.Push(lua.LString("0x" + common.Bytes2Hex(b)))
 		return 1
 	}))
@@ -1090,6 +1152,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//     local args = tos.bytes.slice(bin, 4)     -- remaining bytes
 	L.SetField(bytesTable, "slice", L.NewFunction(func(L *lua.LState) int {
 		s := []byte(L.CheckString(1))
+		chargePrimGas(1 + uint64(len(s))) // SEC-2: per-byte gas proportional to input
 		offsetBig := parseBigInt(L, 2)
 		if !offsetBig.IsInt64() || offsetBig.Sign() < 0 {
 			L.RaiseError("tos.bytes.slice: offset out of range")
@@ -3154,9 +3217,13 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		}
 		capturedResult = data
 		hasResult = true
-		// Raise the sentinel to stop execution cleanly.
-		// Execute catches this and converts it to a (data, nil) return.
-		L.RaiseError(resultSignal)
+		// Raise the typed sentinel to stop execution cleanly.
+		// Execute catches this via isResultSignal and converts it to a (data, nil) return.
+		// Using a typed LUserData (unexported Go pointer) instead of a plain string
+		// prevents contract code from forging the signal with error("known-string").
+		ud := L.NewUserData()
+		ud.Value = lvmResultSentinel
+		L.Error(ud, 0)
 		return 0
 	}))
 
@@ -3323,11 +3390,11 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	if err := L.PCall(0, lua.MultRet, nil); err != nil {
 		total := L.GasUsed() + totalChildGas + primGasCharged
 		// Check for clean return via tos.result().
-		if hasResult && strings.Contains(err.Error(), resultSignal) {
+		if hasResult && isResultSignal(err) {
 			return total, capturedResult, nil, nil
 		}
 		// Check for structured revert error via tos.revert("ErrorName", ...).
-		if hasRevertData && strings.Contains(err.Error(), revertDataSignal) {
+		if hasRevertData && isRevertSignal(err) {
 			return total, nil, capturedRevertData, fmt.Errorf("revert with data")
 		}
 		return total, nil, nil, err
@@ -3343,10 +3410,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		if tosT, ok := tosVal.(*lua.LTable); ok {
 			if dispatchErr := tolDispatch(L, tosT, ctx, &capturedResult, &hasResult, &capturedRevertData, &hasRevertData); dispatchErr != nil {
 				total := L.GasUsed() + totalChildGas + primGasCharged
-				if hasResult && strings.Contains(dispatchErr.Error(), resultSignal) {
+				if hasResult && isResultSignal(dispatchErr) {
 					return total, capturedResult, nil, nil
 				}
-				if hasRevertData && strings.Contains(dispatchErr.Error(), revertDataSignal) {
+				if hasRevertData && isRevertSignal(dispatchErr) {
 					return total, nil, capturedRevertData, fmt.Errorf("revert with data")
 				}
 				return total, nil, nil, dispatchErr

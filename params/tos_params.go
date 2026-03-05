@@ -18,6 +18,13 @@ var (
 
 	// PrivacyRouterAddress is the dedicated recipient for UNO private-balance transactions.
 	PrivacyRouterAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000004")
+
+	// LVMSerialAddress is a sentinel write-address injected by AnalyzeTx for
+	// any transaction whose destination is a code-bearing address (LVM call).
+	// Because LVM contracts can perform arbitrary cross-contract storage writes
+	// that cannot be predicted statically, all such transactions share this
+	// address in their write set, forcing them into serial execution levels.
+	LVMSerialAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000005")
 )
 
 // DPoS validator stake and reward parameters.

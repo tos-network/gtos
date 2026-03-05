@@ -43,6 +43,7 @@ require (
 	github.com/stretchr/testify v1.7.2
 	github.com/supranational/blst v0.3.16
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
+	github.com/tos-network/tolang v0.0.0-20260305135814-9b2aa33b923a
 	github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef
 	github.com/urfave/cli/v2 v2.10.2
 	github.com/zeebo/assert v1.1.0
@@ -53,7 +54,6 @@ require (
 	golang.org/x/sys v0.41.0
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	golang.org/x/tools v0.41.0
-	github.com/tos-network/tolang v0.0.0-20260304085751-aa15345fa9a0
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce
 )
 
