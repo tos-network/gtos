@@ -157,9 +157,9 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	gasUsed, returnData, _, execErr := Execute(l.StateDB, l.Context, l.chainConfig, ctx, code, gas)
 	if execErr != nil {
 		l.StateDB.RevertToSnapshot(snapshot)
-		if strings.Contains(execErr.Error(), "gas limit exceeded") {
-			return nil, 0, ErrGasLimitExceeded
-		}
+		// LVM-3 fix: do not use strings.Contains to classify OOG — user code can
+		// forge that string, causing all caller gas to be consumed without genuine OOG.
+		// Rely solely on the gasUsed > gas post-error check below.
 		consumed := gasUsed
 		if consumed > gas {
 			consumed = gas
@@ -376,9 +376,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 		ctorGasUsed, _, _, ctorErr := Execute(l.StateDB, l.Context, l.chainConfig, ctorCtx, initArtifactBytecode, gas)
 		if ctorErr != nil {
 			l.StateDB.RevertToSnapshot(snapshot)
-			if strings.Contains(ctorErr.Error(), "gas limit exceeded") {
-				return contractAddr, 0, ErrGasLimitExceeded
-			}
+			// LVM-3 fix: same as LVM.Call — no strings.Contains for OOG classification.
 			consumed := ctorGasUsed
 			if consumed > gas {
 				consumed = gas
@@ -2294,7 +2292,20 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 		// Derive new address from the deployer's current nonce (CREATE semantics).
 		nonce := stateDB.GetNonce(contractAddr)
+		// LVM-2: nonce overflow guard (mirrors LVM.Create check).
+		if nonce+1 < nonce {
+			L.RaiseError("tos.create: deployer nonce overflow")
+			return 0
+		}
 		newAddr := crypto.CreateAddress(contractAddr, nonce)
+
+		// LVM-1: address collision check (mirrors LVM.Create check).
+		existingCode := stateDB.GetCode(newAddr)
+		existingNonce := stateDB.GetNonce(newAddr)
+		if existingNonce != 0 || len(existingCode) != 0 {
+			L.RaiseError("tos.create: address collision at %s", newAddr.Hex())
+			return 0
+		}
 
 		// Guard check before any state mutation.
 		if deployValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
@@ -2401,9 +2412,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		codeHash := crypto.Keccak256([]byte(code))
 		newAddr := crypto.CreateAddress2(contractAddr, salt, codeHash)
 
-		// Reject collisions — CREATE2 to an address that already has code is an error.
-		if len(stateDB.GetCode(newAddr)) > 0 {
-			L.RaiseError("tos.create2: address %s already has code", newAddr.Hex())
+		// Reject collisions — CREATE2 to an address that already has code or nonce is an error.
+		// Mirrors EVM CREATE2 collision check (LVM-1 fix).
+		if stateDB.GetNonce(newAddr) != 0 || len(stateDB.GetCode(newAddr)) > 0 {
+			L.RaiseError("tos.create2: address collision at %s", newAddr.Hex())
 			return 0
 		}
 

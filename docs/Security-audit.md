@@ -830,3 +830,260 @@ Consequences:
 | SEC-6 | `core/lvm/lvm.go` | Replaced string sentinels with unexported LUserData typed sentinels; `isResultSignal`/`isRevertSignal` use `errors.As` + pointer comparison |
 | SEC-7 | `core/lvm/lvm.go` | Added warning docstring to `tos.keccak256`; added `tos.keccak256hex` convenience wrapper |
 | SEC-8 | `core/lvm/lvm.go` | `buildRuntimePackage` removed; `SetCode(contractAddr, pkgBytes)` stores full original package |
+
+---
+
+# Third Audit — 2026-03-05
+
+**Scope:** Broader security and fork-risk review across the three major architectural changes vs. go-ethereum:
+1. Parallel execution (`core/parallel/`)
+2. EVM → LVM replacement (`core/lvm/lvm.go`)
+3. `.tor` package smart contracts with package-based call routing
+
+**Reviewed files:** `core/state_transition.go`, `core/parallel/executor.go`, `core/parallel/writebuf.go`, `core/parallel/dag.go`, `core/parallel/analyze.go`, `core/lvm/lvm.go` (full), `core/lvm/stdlib.go`.
+
+---
+
+## Verified Correct (No Issue)
+
+| Topic | Verdict |
+|-------|---------|
+| `WriteBufStateDB.Merge` balance uses delta (overlay − parent) | Correct. Each tx's WriteBuf is backed by the same frozen parent copy. Delta = `overlay − parent` is the net contribution of this tx; multiple serial merges compose correctly. |
+| `statedb.Copy()` called serially before goroutine launch | Correct. The `for _, txIdx := range level { txBufs[txIdx] = NewWriteBufStateDB(statedb.Copy()) }` loop is sequential, so no concurrent access to the live statedb. |
+| SEC-4 pre-level gas: no uint64 underflow in `gp.Gas()-levelGasSum` | Correct. The check passes only when `txGas <= gp.Gas()-levelGasSum`; accumulating `txGas` afterward keeps `levelGasSum <= gp.Gas()`, so no underflow on the next iteration. |
+| `tos.call` gas: 1/64 reserve mirrors EIP-150 | Correct. `childGasLimit = available - available/64` is semantically identical to the go-ethereum EIP-150 stipend rule. |
+| `tos.delegatecall` storage context | Correct. `childCtx.To = contractAddr` (the calling contract's address) so `tos.set/get` inside the callee operates on the caller's storage slots — matching EVM DELEGATECALL semantics. |
+| `tos.delegatecall` msg.sender and msg.value preservation | Correct. `childCtx.From = ctx.From`, `childCtx.Value = ctx.Value` — both preserved from the outer call frame. |
+| `tos.create` / `tos.create2` address derivation | Correct. Uses `crypto.CreateAddress(contractAddr, nonce)` and `crypto.CreateAddress2(...)` — same as EVM. Nonce is incremented before child Deploy so successive calls get distinct addresses. |
+| Parallel merge order determinism | Correct. `sortedInts(level)` sorts merge order by ascending tx index; all nodes apply the same order regardless of goroutine scheduling. |
+| `tos.bytes.fromUint256` / `tos.bytes.toUint256` — no per-byte gas | Acceptable. Output is bounded at 32 bytes; these functions are O(32) and not a DoS vector under SEC-2 criteria. |
+| UNO serialization via `PrivacyRouterAddress` sentinel | Correct. All UNO txs write `PrivacyRouterAddress`; the DAG forces them serial. This protects multi-account UNO state (sender + receiver ciphertext) from parallel conflict. |
+| `lvm.Call` depth counter (`l.depth`) vs `ctx.Depth` | Correct. Two orthogonal counters: `l.depth` (Go-level LVM recursion, limit 1024 — dead in practice) and `ctx.Depth` (Lua-level `tos.call` nesting, limit 8). The Lua limit of 8 is the effective constraint. |
+| UNO Unshield sends to arbitrary `payload.To` | By design. Self-custodial: the sender can withdraw to any address. The proof binds the withdrawal address via transcript context. |
+
+---
+
+## New Findings
+
+---
+
+### PAR-1 — MEDIUM: SEC-1 Sentinel Bypassed for Same-Block Deployed Contracts
+
+**File:** `core/parallel/analyze.go:56-58`, `core/parallel/executor.go:99-103`
+
+#### Problem
+
+`AnalyzeTx` (and thus the `LVMSerialAddress` injection) is computed **once, before any transactions execute**, using the statedb at the start of the block:
+
+```go
+accessSets := make([]AccessSet, len(txs))
+for i, msg := range msgs {
+    accessSets[i] = AnalyzeTx(msg, statedb)  // statedb = pre-block state
+}
+levels := BuildLevels(accessSets)
+```
+
+If tx_A (level 0) deploys contract X (`To == nil`) and tx_B (a later level) calls X, then at analysis time `statedb.GetCodeSize(X) == 0` — X does not yet exist. `AnalyzeTx` does **not** inject `LVMSerialAddress` into tx_B's write set.
+
+At runtime, tx_B's `WriteBufStateDB` is backed by the post-level-0 statedb (which now has X's code). So tx_B actually executes X as an LVM contract. If X internally calls a third contract T via `tos.call`, and another tx_C (in the same level as tx_B) also writes to T, both tx_B and tx_C execute concurrently — the DAG placed them in the same level because neither had `LVMSerialAddress` in the write set for T.
+
+**Concrete scenario:**
+```
+Level 0: tx_A deploys contract X at address 0xX (To=nil)
+Level 1: tx_B calls 0xX (X internally calls token T: T.slot[user] -= 100)
+         tx_C calls T directly:              T.slot[user] -= 50
+         Both run in parallel — slot[user] written independently
+Merge:   tx_B: T.slot[user] = 900  (was 1000)
+         tx_C: T.slot[user] = 950  (overwrites tx_B — 100-unit debit erased)
+```
+
+#### Conditions for exploitation
+
+1. An external deployment tx (To=nil) in level 0
+2. A level-1 tx calling the newly deployed contract
+3. That contract internally calling an established LVM contract T
+4. Another level-1 tx also writing to T
+
+This chain of conditions is uncommon in practice (fresh deployment + same-block cross-call to shared token), but constitutes a correctness gap in the SEC-1 fix for the specific case of same-block deployment.
+
+#### Note on Determinism
+
+Both nodes compute the **same** merged state (merge order is deterministic by tx index). There is no fork risk — just semantic incorrectness (wrong balance deducted). The attacker cannot gain tokens; the victim contract's debit is silently lost.
+
+#### Fix
+
+Re-compute access sets for each level's successors using the post-level statedb, rather than computing all access sets upfront:
+
+```go
+// In ExecuteParallel: rebuild access sets after each level merge
+for levelIdx, level := range levels {
+    // ... execute level, merge ...
+    // Refresh access sets for remaining txs
+    if levelIdx+1 < len(levels) {
+        for _, txIdx := range levels[levelIdx+1] {
+            accessSets[txIdx] = AnalyzeTx(msgs[txIdx], statedb)
+        }
+        // Rebuild levels from levelIdx+1 onward if access sets changed
+    }
+}
+```
+
+Alternatively, always inject `LVMSerialAddress` for any call to an address that has **either** existing code **or** was the destination of a To==nil tx earlier in the same block.
+
+---
+
+### LVM-1 — LOW: `tos.create` Missing Address Collision Check
+
+**File:** `core/lvm/lvm.go` (tos.create implementation, ~line 2296–2311)
+
+#### Problem
+
+`LVM.Create()` (called for external deployment transactions, `To == nil`) correctly validates address uniqueness before writing:
+
+```go
+codeHash := l.StateDB.GetCodeHash(contractAddr)
+emptyCodeHash := crypto.Keccak256Hash(nil)
+if l.StateDB.GetNonce(contractAddr) != 0 ||
+    (codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
+    return common.Address{}, gas, vm.ErrContractAddressCollision
+}
+```
+
+`tos.create` (called from within a Lua contract) does **not** perform this check:
+
+```go
+nonce := stateDB.GetNonce(contractAddr)
+newAddr := crypto.CreateAddress(contractAddr, nonce)
+stateDB.SetNonce(contractAddr, nonce+1)
+// No collision check — overwrites any existing code at newAddr
+stateDB.SetCode(newAddr, []byte(code))
+```
+
+#### Exploitability
+
+Exploiting this requires delivering a non-zero nonce or non-empty code to `newAddr` before `tos.create` runs. Since `newAddr = keccak256(RLP(contractAddr, nonce))[:20]`, a collision requires breaking keccak256 — computationally infeasible. Practical risk is negligible; the issue is a code-consistency gap with EVM CREATE semantics and `LVM.Create`.
+
+#### Fix
+
+Add the same collision guard as `LVM.Create` before the `SetCode` call in tos.create:
+
+```go
+existingCode := stateDB.GetCode(newAddr)
+existingNonce := stateDB.GetNonce(newAddr)
+if existingNonce != 0 || len(existingCode) != 0 {
+    L.RaiseError("tos.create: address collision at %s", newAddr.Hex())
+    return 0
+}
+```
+
+The same fix applies to `tos.create2`.
+
+---
+
+### LVM-2 — LOW: `tos.create` Missing Nonce Overflow Guard
+
+**File:** `core/lvm/lvm.go` (tos.create implementation, ~line 2305)
+
+#### Problem
+
+`LVM.Create()` guards against nonce overflow before computing the contract address:
+
+```go
+if nonce+1 < nonce {
+    return common.Address{}, gas, ErrNonceUintOverflow
+}
+```
+
+`tos.create` does not:
+
+```go
+nonce := stateDB.GetNonce(contractAddr)
+newAddr := crypto.CreateAddress(contractAddr, nonce)
+stateDB.SetNonce(contractAddr, nonce+1)   // wraps to 0 if nonce == MaxUint64
+```
+
+If `nonce == math.MaxUint64`, `nonce+1` silently wraps to 0. Subsequent `tos.create` calls from the same contract would reuse nonce 0, producing the same `newAddr`. The collision check (if added per LVM-1) would then block further deployments. Without the collision check the code at the derived address would be silently overwritten.
+
+#### Reach
+
+`gasDeploy = 32 000` gas per create; block gas limits make reaching `MaxUint64` nonces across even billions of blocks impossible in practice. This is a latent correctness gap, not a practical threat.
+
+#### Fix
+
+Add overflow check before the nonce increment in `tos.create` (and `tos.create2`):
+
+```go
+nonce := stateDB.GetNonce(contractAddr)
+if nonce+1 < nonce {
+    L.RaiseError("tos.create: deployer nonce overflow")
+    return 0
+}
+newAddr := crypto.CreateAddress(contractAddr, nonce)
+stateDB.SetNonce(contractAddr, nonce+1)
+```
+
+---
+
+### LVM-3 — LOW: `strings.Contains` for OOG Error Classification (SEC-6 Partial Regression)
+
+**File:** `core/lvm/lvm.go:159-162`, `core/lvm/lvm.go:379-382`
+
+#### Problem
+
+SEC-6 replaced string-based signal detection for `tos.result` and `tos.revert` with unexported typed sentinels. However, OOG detection in `LVM.Call()` and `LVM.Create()` still uses `strings.Contains`:
+
+```go
+// lvm.go — LVM.Call()
+if strings.Contains(execErr.Error(), "gas limit exceeded") {
+    return nil, 0, ErrGasLimitExceeded
+}
+
+// lvm.go — LVM.Create()
+if strings.Contains(ctorErr.Error(), "gas limit exceeded") {
+    return contractAddr, 0, ErrGasLimitExceeded
+}
+```
+
+A Lua contract that executes `error("lua: gas limit exceeded")` at the top level will cause `LVM.Call()` to:
+1. Revert all state changes (correct — snapshot is restored before the check)
+2. Return `leftOverGas = 0` — consuming **all** remaining gas as if OOG
+
+This is a gas-griefing vector: a contract designed to raise this string always appears to have exhausted the gas limit, even with ample gas remaining. The attacker cannot preserve state changes (the snapshot is always restored), but the caller loses all gas.
+
+**Note:** This only affects the **top-level** call from `state_transition.go`. Nested calls via `tos.call` go through `Execute()` directly (not `LVM.Call()`), so inner contracts cannot trigger this path against the outer contract.
+
+#### Fix
+
+Export a typed OOG error from the LVM gas-tracking path, or detect the existing typed error (`chargePrimGas` raises via `L.RaiseError` which produces a `*lua.ApiError`):
+
+```go
+// Option A: check the Lua GasLimit state directly
+if gasUsed > gas {
+    l.StateDB.RevertToSnapshot(snapshot)
+    return nil, 0, ErrGasLimitExceeded
+}
+
+// Option B: guard with a typed OOG sentinel (same approach as SEC-6)
+// Define: var lvmOOGSentinel = new(lvmOOGSentinelType)
+// chargePrimGas raises it on OOG; isOOGSignal() detects it in Execute()
+// LVM.Call() checks isOOGSignal(execErr) instead of strings.Contains
+```
+
+---
+
+## Third-Audit Summary
+
+| ID | Severity | Area | Title | Status |
+|----|----------|------|-------|--------|
+| PAR-1 | MEDIUM | Parallel | SEC-1 sentinel bypassed for same-block deployed contracts | Open (known limitation) |
+| LVM-1 | LOW | LVM | `tos.create` / `tos.create2` missing address collision check | **Fixed** |
+| LVM-2 | LOW | LVM | `tos.create` missing nonce overflow guard | **Fixed** |
+| LVM-3 | LOW | LVM | `strings.Contains` OOG classification is a SEC-6 partial regression | **Fixed** |
+
+### Fix Summary (2026-03-05, third audit)
+
+| ID | Fix location | Key change |
+|----|-------------|------------|
+| LVM-1 | `core/lvm/lvm.go` (tos.create + tos.create2) | Added nonce != 0 ∥ len(code) != 0 collision guard before `SetCode` to match `LVM.Create` and EVM CREATE semantics |
+| LVM-2 | `core/lvm/lvm.go` (tos.create) | Added `nonce+1 < nonce` overflow guard before `crypto.CreateAddress`; mirrors existing `LVM.Create` check |
+| LVM-3 | `core/lvm/lvm.go` (LVM.Call + LVM.Create constructor) | Removed `strings.Contains(err.Error(), "gas limit exceeded")` branch; rely on `gasUsed > gas` post-error check only. Eliminates string-forging gas-griefing vector |
