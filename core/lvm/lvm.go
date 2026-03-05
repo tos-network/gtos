@@ -2034,6 +2034,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.create: code must not be empty")
 			return 0
 		}
+		if uint64(len(code)) > params.MaxCodeSize {
+			L.RaiseError("tos.create: code size %d exceeds limit %d", len(code), params.MaxCodeSize)
+			return 0
+		}
 
 		// Optional value transfer to the new contract.
 		var deployValue *big.Int
@@ -2114,6 +2118,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		code := L.CheckString(1)
 		if len(code) == 0 {
 			L.RaiseError("tos.create2: code must not be empty")
+			return 0
+		}
+		if uint64(len(code)) > params.MaxCodeSize {
+			L.RaiseError("tos.create2: code size %d exceeds limit %d", len(code), params.MaxCodeSize)
 			return 0
 		}
 
