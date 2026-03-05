@@ -257,7 +257,13 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		_, st.gas, vmerr = st.lvm.Create(lvm.ContractAccount(msg.From()), st.data, st.gas, msg.Value(), st.msg.Nonce())
+		deployPkgBytes, ctorArgs, splitErr := lvm.SplitDeployDataAndConstructorArgs(st.data)
+		if splitErr != nil {
+			// Not a valid .tor package — let Create() produce the proper error.
+			deployPkgBytes = st.data
+			ctorArgs = nil
+		}
+		_, st.gas, vmerr = st.lvm.Create(lvm.ContractAccount(msg.From()), deployPkgBytes, ctorArgs, st.gas, msg.Value(), st.msg.Nonce())
 		if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
 			vmerr = ErrIntrinsicGas
 		}

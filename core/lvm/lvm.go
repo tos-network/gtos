@@ -65,6 +65,7 @@ type CallCtx struct {
 	To       common.Address // contract address being executed
 	Value    *big.Int       // msg.value for this call (nil treated as zero)
 	Data     []byte         // msg.data (calldata) for this call
+	IsCreate bool           // true when executing init_toc at deploy time
 	Depth    int            // nesting depth (0 = top-level tx call)
 	TxOrigin common.Address // tx.origin: the original EOA, constant across all levels
 	TxPrice  *big.Int       // tx.gasprice: constant across all levels
@@ -147,31 +148,127 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	return returnData, gas - gasUsed, nil
 }
 
+// SplitDeployDataAndConstructorArgs splits deployment calldata into the .tor
+// package bytes and the ABI-encoded constructor arguments that follow.
+//
+// Layout: [tor_zip_bytes][ctor_args_abi]
+//
+// The split point is determined by strict ZIP EOCD validation:
+//  1. Search backward for EOCD signature within the ZIP spec window.
+//  2. Validate EOCD fields (central directory bounds, comment length).
+//  3. Confirm the candidate prefix passes DecodePackage.
+//
+// Returns an error if no valid .tor package is found at the start of data.
+// ctorArgs is nil when no bytes follow the ZIP end.
+func SplitDeployDataAndConstructorArgs(data []byte) (pkgBytes []byte, ctorArgs []byte, err error) {
+	const (
+		eocdSig    = uint32(0x06054b50) // PK\x05\x06 in little-endian
+		eocdMinLen = 22
+		maxComment = 65535
+	)
+	n := len(data)
+	if n < eocdMinLen {
+		return nil, nil, fmt.Errorf("lvm: deploy data too short to contain a valid .tor package")
+	}
+	searchFrom := n - eocdMinLen
+	searchTo := n - eocdMinLen - maxComment
+	if searchTo < 0 {
+		searchTo = 0
+	}
+	for i := searchFrom; i >= searchTo; i-- {
+		if binary.LittleEndian.Uint32(data[i:]) != eocdSig {
+			continue
+		}
+		if i+eocdMinLen > n {
+			continue
+		}
+		commentLen := int(binary.LittleEndian.Uint16(data[i+20:]))
+		eocdEnd := i + eocdMinLen + commentLen
+		if eocdEnd > n {
+			continue
+		}
+		// Validate central directory lies before EOCD.
+		cdSize := int(binary.LittleEndian.Uint32(data[i+12:]))
+		cdOffset := int(binary.LittleEndian.Uint32(data[i+16:]))
+		if cdOffset < 0 || cdSize < 0 || cdOffset+cdSize > i {
+			continue
+		}
+		candidate := data[:eocdEnd]
+		if _, decErr := lua.DecodePackage(candidate); decErr != nil {
+			continue
+		}
+		rest := data[eocdEnd:]
+		if len(rest) == 0 {
+			rest = nil
+		}
+		return candidate, rest, nil
+	}
+	return nil, nil, fmt.Errorf("lvm: deploy data does not contain a valid .tor package (no valid ZIP EOCD found)")
+}
+
+// buildRuntimePackage strips init_toc (and signature/publisher_key) from a
+// deploy package, producing the on-chain runtime package that gets stored via
+// SetCode.  The runtime package retains all contracts and their artifacts;
+// only the constructor-only init_toc artifact is removed.
+func buildRuntimePackage(deployPkgBytes []byte, initTOCPath string) ([]byte, error) {
+	pkg, err := lua.DecodePackage(deployPkgBytes)
+	if err != nil {
+		return nil, fmt.Errorf("buildRuntimePackage: decode: %w", err)
+	}
+	// Parse only the fields we need to carry forward.
+	var m struct {
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Contracts []struct {
+			Name      string `json:"name"`
+			Artifact  string `json:"toc,omitempty"`
+			Interface string `json:"toi,omitempty"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal(pkg.ManifestJSON, &m); err != nil {
+		return nil, fmt.Errorf("buildRuntimePackage: manifest decode: %w", err)
+	}
+	// Build new files map without init_toc.
+	newFiles := make(map[string][]byte, len(pkg.Files))
+	for k, v := range pkg.Files {
+		if k != initTOCPath {
+			newFiles[k] = v
+		}
+	}
+	newManifest, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("buildRuntimePackage: manifest encode: %w", err)
+	}
+	return lua.EncodePackage(newManifest, newFiles)
+}
+
 // Create deploys a .tor package archive to a new contract address.
-// The entire ZIP is stored as the contract's code; individual contracts within the
-// package are routed at call time by executePackage via the 4-byte dispatch tag.
-// Only .tor packages are accepted — direct .toc bytecode deployment is rejected.
+//
+// If the deploy package manifest contains both `main_contract` and `init_toc`
+// fields, the init/runtime split is applied (Ethereum-style constructor execution):
+//  1. The init_toc artifact is executed once with IsCreate=true and constructorArgs.
+//  2. On success, only the runtime package (init_toc stripped) is stored on-chain.
+//  3. On failure, the snapshot is fully reverted.
+//
+// Packages without main_contract/init_toc are stored as-is (legacy path).
+// Only .tor packages are accepted; raw .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
-func (l *LVM) Create(caller ContractRef, pkgBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
-	// Reject creation when call depth exceeds the limit.
+func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
 	if l.depth > callCreateDepth {
 		return common.Address{}, gas, vm.ErrDepth
 	}
 
 	callerAddr := caller.Address()
 
-	// Guard against nonce overflow (uint64 wraps to 0, which would collide with fresh accounts).
 	if nonce+1 < nonce {
 		return common.Address{}, gas, ErrNonceUintOverflow
 	}
 
 	contractAddr = crypto.CreateAddress(callerAddr, nonce)
 
-	// Only .tor packages are accepted.
 	if !lua.IsPackage(pkgBytes) {
 		return common.Address{}, 0, fmt.Errorf("lvm: only .tor package archives may be deployed; raw .toc bytecode is not accepted")
 	}
-	// Reject oversized packages.
 	if uint64(len(pkgBytes)) > params.MaxCodeSize {
 		return common.Address{}, gas, fmt.Errorf("lvm: .tor package size %d exceeds limit %d", len(pkgBytes), params.MaxCodeSize)
 	}
@@ -183,27 +280,26 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, gas uint64, value *big
 		return common.Address{}, gas, vm.ErrContractAddressCollision
 	}
 
-	codeGas := uint64(len(pkgBytes)) * gasDeployByte
-	if gas < codeGas {
-		return common.Address{}, 0, ErrGasLimitExceeded
-	}
-	gas -= codeGas
-
-	// Validate the package manifest and check dispatch tag uniqueness.
+	// Decode and validate manifest.
 	pkg, decErr := lua.DecodePackage(pkgBytes)
 	if decErr != nil {
 		return common.Address{}, gas, fmt.Errorf("lvm: invalid .tor package: %w", decErr)
 	}
-	var manifest struct {
-		Contracts []struct {
-			Name string `json:"name"`
+	var deployManifest struct {
+		MainContract string `json:"main_contract"`
+		InitTOC      string `json:"init_toc"`
+		Contracts    []struct {
+			Name     string `json:"name"`
+			Artifact string `json:"toc"`
 		} `json:"contracts"`
 	}
-	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+	if err := json.Unmarshal(pkg.ManifestJSON, &deployManifest); err != nil {
 		return common.Address{}, gas, fmt.Errorf("lvm: .tor manifest decode: %w", err)
 	}
-	seenTags := make(map[[4]byte]string, len(manifest.Contracts))
-	for _, c := range manifest.Contracts {
+
+	// Validate dispatch tag uniqueness.
+	seenTags := make(map[[4]byte]string, len(deployManifest.Contracts))
+	for _, c := range deployManifest.Contracts {
 		var tag [4]byte
 		copy(tag[:], crypto.Keccak256([]byte("pkg:"+c.Name))[:4])
 		if prev, conflict := seenTags[tag]; conflict {
@@ -211,6 +307,59 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, gas uint64, value *big
 		}
 		seenTags[tag] = c.Name
 	}
+
+	// Determine whether this package uses the init/runtime split.
+	hasInitRuntime := deployManifest.MainContract != "" && deployManifest.InitTOC != ""
+
+	var runtimePkgBytes []byte
+	var initArtifactBytecode []byte
+
+	if hasInitRuntime {
+		// Validate main_contract exists in contracts.
+		mainFound := false
+		for _, c := range deployManifest.Contracts {
+			if c.Name == deployManifest.MainContract {
+				mainFound = true
+				if c.Artifact == "" {
+					return common.Address{}, gas, fmt.Errorf("lvm: main_contract %q has no toc entry in manifest", deployManifest.MainContract)
+				}
+				break
+			}
+		}
+		if !mainFound {
+			return common.Address{}, gas, fmt.Errorf("lvm: main_contract %q not found in contracts", deployManifest.MainContract)
+		}
+		// Validate init_toc exists and is not listed in contracts.
+		for _, c := range deployManifest.Contracts {
+			if c.Artifact == deployManifest.InitTOC {
+				return common.Address{}, gas, fmt.Errorf("lvm: init_toc %q must not be listed in contracts", deployManifest.InitTOC)
+			}
+		}
+		initArtifactBytes, ok := pkg.Files[deployManifest.InitTOC]
+		if !ok {
+			return common.Address{}, gas, fmt.Errorf("lvm: init_toc file %q not found in package", deployManifest.InitTOC)
+		}
+		initArt, err := lua.DecodeArtifact(initArtifactBytes)
+		if err != nil {
+			return common.Address{}, gas, fmt.Errorf("lvm: init_toc decode: %w", err)
+		}
+		initArtifactBytecode = initArt.Bytecode
+
+		// Build runtime package (strips init_toc + signature fields).
+		runtimePkgBytes, err = buildRuntimePackage(pkgBytes, deployManifest.InitTOC)
+		if err != nil {
+			return common.Address{}, gas, fmt.Errorf("lvm: build runtime package: %w", err)
+		}
+	} else {
+		runtimePkgBytes = pkgBytes
+	}
+
+	// Charge code storage gas based on runtime package size.
+	codeGas := uint64(len(runtimePkgBytes)) * gasDeployByte
+	if gas < codeGas {
+		return common.Address{}, 0, ErrGasLimitExceeded
+	}
+	gas -= codeGas
 
 	if value != nil && value.Sign() > 0 {
 		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
@@ -221,16 +370,46 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, gas uint64, value *big
 	l.depth++
 	defer func() { l.depth-- }()
 
-	snapshot := l.StateDB.Snapshot() // reserved for future initcode revert path
-	_ = snapshot
+	snapshot := l.StateDB.Snapshot()
 	if value != nil && value.Sign() > 0 {
 		l.Context.Transfer(l.StateDB, callerAddr, contractAddr, value)
 	}
 
 	l.StateDB.CreateAccount(contractAddr)
 	l.StateDB.SetNonce(contractAddr, 1)
-	l.StateDB.SetCode(contractAddr, pkgBytes)
+	l.StateDB.SetCode(contractAddr, runtimePkgBytes)
 	l.StateDB.SetNonce(callerAddr, nonce+1)
+
+	if hasInitRuntime {
+		// Execute constructor (init_toc) at deploy time — mirrors EVM initcode.
+		ctorCtx := CallCtx{
+			From:     callerAddr,
+			To:       contractAddr,
+			Value:    value,
+			Data:     constructorArgs,
+			IsCreate: true,
+			TxOrigin: l.Origin,
+			TxPrice:  l.GasPrice,
+		}
+		ctorGasUsed, _, _, ctorErr := Execute(l.StateDB, l.Context, l.chainConfig, ctorCtx, initArtifactBytecode, gas)
+		if ctorErr != nil {
+			l.StateDB.RevertToSnapshot(snapshot)
+			if strings.Contains(ctorErr.Error(), "gas limit exceeded") {
+				return contractAddr, 0, ErrGasLimitExceeded
+			}
+			consumed := ctorGasUsed
+			if consumed > gas {
+				consumed = gas
+			}
+			return contractAddr, gas - consumed, ctorErr
+		}
+		if ctorGasUsed > gas {
+			l.StateDB.RevertToSnapshot(snapshot)
+			return contractAddr, 0, ErrGasLimitExceeded
+		}
+		gas -= ctorGasUsed
+	}
+
 	return contractAddr, gas, nil
 }
 
@@ -668,6 +847,18 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		}
 	}
 	L.SetField(tosTable, "msg", msgTable)
+
+	// tos.calldata — full calldata as "0x..." hex string.
+	// Read by TOL-generated ABI decode guards in constructors and dispatch branches.
+	{
+		var calldataHex string
+		if len(ctx.Data) == 0 {
+			calldataHex = "0x"
+		} else {
+			calldataHex = "0x" + hex.EncodeToString(ctx.Data)
+		}
+		L.SetField(tosTable, "calldata", lua.LString(calldataHex))
+	}
 
 	// ── Built-in module loader ────────────────────────────────────────────────
 
@@ -3184,7 +3375,58 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		}
 		return total, nil, nil, err
 	}
+
+	// ── Post-module dispatch ──────────────────────────────────────────────────
+	// For TOL-compiled contracts the module sets tos.oncreate / tos.oninvoke as
+	// Lua closures.  Call the appropriate one now.
+	// Raw Lua contracts dispatch inline (tos.dispatch / tos.oncreate(fn)) and
+	// expose a Go function at tos.oncreate (IsG=true), so the check below is a
+	// no-op for them.
+	if tosVal := L.GetGlobal("tos"); tosVal != lua.LNil {
+		if tosT, ok := tosVal.(*lua.LTable); ok {
+			if dispatchErr := tolDispatch(L, tosT, ctx, &capturedResult, &hasResult, &capturedRevertData, &hasRevertData); dispatchErr != nil {
+				total := L.GasUsed() + totalChildGas + primGasCharged
+				if hasResult && strings.Contains(dispatchErr.Error(), resultSignal) {
+					return total, capturedResult, nil, nil
+				}
+				if hasRevertData && strings.Contains(dispatchErr.Error(), revertDataSignal) {
+					return total, nil, capturedRevertData, fmt.Errorf("revert with data")
+				}
+				return total, nil, nil, dispatchErr
+			}
+		}
+	}
+
 	return L.GasUsed() + totalChildGas + primGasCharged, nil, nil, nil
+}
+
+// tolDispatch calls tos.oncreate() or tos.oninvoke(selector) if a Lua function
+// is registered — i.e. for TOL-compiled contracts.
+// Returns nil if no dispatch is needed (raw Lua contract or no handler set).
+func tolDispatch(L *lua.LState, tosTable *lua.LTable, ctx CallCtx, capturedResult *[]byte, hasResult *bool, capturedRevertData *[]byte, hasRevertData *bool) error {
+	if ctx.IsCreate {
+		fn := L.GetField(tosTable, "oncreate")
+		luaFn, ok := fn.(*lua.LFunction)
+		if !ok || luaFn.IsG {
+			return nil // Go function or nil → raw Lua contract, already ran inline
+		}
+		L.Push(luaFn)
+		return L.PCall(0, lua.MultRet, nil)
+	}
+	fn := L.GetField(tosTable, "oninvoke")
+	luaFn, ok := fn.(*lua.LFunction)
+	if !ok || luaFn.IsG {
+		return nil // nil or Go function → raw Lua contract, already dispatched inline
+	}
+	var selector lua.LValue
+	if len(ctx.Data) >= 4 {
+		selector = lua.LString("0x" + hex.EncodeToString(ctx.Data[:4]))
+	} else {
+		selector = lua.LNil
+	}
+	L.Push(luaFn)
+	L.Push(selector)
+	return L.PCall(1, lua.MultRet, nil)
 }
 
 // applyLua executes the Lua contract code (source or bytecode) stored at the
