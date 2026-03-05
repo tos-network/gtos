@@ -257,8 +257,8 @@ func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *p
 
 	var manifest struct {
 		Contracts []struct {
-			Name string `json:"name"`
-			TOC  string `json:"toc"`
+			Name     string `json:"name"`
+			Artifact string `json:"toc"`
 		} `json:"contracts"`
 	}
 	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
@@ -266,16 +266,16 @@ func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *p
 	}
 
 	for _, c := range manifest.Contracts {
-		if c.TOC == "" {
+		if c.Artifact == "" {
 			continue
 		}
 		tag := crypto.Keccak256([]byte("pkg:" + c.Name))[:4]
 		if !bytes.Equal(tag, dispatchTag) {
 			continue
 		}
-		artifactBytes, ok := pkg.Files[c.TOC]
+		artifactBytes, ok := pkg.Files[c.Artifact]
 		if !ok {
-			return 0, nil, nil, fmt.Errorf("package call: .toc file %q not found for contract %q", c.TOC, c.Name)
+			return 0, nil, nil, fmt.Errorf("package call: .toc file %q not found for contract %q", c.Artifact, c.Name)
 		}
 		art, err := lua.DecodeArtifact(artifactBytes)
 		if err != nil {
