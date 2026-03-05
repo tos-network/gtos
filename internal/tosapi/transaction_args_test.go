@@ -42,42 +42,42 @@ func TestSetFeeDefaults(t *testing.T) {
 
 	tests := []test{
 		{
-			"legacy tx pre-London",
+			"legacy tx without base fee",
 			false,
 			&TransactionArgs{},
 			&TransactionArgs{},
 			nil,
 		},
 		{
-			"legacy tx post-London",
+			"legacy tx with base fee",
 			true,
 			&TransactionArgs{},
 			&TransactionArgs{},
 			nil,
 		},
 		{
-			"access list tx pre-London",
+			"access list tx without base fee",
 			false,
 			&TransactionArgs{AccessList: al},
 			&TransactionArgs{AccessList: al},
 			nil,
 		},
 		{
-			"access list tx post-London",
+			"access list tx with base fee",
 			true,
 			&TransactionArgs{AccessList: al},
 			&TransactionArgs{AccessList: al},
 			nil,
 		},
 		{
-			"dynamic fee tx pre-London, maxFee set",
+			"dynamic fee tx without base fee, maxFee set",
 			false,
 			&TransactionArgs{MaxFeePerGas: maxFee},
 			nil,
 			fmt.Errorf("maxFeePerGas/maxPriorityFeePerGas are not supported in GTOS"),
 		},
 		{
-			"dynamic fee tx post-London, priorityFee set",
+			"dynamic fee tx with base fee, priorityFee set",
 			true,
 			&TransactionArgs{MaxPriorityFeePerGas: (*hexutil.Big)(big.NewInt(1))},
 			nil,

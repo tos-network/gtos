@@ -24,7 +24,7 @@ func init() {
 	}
 }
 
-// tos20LuaSrc is the TOS-20 token standard — a pure-Lua ERC-20 equivalent.
+// tos20LuaSrc is the TOS-20 fungible token standard.
 //
 // Usage inside a contract:
 //
@@ -149,8 +149,7 @@ M.handlers = {
 return M
 `
 
-// tos721LuaSrc is the TOS-721 non-fungible token standard — a pure-Lua ERC-721
-// equivalent for unique, individually owned tokens.
+// tos721LuaSrc is the TOS-721 non-fungible token standard for unique, individually owned tokens.
 //
 // Usage inside a contract:
 //

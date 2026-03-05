@@ -245,9 +245,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Increment nonce for all real transactions.
 	st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
 
-	// Warm sender, recipient, and explicit access-list entries (EIP-2929/2930).
-	// GTOS has no EVM precompiles, so the precompile slice is nil.
-	// This aligns with go-ethereum's PrepareAccessList call in TransitionDb.
+	// Warm sender, recipient, and any explicit access-list entries for this transaction.
+	// GTOS has no precompiles, so the precompile slice is nil.
 	st.state.PrepareAccessList(msg.From(), msg.To(), nil, msg.AccessList())
 
 	// Subtract intrinsic gas
@@ -309,8 +308,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		}
 	}
 
-	// Refund gas — use EIP-3529 quotient (cap = gasUsed/5), aligned with post-London go-ethereum.
-	st.refundGas(params.RefundQuotientEIP3529)
+	// Refund gas — apply strict cap (gasUsed/5).
+	st.refundGas(params.RefundQuotientStrict)
 
 	// Pay miner fee by fixed txPrice
 	effectiveTip := st.txPrice

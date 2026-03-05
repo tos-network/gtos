@@ -29,7 +29,7 @@ const (
 	TxGasContractCreation     uint64 = 53000 // Per transaction that creates a contract.
 	TxDataZeroGas             uint64 = 4     // Per byte of transaction data that equals zero.
 	TxDataNonZeroGasFrontier  uint64 = 68    // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.
-	TxDataNonZeroGasReduced   uint64 = 16    // Per byte of non-zero data attached to a transaction after the Istanbul update
+	TxDataNonZeroGasReduced   uint64 = 16    // Per byte of non-zero data attached to a transaction (reduced rate)
 	TxAccessListAddressGas    uint64 = 2400  // Per address specified in a transaction access list
 	TxAccessListStorageKeyGas uint64 = 1900  // Per storage key specified in a transaction access list
 
@@ -38,12 +38,11 @@ const (
 	// Additional gas charged per ttl block for KV record retention.
 	KVTTLBlockGas uint64 = 1
 
-	// The Refund Quotient is the cap on how much of the used gas can be refunded. Before EIP-3529,
-	// up to half the consumed gas could be refunded (quotient=2). EIP-3529 (London) reduced the
-	// cap to 1/5th (quotient=5) to mitigate gas-token griefing.
-	// GTOS adopts the post-London value unconditionally.
-	RefundQuotient         uint64 = 2 // pre-London (kept for reference)
-	RefundQuotientEIP3529  uint64 = 5 // post-London — GTOS uses this
+	// RefundQuotient caps how much used gas can be refunded after a transaction.
+	// The legacy cap was gasUsed/2; the stricter cap is gasUsed/5 to prevent
+	// gas-refund griefing. GTOS uses the stricter value unconditionally.
+	RefundQuotient       uint64 = 2 // legacy cap: gasUsed/2 (kept for reference)
+	RefundQuotientStrict uint64 = 5 // strict cap: gasUsed/5 — GTOS default
 )
 
 var (

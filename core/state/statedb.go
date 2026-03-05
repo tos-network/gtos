@@ -662,7 +662,7 @@ func (s *StateDB) Copy() *StateDB {
 	for addr := range s.journal.dirties {
 		// As documented [here](https://github.com/tos-network/gtos/pull/16485#issuecomment-380438527),
 		// and in the Finalise-method, there is a case where an object is in the journal but not
-		// in the stateObjects: OOG after touch on ripeMD prior to Byzantium. Thus, we need to check for
+		// in the stateObjects: OOG after touch on ripeMD. Thus, we need to check for
 		// nil
 		if object, exist := s.stateObjects[addr]; exist {
 			// Even though the original object is dirty, we are not copying the journal,
@@ -827,9 +827,8 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	// modified after we start retrieving tries. Remove it from the statedb after
 	// this round of use.
 	//
-	// This is weird pre-byzantium since the first tx runs with a prefetcher and
-	// the remainder without, but pre-byzantium even the initial prefetcher is
-	// useless, so no sleep lost.
+	// Early blocks run the first tx with a prefetcher and the remainder without;
+	// the prefetcher is a no-op for those early blocks, so no correctness issue.
 	prefetcher := s.prefetcher
 	if s.prefetcher != nil {
 		defer func() {
@@ -993,15 +992,9 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 	return root, err
 }
 
-// PrepareAccessList handles the preparatory steps for executing a state transition with
-// regards to both access-list warm/cold access rules and access-list transaction rules:
-//
-// - Add sender to access list (2929)
-// - Add destination to access list (2929)
-// - Add precompiles to access list (2929)
-// - Add the contents of the optional tx access list (2930)
-//
-// This method should only be called if Berlin/2929+2930 is applicable at the current number.
+// PrepareAccessList initialises the per-transaction access list by warming the sender,
+// destination, any supplied precompile addresses, and the explicit access-list entries
+// carried in the transaction. Must be called once per transaction before execution.
 func (s *StateDB) PrepareAccessList(sender common.Address, dst *common.Address, precompiles []common.Address, list types.AccessList) {
 	// Clear out any leftover from previous executions
 	s.accessList = newAccessList()

@@ -134,7 +134,7 @@ func NewReceipt(root []byte, failed bool, cumulativeGasUsed uint64) *Receipt {
 }
 
 // EncodeRLP implements rlp.Encoder, and flattens the consensus fields of a receipt
-// into an RLP stream. If no post state is present, byzantium fork is assumed.
+// into an RLP stream. If no post state is present, status-based encoding is assumed.
 func (r *Receipt) EncodeRLP(w io.Writer) error {
 	if r.Type != SignerTxType {
 		return ErrTxTypeNotSupported

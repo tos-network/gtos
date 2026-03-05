@@ -615,12 +615,12 @@ func decodeSignerTxSignature(signerType string, sig []byte) (r, s, v *big.Int, e
 	}
 }
 
-func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, homestead bool) (common.Address, error) {
+func recoverPlain(sighash common.Hash, R, S, Vb *big.Int, strict bool) (common.Address, error) {
 	if Vb.BitLen() > 8 {
 		return common.Address{}, ErrInvalidSig
 	}
 	V := byte(Vb.Uint64() - 27)
-	if !crypto.ValidateSignatureValues(V, R, S, homestead) {
+	if !crypto.ValidateSignatureValues(V, R, S, strict) {
 		return common.Address{}, ErrInvalidSig
 	}
 	// encode the signature in uncompressed format

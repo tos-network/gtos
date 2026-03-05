@@ -170,10 +170,10 @@ func testForkIDSplit(t *testing.T, protocol uint) {
 		select {
 		case err := <-errc:
 			if err != nil {
-				t.Fatalf("homestead nofork <-> profork failed: %v", err)
+				t.Fatalf("nofork <-> profork failed: %v", err)
 			}
 		case <-time.After(250 * time.Millisecond):
-			t.Fatalf("homestead nofork <-> profork handler timeout")
+			t.Fatalf("nofork <-> profork handler timeout")
 		}
 	}
 	// Progress into block #2 and ensure peers still connect.

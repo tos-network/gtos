@@ -60,7 +60,7 @@ func benchRLP(b *testing.B, encode bool) {
 			},
 		},
 		{
-			"london-header",
+			"dynamic-fee-header",
 			&Header{
 				Difficulty: big.NewInt(10000000000),
 				Number:     big.NewInt(1000),

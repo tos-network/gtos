@@ -2,14 +2,13 @@
 
 ## Overview
 
-GTOS uses Lua as its smart contract execution engine. The external interface is
-fully aligned with standard Ethereum JSON-RPC: contract deployment uses CREATE
-semantics (`To == nil`), and contract calls use standard CALL semantics
-(`To != nil` with code at the destination).
+GTOS uses Lua as its smart contract execution engine. The external interface follows
+standard JSON-RPC conventions: contract deployment uses CREATE semantics (`To == nil`),
+and contract calls use standard CALL semantics (`To != nil` with code at the destination).
 
 ---
 
-## Ethereum Standard Flow (go-ethereum v1.10.25 baseline)
+## Standard Flow
 
 ### DEPLOY (CREATE)
 
@@ -17,7 +16,7 @@ semantics (`To == nil`), and contract calls use standard CALL semantics
 To == nil → applyCreate()
   ├─ addr = keccak256(RLP(sender, nonce))[12:]   (crypto.CreateAddress)
   ├─ collision check (nonce != 0 || code != empty)
-  ├─ CreateAccount(addr), SetNonce(addr, 1)      (EIP-158)
+  ├─ CreateAccount(addr), SetNonce(addr, 1)
   ├─ Transfer(sender → addr, value)              (optional)
   ├─ charge 200 gas/byte for code storage
   ├─ SetCode(addr, tx.Data)                      (Lua source stored directly)
@@ -56,7 +55,7 @@ initialization: the registered function runs automatically on the first CALL.
 ### Before (setCode — removed)
 
 ```
-Client → eth_sendTransaction({to: null, data: RLP{v=1, ttl=86400, code=...}})
+Client → tos_sendTransaction({to: null, data: RLP{v=1, ttl=86400, code=...}})
 GTOS:  applySetCode() → TTL check → store code at sender address
 addr:  msg.From()  (sender's own address — non-standard)
 ```
@@ -64,7 +63,7 @@ addr:  msg.From()  (sender's own address — non-standard)
 ### After (CREATE — standard)
 
 ```
-Client → eth_sendTransaction({to: null, data: <lua source>})
+Client → tos_sendTransaction({to: null, data: <lua source>})
 GTOS:  applyCreate() → derive addr → collision check → SetCode
 addr:  crypto.CreateAddress(sender, nonce)
 receipt.contractAddress = CreateAddress(sender, nonce)  (auto via DeriveFields)
@@ -75,7 +74,7 @@ receipt.contractAddress = CreateAddress(sender, nonce)  (auto via DeriveFields)
 ## Call Flow (unchanged)
 
 ```
-Client → eth_sendTransaction({to: contractAddr, data: selector+args})
+Client → tos_sendTransaction({to: contractAddr, data: selector+args})
 GTOS:  applyLua(code) → executeLuaVM(ctx, code, gas)
 ```
 
@@ -108,7 +107,7 @@ tos.delegatecall(addr, calldata)  →  caller's from+value inherited
 
 The following non-standard RPCs have been removed:
 
-- `tos_setCode(from, code, ttl)` → use `eth_sendTransaction({to: null, data: luaCode})`
+- `tos_setCode(from, code, ttl)` → use `tos_sendTransaction({to: null, data: luaCode})`
 - `tos_estimateSetCodeGas(code, ttl)` → use standard gas estimation with `to: null`
 - `tos_getCodeMeta(addr, block)` → TTL metadata no longer relevant; code is permanent
 

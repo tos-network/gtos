@@ -691,7 +691,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//   Unlike the removed stdlib require(), only pre-audited modules are available.
 	//
 	//   Available modules:
-	//     "tos20"  — ERC-20 compatible token standard (see core/lua_stdlib.go)
+	//     "tos20"  — TOS-20 fungible token standard (see core/lua_stdlib.go)
 	//
 	//   Example:
 	//     local T = tos.import("tos20")
@@ -1746,7 +1746,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
+		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
 
 		// Guard check before snapshot: no state mutation, no snapshot leak.
 		if callValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, callValue) {
@@ -1861,7 +1861,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
+		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
 
 		// No value transfer for staticcall.
 		calleeCode := stateDB.GetCode(calleeAddr)
@@ -1959,7 +1959,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
+		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
 
 		// Fetch the implementation code; no-code address is a no-op (success).
 		implCode := stateDB.GetCode(implAddr)
@@ -3043,7 +3043,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
+		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
 
 		calleeCode := stateDB.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
