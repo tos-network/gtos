@@ -34,13 +34,9 @@ type rpcExtTestService struct {
 	lastGetKVKey       hexutil.Bytes
 	lastGetKVBlock     string
 
-	lastEstimateSetCodeGasCode hexutil.Bytes
-	lastEstimateSetCodeGasTTL  hexutil.Uint64
-
-	lastSetSignerArgs    SetSignerArgs
-	lastBuildSignerArgs  SetSignerArgs
-	lastSetCodeArgs      SetCodeArgs
-	lastPutKVArgs        PutKVArgs
+	lastSetSignerArgs   SetSignerArgs
+	lastBuildSignerArgs SetSignerArgs
+	lastPutKVArgs       PutKVArgs
 	lastDPoSQueryAddress common.Address
 	lastDPoSQueryBlock   string
 }
@@ -130,17 +126,6 @@ func (s *rpcExtTestService) BuildSetSignerTx(args SetSignerArgs) interface{} {
 		Tx:  map[string]interface{}{"from": args.From.Hex()},
 		Raw: hexutil.Bytes{0xaa, 0xbb},
 	}
-}
-
-func (s *rpcExtTestService) SetCode(args SetCodeArgs) common.Hash {
-	s.lastSetCodeArgs = args
-	return common.HexToHash("0x2")
-}
-
-func (s *rpcExtTestService) EstimateSetCodeGas(code hexutil.Bytes, ttl hexutil.Uint64) hexutil.Uint64 {
-	s.lastEstimateSetCodeGasCode = code
-	s.lastEstimateSetCodeGasTTL = ttl
-	return hexutil.Uint64(77777)
 }
 
 func (s *rpcExtTestService) GetCodeObject(codeHash common.Hash, block string) interface{} {
@@ -420,31 +405,6 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	}
 	if tx == nil || len(tx.Raw) != 2 || tx.Raw[0] != 0xaa {
 		t.Fatalf("unexpected buildSetSignerTx result: %+v", tx)
-	}
-
-	codeHash, err := client.SetCode(ctx, SetCodeArgs{
-		From: from,
-		Code: hexutil.Bytes{0x60, 0x00},
-		TTL:  hexutil.Uint64(600),
-	})
-	if err != nil {
-		t.Fatalf("SetCode error: %v", err)
-	}
-	if codeHash != common.HexToHash("0x2") {
-		t.Fatalf("unexpected setCode hash: %s", codeHash.Hex())
-	}
-	if svc.lastSetCodeArgs.From != from || svc.lastSetCodeArgs.TTL != hexutil.Uint64(600) {
-		t.Fatalf("setCode args were not forwarded: %+v", svc.lastSetCodeArgs)
-	}
-	estimateGas, err := client.EstimateSetCodeGas(ctx, []byte{0x60, 0x00}, 600)
-	if err != nil {
-		t.Fatalf("EstimateSetCodeGas error: %v", err)
-	}
-	if estimateGas != 77777 {
-		t.Fatalf("unexpected estimateSetCodeGas result: %d", estimateGas)
-	}
-	if string(svc.lastEstimateSetCodeGasCode) != string([]byte{0x60, 0x00}) || svc.lastEstimateSetCodeGasTTL != hexutil.Uint64(600) {
-		t.Fatalf("estimateSetCodeGas args were not forwarded: code=%x ttl=%d", []byte(svc.lastEstimateSetCodeGasCode), svc.lastEstimateSetCodeGasTTL)
 	}
 
 	kvHash, err := client.PutKV(ctx, PutKVArgs{

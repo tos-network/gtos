@@ -82,15 +82,6 @@ type BuildSetSignerTxResult struct {
 	Raw hexutil.Bytes          `json:"raw"`
 }
 
-// SetCodeArgs is the argument object for tos_setCode.
-type SetCodeArgs struct {
-	From  common.Address  `json:"from"`
-	Nonce *hexutil.Uint64 `json:"nonce,omitempty"`
-	Gas   *hexutil.Uint64 `json:"gas,omitempty"`
-	Code  hexutil.Bytes   `json:"code"`
-	TTL   hexutil.Uint64  `json:"ttl"`
-}
-
 // CodeObject describes a code record and ttl metadata.
 type CodeObject struct {
 	CodeHash  common.Hash
@@ -302,22 +293,6 @@ func (ec *Client) BuildSetSignerTx(ctx context.Context, args SetSignerArgs) (*Bu
 		return nil, err
 	}
 	return &out, nil
-}
-
-// SetCode submits a code-storage write with ttl.
-func (ec *Client) SetCode(ctx context.Context, args SetCodeArgs) (common.Hash, error) {
-	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_setCode", args)
-	return txHash, err
-}
-
-// EstimateSetCodeGas returns deterministic gas for tos_setCode payload.
-func (ec *Client) EstimateSetCodeGas(ctx context.Context, code []byte, ttl uint64) (uint64, error) {
-	var gas hexutil.Uint64
-	if err := ec.c.CallContext(ctx, &gas, "tos_estimateSetCodeGas", hexutil.Bytes(code), hexutil.Uint64(ttl)); err != nil {
-		return 0, err
-	}
-	return uint64(gas), nil
 }
 
 // GetCodeObject returns a code object by hash.
