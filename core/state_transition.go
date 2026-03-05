@@ -257,7 +257,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		_, st.gas, vmerr = st.lvm.Create(msg.From(), st.data, st.gas, msg.Value(), st.msg.Nonce())
+		_, st.gas, vmerr = st.lvm.Create(lvm.ContractAccount(msg.From()), st.data, st.gas, msg.Value(), st.msg.Nonce())
 		if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
 			vmerr = ErrIntrinsicGas
 		}
@@ -291,7 +291,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			} else if len(toCode) > 0 {
 				// Destination has LVM contract code: execute it.
 				var ret []byte
-				ret, st.gas, vmerr = st.lvm.Call(msg.From(), toAddr, msg.Data(), st.gas, msg.Value())
+				ret, st.gas, vmerr = st.lvm.Call(lvm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
 				_ = ret
 				if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
 					vmerr = ErrIntrinsicGas

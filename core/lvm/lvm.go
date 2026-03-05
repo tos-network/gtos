@@ -74,6 +74,10 @@ type CallCtx struct {
 // ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
 var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
 
+// ErrDirectTOCDeploymentForbidden is returned by Create when the code is a .toc artifact.
+// All TOL contracts must be deployed as .tor packages via CreatePackage().
+var ErrDirectTOCDeploymentForbidden = errors.New("lvm: direct .toc deployment is not allowed; use CreatePackage() with a .tor archive")
+
 // TxContext contains per-transaction fields, constant across all nested calls.
 type TxContext struct {
 	Origin   common.Address // tx.origin
@@ -98,18 +102,19 @@ func (l *LVM) ChainConfig() *params.ChainConfig { return l.chainConfig }
 
 // Call executes the LVM contract code at addr with the given calldata and gas budget.
 // Returns (returnData, leftOverGas, err). On failure the state is reverted.
-func (l *LVM) Call(caller common.Address, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	callerAddr := caller.Address()
 	snapshot := l.StateDB.Snapshot()
 
 	if value != nil && value.Sign() > 0 {
-		if !l.Context.CanTransfer(l.StateDB, caller, value) {
-			return nil, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
+			return nil, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
 		}
-		l.Context.Transfer(l.StateDB, caller, addr, value)
+		l.Context.Transfer(l.StateDB, callerAddr, addr, value)
 	}
 
 	ctx := CallCtx{
-		From: caller, To: addr, Value: value, Data: input,
+		From: callerAddr, To: addr, Value: value, Data: input,
 		Depth: 0, TxOrigin: l.Origin, TxPrice: l.GasPrice,
 	}
 	code := l.StateDB.GetCode(addr)
@@ -134,9 +139,14 @@ func (l *LVM) Call(caller common.Address, addr common.Address, input []byte, gas
 
 // Create deploys a new LVM contract. Code is stored directly at a CREATE-derived address;
 // no initcode is executed. nonce must be the pre-tx sender nonce (msg.Nonce()).
-func (l *LVM) Create(caller common.Address, code []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
-	contractAddr = crypto.CreateAddress(caller, nonce)
+func (l *LVM) Create(caller ContractRef, code []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	callerAddr := caller.Address()
+	contractAddr = crypto.CreateAddress(callerAddr, nonce)
 
+	// Reject direct .toc deployment — all TOL contracts must be deployed as .tor packages.
+	if lua.IsArtifact(code) {
+		return common.Address{}, 0, ErrDirectTOCDeploymentForbidden
+	}
 	codeHash := l.StateDB.GetCodeHash(contractAddr)
 	emptyCodeHash := crypto.Keccak256Hash(nil)
 	if l.StateDB.GetNonce(contractAddr) != 0 ||
@@ -154,10 +164,15 @@ func (l *LVM) Create(caller common.Address, code []byte, gas uint64, value *big.
 	gas -= codeGas
 
 	if value != nil && value.Sign() > 0 {
-		if !l.Context.CanTransfer(l.StateDB, caller, value) {
-			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
+			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
 		}
-		l.Context.Transfer(l.StateDB, caller, contractAddr, value)
+	}
+
+	snapshot := l.StateDB.Snapshot() // reserved for future initcode revert path
+	_ = snapshot
+	if value != nil && value.Sign() > 0 {
+		l.Context.Transfer(l.StateDB, callerAddr, contractAddr, value)
 	}
 
 	l.StateDB.CreateAccount(contractAddr)
@@ -171,8 +186,9 @@ func (l *LVM) Create(caller common.Address, code []byte, gas uint64, value *big.
 // package are routed at call time by executePackage via the 4-byte dispatch tag.
 // Unlike Create, no code-size limit is enforced because packages legitimately
 // contain multiple compiled contracts.
-func (l *LVM) CreatePackage(caller common.Address, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
-	contractAddr = crypto.CreateAddress(caller, nonce)
+func (l *LVM) CreatePackage(caller ContractRef, torBytes []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	callerAddr := caller.Address()
+	contractAddr = crypto.CreateAddress(callerAddr, nonce)
 
 	codeHash := l.StateDB.GetCodeHash(contractAddr)
 	emptyCodeHash := crypto.Keccak256Hash(nil)
@@ -189,16 +205,21 @@ func (l *LVM) CreatePackage(caller common.Address, torBytes []byte, gas uint64, 
 	gas -= codeGas
 
 	if value != nil && value.Sign() > 0 {
-		if !l.Context.CanTransfer(l.StateDB, caller, value) {
-			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", caller.Hex())
+		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
+			return common.Address{}, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
 		}
-		l.Context.Transfer(l.StateDB, caller, contractAddr, value)
+	}
+
+	snapshot := l.StateDB.Snapshot() // reserved for future initcode revert path
+	_ = snapshot
+	if value != nil && value.Sign() > 0 {
+		l.Context.Transfer(l.StateDB, callerAddr, contractAddr, value)
 	}
 
 	l.StateDB.CreateAccount(contractAddr)
 	l.StateDB.SetNonce(contractAddr, 1)
 	l.StateDB.SetCode(contractAddr, torBytes)
-	l.StateDB.SetNonce(caller, nonce+1)
+	l.StateDB.SetNonce(callerAddr, nonce+1)
 	return contractAddr, gas, nil
 }
 
@@ -1698,7 +1719,15 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.call: out of gas")
 			return 0
 		}
-		childGasLimit := gasLimit - totalUsed
+		available := gasLimit - totalUsed
+		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
+
+		// Guard check before snapshot: no state mutation, no snapshot leak.
+		if callValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, callValue) {
+			L.Push(lua.LFalse)
+			L.Push(lua.LNil)
+			return 2
+		}
 
 		// Inner snapshot: callee state changes are reverted on callee failure,
 		// but caller state changes before this call are preserved.
@@ -1706,12 +1735,6 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 		// Value transfer from calling contract to callee.
 		if callValue.Sign() > 0 {
-			if !blockCtx.CanTransfer(stateDB, contractAddr, callValue) {
-				// Insufficient balance: soft failure (do not revert snapshot).
-				L.Push(lua.LFalse)
-				L.Push(lua.LNil)
-				return 2
-			}
 			blockCtx.Transfer(stateDB, contractAddr, calleeAddr, callValue)
 		}
 
@@ -1811,7 +1834,8 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.staticcall: out of gas")
 			return 0
 		}
-		childGasLimit := gasLimit - totalUsed
+		available := gasLimit - totalUsed
+		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
 
 		// No value transfer for staticcall.
 		calleeCode := stateDB.GetCode(calleeAddr)
@@ -1908,7 +1932,8 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.delegatecall: out of gas")
 			return 0
 		}
-		childGasLimit := gasLimit - totalUsed
+		available := gasLimit - totalUsed
+		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
 
 		// Fetch the implementation code; no-code address is a no-op (success).
 		implCode := stateDB.GetCode(implAddr)
@@ -2029,14 +2054,15 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		// Derive new address from the deployer's current nonce (CREATE semantics).
 		nonce := stateDB.GetNonce(contractAddr)
 		newAddr := crypto.CreateAddress(contractAddr, nonce)
-		stateDB.SetNonce(contractAddr, nonce+1)
 
-		// Transfer value (if any) before storing code — matches EVM CREATE order.
+		// Guard check before any state mutation.
+		if deployValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
+			L.RaiseError("tos.deploy: insufficient balance for value transfer")
+			return 0
+		}
+
+		stateDB.SetNonce(contractAddr, nonce+1)
 		if deployValue.Sign() > 0 {
-			if !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
-				L.RaiseError("tos.deploy: insufficient balance for value transfer")
-				return 0
-			}
 			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
 		}
 
@@ -2990,7 +3016,8 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.RaiseError("tos.package_call: out of gas")
 			return 0
 		}
-		childGasLimit := gasLimit - totalUsed
+		available := gasLimit - totalUsed
+		childGasLimit := available - available/64 // EIP-150: keep 1/64 for parent
 
 		calleeCode := stateDB.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
