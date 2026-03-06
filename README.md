@@ -82,8 +82,8 @@ UNO encrypted balances — see above.
 │                                                      │
 │  ┌──────────┐   ┌────────────┐   ┌───────────────┐  │
 │  │   DPoS   │   │    UNO     │   │ System Actions│  │
-│  │  360ms   │   │  Privacy   │   │  (kv / code)  │  │
-│  │Consensus │   │   Layer    │   │               │  │
+│  │  360ms   │   │  Privacy   │   │Kyc/Agent/TNS/ │  │
+│  │Consensus │   │   Layer    │   │   Referral    │  │
 │  └──────────┘   └────────────┘   └───────────────┘  │
 │                                                      │
 │  ┌──────────────────────────────────────────────┐    │
