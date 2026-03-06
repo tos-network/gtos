@@ -129,6 +129,63 @@ func IsDownline(db vm.StateDB, ancestor, descendant common.Address, maxDepth uin
 	return false
 }
 
+// contractVolSlot returns a per-contract volume slot key.
+// key = keccak256(prefix || contractAddr[32] || userAddr[32])
+// This namespaces volume accumulation under the calling contract, so that
+// different LVM contracts maintain isolated team/direct volume counters
+// for the same referral tree.
+func contractVolSlot(prefix string, contractAddr, userAddr common.Address) common.Hash {
+	key := append([]byte(prefix), contractAddr.Bytes()...)
+	key = append(key, userAddr.Bytes()...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
+// ReadTeamVolumeFor returns the team_volume accumulated by contractAddr for addr.
+func ReadTeamVolumeFor(db vm.StateDB, contractAddr, addr common.Address) *big.Int {
+	raw := db.GetState(params.ReferralRegistryAddress,
+		contractVolSlot("ref\x00ctvol\x00", contractAddr, addr))
+	return raw.Big()
+}
+
+// ReadDirectVolumeFor returns the direct_volume accumulated by contractAddr for addr.
+func ReadDirectVolumeFor(db vm.StateDB, contractAddr, addr common.Address) *big.Int {
+	raw := db.GetState(params.ReferralRegistryAddress,
+		contractVolSlot("ref\x00cdvol\x00", contractAddr, addr))
+	return raw.Big()
+}
+
+// AddTeamVolumeFor adds amount to the per-contract team_volume for each upline of addr
+// up to `levels` hops, and to direct_volume of the immediate referrer.
+// All writes are namespaced under contractAddr, so each LVM contract maintains
+// independent volume counters for the same referral tree.
+// Returns the number of upline levels actually updated.
+func AddTeamVolumeFor(db vm.StateDB, contractAddr, addr common.Address, amount *big.Int, levels uint8) uint8 {
+	if levels > params.MaxReferralDepth {
+		levels = params.MaxReferralDepth
+	}
+	cur := addr
+	var updated uint8
+	for i := uint8(0); i < levels; i++ {
+		ref := ReadReferrer(db, cur)
+		if ref == (common.Address{}) {
+			break
+		}
+		slot := contractVolSlot("ref\x00ctvol\x00", contractAddr, ref)
+		old := db.GetState(params.ReferralRegistryAddress, slot).Big()
+		db.SetState(params.ReferralRegistryAddress, slot,
+			common.BigToHash(new(big.Int).Add(old, amount)))
+		if i == 0 {
+			dslot := contractVolSlot("ref\x00cdvol\x00", contractAddr, ref)
+			dold := db.GetState(params.ReferralRegistryAddress, dslot).Big()
+			db.SetState(params.ReferralRegistryAddress, dslot,
+				common.BigToHash(new(big.Int).Add(dold, amount)))
+		}
+		cur = ref
+		updated++
+	}
+	return updated
+}
+
 // AddTeamVolume adds amount to team_volume for each upline up to `levels`,
 // and also increments direct_volume of the immediate referrer.
 // Returns the number of upline levels actually updated.

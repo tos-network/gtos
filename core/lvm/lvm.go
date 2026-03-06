@@ -1690,8 +1690,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	}))
 
 	// tos.addteamvolume(addrHex, amount, levels) → uint256 (levels actually updated)
-	//   Adds amount to team_volume for each upline up to levels.
-	//   Also increments direct_volume of the immediate referrer.
+	//   Adds amount to the per-contract team_volume for each upline of addr up to levels.
+	//   Also increments the per-contract direct_volume of the immediate referrer.
+	//   Volume is namespaced under the calling contract address — each LVM contract
+	//   maintains isolated counters for the same referral tree (no cross-contract mixing).
 	//   Gas cost: gasSStore * levels (one SSTORE per upline level updated).
 	//   Write primitive — fails in staticcall.
 	L.SetField(tosTable, "addteamvolume", L.NewFunction(func(L *lua.LState) int {
@@ -1711,24 +1713,26 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			levels = params.MaxReferralDepth
 		}
 		chargePrimGas(gasSStore * uint64(levels))
-		updated := referral.AddTeamVolume(stateDB, addr, amount, levels)
+		updated := referral.AddTeamVolumeFor(stateDB, contractAddr, addr, amount, levels)
 		L.Push(luBig(new(big.Int).SetUint64(uint64(updated))))
 		return 1
 	}))
 
 	// tos.getteamvolume(addrHex) → uint256
+	//   Returns team_volume accumulated by THIS contract for addr (per-contract namespace).
 	L.SetField(tosTable, "getteamvolume", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(params.ReferralLoadGas)
 		addr := common.HexToAddress(L.CheckString(1))
-		L.Push(luBig(referral.ReadTeamVolume(stateDB, addr)))
+		L.Push(luBig(referral.ReadTeamVolumeFor(stateDB, contractAddr, addr)))
 		return 1
 	}))
 
 	// tos.getdirectvolume(addrHex) → uint256
+	//   Returns direct_volume accumulated by THIS contract for addr (per-contract namespace).
 	L.SetField(tosTable, "getdirectvolume", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(params.ReferralLoadGas)
 		addr := common.HexToAddress(L.CheckString(1))
-		L.Push(luBig(referral.ReadDirectVolume(stateDB, addr)))
+		L.Push(luBig(referral.ReadDirectVolumeFor(stateDB, contractAddr, addr)))
 		return 1
 	}))
 
