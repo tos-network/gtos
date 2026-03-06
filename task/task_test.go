@@ -443,8 +443,8 @@ func TestProcessDueTasksMaxRunsExhaustion(t *testing.T) {
 	target2 := target1 + params.TaskMinIntervalBlocks
 	ProcessDueTasks(db, noopBlockCtx(target2), params.MainnetChainConfig, target2, exec)
 	rec, _ = ReadTask(db, taskId)
-	if rec.Status != TaskDone {
-		t.Errorf("expected Done after maxRuns exhausted, got %d", rec.Status)
+	if rec.Status != TaskExpired {
+		t.Errorf("expected Expired after maxRuns exhausted, got %d", rec.Status)
 	}
 	if rec.Runs != 2 {
 		t.Errorf("expected Runs=2, got %d", rec.Runs)

@@ -1832,7 +1832,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 	// tos.canceltask(taskIdHex) → bool
 	//   Cancels a pending task created by this contract and refunds the deposit.
-	//   Returns true on success, raises an error on failure.
+	//   Returns true on success, false if not found, already done, or caller is not the scheduler.
 	//   Write primitive — fails in staticcall.
 	L.SetField(tosTable, "canceltask", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
@@ -1844,12 +1844,12 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		taskId := common.HexToHash(L.CheckString(1))
 		rec, ok := task.ReadTask(stateDB, taskId)
 		if !ok || rec.Status != task.TaskPending {
-			L.RaiseError("tos.canceltask: task not found or not pending")
-			return 0
+			L.Push(lua.LFalse)
+			return 1
 		}
 		if contractAddr != rec.Scheduler {
-			L.RaiseError("tos.canceltask: caller is not the task scheduler")
-			return 0
+			L.Push(lua.LFalse)
+			return 1
 		}
 
 		deposit := new(big.Int).Mul(
@@ -1869,8 +1869,8 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 	// tos.taskinfo(taskIdHex, field) → value | nil
 	//   Returns a single field of a task record, or nil if the task does not exist.
-	//   field is one of: "scheduler", "target", "status", "runs", "target_block",
-	//   "gas_limit", "interval_blocks", "max_runs".
+	//   field is one of: "scheduler", "target", "status", "runs", "nextblock",
+	//   "gaslimit", "interval", "maxruns".
 	L.SetField(tosTable, "taskinfo", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(params.TaskInfoGas)
 
@@ -1891,13 +1891,13 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			L.Push(luBig(new(big.Int).SetUint64(uint64(rec.Status))))
 		case "runs":
 			L.Push(luBig(new(big.Int).SetUint64(rec.Runs)))
-		case "target_block":
+		case "nextblock":
 			L.Push(luBig(new(big.Int).SetUint64(rec.TargetBlock)))
-		case "gas_limit":
+		case "gaslimit":
 			L.Push(luBig(new(big.Int).SetUint64(rec.GasLimit)))
-		case "interval_blocks":
+		case "interval":
 			L.Push(luBig(new(big.Int).SetUint64(rec.IntervalBlocks)))
-		case "max_runs":
+		case "maxruns":
 			L.Push(luBig(new(big.Int).SetUint64(rec.MaxRuns)))
 		default:
 			L.Push(lua.LNil)

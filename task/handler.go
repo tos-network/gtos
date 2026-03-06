@@ -17,8 +17,8 @@ func init() {
 }
 
 // taskScheduledTopic is the log topic for the TaskScheduled event.
-// Equivalent to keccak256("TaskScheduled(address,bytes32,uint64)").
-var taskScheduledTopic = common.BytesToHash(crypto.Keccak256([]byte("TaskScheduled(address,bytes32,uint64)")))
+// Equivalent to keccak256("TaskScheduled(bytes32,address,address,uint64)").
+var taskScheduledTopic = common.BytesToHash(crypto.Keccak256([]byte("TaskScheduled(bytes32,address,address,uint64)")))
 
 type taskHandler struct{}
 
@@ -130,9 +130,13 @@ func (h *taskHandler) handleSchedule(ctx *sysaction.Context, sa *sysaction.SysAc
 	// 9. Track active count.
 	AdjustActiveCount(ctx.StateDB, ctx.From, +1)
 
-	// 10. Emit log: TaskScheduled(scheduler, taskId, targetBlock).
-	var logData [8]byte
-	binary.BigEndian.PutUint64(logData[:], targetBlock)
+	// 10. Emit log: TaskScheduled(taskId, scheduler, target, targetBlock).
+	// Topics[0] = sig, Topics[1] = taskId (indexed bytes32).
+	// Data = scheduler[32] ++ target[32] ++ nextBlock (uint64 right-aligned in 32 bytes).
+	var logData [96]byte
+	copy(logData[:32], rec.Scheduler[:])
+	copy(logData[32:64], rec.Target[:])
+	binary.BigEndian.PutUint64(logData[88:], targetBlock)
 	ctx.StateDB.AddLog(&types.Log{
 		Address: params.TaskSchedulerAddress,
 		Topics:  []common.Hash{taskScheduledTopic, taskId},

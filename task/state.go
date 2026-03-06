@@ -45,7 +45,7 @@ func blockQEntrySlot(blockNum, i uint64) common.Hash {
 	binary.BigEndian.PutUint64(buf[:8], blockNum)
 	binary.BigEndian.PutUint64(buf[8:], i)
 	return common.BytesToHash(crypto.Keccak256(
-		append([]byte("task\x00qentry\x00"), buf[:]...)))
+		append([]byte("task\x00q\x00"), buf[:]...)))
 }
 
 // ── Task ID ───────────────────────────────────────────────────────────────────
@@ -94,8 +94,8 @@ func ReadTask(db vm.StateDB, taskId common.Hash) (*TaskRecord, bool) {
 	t.TaskData = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "taskdata"))
 
 	t.GasLimit = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "gaslimit")).Big().Uint64()
-	t.TargetBlock = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "targetblock")).Big().Uint64()
-	t.IntervalBlocks = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "intervalblocks")).Big().Uint64()
+	t.TargetBlock = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "nextblock")).Big().Uint64()
+	t.IntervalBlocks = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "interval")).Big().Uint64()
 	t.MaxRuns = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "maxruns")).Big().Uint64()
 	t.Runs = db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "runs")).Big().Uint64()
 	t.Status = TaskStatus(db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "status")).Big().Uint64())
@@ -123,10 +123,10 @@ func WriteTask(db vm.StateDB, taskId common.Hash, t *TaskRecord) {
 	store("gaslimit", u64)
 
 	binary.BigEndian.PutUint64(u64[24:], t.TargetBlock)
-	store("targetblock", u64)
+	store("nextblock", u64)
 
 	binary.BigEndian.PutUint64(u64[24:], t.IntervalBlocks)
-	store("intervalblocks", u64)
+	store("interval", u64)
 
 	binary.BigEndian.PutUint64(u64[24:], t.MaxRuns)
 	store("maxruns", u64)

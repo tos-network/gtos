@@ -88,7 +88,11 @@ func ProcessDueTasks(
 		isOneShot := rec.IntervalBlocks == 0
 
 		if isOneShot || exhausted {
-			rec.Status = TaskDone
+			if exhausted && !isOneShot {
+				rec.Status = TaskExpired
+			} else {
+				rec.Status = TaskDone
+			}
 			WriteTask(db, taskId, rec)
 			AdjustActiveCount(db, rec.Scheduler, -1)
 		} else {
@@ -107,8 +111,8 @@ func ProcessDueTasks(
 				WriteTask(db, taskId, rec)
 				EnqueueTask(db, nextBlock, taskId)
 			} else {
-				// Scheduler can no longer afford another run — mark done.
-				rec.Status = TaskDone
+				// Scheduler can no longer afford another run — mark expired.
+				rec.Status = TaskExpired
 				WriteTask(db, taskId, rec)
 				AdjustActiveCount(db, rec.Scheduler, -1)
 			}
