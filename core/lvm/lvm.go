@@ -1502,10 +1502,11 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// ── KYC primitives ────────────────────────────────────────────────────────
 
 	// tos.kyc(addr, field) → value | nil
-	//   Reads a KYC field for addr. Gas cost: params.KYCLoadGas (100).
+	//   Reads a KYC field for addr. Gas cost: params.KYCLoadGas (100, one SLOAD).
 	//   Fields:
-	//     "level"   → uint256 (u16 bitmask of verified tiers)
-	//     "status"  → uint256 (0=None, 1=Active, 2=Suspended)
+	//     "level"  → uint256 (u16 bitmask of verified tiers)
+	//     "tier"   → uint256 (tier number 0–8)
+	//     "active" → bool (true iff status == KycActive)
 	L.SetField(tosTable, "kyc", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(params.KYCLoadGas)
 		addrStr := L.CheckString(1)
@@ -1514,8 +1515,14 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		switch field {
 		case "level":
 			L.Push(luBig(new(big.Int).SetUint64(uint64(kyc.ReadLevel(stateDB, addr)))))
-		case "status":
-			L.Push(luBig(new(big.Int).SetUint64(uint64(kyc.ReadStatus(stateDB, addr)))))
+		case "tier":
+			L.Push(luBig(new(big.Int).SetUint64(uint64(kyc.TierOf(kyc.ReadLevel(stateDB, addr))))))
+		case "active":
+			if kyc.ReadStatus(stateDB, addr) == kyc.KycActive {
+				L.Push(lua.LTrue)
+			} else {
+				L.Push(lua.LFalse)
+			}
 		default:
 			L.Push(lua.LNil)
 		}
@@ -1619,10 +1626,14 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	}))
 
 	// tos.getuplines(addrHex, levels) → table of addrHex strings (up to levels ancestors)
+	//   Gas cost: ReferralLoadGas + ReferralLoadGas * levels (one SLOAD per ancestor).
 	L.SetField(tosTable, "getuplines", L.NewFunction(func(L *lua.LState) int {
-		chargePrimGas(params.ReferralLoadGas)
 		addr := common.HexToAddress(L.CheckString(1))
 		levels := uint8(L.CheckInt(2))
+		if levels > params.MaxReferralDepth {
+			levels = params.MaxReferralDepth
+		}
+		chargePrimGas(params.ReferralLoadGas + params.ReferralLoadGas*uint64(levels))
 		uplines := referral.GetUplines(stateDB, addr, levels)
 		tbl := L.NewTable()
 		for i, a := range uplines {
@@ -1651,20 +1662,25 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	}))
 
 	// tos.getreferrallevel(addrHex) → uint256 (depth in referral tree, 0 = root)
+	//   Gas cost: ReferralLoadGas + ReferralLoadGas * actual_depth (one SLOAD per hop).
 	L.SetField(tosTable, "getreferrallevel", L.NewFunction(func(L *lua.LState) int {
-		chargePrimGas(params.ReferralLoadGas)
 		addr := common.HexToAddress(L.CheckString(1))
 		depth := referral.GetReferralDepth(stateDB, addr)
+		chargePrimGas(params.ReferralLoadGas + params.ReferralLoadGas*uint64(depth))
 		L.Push(luBig(new(big.Int).SetUint64(uint64(depth))))
 		return 1
 	}))
 
 	// tos.isdownline(ancestorHex, descendantHex, maxDepth) → bool
+	//   Gas cost: ReferralLoadGas + ReferralLoadGas * maxDepth (worst-case SLOADs).
 	L.SetField(tosTable, "isdownline", L.NewFunction(func(L *lua.LState) int {
-		chargePrimGas(params.ReferralLoadGas)
 		ancestor := common.HexToAddress(L.CheckString(1))
 		descendant := common.HexToAddress(L.CheckString(2))
 		maxDepth := uint8(L.CheckInt(3))
+		if maxDepth > params.MaxReferralDepth {
+			maxDepth = params.MaxReferralDepth
+		}
+		chargePrimGas(params.ReferralLoadGas + params.ReferralLoadGas*uint64(maxDepth))
 		if referral.IsDownline(stateDB, ancestor, descendant, maxDepth) {
 			L.Push(lua.LTrue)
 		} else {
@@ -1676,13 +1692,13 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// tos.addteamvolume(addrHex, amount, levels) → uint256 (levels actually updated)
 	//   Adds amount to team_volume for each upline up to levels.
 	//   Also increments direct_volume of the immediate referrer.
+	//   Gas cost: gasSStore * levels (one SSTORE per upline level updated).
 	//   Write primitive — fails in staticcall.
 	L.SetField(tosTable, "addteamvolume", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
 			L.RaiseError("tos.addteamvolume: state modification not allowed in staticcall")
 			return 0
 		}
-		chargePrimGas(params.ReferralLoadGas)
 		addr := common.HexToAddress(L.CheckString(1))
 		amountUD := L.CheckUserData(2)
 		amount, ok := amountUD.Value.(*big.Int)
@@ -1691,6 +1707,10 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			return 0
 		}
 		levels := uint8(L.CheckInt(3))
+		if levels > params.MaxReferralDepth {
+			levels = params.MaxReferralDepth
+		}
+		chargePrimGas(gasSStore * uint64(levels))
 		updated := referral.AddTeamVolume(stateDB, addr, amount, levels)
 		L.Push(luBig(new(big.Int).SetUint64(uint64(updated))))
 		return 1

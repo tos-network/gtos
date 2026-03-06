@@ -7,4 +7,5 @@ var (
 	ErrTNSAccountHasName    = errors.New("tns: account already has a registered name")
 	ErrTNSInvalidName       = errors.New("tns: invalid name format")
 	ErrTNSInsufficientFee   = errors.New("tns: registration fee not met")
+	ErrTNSNameNotFound      = errors.New("tns: name not found")
 )
