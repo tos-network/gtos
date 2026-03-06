@@ -78,12 +78,13 @@ type StateDB interface {
 
 // CallContext provides a basic interface for the TVM calling conventions. The TVM
 // depends on this context being implemented for doing subcalls and initialising new TVM contracts.
+// Note: CALLCODE (pre-Homestead) is intentionally absent — GTOS only supports
+// DELEGATECALL semantics via tos.delegatecall, which correctly preserves msg.sender.
 type CallContext interface {
 	// Call another contract
 	Call(env *TVM, me ContractRef, addr common.Address, data []byte, gas, value *big.Int) ([]byte, error)
-	// Take another's contract code and execute within our own context
-	CallCode(env *TVM, me ContractRef, addr common.Address, data []byte, gas, value *big.Int) ([]byte, error)
-	// Same as CallCode except sender and value is propagated from parent to child scope
+	// DelegateCall executes the given address' code in the caller's context,
+	// preserving msg.sender and msg.value from the parent scope.
 	DelegateCall(env *TVM, me ContractRef, addr common.Address, data []byte, gas *big.Int) ([]byte, error)
 	// Create a new contract
 	Create(env *TVM, me ContractRef, data []byte, gas, value *big.Int) ([]byte, common.Address, error)
