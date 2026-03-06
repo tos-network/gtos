@@ -1386,6 +1386,130 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		return 1
 	}))
 
+	// tos.delegationmarkused(principal, nonce)
+	//   Marks (principal, nonce) as consumed, preventing future use.
+	//   Only the principal may consume their own nonces (enforced by the system action handler;
+	//   here we enforce it at the VM level too: caller must be msg.sender == principal).
+	//   Gas cost: gasSStore (state write).
+	L.SetField(tosTable, "delegationmarkused", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.delegationmarkused: state modification not allowed in staticcall")
+			return 0
+		}
+		principalHex := L.CheckString(1)
+		nonceBig := parseBigInt(L, 2)
+		chargePrimGas(gasSStore)
+		principal := common.HexToAddress(principalHex)
+		// Security: only the principal (= immediate caller for this frame) may consume their own nonces.
+		if ctx.From != principal {
+			L.RaiseError("tos.delegationmarkused: caller is not principal")
+			return 0
+		}
+		if delegation.IsUsed(stateDB, principal, nonceBig) {
+			L.RaiseError("tos.delegationmarkused: nonce already used")
+			return 0
+		}
+		delegation.MarkUsed(stateDB, principal, nonceBig)
+		return 0
+	}))
+
+	// tos.totaleligible(bit) → uint256
+	//   Returns the count of addresses that hold capability bit.
+	//   Used by vote<T> to snapshot the eligible voter count at ballot creation time.
+	//   Gas cost: gasSLoad.
+	L.SetField(tosTable, "totaleligible", L.NewFunction(func(L *lua.LState) int {
+		bit := uint8(L.CheckInt(1))
+		chargePrimGas(gasSLoad)
+		count := capability.TotalEligible(stateDB, bit)
+		L.Push(luBig(count))
+		return 1
+	}))
+
+	// tos.delegationverify(hash, v, r, s, principal, scope_hash, expiry_ms, nonce) → bool
+	//   Verifies a delegation signature and checks replay protection + expiry.
+	//   Does NOT consume the nonce (call tos.delegationmarkused separately to consume it).
+	//
+	//   Arguments:
+	//     hash       — bytes32 hex: keccak256 of the typed delegation payload
+	//     v          — integer 0/1 (or 27/28 — normalised internally)
+	//     r          — bytes32 hex
+	//     s          — bytes32 hex
+	//     principal  — address hex: claimed signer
+	//     scope_hash — bytes32 hex: must match what was signed
+	//     expiry_ms  — uint256: Unix timestamp in ms; 0 = no expiry
+	//     nonce      — uint256: the nonce included in the signed payload
+	//
+	//   Returns true iff:
+	//     1. ecrecover(hash, v, r, s) == principal
+	//     2. nonce has not been consumed
+	//     3. block.timestamp_ms < expiry_ms OR expiry_ms == 0
+	//
+	//   Gas cost: 3000 (ecrecover equivalent) + gasSLoad (nonce check).
+	L.SetField(tosTable, "delegationverify", L.NewFunction(func(L *lua.LState) int {
+		hashHex := L.CheckString(1)
+		vNum := uint8(L.CheckInt(2))
+		rHex := L.CheckString(3)
+		sHex := L.CheckString(4)
+		principalHex := L.CheckString(5)
+		// scope_hash (arg 6) is already embedded in hash; passed for documentation only
+		_ = L.CheckString(6)
+		expiryBig := parseBigInt(L, 7)
+		nonceBig := parseBigInt(L, 8)
+
+		chargePrimGas(3000 + gasSLoad)
+
+		// 1. ecrecover
+		hashBytes := common.FromHex(hashHex)
+		rBytes := common.FromHex(rHex)
+		sBytes := common.FromHex(sHex)
+		if len(hashBytes) != 32 || len(rBytes) != 32 || len(sBytes) != 32 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		v := vNum
+		if v >= 27 {
+			v -= 27
+		}
+		if v != 0 && v != 1 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		sig := make([]byte, 65)
+		copy(sig[0:32], rBytes)
+		copy(sig[32:64], sBytes)
+		sig[64] = v
+		pub, err := crypto.SigToPub(hashBytes, sig)
+		if err != nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		recovered := crypto.PubkeyToAddress(*pub)
+		principal := common.HexToAddress(principalHex)
+		if recovered != principal {
+			L.Push(lua.LFalse)
+			return 1
+		}
+
+		// 2. Replay protection
+		if delegation.IsUsed(stateDB, principal, nonceBig) {
+			L.Push(lua.LFalse)
+			return 1
+		}
+
+		// 3. Expiry check (blockCtx.Time is in seconds; expiry_ms is milliseconds)
+		if expiryBig != nil && expiryBig.Sign() > 0 {
+			// blockCtx.Time is seconds; convert to ms for comparison
+			blockMs := new(big.Int).Mul(blockCtx.Time, big.NewInt(1000))
+			if blockMs.Cmp(expiryBig) >= 0 {
+				L.Push(lua.LFalse)
+				return 1
+			}
+		}
+
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
 	// ── Escrow primitives ─────────────────────────────────────────────────────
 	//
 	// Escrow slots are namespaced under the calling contract address:
