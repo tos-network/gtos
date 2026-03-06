@@ -1,55 +1,76 @@
-# TOS
+# TOS Network
 
-**The first blockchain to unify speed, privacy, and agent-native economics.**
+**The economic settlement and coordination layer for an AI-driven digital economy.**
 
-TOS is a DPoS chain where 360ms blocks, built-in encrypted balances, and on-chain logic are the infrastructure — built to carry the world's first general-purpose agent labor market.
+The next phase of the internet economy will not be defined solely by human users. Autonomous AI agents — capable of performing tasks, making decisions, and transacting on behalf of individuals and organizations — need infrastructure that allows them to hold assets, make payments, establish trust, preserve privacy, and coordinate economic activity at scale. TOS Network is built to be that foundation.
 
 ---
 
-## Vision
+## Why TOS
 
 Ethereum generalized computation. TOS generalizes **economic agency**.
 
-The next generation of AI agents needs more than a fast ledger. They need a chain where:
+AI agents can generate intelligence and perform work, but they lack native mechanisms for economic coordination. They cannot independently settle obligations, escrow funds, price risk, or build portable reputation without a trusted system of rules. A decentralized network with programmable contracts, cryptographic assurances, and machine-readable economic logic enables AI agents to interact in a trust-minimized environment. That network is TOS.
 
-- **Work is verifiable** — agents submit cryptographic receipts for completed tasks (AGIW: Proof-of-Intelligent-Work), verified by TEE attestations and randomized spot-checks, settling per outcome not per call
-- **Reputation is on-chain** — an append-only, stake-weighted reputation graph reduces counterparty risk and speeds market clearing across agent-to-agent transactions
-- **Value is measured in real scarcity** — Compute Credits (CC) and Energy Credits (EC) are native ledger assets, not ERC-20 wrappers; fees and treasury policy are anchored to GPU-minute and kWh indices
-- **Compliance is built in** — Safety Oracle + Account Abstraction policy wallets enforce rate limits, allow/deny lists, and region rules at validation time, without centralization
-- **Identity is first-class** — native DID, key rotation, and attribute attestations make autonomous agents provable, accountable, and integrable
+Openness at the application layer must not come at the expense of base-layer guarantees. **Censorship resistance, open-source verifiability, privacy, and security** are not optional design preferences — they are the institutional foundations that allow autonomous systems, developers, and users to trust the network over time.
 
-> TOS is not "a faster EVM." It is the first chain that turns agent work, reputation, and energy use into a measurable, settleable, and governable economic substrate.
+---
+
+## The Agent Economy
+
+Six patterns are emerging as the structural primitives of machine-native commerce:
+
+**Agent-to-agent hiring.** An AI trading agent hires a prediction agent for market analysis, which in turn employs data-scraping agents for structured information. Payments, deposits, performance guarantees, and penalties for non-performance are enforced automatically on-chain.
+
+**Machine-to-machine micropayments.** Autonomous software continuously requires APIs, datasets, models, storage, and compute. Agents pay fractions of a cent per query, inference, or computation — a fluid market for digital services, no human intervention required.
+
+**Collateralized trust.** Agents interacting with one another require economic guarantees. Collateral deposited on-chain can be automatically released, slashed, or redirected upon specified outcomes — aligning incentives across an automated ecosystem at scale.
+
+**Identity and reputation.** Agents must have verifiable identities, machine-readable capabilities, and trackable performance histories. On-chain reputation lets agents assess counterparty reliability before engaging economically. Delegated authority models keep humans and institutions in ultimate control over machine actors.
+
+**AI as user interface.** Rather than interacting directly with wallets and isolated apps, individuals delegate to AI assistants that analyze contracts, manage portfolios, source liquidity, negotiate services, and execute transactions — verifying the safety of each action. The old model of siloed browser-extension wallets gives way to a coordination layer where users express intent and agents determine execution.
+
+**Governance coordination.** In decentralized organizations, human attention is scarce. AI assistants analyze proposals, summarize debate, simulate downstream outcomes, and recommend or execute governance actions under constrained delegation — making large-scale governance more legible and operationally effective.
+
+---
+
+## Privacy as a First-Class Property
+
+Privacy should not be treated as a narrow payment feature or an optional overlay. A network designed for autonomous commerce cannot assume that every balance, relationship, strategy, or coordination pattern should be publicly visible by default.
+
+TOS builds privacy in at the base layer through **UNO** — encrypted balances on-chain, no bridges, no L2.
+
+- Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
+- Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
+- Three operations: `UNO_SHIELD` (public → private), `UNO_TRANSFER` (private → private), `UNO_UNSHIELD` (private → public)
+- Chain-bound proofs committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
+- Decrypt your own balance locally with `personal_unoBalance` — private key never leaves your machine
+
+Privacy extends beyond settlement into intent, routing metadata, and coordination patterns. The next generation of decentralized systems requires not merely private transactions, but a **privacy-ready application architecture** at every layer.
 
 ---
 
 ## Infrastructure
 
-The agent economy runs on three foundational layers:
+The agent economy runs on three foundational layers.
 
 ### Speed
 
 - `360ms` target block interval, DPoS consensus
 - Parallel transaction execution — independent txs run concurrently within each block via DAG scheduling
-- Rolling `200`-block finalized history window — nodes stay lean
-- Configurable DPoS validator signer: `ed25519` (default), `secp256k1`
-- Agent wallet supports: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
+- Configurable validator signer: `ed25519` (default), `secp256k1`
+- Agent wallets support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 
-### Privacy (UNO)
+### Privacy
 
-UNO is TOS's native privacy layer — encrypted balances on the base chain, no bridges, no L2. Agent payments and task settlements can be fully private.
+UNO encrypted balances — see above.
 
-- Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
-- Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
-- Three operations: `UNO_SHIELD` (public → private), `UNO_TRANSFER` (private → private), `UNO_UNSHIELD` (private → public)
-- Decrypt your own balance locally with `personal_unoBalance` — private key never leaves your machine
-- Chain-bound proofs: every proof is committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
+### Programmable Settlement
 
-### Smart Contracts
+System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead. Contracts encode the terms and rewards of agreements immutably: conditions and prizes are locked on-chain before any party participates, and no party can alter them after the fact.
 
-TOS contracts encode the terms and rewards of an agreement — immutable once written. Think of a prediction market: the conditions and prize are locked on-chain before anyone participates, and no party can alter them after the fact.
-
-- System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead
-- `code_put_ttl`: write the contract terms and reward rules on-chain (`tos_setCode`) — immutable, auditable by any market supervisor
+- `code_put_ttl`: write contract terms and reward rules on-chain (`tos_setCode`) — immutable, auditable
+- Native KV store with per-key TTL for lightweight agent state
 
 ---
 
