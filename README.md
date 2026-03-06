@@ -65,12 +65,6 @@ The agent economy runs on three foundational layers.
 
 UNO encrypted balances — see above.
 
-### Programmable Settlement
-
-System actions dispatch to native handlers at fixed addresses — gas-efficient, no VM overhead. Contracts encode the terms and rewards of agreements immutably: conditions and prizes are locked on-chain before any party participates, and no party can alter them after the fact.
-
-- `code_put_ttl`: write contract terms and reward rules on-chain (`tos_setCode`) — immutable, auditable
-- Native KV store with per-key TTL for lightweight agent state
 
 ---
 
