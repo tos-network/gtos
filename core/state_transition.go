@@ -380,27 +380,40 @@ func (st *StateTransition) isAccountContract(addr common.Address) bool {
 // an account contract. It calls validate(tx_hash, sig) on the destination contract
 // with a hard gas cap of ValidationGasCap.
 //
-// Returns ErrAAValidationFailed if:
-//   - the validate() call reverts or runs out of gas, or
-//   - the call returns a falsy value.
+// Phase 1 — pre-flight balance check:
+//   sender balance must cover ValidationGasCap * txPrice (worst-case validation cost).
 //
-// On failure no gas is consumed from the caller's budget.
+// Phase 2 — LVM call:
+//   validate(txHash, sig) is executed with gas cap 50k, Readonly=false.
+//   If it returns false, reverts, or runs OOG → ErrAAValidationFailed, no gas charged.
+//
+// Phase 3 — deduct actual validation gas:
+//   gasUsed * txPrice is deducted from the sender's balance.
 func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byte) error {
 	toAddr := st.to()
 
-	// Encode calldata: validateSelector || abi.encode(bytes32 txHash, bytes sig)
-	// Layout: [4 selector][32 txHash][32 offset for bytes][32 length][sig padded]
+	// Phase 1: balance must cover the worst-case validation cost.
+	// This prevents DoS via repeated validation attempts with empty accounts.
+	worstCaseCost := new(big.Int).Mul(
+		new(big.Int).SetUint64(params.ValidationGasCap),
+		st.txPrice,
+	)
+	if st.state.GetBalance(st.msg.From()).Cmp(worstCaseCost) < 0 {
+		return ErrAAValidationFailed
+	}
+
+	// Phase 2: encode calldata — validateSelector || abi.encode(bytes32 txHash, bytes sig)
+	// Layout: [4 selector][32 txHash][32 offset-to-bytes-arg][32 length][sig padded to 32]
 	sigPadded := make([]byte, ((len(sig)+31)/32)*32)
 	copy(sigPadded, sig)
 
 	calldata := make([]byte, 0, 4+32+32+32+len(sigPadded))
 	calldata = append(calldata, validateSelector...)
 	calldata = append(calldata, txHash[:]...)
-	// offset for the bytes argument = 64 (2 * 32 bytes for the fixed args before it)
+	// ABI offset for the dynamic `bytes` argument: 64 bytes after the selector.
 	var offsetWord [32]byte
 	binary.BigEndian.PutUint64(offsetWord[24:], 64)
 	calldata = append(calldata, offsetWord[:]...)
-	// length of sig
 	var lenWord [32]byte
 	binary.BigEndian.PutUint64(lenWord[24:], uint64(len(sig)))
 	calldata = append(calldata, lenWord[:]...)
@@ -418,17 +431,16 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 	}
 	code := st.state.GetCode(toAddr)
 	gasUsed, retData, _, execErr := lvm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
-	_ = gasUsed
 
 	if execErr != nil {
 		return ErrAAValidationFailed
 	}
-	// validate() must return a truthy value (non-zero bytes32 / bool true).
-	// We accept any non-zero 32-byte return as success.
+
+	// validate() must return a non-zero 32-byte value (truthy bool / bytes32).
 	if len(retData) < 32 {
 		return ErrAAValidationFailed
 	}
-	var allZero bool = true
+	allZero := true
 	for _, b := range retData[:32] {
 		if b != 0 {
 			allZero = false
@@ -438,6 +450,14 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 	if allZero {
 		return ErrAAValidationFailed
 	}
+
+	// Phase 3: deduct actual validation gas cost from sender balance.
+	// gasUsed is bounded by ValidationGasCap so this cannot underflow given phase 1.
+	actualCost := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), st.txPrice)
+	if actualCost.Sign() > 0 {
+		st.state.SubBalance(st.msg.From(), actualCost)
+	}
+
 	return nil
 }
 
