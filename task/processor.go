@@ -122,7 +122,13 @@ func ProcessDueTasks(
 	}
 
 	// Re-enqueue any tasks that exceeded TaskMaxPerBlock.
+	// Update TargetBlock so tos.taskinfo("nextblock") reflects the actual
+	// next execution block rather than the original (now-missed) target.
 	for _, tid := range deferred {
+		if rec, ok := ReadTask(db, tid); ok && rec.Status == TaskPending {
+			rec.TargetBlock = blockNum + 1
+			WriteTask(db, tid, rec)
+		}
 		EnqueueTask(db, blockNum+1, tid)
 	}
 

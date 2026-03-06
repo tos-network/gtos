@@ -52,12 +52,12 @@ func blockQEntrySlot(blockNum, i uint64) common.Hash {
 
 // NewTaskID derives a deterministic task ID from the scheduler address,
 // target block, and a per-contract monotonic nonce.
+// Formula: keccak256(scheduler[32] || targetBlock[8] || nonce[8])
 func NewTaskID(scheduler common.Address, targetBlock, nonce uint64) common.Hash {
 	var buf [16]byte
 	binary.BigEndian.PutUint64(buf[:8], targetBlock)
 	binary.BigEndian.PutUint64(buf[8:], nonce)
-	key := append([]byte("task\x00id\x00"), scheduler.Bytes()...)
-	key = append(key, buf[:]...)
+	key := append(scheduler.Bytes(), buf[:]...)
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 

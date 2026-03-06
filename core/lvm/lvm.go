@@ -1745,7 +1745,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// tos.schedule(target, selector, taskData, gasLimit, delayBlocks, intervalBlocks, maxRuns)
 	//   Schedules a future call to target:selector(taskData) on behalf of the
 	//   calling contract. A gas deposit is deducted from the contract's balance.
-	//   Returns the task ID as a hex string, or raises an error on failure.
+	//   Returns the task ID as a hex string, or nil on any validation failure.
 	//   Write primitive — fails in staticcall.
 	L.SetField(tosTable, "schedule", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
@@ -1762,29 +1762,21 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		intervalBlocks := uint64(L.CheckInt64(6))
 		maxRuns := uint64(L.CheckInt64(7))
 
-		if gasLimit < params.TaskMinGasLimit {
-			L.RaiseError("tos.schedule: gas_limit below minimum")
-			return 0
+		if gasLimit < params.TaskMinGasLimit || gasLimit > params.TaskMaxGasLimit {
+			L.Push(lua.LNil)
+			return 1
 		}
-		if gasLimit > params.TaskMaxGasLimit {
-			L.RaiseError("tos.schedule: gas_limit above maximum")
-			return 0
-		}
-		if delayBlocks < 1 {
-			L.RaiseError("tos.schedule: delay_blocks must be >= 1")
-			return 0
-		}
-		if delayBlocks > params.TaskMaxHorizonBlocks {
-			L.RaiseError("tos.schedule: delay_blocks exceeds horizon")
-			return 0
+		if delayBlocks < 1 || delayBlocks > params.TaskMaxHorizonBlocks {
+			L.Push(lua.LNil)
+			return 1
 		}
 		if intervalBlocks != 0 && intervalBlocks < params.TaskMinIntervalBlocks {
-			L.RaiseError("tos.schedule: interval_blocks below minimum")
-			return 0
+			L.Push(lua.LNil)
+			return 1
 		}
 		if task.ReadActiveCount(stateDB, contractAddr) >= params.TaskMaxPerContract {
-			L.RaiseError("tos.schedule: per-contract active task limit reached")
-			return 0
+			L.Push(lua.LNil)
+			return 1
 		}
 
 		deposit := new(big.Int).Mul(
@@ -1792,8 +1784,8 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			big.NewInt(params.GTOSPriceWei),
 		)
 		if stateDB.GetBalance(contractAddr).Cmp(deposit) < 0 {
-			L.RaiseError("tos.schedule: insufficient contract balance for gas deposit")
-			return 0
+			L.Push(lua.LNil)
+			return 1
 		}
 		stateDB.SubBalance(contractAddr, deposit)
 		stateDB.AddBalance(params.TaskSchedulerAddress, deposit)
@@ -1825,6 +1817,17 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		task.WriteTask(stateDB, taskId, rec)
 		task.EnqueueTask(stateDB, targetBlock, taskId)
 		task.AdjustActiveCount(stateDB, contractAddr, +1)
+
+		// Emit TaskScheduled(taskId, scheduler, target, targetBlock).
+		var logData [96]byte
+		copy(logData[:32], contractAddr[:])
+		copy(logData[32:64], targetAddr[:])
+		binary.BigEndian.PutUint64(logData[88:], targetBlock)
+		stateDB.AddLog(&types.Log{
+			Address: params.TaskSchedulerAddress,
+			Topics:  []common.Hash{task.TaskScheduledTopic, taskId},
+			Data:    logData[:],
+		})
 
 		L.Push(lua.LString(taskId.Hex()))
 		return 1

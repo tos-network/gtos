@@ -16,9 +16,9 @@ func init() {
 	sysaction.DefaultRegistry.Register(&taskHandler{})
 }
 
-// taskScheduledTopic is the log topic for the TaskScheduled event.
+// TaskScheduledTopic is the log topic for the TaskScheduled event.
 // Equivalent to keccak256("TaskScheduled(bytes32,address,address,uint64)").
-var taskScheduledTopic = common.BytesToHash(crypto.Keccak256([]byte("TaskScheduled(bytes32,address,address,uint64)")))
+var TaskScheduledTopic = common.BytesToHash(crypto.Keccak256([]byte("TaskScheduled(bytes32,address,address,uint64)")))
 
 type taskHandler struct{}
 
@@ -139,7 +139,7 @@ func (h *taskHandler) handleSchedule(ctx *sysaction.Context, sa *sysaction.SysAc
 	binary.BigEndian.PutUint64(logData[88:], targetBlock)
 	ctx.StateDB.AddLog(&types.Log{
 		Address: params.TaskSchedulerAddress,
-		Topics:  []common.Hash{taskScheduledTopic, taskId},
+		Topics:  []common.Hash{TaskScheduledTopic, taskId},
 		Data:    logData[:],
 	})
 
