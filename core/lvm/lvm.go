@@ -1413,6 +1413,28 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		return 0
 	}))
 
+	// tos.delegationrevoke(principal, nonce)
+	//   Revokes (principal, nonce) by marking it as consumed.
+	//   Semantically identical to delegationmarkused but communicates revocation intent.
+	//   Only the principal may revoke their own delegations.
+	//   Gas cost: gasSStore.
+	L.SetField(tosTable, "delegationrevoke", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.delegationrevoke: state modification not allowed in staticcall")
+			return 0
+		}
+		principalHex := L.CheckString(1)
+		nonceBig := parseBigInt(L, 2)
+		chargePrimGas(gasSStore)
+		principal := common.HexToAddress(principalHex)
+		if ctx.From != principal {
+			L.RaiseError("tos.delegationrevoke: caller is not principal")
+			return 0
+		}
+		delegation.Revoke(stateDB, principal, nonceBig)
+		return 0
+	}))
+
 	// tos.totaleligible(bit) → uint256
 	//   Returns the count of addresses that hold capability bit.
 	//   Used by vote<T> to snapshot the eligible voter count at ballot creation time.
