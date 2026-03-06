@@ -23,7 +23,7 @@ var (
 	testDB      = rawdb.NewMemoryDatabase()
 
 	testGspec = core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1000000000000000)}},
+		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}
 	testGenesis = testGspec.MustCommit(testDB)

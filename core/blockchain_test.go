@@ -731,7 +731,7 @@ func TestFastVsFullChains(t *testing.T) {
 		gendb   = rawdb.NewMemoryDatabase()
 		key, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		address = crypto.PubkeyToAddress(key.PublicKey)
-		funds   = big.NewInt(1000000000000000)
+		funds   = big.NewInt(1_000_000_000_000_000_000) // 10^18: covers 1024-block chain at 10 gwei/tx
 		gspec   = &Genesis{
 			Config:  params.TestChainConfig,
 			Alloc:   GenesisAlloc{address: {Balance: funds}},
@@ -1121,7 +1121,7 @@ func TestReorgSideEvent(t *testing.T) {
 		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
 		gspec   = &Genesis{
 			Config: params.TestChainConfig,
-			Alloc:  GenesisAlloc{addr1: {Balance: big.NewInt(10000000000000000)}},
+			Alloc:  GenesisAlloc{addr1: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: 4 txs × gas=1M × 10 gwei = 4×10^16 max
 		}
 		genesis = gspec.MustCommit(db)
 		signer  = types.LatestSigner(gspec.Config)

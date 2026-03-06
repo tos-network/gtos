@@ -131,7 +131,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(1000000000000000000), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000000129000000000", addr1.Hex()),
+				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000030000000000000", addr1.Hex()),
 			},
 			// ErrGasUintOverflow
 			// One missing 'core' error is ErrGasUintOverflow: "gas uint64 overflow",

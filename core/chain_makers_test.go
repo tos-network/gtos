@@ -39,12 +39,14 @@ func ExampleGenerateChain() {
 	)
 
 	// Ensure that key1 has some funds in the genesis block.
+	// Balances sized for GTOS fixed price: TxGas(3000) × GTOSPrice(10 gwei) = 30,000,000,000,000 per tx.
+	// addr1 sends 2 txs (values 10000+1000): needs 2×30,000,000,000,000 + 11000 = 60,000,000,011,000.
+	// addr2 sends 1 tx (value 1000) after receiving 10000: needs 30,000,000,000,000 genesis balance.
 	gspec := &Genesis{
 		Config: &params.ChainConfig{},
 		Alloc: GenesisAlloc{
-			// Keep the original example end balances stable under fixed GTOSPrice.
-			addr1: {Balance: big.NewInt(258001000000)},
-			addr2: {Balance: big.NewInt(129000000000)},
+			addr1: {Balance: big.NewInt(60_000_000_011_000)},
+			addr2: {Balance: big.NewInt(30_000_000_000_000)},
 		},
 	}
 	genesis := gspec.MustCommit(db)
@@ -97,7 +99,7 @@ func ExampleGenerateChain() {
 	fmt.Println("balance of addr3:", state.GetBalance(addr3))
 	// Output:
 	// last block: #5
-	// balance of addr1: 989000
+	// balance of addr1: 0
 	// balance of addr2: 10000
 	// balance of addr3: 6000000000000001000
 }
