@@ -15,6 +15,9 @@ import (
 	_ "github.com/tos-network/gtos/capability"     // registers CAPABILITY_* handlers via init()
 	_ "github.com/tos-network/gtos/delegation"     // registers DELEGATION_* handlers via init()
 	_ "github.com/tos-network/gtos/reputation"     // registers REPUTATION_* handlers via init()
+	_ "github.com/tos-network/gtos/kyc"            // registers KYC_* handlers via init()
+	_ "github.com/tos-network/gtos/tns"            // registers TNS_* handlers via init()
+	_ "github.com/tos-network/gtos/referral"       // registers REFERRAL_* handlers via init()
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"

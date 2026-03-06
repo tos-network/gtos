@@ -38,6 +38,16 @@ const (
 	// Reputation scoring.
 	ActionReputationAuthorizeScorer ActionKind = "REPUTATION_AUTHORIZE_SCORER"
 	ActionReputationRecordScore     ActionKind = "REPUTATION_RECORD_SCORE"
+
+	// KYC lifecycle.
+	ActionKYCSet     ActionKind = "KYC_SET"
+	ActionKYCSuspend ActionKind = "KYC_SUSPEND"
+
+	// TNS (TOS Name Service).
+	ActionTNSRegister ActionKind = "TNS_REGISTER"
+
+	// Referral relationship.
+	ActionReferralBind ActionKind = "REFERRAL_BIND"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

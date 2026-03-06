@@ -23,6 +23,9 @@ import (
 	"github.com/tos-network/gtos/delegation"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/reputation"
+	"github.com/tos-network/gtos/kyc"
+	"github.com/tos-network/gtos/tns"
+	"github.com/tos-network/gtos/referral"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -1494,6 +1497,219 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		stateDB.SetState(contractAddr, slot, common.BigToHash(new(big.Int).Sub(current, amount)))
 		stateDB.AddBalance(recipientAddr, amount)
 		return 0
+	}))
+
+	// ── KYC primitives ────────────────────────────────────────────────────────
+
+	// tos.kyc(addr, field) → value | nil
+	//   Reads a KYC field for addr. Gas cost: params.KYCLoadGas (100).
+	//   Fields:
+	//     "level"   → uint256 (u16 bitmask of verified tiers)
+	//     "status"  → uint256 (0=None, 1=Active, 2=Suspended)
+	L.SetField(tosTable, "kyc", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.KYCLoadGas)
+		addrStr := L.CheckString(1)
+		field := L.CheckString(2)
+		addr := common.HexToAddress(addrStr)
+		switch field {
+		case "level":
+			L.Push(luBig(new(big.Int).SetUint64(uint64(kyc.ReadLevel(stateDB, addr)))))
+		case "status":
+			L.Push(luBig(new(big.Int).SetUint64(uint64(kyc.ReadStatus(stateDB, addr)))))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+
+	// tos.meetskyclevel(addr, required) → bool
+	//   Returns true if addr has Active KYC and level bitmask includes all bits in required.
+	//   Gas cost: params.KYCLoadGas.
+	L.SetField(tosTable, "meetskyclevel", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.KYCLoadGas)
+		addrStr := L.CheckString(1)
+		requiredBig := L.CheckUserData(2)
+		addr := common.HexToAddress(addrStr)
+		var required uint16
+		if b, ok := requiredBig.Value.(*big.Int); ok {
+			required = uint16(b.Uint64())
+		}
+		if kyc.MeetsLevel(stateDB, addr, required) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// ── TNS primitives ────────────────────────────────────────────────────────
+
+	// tos.tnsresolve(nameHashHex) → addrHex | nil
+	//   Resolves a name hash (hex string) to the registered address.
+	//   Gas cost: params.TNSLoadGas (200).
+	L.SetField(tosTable, "tnsresolve", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.TNSLoadGas)
+		hashHex := L.CheckString(1)
+		nameHash := common.HexToHash(hashHex)
+		addr := tns.Resolve(stateDB, nameHash)
+		if addr == (common.Address{}) {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.LString(addr.Hex()))
+		}
+		return 1
+	}))
+
+	// tos.tnsreverse(addrHex) → nameHashHex | nil
+	//   Returns the name hash for addr, or nil if no name registered.
+	//   Gas cost: params.TNSLoadGas.
+	L.SetField(tosTable, "tnsreverse", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.TNSLoadGas)
+		addrStr := L.CheckString(1)
+		addr := common.HexToAddress(addrStr)
+		h := tns.Reverse(stateDB, addr)
+		if h == (common.Hash{}) {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.LString(h.Hex()))
+		}
+		return 1
+	}))
+
+	// tos.tnshasname(addrHex) → bool
+	//   Returns true if addr has a registered TNS name.
+	//   Gas cost: params.TNSLoadGas.
+	L.SetField(tosTable, "tnshasname", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.TNSLoadGas)
+		addrStr := L.CheckString(1)
+		addr := common.HexToAddress(addrStr)
+		if tns.HasName(stateDB, addr) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// ── Referral primitives ───────────────────────────────────────────────────
+
+	// tos.hasreferrer(addrHex) → bool
+	L.SetField(tosTable, "hasreferrer", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		if referral.HasReferrer(stateDB, addr) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// tos.getreferrer(addrHex) → addrHex | nil
+	L.SetField(tosTable, "getreferrer", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		ref := referral.ReadReferrer(stateDB, addr)
+		if ref == (common.Address{}) {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.LString(ref.Hex()))
+		}
+		return 1
+	}))
+
+	// tos.getuplines(addrHex, levels) → table of addrHex strings (up to levels ancestors)
+	L.SetField(tosTable, "getuplines", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		levels := uint8(L.CheckInt(2))
+		uplines := referral.GetUplines(stateDB, addr, levels)
+		tbl := L.NewTable()
+		for i, a := range uplines {
+			L.RawSetInt(tbl, i+1, lua.LString(a.Hex()))
+		}
+		L.Push(tbl)
+		return 1
+	}))
+
+	// tos.getdirectcount(addrHex) → uint256
+	L.SetField(tosTable, "getdirectcount", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		n := referral.ReadDirectCount(stateDB, addr)
+		L.Push(luBig(new(big.Int).SetUint64(uint64(n))))
+		return 1
+	}))
+
+	// tos.getteamsize(addrHex) → uint256
+	L.SetField(tosTable, "getteamsize", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		n := referral.ReadTeamSize(stateDB, addr)
+		L.Push(luBig(new(big.Int).SetUint64(n)))
+		return 1
+	}))
+
+	// tos.getreferrallevel(addrHex) → uint256 (depth in referral tree, 0 = root)
+	L.SetField(tosTable, "getreferrallevel", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		depth := referral.GetReferralDepth(stateDB, addr)
+		L.Push(luBig(new(big.Int).SetUint64(uint64(depth))))
+		return 1
+	}))
+
+	// tos.isdownline(ancestorHex, descendantHex, maxDepth) → bool
+	L.SetField(tosTable, "isdownline", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		ancestor := common.HexToAddress(L.CheckString(1))
+		descendant := common.HexToAddress(L.CheckString(2))
+		maxDepth := uint8(L.CheckInt(3))
+		if referral.IsDownline(stateDB, ancestor, descendant, maxDepth) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// tos.addteamvolume(addrHex, amount, levels) → uint256 (levels actually updated)
+	//   Adds amount to team_volume for each upline up to levels.
+	//   Also increments direct_volume of the immediate referrer.
+	//   Write primitive — fails in staticcall.
+	L.SetField(tosTable, "addteamvolume", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.addteamvolume: state modification not allowed in staticcall")
+			return 0
+		}
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		amountUD := L.CheckUserData(2)
+		amount, ok := amountUD.Value.(*big.Int)
+		if !ok || amount.Sign() <= 0 {
+			L.RaiseError("tos.addteamvolume: amount must be a positive uint256")
+			return 0
+		}
+		levels := uint8(L.CheckInt(3))
+		updated := referral.AddTeamVolume(stateDB, addr, amount, levels)
+		L.Push(luBig(new(big.Int).SetUint64(uint64(updated))))
+		return 1
+	}))
+
+	// tos.getteamvolume(addrHex) → uint256
+	L.SetField(tosTable, "getteamvolume", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		L.Push(luBig(referral.ReadTeamVolume(stateDB, addr)))
+		return 1
+	}))
+
+	// tos.getdirectvolume(addrHex) → uint256
+	L.SetField(tosTable, "getdirectvolume", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.ReferralLoadGas)
+		addr := common.HexToAddress(L.CheckString(1))
+		L.Push(luBig(referral.ReadDirectVolume(stateDB, addr)))
+		return 1
 	}))
 
 	// ── Address utilities + constants ─────────────────────────────────────────

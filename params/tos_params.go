@@ -31,6 +31,11 @@ var (
 	CapabilityRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000102")
 	DelegationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000103")
 	ReputationHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000104")
+
+	// KYC / TNS / Referral system contract addresses.
+	KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000105")
+	TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000106")
+	ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000107")
 )
 
 // DPoS validator stake and reward parameters.
@@ -40,6 +45,9 @@ var (
 
 	// AgentMinStake is the minimum stake required for AGENT_REGISTER.
 	AgentMinStake = new(big.Int).Mul(big.NewInt(1_000), big.NewInt(1e18)) // 1,000 TOS
+
+	// TNSRegistrationFee is the fee required for TNS_REGISTER (0.1 TOS).
+	TNSRegistrationFee = new(big.Int).Mul(big.NewInt(1e17), big.NewInt(1)) // 0.1 TOS (1e17 wei)
 )
 
 // Account Abstraction constants.
@@ -48,6 +56,18 @@ const (
 	ValidationGasCap uint64 = 50_000
 	// AgentLoadGas is the gas cost of tos.agentload() — equivalent to 1 SLOAD.
 	AgentLoadGas uint64 = 100
+)
+
+// TNS / KYC / Referral constants.
+const (
+	TNSMinNameLen    = 3
+	TNSMaxNameLen    = 64
+	MaxReferralDepth uint8  = 20
+	ReferralBindGas  uint64 = 500
+	KYCLoadGas       uint64 = 100
+	TNSLoadGas       uint64 = 200
+	ReferralLoadGas  uint64 = 100
+	KYCCommitteeBit  uint8  = 1
 )
 
 // SysActionGas is the fixed gas cost charged for any system action transaction,
