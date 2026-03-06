@@ -14,11 +14,15 @@ import (
 
 	lua "github.com/tos-network/tolang"
 	"github.com/tos-network/gtos/accounts/abi"
-	"github.com/tos-network/gtos/core/vm"
-	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/agent"
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/delegation"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/reputation"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -779,6 +783,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	L.SetField(blockTable, "coinbase", lua.LString(blockCtx.Coinbase.Hex()))
 	L.SetField(blockTable, "chainid", luBig(chainConfig.ChainID))
 	L.SetField(blockTable, "gaslimit", lua.Lu256FromUint64(blockCtx.GasLimit))
+	L.SetField(blockTable, "timestamp_ms", lua.Lu256FromUint64(blockCtx.Time.Uint64()*1000))
 	if blockCtx.BaseFee != nil {
 		L.SetField(blockTable, "basefee", luBig(blockCtx.BaseFee))
 	} else {
@@ -1281,6 +1286,215 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 	// tos.self → string  (this contract's own address)
 	L.SetField(tosTable, "self", lua.LString(contractAddr.Hex()))
+
+	// ── Agent-Native primitives ───────────────────────────────────────────────
+
+	// tos.agentload(addr, field) → value | nil
+	//   Reads a field from the Agent-Native registries for the given address.
+	//   Gas cost: params.AgentLoadGas per call (equivalent to 1 SLOAD).
+	//
+	//   Supported fields:
+	//     "stake"         → uint256 (locked stake in wei)
+	//     "suspended"     → bool    (1 = suspended, 0 = not)
+	//     "is_registered" → bool    (1 = registered)
+	//     "capabilities"  → uint256 (capability bitmap)
+	//     "reputation"    → uint256 (signed i256 as two's-complement uint256)
+	//     "rating_count"  → uint256 (number of ratings received)
+	L.SetField(tosTable, "agentload", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		addr := common.HexToAddress(addrHex)
+		switch field {
+		case "stake":
+			L.Push(luBig(agent.ReadStake(stateDB, addr)))
+		case "suspended":
+			if agent.IsSuspended(stateDB, addr) {
+				L.Push(lua.Lu256FromUint64(1))
+			} else {
+				L.Push(lua.Lu256FromUint64(0))
+			}
+		case "is_registered":
+			if agent.IsRegistered(stateDB, addr) {
+				L.Push(lua.Lu256FromUint64(1))
+			} else {
+				L.Push(lua.Lu256FromUint64(0))
+			}
+		case "capabilities":
+			L.Push(luBig(capability.CapabilitiesOf(stateDB, addr)))
+		case "reputation":
+			// TotalScoreOf returns a signed *big.Int; convert to two's-complement uint256.
+			score := reputation.TotalScoreOf(stateDB, addr)
+			L.Push(bigIntToLU256(score))
+		case "rating_count":
+			L.Push(luBig(reputation.RatingCountOf(stateDB, addr)))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+
+	// tos.hascapability(addr, bit) → bool
+	//   Returns true if addr holds the capability identified by bit.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "hascapability", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		bit := uint8(L.CheckInt(2))
+		chargePrimGas(params.AgentLoadGas)
+		addr := common.HexToAddress(addrHex)
+		if capability.HasCapability(stateDB, addr, bit) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// tos.capabilitybit(name) → uint256 | nil
+	//   Resolves a capability name to its bit index.
+	//   Returns nil if the name has not been registered.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "capabilitybit", L.NewFunction(func(L *lua.LState) int {
+		name := L.CheckString(1)
+		chargePrimGas(params.AgentLoadGas)
+		bit, ok := capability.CapabilityBit(stateDB, name)
+		if !ok {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.Lu256FromUint64(uint64(bit)))
+		}
+		return 1
+	}))
+
+	// tos.delegationused(principal, nonce) → bool
+	//   Returns true if (principal, nonce) has been consumed.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "delegationused", L.NewFunction(func(L *lua.LState) int {
+		principalHex := L.CheckString(1)
+		nonceBig := parseBigInt(L, 2)
+		chargePrimGas(params.AgentLoadGas)
+		principal := common.HexToAddress(principalHex)
+		if delegation.IsUsed(stateDB, principal, nonceBig) {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
+	// ── Escrow primitives ─────────────────────────────────────────────────────
+	//
+	// Escrow slots are namespaced under the calling contract address:
+	//   key = keccak256("tol.escrow." || contractAddr[20] || agentAddr[20] || purpose_u8)
+	//
+	// This means each contract manages its own escrow pool; there is no
+	// global escrow — a contract can only escrow/release its own balance.
+
+	escrowSlot := func(agentAddr common.Address, purpose uint8) common.Hash {
+		key := append([]byte("tol.escrow."), contractAddr.Bytes()...)
+		key = append(key, agentAddr.Bytes()...)
+		key = append(key, purpose)
+		return common.BytesToHash(crypto.Keccak256(key))
+	}
+
+	// tos.escrowbalanceof(agentAddr, purpose_bit) → uint256
+	//   Returns the escrow balance held by this contract for (agentAddr, purpose_bit).
+	//   Gas cost: gasSLoad.
+	L.SetField(tosTable, "escrowbalanceof", L.NewFunction(func(L *lua.LState) int {
+		agentHex := L.CheckString(1)
+		purpose := uint8(L.CheckInt(2))
+		chargePrimGas(gasSLoad)
+		agentAddr := common.HexToAddress(agentHex)
+		raw := stateDB.GetState(contractAddr, escrowSlot(agentAddr, purpose))
+		L.Push(luBig(raw.Big()))
+		return 1
+	}))
+
+	// tos.escrow(agentAddr, amount, purpose_bit)
+	//   Locks `amount` from this contract's balance into escrow for agentAddr.
+	//   Gas cost: gasSLoad + gasSStore.
+	L.SetField(tosTable, "escrow", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.escrow: state modification not allowed in staticcall")
+			return 0
+		}
+		agentHex := L.CheckString(1)
+		amount := parseBigInt(L, 2)
+		purpose := uint8(L.CheckInt(3))
+		chargePrimGas(gasSLoad + gasSStore)
+		if amount == nil || amount.Sign() <= 0 {
+			L.RaiseError("tos.escrow: amount must be positive")
+			return 0
+		}
+		if !blockCtx.CanTransfer(stateDB, contractAddr, amount) {
+			L.RaiseError("tos.escrow: insufficient contract balance")
+			return 0
+		}
+		agentAddr := common.HexToAddress(agentHex)
+		slot := escrowSlot(agentAddr, purpose)
+		current := stateDB.GetState(contractAddr, slot).Big()
+		stateDB.SubBalance(contractAddr, amount)
+		stateDB.SetState(contractAddr, slot, common.BigToHash(new(big.Int).Add(current, amount)))
+		return 0
+	}))
+
+	// tos.release(agentAddr, amount, purpose_bit)
+	//   Releases `amount` from escrow and transfers it to agentAddr.
+	//   Gas cost: gasSLoad + gasSStore + gasTransfer.
+	L.SetField(tosTable, "release", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.release: state modification not allowed in staticcall")
+			return 0
+		}
+		agentHex := L.CheckString(1)
+		amount := parseBigInt(L, 2)
+		purpose := uint8(L.CheckInt(3))
+		chargePrimGas(gasSLoad + gasSStore + gasTransfer)
+		if amount == nil || amount.Sign() <= 0 {
+			L.RaiseError("tos.release: amount must be positive")
+			return 0
+		}
+		agentAddr := common.HexToAddress(agentHex)
+		slot := escrowSlot(agentAddr, purpose)
+		current := stateDB.GetState(contractAddr, slot).Big()
+		if current.Cmp(amount) < 0 {
+			L.RaiseError("tos.release: escrow balance insufficient")
+			return 0
+		}
+		stateDB.SetState(contractAddr, slot, common.BigToHash(new(big.Int).Sub(current, amount)))
+		stateDB.AddBalance(agentAddr, amount)
+		return 0
+	}))
+
+	// tos.slash(agentAddr, amount, recipientAddr, purpose_bit)
+	//   Slashes `amount` from agentAddr's escrow and transfers it to recipientAddr.
+	//   Gas cost: gasSLoad + gasSStore + gasTransfer.
+	L.SetField(tosTable, "slash", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.slash: state modification not allowed in staticcall")
+			return 0
+		}
+		agentHex := L.CheckString(1)
+		amount := parseBigInt(L, 2)
+		recipientHex := L.CheckString(3)
+		purpose := uint8(L.CheckInt(4))
+		chargePrimGas(gasSLoad + gasSStore + gasTransfer)
+		if amount == nil || amount.Sign() <= 0 {
+			L.RaiseError("tos.slash: amount must be positive")
+			return 0
+		}
+		agentAddr := common.HexToAddress(agentHex)
+		recipientAddr := common.HexToAddress(recipientHex)
+		slot := escrowSlot(agentAddr, purpose)
+		current := stateDB.GetState(contractAddr, slot).Big()
+		if current.Cmp(amount) < 0 {
+			L.RaiseError("tos.slash: escrow balance insufficient")
+			return 0
+		}
+		stateDB.SetState(contractAddr, slot, common.BigToHash(new(big.Int).Sub(current, amount)))
+		stateDB.AddBalance(recipientAddr, amount)
+		return 0
+	}))
 
 	// ── Address utilities + constants ─────────────────────────────────────────
 

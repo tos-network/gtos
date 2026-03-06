@@ -17,16 +17,18 @@
 package core
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
+	lvm "github.com/tos-network/gtos/core/lvm"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
-	lvm "github.com/tos-network/gtos/core/lvm"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -103,6 +105,19 @@ func (result *ExecutionResult) Revert() []byte {
 // ErrContractNotSupported is returned when a transaction attempts to deploy or
 // call a smart contract, which is not supported in GTOS.
 var ErrContractNotSupported = errors.New("smart contract execution not supported in GTOS")
+
+// ErrAAValidationFailed is returned when an account contract's validate() call
+// returns false, reverts, or runs out of gas during the AA two-phase check.
+var ErrAAValidationFailed = errors.New("AA: account validation failed")
+
+// aaMarkerSlot is the storage slot set by the TOL compiler in account contract
+// constructors to mark the contract as an AA account contract.
+// The slot is keccak256("tol.aa.validate").
+var aaMarkerSlot = crypto.Keccak256Hash([]byte("tol.aa.validate"))
+
+// validateSelector is the 4-byte ABI selector for validate(bytes32,bytes).
+// Precomputed: keccak256("validate(bytes32,bytes)")[:4].
+var validateSelector = crypto.Keccak256([]byte("validate(bytes32,bytes)"))[:4]
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
 func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isReducedDataGas bool) (uint64, error) {
@@ -237,6 +252,29 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret              []byte // return data from LVM call, passed through to ExecutionResult
 	)
 
+	// Account Abstraction two-phase: if the destination is an AA account contract,
+	// run its validate(txHash, sig) before the nonce increment. On failure the tx
+	// is rejected without consuming gas from the caller.
+	if !contractCreation && msg.To() != nil && st.isAccountContract(*msg.To()) {
+		// Compute tx hash from the raw signed transaction data.
+		// We use the hash of (from || to || nonce || value || data) as a simple
+		// transaction identity for MVP; the full typed-hash is a future extension.
+		txHashInput := append(msg.From().Bytes(), msg.To().Bytes()...)
+		var nonceBuf [8]byte
+		binary.BigEndian.PutUint64(nonceBuf[:], msg.Nonce())
+		txHashInput = append(txHashInput, nonceBuf[:]...)
+		txHashInput = append(txHashInput, msg.Value().Bytes()...)
+		txHashInput = append(txHashInput, msg.Data()...)
+		txHash := crypto.Keccak256Hash(txHashInput)
+
+		// Use the tx signature bytes embedded in msg.Data() as the sig argument.
+		// TOL account contracts that implement validate() extract the real sig
+		// from calldata themselves; we pass the full calldata as sig here.
+		if err := st.validateAccountContract(txHash, msg.Data()); err != nil {
+			return nil, err
+		}
+	}
+
 	// Increment nonce for all real transactions.
 	st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
 
@@ -330,6 +368,77 @@ func uint64ToStateWord(v uint64) common.Hash {
 
 func stateWordToUint64(h common.Hash) uint64 {
 	return new(big.Int).SetBytes(h.Bytes()).Uint64()
+}
+
+// isAccountContract returns true if addr is a TOL account contract.
+// TOL account contracts set aaMarkerSlot in their own storage during construction.
+func (st *StateTransition) isAccountContract(addr common.Address) bool {
+	return st.state.GetState(addr, aaMarkerSlot) != (common.Hash{})
+}
+
+// validateAccountContract runs the two-phase AA validation for a call targeting
+// an account contract. It calls validate(tx_hash, sig) on the destination contract
+// with a hard gas cap of ValidationGasCap.
+//
+// Returns ErrAAValidationFailed if:
+//   - the validate() call reverts or runs out of gas, or
+//   - the call returns a falsy value.
+//
+// On failure no gas is consumed from the caller's budget.
+func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byte) error {
+	toAddr := st.to()
+
+	// Encode calldata: validateSelector || abi.encode(bytes32 txHash, bytes sig)
+	// Layout: [4 selector][32 txHash][32 offset for bytes][32 length][sig padded]
+	sigPadded := make([]byte, ((len(sig)+31)/32)*32)
+	copy(sigPadded, sig)
+
+	calldata := make([]byte, 0, 4+32+32+32+len(sigPadded))
+	calldata = append(calldata, validateSelector...)
+	calldata = append(calldata, txHash[:]...)
+	// offset for the bytes argument = 64 (2 * 32 bytes for the fixed args before it)
+	var offsetWord [32]byte
+	binary.BigEndian.PutUint64(offsetWord[24:], 64)
+	calldata = append(calldata, offsetWord[:]...)
+	// length of sig
+	var lenWord [32]byte
+	binary.BigEndian.PutUint64(lenWord[24:], uint64(len(sig)))
+	calldata = append(calldata, lenWord[:]...)
+	calldata = append(calldata, sigPadded...)
+
+	ctx := lvm.CallCtx{
+		From:     st.msg.From(),
+		To:       toAddr,
+		Value:    big.NewInt(0),
+		Data:     calldata,
+		Depth:    0,
+		TxOrigin: st.msg.From(),
+		TxPrice:  st.txPrice,
+		Readonly: false,
+	}
+	code := st.state.GetCode(toAddr)
+	gasUsed, retData, _, execErr := lvm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
+	_ = gasUsed
+
+	if execErr != nil {
+		return ErrAAValidationFailed
+	}
+	// validate() must return a truthy value (non-zero bytes32 / bool true).
+	// We accept any non-zero 32-byte return as success.
+	if len(retData) < 32 {
+		return ErrAAValidationFailed
+	}
+	var allZero bool = true
+	for _, b := range retData[:32] {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return ErrAAValidationFailed
+	}
+	return nil
 }
 
 func (st *StateTransition) applyUNO(msg Message) error {

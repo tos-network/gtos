@@ -10,7 +10,11 @@ import (
 	"sync/atomic"
 
 	"github.com/tos-network/gtos/accounts"
-	_ "github.com/tos-network/gtos/accountsigner" // registers ACCOUNT_SET_SIGNER handler via init()
+	_ "github.com/tos-network/gtos/accountsigner"  // registers ACCOUNT_SET_SIGNER handler via init()
+	_ "github.com/tos-network/gtos/agent"          // registers AGENT_* handlers via init()
+	_ "github.com/tos-network/gtos/capability"     // registers CAPABILITY_* handlers via init()
+	_ "github.com/tos-network/gtos/delegation"     // registers DELEGATION_* handlers via init()
+	_ "github.com/tos-network/gtos/reputation"     // registers REPUTATION_* handlers via init()
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"

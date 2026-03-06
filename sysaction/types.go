@@ -17,6 +17,27 @@ const (
 	ActionValidatorWithdraw ActionKind = "VALIDATOR_WITHDRAW"
 	// Account signer metadata update.
 	ActionAccountSetSigner ActionKind = "ACCOUNT_SET_SIGNER"
+
+	// Agent lifecycle.
+	ActionAgentRegister      ActionKind = "AGENT_REGISTER"
+	ActionAgentUpdateProfile ActionKind = "AGENT_UPDATE_PROFILE"
+	ActionAgentIncreaseStake ActionKind = "AGENT_INCREASE_STAKE"
+	ActionAgentDecreaseStake ActionKind = "AGENT_DECREASE_STAKE"
+	ActionAgentSuspend       ActionKind = "AGENT_SUSPEND"
+	ActionAgentUnsuspend     ActionKind = "AGENT_UNSUSPEND"
+
+	// Capability management.
+	ActionCapabilityRegister ActionKind = "CAPABILITY_REGISTER"
+	ActionCapabilityGrant    ActionKind = "CAPABILITY_GRANT"
+	ActionCapabilityRevoke   ActionKind = "CAPABILITY_REVOKE"
+
+	// Delegation nonce tracking.
+	ActionDelegationMarkUsed ActionKind = "DELEGATION_MARK_USED"
+	ActionDelegationRevoke   ActionKind = "DELEGATION_REVOKE"
+
+	// Reputation scoring.
+	ActionReputationAuthorizeScorer ActionKind = "REPUTATION_AUTHORIZE_SCORER"
+	ActionReputationRecordScore     ActionKind = "REPUTATION_RECORD_SCORE"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.
