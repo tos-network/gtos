@@ -1087,3 +1087,100 @@ if gasUsed > gas {
 | LVM-1 | `core/lvm/lvm.go` (tos.create + tos.create2) | Added nonce != 0 ∥ len(code) != 0 collision guard before `SetCode` to match `LVM.Create` and EVM CREATE semantics |
 | LVM-2 | `core/lvm/lvm.go` (tos.create) | Added `nonce+1 < nonce` overflow guard before `crypto.CreateAddress`; mirrors existing `LVM.Create` check |
 | LVM-3 | `core/lvm/lvm.go` (LVM.Call + LVM.Create constructor) | Removed `strings.Contains(err.Error(), "gas limit exceeded")` branch; rely on `gasUsed > gas` post-error check only. Eliminates string-forging gas-griefing vector |
+
+---
+
+# Fourth Audit — 2026-03-06
+
+**Scope:** Full-stack review of all remaining layers not covered by audits 1–3. Extends coverage to:
+1. Consensus (`consensus/dpos/dpos.go` — Seal, Finalize, FinalizeAndAssemble, VerifyEpochExtra)
+2. System action dispatch (`sysaction/executor.go`, `codec.go`, `types.go`)
+3. Validator lifecycle (`validator/handler.go`, `validator/state.go`)
+4. Block production (`miner/worker.go` — selectTransactions, fillTransactions, resultLoop, commit)
+5. Block import (`core/blockchain.go` — insertChain key paths)
+6. Transaction pool (`core/tx_pool.go` — validateTx, validateUNOTxPrecheck)
+7. Block/state validation (`core/block_validator.go`)
+8. State transition full path (`core/state_transition.go` — preCheck, buyGas, TransitionDb, applyUNO)
+9. Execution entry point (`core/state_processor.go` — Process, ExecuteTransactions, TxAsMessageWithAccountSigner)
+
+---
+
+## Verified Correct (No Issue)
+
+| Topic | Verdict |
+|-------|---------|
+| **DPoS `Seal()`**: validator membership check before signing | Correct. `snap.ValidatorsMap[v]` guards against a non-validator node attempting to seal. |
+| **DPoS `Seal()`**: slot-based recency check (`sealSlot < limit \|\| seenSlot > sealSlot-limit`) | Correct. The `sealSlot < limit` guard prevents uint64 underflow on `sealSlot-limit`. |
+| **DPoS `Seal()`**: non-blocking `results <- block.WithSeal(header)` with `default` case | Correct. Prevents goroutine leak if the miner has already moved on. |
+| **DPoS `Finalize()`**: block reward added to coinbase only, header.Root set from post-reward state | Correct. All nodes apply the same `AddBalance(coinbase, DPoSBlockReward)` → same state root. |
+| **DPoS `FinalizeAndAssemble()` vs `VerifyFinalizedState()` epoch consistency** | Correct. Both read `ReadActiveValidators` from post-tx state. Block reward (added by `Finalize`) only touches coinbase native balance — not TOS3 registry slots — so the validator set read is identical on both paths. |
+| **DPoS `VerifyEpochExtra()`**: claimed vs actual validator list compared element-by-element | Correct. Both `len` and per-element address equality are checked; a proposer cannot embed a superset or subset. |
+| **sysaction `Execute()`**: always returns `SysActionGas` regardless of handler outcome | Correct. Failed sysaction txs still consume the flat gas fee. The `state_transition.go` pre-guard (`st.gas < SysActionGas → vm.ErrOutOfGas`) ensures the gas is always available before dispatch. |
+| **sysaction JSON decode safety**: malformed `tx.Data` returns `ErrInvalidSysAction`, not a panic | Correct. `json.Unmarshal` errors are wrapped and returned; no panic path. |
+| **sysaction handler registry**: first matching handler wins; no double-dispatch possible | Correct. `validator` and `agent` handlers cover disjoint `ActionKind` sets. |
+| **`ACCOUNT_SET_SIGNER` defined but unimplemented** | Safe. No handler is registered; `Execute()` returns `"unknown system action"` and charges `SysActionGas`. Fails gracefully. See DPOS-1 (Informational). |
+| **`validator/handler.go` REGISTER — minimum stake check** | Correct. `ctx.Value.Cmp(DPoSMinValidatorStake) < 0` rejects underfunded registrations. |
+| **`validator/handler.go` REGISTER — explicit balance guard (R2-C5)** | Correct. `ctx.StateDB.GetBalance(ctx.From).Cmp(ctx.Value) < 0` prevents `SubBalance` from making the sender's balance negative. |
+| **`validator/handler.go` REGISTER — duplicate detection and list uniqueness** | Correct. `ReadSelfStake != 0` blocks double-registration; `isNewRegistration` (checked before any write, using the permanent "registered" flag) prevents a re-registering validator from being appended twice to the list. |
+| **`validator/handler.go` WITHDRAW — status check prevents double-withdraw** | Correct. `ReadValidatorStatus != Active` is checked first; a second withdraw returns `ErrNotActive`. |
+| **`validator/handler.go` WITHDRAW — registry balance guard** | Correct. `registryBalance < selfStake` is a defensive check; if the accounting invariant is ever violated by a future bug, the handler aborts instead of underflowing the registry account. |
+| **`validator/state.go` `ReadActiveValidators` — deterministic three-phase sort** | Correct. Phase 1: O(N) reads. Phase 2: sort by stake desc, address asc as tiebreak. Phase 3: re-sort final set by address asc. All nodes produce the same list regardless of insertion order. |
+| **`validator/state.go` `appendValidatorToList` — 32-byte address encoding** | Correct. GTOS uses `AddressLength = 32` (not 20). `copy(val[:], addr.Bytes())` is a full 32-byte copy; `common.BytesToAddress(raw[:])` reads all 32 bytes without truncation. No encoding mismatch. |
+| **`state_transition.go` `preCheck()` — EOA sender guard** | Correct. `GetCodeHash(from) != emptyCodeHash && != zeroHash` rejects contract addresses as transaction senders. |
+| **`state_transition.go` `buyGas()` + value balance check** | Correct. For legacy txs `buyGas` checks gas fees only; `CanTransfer` is called separately at the point of value transfer and in `handleRegister`, covering all value-bearing paths. |
+| **`state_transition.go` `TransitionDb()` — data-to-non-contract rejection** | Correct. `len(data) > 0 && len(toCode) == 0` returns `ErrContractNotSupported`, preventing data payloads from silently disappearing on plain-transfer destinations. |
+| **`applyUNO` — Shield/Transfer/Unshield version overflow guard** | Correct. `senderState.Version == math.MaxUint64` is checked before any increment, returning `ErrVersionOverflow`. |
+| **`applyUNO` — UNO Transfer self-transfer blocked** | Correct. `payload.To == msg.From()` returns `ErrInvalidPayload`, preventing a ciphertext copy-without-deduction attack. |
+| **`applyUNO` — unit conversion (1 UNO unit = 1e18 wei)** | Correct. `amount = payload.Amount × params.TOS` where `params.TOS = 1e18`; applied consistently in Shield and Unshield. |
+| **`state_processor.go` pre-block sender resolution** | Correct. All `TxAsMessageWithAccountSigner` calls use the statedb snapshot at block start. If a mid-block `ACCOUNT_SET_SIGNER` tx changes a signer, subsequent txs still resolve to the old signer — a defined, documented semantic. |
+| **`ExecuteTransactions` — per-tx gas pool isolation** | Correct. A fresh `GasPool` seeded with `msg.Gas()` is created for each tx. Block-level gas accounting is managed exclusively by `ExecuteParallel`'s serial merge loop. No double-deduction. |
+| **`WriteBufStateDB` balance delta merge — non-negative invariant** | Correct. Same-sender txs are always in different levels (sender in WriteAddrs forces serialization). Level N txs execute against the canonical state that already includes all level N-1 merges. `preCheck`/`buyGas`/`CanTransfer` enforce non-negative balances within each WriteBuf, so the delta applied to canonical state cannot make it negative. |
+| **`miner/worker.go` `fillTransactions` — CumulativeGasUsed fixup** | Correct. After each `ExecuteTransactions` batch, `prevGas` is added to each receipt's `CumulativeGasUsed` to reflect prior batches. |
+| **`miner/worker.go` `resultLoop` — BlockHash fixup** | Correct. After sealing, `BlockHash` and `BlockNumber` in all receipts and logs are updated from the sealed block's header — the block hash is not known until sealing. |
+| **`core/block_validator.go` — GasUsed, Bloom, ReceiptHash, StateRoot all verified** | Correct. `ValidateState` checks all four post-execution fields against the header. Any execution divergence between proposer and verifier is detected. |
+| **Same-sender txs always serialized** | Correct. Both txs write to `sender` in `WriteAddrs`; the DAG forces them into different levels in declaration order. |
+| **LVM fresh instance per tx** | Correct. `NewStateTransition` calls `lvm.NewLVM()` per tx. No shared LVM state across goroutines. |
+
+---
+
+## New Findings
+
+### DPOS-1 — INFORMATIONAL: `ACCOUNT_SET_SIGNER` Defined but Unimplemented
+
+**File:** `sysaction/types.go:19`, `sysaction/executor.go:58–63`
+
+#### Observation
+
+`ActionAccountSetSigner ActionKind = "ACCOUNT_SET_SIGNER"` is declared in `types.go` but no handler is registered for it. Any transaction with this action will reach the `Execute` fallback:
+
+```go
+return params.SysActionGas, fmt.Errorf("unknown system action: %q", sa.Action)
+```
+
+The tx fails with a descriptive error, consumes the flat `SysActionGas` fee, and produces a receipt with `Status = failed`. No state is mutated.
+
+#### Assessment
+
+The behavior is safe. No security issue exists. This is an incomplete feature: the `ActionKind` constant was reserved in anticipation of a future signer-rotation mechanism that has not yet been implemented.
+
+#### Recommendation
+
+Either register a handler when the feature is ready, or remove the constant from `types.go` until then to avoid user confusion about why ACCOUNT_SET_SIGNER transactions always fail.
+
+---
+
+## Fourth-Audit Summary
+
+**No new findings of severity Low or above.**
+
+All reviewed layers — DPoS consensus, sysaction dispatch, validator lifecycle, miner pipeline, txpool, block/state validation, and state transition — are consistent with the security expectations for a production chain. The parallel execution model, EVM→LVM replacement, and `.tor` package contract system interact correctly with these layers.
+
+| ID | Severity | Area | Title | Status |
+|----|----------|------|-------|--------|
+| DPOS-1 | INFORMATIONAL | SysAction | `ACCOUNT_SET_SIGNER` declared but unimplemented | Open (feature gap, not a security issue) |
+
+**Open items carried forward from prior audits:**
+
+| ID | Severity | Area | Title | Status |
+|----|----------|------|-------|--------|
+| PAR-1 | MEDIUM | Parallel | SEC-1 sentinel bypassed for same-block deployed contracts | Open (known limitation) |
