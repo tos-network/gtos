@@ -56,7 +56,7 @@ func init() {
 // Storage keys (all prefixed with "_" to avoid collision with user keys):
 //
 //	_name, _symbol  — tos.getStr / tos.setStr
-//	_decimals, _supply — tos.get / tos.set
+//	_decimals, _supply — tos.sload / tos.sstore
 //	_bal            — tos.mapGet/mapSet("_bal", address)
 //	_allow          — tos.mapGet/mapSet("_allow", owner, spender)
 const tos20LuaSrc = `
@@ -66,11 +66,11 @@ function M.init(name, symbol, decimals, initialSupply)
     tos.oncreate(function()
         tos.setStr("_name",    name)
         tos.setStr("_symbol",  symbol)
-        tos.set("_decimals",   decimals)
+        tos.sstore("_decimals",   decimals)
         if initialSupply > 0 then
             local owner = tos.caller
             tos.mapSet("_bal", owner, initialSupply)
-            tos.set("_supply", initialSupply)
+            tos.sstore("_supply", initialSupply)
             tos.emit("Transfer",
                 "address indexed", tos.ZERO_ADDRESS,
                 "address indexed", owner,
@@ -108,10 +108,10 @@ M.handlers = {
         tos.result("string", tos.getStr("_symbol") or "")
     end,
     ["decimals()"] = function()
-        tos.result("uint8", tos.get("_decimals") or 18)
+        tos.result("uint8", tos.sload("_decimals") or 18)
     end,
     ["totalSupply()"] = function()
-        tos.result("uint256", tos.get("_supply") or 0)
+        tos.result("uint256", tos.sload("_supply") or 0)
     end,
     ["balanceOf(address)"] = function(owner)
         tos.result("uint256", _bal(owner))
@@ -359,7 +359,7 @@ return M
 //
 // Storage keys (prefixed "__ac" to minimise collision risk):
 //
-//	__ac_init   — tos.get/set uint256 flag; 1 once initialised
+//	__ac_init   — tos.sload/set uint256 flag; 1 once initialised
 //	_roles      — tos.mapGet/mapSet("_roles", addr, role) uint256 flag (1=granted)
 const accessLuaSrc = `
 local M = {}
@@ -371,8 +371,8 @@ local INIT_KEY   = "__ac_init"
 -- On the first transaction ever received by the contract, records tos.caller
 -- as the DEFAULT_ADMIN.  All subsequent calls return immediately.
 function M.init()
-    if tos.get(INIT_KEY) ~= nil then return end
-    tos.set(INIT_KEY, 1)
+    if tos.sload(INIT_KEY) ~= nil then return end
+    tos.sstore(INIT_KEY, 1)
     tos.mapSet("_roles", tos.caller, ADMIN_ROLE, 1)
     tos.emit("RoleGranted", "string", ADMIN_ROLE,
              "address", tos.caller, "address", tos.caller)
@@ -439,8 +439,8 @@ return M
 //
 // Storage keys (prefixed "__tl" to minimise collision risk):
 //
-//	__tl_init   — tos.get/set; one-shot init flag
-//	__tl_delay  — tos.get/set; minimum delay in seconds
+//	__tl_init   — tos.sload/set; one-shot init flag
+//	__tl_delay  — tos.sload/set; minimum delay in seconds
 //	__tl_admin  — tos.getStr/setStr; admin address
 //	_tl_ops     — tos.mapGet/mapSet("_tl_ops", opId); scheduled eta (0 = unset)
 //
@@ -472,9 +472,9 @@ end
 -- On the first transaction to the contract, records tos.caller as admin and
 -- stores minDelay (in seconds).  All subsequent calls are no-ops.
 function M.init(minDelay)
-    if tos.get(INIT_KEY) ~= nil then return end
-    tos.set(INIT_KEY, 1)
-    tos.set(DELAY_KEY, minDelay or 0)
+    if tos.sload(INIT_KEY) ~= nil then return end
+    tos.sstore(INIT_KEY, 1)
+    tos.sstore(DELAY_KEY, minDelay or 0)
     tos.setStr(ADMIN_KEY, tos.caller)
     tos.emit("TimelockInit", "address", tos.caller, "uint256", minDelay or 0)
 end
@@ -484,7 +484,7 @@ end
 -- The effective delay is max(delay, minDelay).  Returns the operation ID.
 function M.schedule(target, value, calldata, salt, delay)
     tos.require(tos.caller == tos.getStr(ADMIN_KEY), "timelock: not admin")
-    local minDelay = tos.get(DELAY_KEY) or 0
+    local minDelay = tos.sload(DELAY_KEY) or 0
     local d = math.max(delay or 0, minDelay)
     local eta = tos.block.timestamp + d
     local id = opId(target, value, calldata, salt)
@@ -562,9 +562,9 @@ return M
 //
 // Storage keys (prefixed "__pa" to minimise collision risk):
 //
-//	__pa_init   — tos.get/set uint256 flag; 1 once initialised
+//	__pa_init   — tos.sload/set uint256 flag; 1 once initialised
 //	__pa_admin  — tos.getStr/setStr; pauser address
-//	__pa_paused — tos.get/set; 1 = paused, 0 (or nil) = live
+//	__pa_paused — tos.sload/set; 1 = paused, 0 (or nil) = live
 const pausableLuaSrc = `
 local M = {}
 
@@ -576,14 +576,14 @@ local PAUSED_KEY = "__pa_paused"
 -- On the first transaction to the contract, records tos.caller as the pauser.
 -- The contract starts in the unpaused state.
 function M.init()
-    if tos.get(INIT_KEY) ~= nil then return end
-    tos.set(INIT_KEY, 1)
+    if tos.sload(INIT_KEY) ~= nil then return end
+    tos.sstore(INIT_KEY, 1)
     tos.setStr(ADMIN_KEY, tos.caller)
 end
 
 -- M.paused() → bool  — true when the contract is paused.
 function M.paused()
-    return (tos.get(PAUSED_KEY) or 0) ~= 0
+    return (tos.sload(PAUSED_KEY) or 0) ~= 0
 end
 
 -- M.pauser() → address string  — who can pause/unpause.
@@ -609,7 +609,7 @@ end
 function M.pause()
     tos.require(tos.caller == tos.getStr(ADMIN_KEY), "pausable: not pauser")
     M.requireNotPaused()
-    tos.set(PAUSED_KEY, 1)
+    tos.sstore(PAUSED_KEY, 1)
     tos.emit("Paused", "address", tos.caller)
 end
 
@@ -617,7 +617,7 @@ end
 function M.unpause()
     tos.require(tos.caller == tos.getStr(ADMIN_KEY), "pausable: not pauser")
     M.requirePaused()
-    tos.set(PAUSED_KEY, 0)
+    tos.sstore(PAUSED_KEY, 0)
     tos.emit("Unpaused", "address", tos.caller)
 end
 
@@ -648,7 +648,7 @@ return M
 //
 // Storage keys (prefixed "__rg" to minimise collision risk):
 //
-//	__rg_<name>  — tos.get/set uint256 flag; 1 = entered, 0 (or nil) = free
+//	__rg_<name>  — tos.sload/set uint256 flag; 1 = entered, 0 (or nil) = free
 const reentrancyGuardLuaSrc = `
 local M = {}
 
@@ -656,23 +656,23 @@ local M = {}
 -- Call at the START of guarded functions (before any state reads or effects).
 function M.nonReentrant(name)
     local key = "__rg_" .. (name or "default")
-    if (tos.get(key) or 0) ~= 0 then
+    if (tos.sload(key) or 0) ~= 0 then
         tos.revert("reentrancy_guard: reentrant call to " .. (name or "default"))
     end
-    tos.set(key, 1)
+    tos.sstore(key, 1)
 end
 
 -- M.exit(name) — clear the named guard.
 -- Call at the END of guarded functions (after all interactions).
 function M.exit(name)
     local key = "__rg_" .. (name or "default")
-    tos.set(key, 0)
+    tos.sstore(key, 0)
 end
 
 -- M.entered(name) → bool — query the guard state without modifying it.
 function M.entered(name)
     local key = "__rg_" .. (name or "default")
-    return (tos.get(key) or 0) ~= 0
+    return (tos.sload(key) or 0) ~= 0
 end
 
 return M

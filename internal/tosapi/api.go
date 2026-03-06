@@ -16,6 +16,7 @@ import (
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/core"
@@ -986,9 +987,53 @@ func (diff *BlockOverrides) Apply(blockCtx *vm.BlockContext) {
 	}
 }
 
+// backendChainContext adapts Backend to the core.ChainContext interface used by
+// NewTVMBlockContext.
+type backendChainContext struct {
+	b Backend
+}
+
+func (bcc *backendChainContext) Engine() consensus.Engine {
+	return bcc.b.Engine()
+}
+
+func (bcc *backendChainContext) GetHeader(hash common.Hash, number uint64) *types.Header {
+	header, _ := bcc.b.HeaderByHash(context.Background(), hash)
+	return header
+}
+
+// doCallOnState executes args on an already-resolved state and header.
+// Used by DoCall and AccessList to share the inner execution path.
+func doCallOnState(ctx context.Context, b Backend, args TransactionArgs, state vm.StateDB, header *types.Header, globalGasCap uint64) (*core.ExecutionResult, error) {
+	msg, err := args.ToMessage(globalGasCap, header.BaseFee)
+	if err != nil {
+		return nil, err
+	}
+	blockCtx := core.NewTVMBlockContext(header, &backendChainContext{b}, nil)
+	gp := new(core.GasPool).AddGas(stdmath.MaxUint64)
+	return core.ApplyMessage(blockCtx, b.ChainConfig(), msg, gp, state)
+}
+
 func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, error) {
-	// Smart contract execution is not supported in GTOS.
-	return nil, newRPCNotSupportedError("tos_call", "smart contract execution is removed in GTOS")
+	defer func(start time.Time) { log.Debug("Executing tos_call finished", "runtime", time.Since(start)) }(time.Now())
+
+	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, err
+	}
+	if err := overrides.Apply(state); err != nil {
+		return nil, err
+	}
+
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+
+	return doCallOnState(ctx, b, args, state, header, globalGasCap)
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {
@@ -1035,7 +1080,113 @@ func (s *BlockChainAPI) Call(ctx context.Context, args TransactionArgs, blockNrO
 }
 
 func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, gasCap uint64) (hexutil.Uint64, error) {
-	return 0, newRPCNotSupportedError("tos_estimateGas", "VM-style gas estimation is removed in GTOS")
+	// Binary search the gas requirement, as it may be higher than the amount used
+	var (
+		lo  uint64 = params.TxGas - 1
+		hi  uint64
+		cap uint64
+	)
+	// Use zero address if sender unspecified.
+	if args.From == nil {
+		args.From = new(common.Address)
+	}
+	// Determine the highest gas limit can be used during the estimation.
+	if args.Gas != nil && uint64(*args.Gas) >= params.TxGas {
+		hi = uint64(*args.Gas)
+	} else {
+		// Retrieve the block to act as the gas ceiling
+		block, err := b.BlockByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return 0, err
+		}
+		if block == nil {
+			return 0, errors.New("block not found")
+		}
+		hi = block.GasLimit()
+	}
+	// Normalize the max fee per gas the call is willing to spend.
+	var feeCap *big.Int
+	if args.MaxFeePerGas != nil {
+		feeCap = args.MaxFeePerGas.ToInt()
+	} else {
+		feeCap = common.Big0
+	}
+	// Recap the highest gas limit with account's available balance.
+	if feeCap.BitLen() != 0 {
+		state, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+		if err != nil {
+			return 0, err
+		}
+		balance := state.GetBalance(*args.From)
+		available := new(big.Int).Set(balance)
+		if args.Value != nil {
+			if args.Value.ToInt().Cmp(available) >= 0 {
+				return 0, errors.New("insufficient funds for transfer")
+			}
+			available.Sub(available, args.Value.ToInt())
+		}
+		allowance := new(big.Int).Div(available, feeCap)
+		// If the allowance is larger than maximum uint64, skip checking
+		if allowance.IsUint64() && hi > allowance.Uint64() {
+			transfer := args.Value
+			if transfer == nil {
+				transfer = new(hexutil.Big)
+			}
+			log.Warn("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+				"sent", transfer.ToInt(), "maxFeePerGas", feeCap, "fundable", allowance)
+			hi = allowance.Uint64()
+		}
+	}
+	// Recap the highest gas allowance with specified gascap.
+	if gasCap != 0 && hi > gasCap {
+		log.Warn("Caller gas above allowance, capping", "requested", hi, "cap", gasCap)
+		hi = gasCap
+	}
+	cap = hi
+
+	// Create a helper to check if a gas allowance results in an executable transaction
+	executable := func(gas uint64) (bool, *core.ExecutionResult, error) {
+		args.Gas = (*hexutil.Uint64)(&gas)
+		result, err := DoCall(ctx, b, args, blockNrOrHash, nil, 0, gasCap)
+		if err != nil {
+			if errors.Is(err, core.ErrIntrinsicGas) {
+				return true, nil, nil // Special case, raise gas limit
+			}
+			return true, nil, err // Bail out
+		}
+		return result.Failed(), result, nil
+	}
+	// Execute the binary search and hone in on an executable gas limit
+	for lo+1 < hi {
+		mid := (hi + lo) / 2
+		failed, _, err := executable(mid)
+		if err != nil {
+			return 0, err
+		}
+		if failed {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	// Reject the transaction as invalid if it still fails at the highest allowance
+	if hi == cap {
+		failed, result, err := executable(hi)
+		if err != nil {
+			return 0, err
+		}
+		if failed {
+			if result != nil && result.Err != vm.ErrOutOfGas {
+				if len(result.Revert()) > 0 {
+					return 0, newRevertError(result)
+				}
+				return 0, result.Err
+			}
+			// Otherwise, the specified gas cap is too low
+			return 0, fmt.Errorf("gas required exceeds allowance (%d)", cap)
+		}
+	}
+	return hexutil.Uint64(hi), nil
 }
 
 // EstimateGas returns an estimate of the amount of gas needed to execute the
@@ -1272,9 +1423,36 @@ func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionAr
 	return result, nil
 }
 
-// AccessList is not supported in GTOS (TVM and tracer removed).
+// AccessList generates an EIP-2930 access list for the given transaction by
+// wrapping the state with a tracking layer that records every GetState/SetState/
+// GetBalance call made during a single dry-run execution.
 func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {
-	return nil, 0, nil, newRPCNotSupportedError("tos_createAccessList", "TVM/tracer-based access list generation is removed in GTOS")
+	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || err != nil {
+		return nil, 0, nil, err
+	}
+
+	// Default gas to RPC cap when not specified.
+	if args.Gas == nil {
+		tmp := hexutil.Uint64(b.RPCGasCap())
+		args.Gas = &tmp
+	}
+
+	tracker := newAccessTracker()
+	wrapped := &trackingStateDB{StateDB: state, tracker: tracker}
+
+	result, execErr := doCallOnState(ctx, b, args, wrapped, header, b.RPCGasCap())
+	if execErr != nil {
+		return nil, 0, nil, execErr
+	}
+
+	// Exclude sender and recipient — they are always implicitly warm.
+	excl := []common.Address{args.from()}
+	if args.To != nil {
+		excl = append(excl, *args.To)
+	}
+
+	return tracker.toAccessList(excl...), result.UsedGas, result.Err, nil
 }
 
 // TransactionAPI exposes methods for reading and creating transaction data.

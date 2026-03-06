@@ -10,7 +10,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	coreuno "github.com/tos-network/gtos/core/uno"
-	"github.com/tos-network/gtos/rpc"
 )
 
 func TestSetSignerValidation(t *testing.T) {
@@ -320,37 +319,5 @@ func TestUNOUnshieldValidation(t *testing.T) {
 	}
 }
 
-func TestVMEraRPCDeprecationErrors(t *testing.T) {
-	ctx := context.Background()
-	blockArg := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
-
-	_, err := DoCall(ctx, nil, TransactionArgs{}, blockArg, nil, 0, 0)
-	assertNotSupportedMethod(t, err, "tos_call")
-
-	_, err = DoEstimateGas(ctx, nil, TransactionArgs{}, blockArg, 0)
-	assertNotSupportedMethod(t, err, "tos_estimateGas")
-
-	_, _, _, err = AccessList(ctx, nil, blockArg, TransactionArgs{})
-	assertNotSupportedMethod(t, err, "tos_createAccessList")
-}
-
-func assertNotSupportedMethod(t *testing.T, err error, wantMethod string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("expected not-supported error for %s", wantMethod)
-	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrNotSupported {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrNotSupported)
-	}
-	data, ok := rpcErr.data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("unexpected error data type %T", rpcErr.data)
-	}
-	if got, _ := data["method"].(string); got != wantMethod {
-		t.Fatalf("unexpected method in error data: have %q want %q", got, wantMethod)
-	}
-}
+// TestVMEraRPCDeprecationErrors was removed: tos_call, tos_estimateGas, and
+// tos_createAccessList are all re-enabled via the LVM execution path.

@@ -257,22 +257,10 @@ func runLvmTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address,
 	}
 }
 
-// TestLvmContractStorageGetSet verifies tos.set / tos.get round-trip.
-func TestLvmContractStorageGetSet(t *testing.T) {
-	const code = `
-		tos.set("counter", 42)
-		local v = tos.get("counter")
-		assert(v == 42, "expected 42, got " .. tostring(v))
-	`
-	bc, contractAddr, cleanup := lvmTestSetup(t, code)
-	defer cleanup()
-	runLvmTx(t, bc, contractAddr, big.NewInt(0))
-}
-
 // TestLvmContractStorageUnsetReturnsNil verifies unset keys return nil.
 func TestLvmContractStorageUnsetReturnsNil(t *testing.T) {
 	const code = `
-		local v = tos.get("nonexistent")
+		local v = tos.sload("nonexistent")
 		assert(v == nil, "expected nil for unset key")
 	`
 	bc, contractAddr, cleanup := lvmTestSetup(t, code)
@@ -295,7 +283,7 @@ func TestLvmContractCallerAndValue(t *testing.T) {
 // TestLvmContractRequireRevert verifies that tos.require(false) reverts state.
 func TestLvmContractRequireRevert(t *testing.T) {
 	const code = `
-		tos.set("key", 99)
+		tos.sstore("key", 99)
 		tos.require(false, "deliberate revert")
 	`
 	bc, contractAddr, cleanup := lvmTestSetup(t, code)
@@ -393,8 +381,8 @@ func TestLvmContractNoPrefixAccess(t *testing.T) {
 		assert(type(tx.origin) == "string", "tx.origin")
 		assert(tx.origin == caller, "tx.origin == caller")
 		-- functions
-		set("nopfx", 7)
-		assert(get("nopfx") == 7, "get/set without prefix")
+		sstore("nopfx", 7)
+		assert(sload("nopfx") == 7, "sload/sstore without prefix")
 		local h = keccak256("hello")
 		assert(#h == 66, "keccak256 without prefix")
 		local g = gasleft()
@@ -1151,11 +1139,11 @@ func TestLvmContractStrStorage(t *testing.T) {
 	})
 
 	t.Run("str_and_uint_namespaces_separate", func(t *testing.T) {
-		// tos.set("x", 99) and tos.setStr("x", "hello") must not collide.
+		// tos.sstore("x", 99) and tos.setStr("x", "hello") must not collide.
 		const code = `
-			tos.set("x", 99)
+			tos.sstore("x", 99)
 			tos.setStr("x", "hello")
-			assert(tos.get("x") == 99, "uint slot corrupted: " .. tostring(tos.get("x")))
+			assert(tos.sload("x") == 99, "uint slot corrupted: " .. tostring(tos.sload("x")))
 			assert(tos.getStr("x") == "hello", "str slot corrupted: " .. tostring(tos.getStr("x")))
 		`
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
@@ -1239,7 +1227,7 @@ func TestLvmContractDispatch(t *testing.T) {
 		const code = `
 			tos.dispatch({
 				["store(uint256)"] = function(value)
-					tos.set("stored", tostring(value))
+					tos.sstore("stored", tostring(value))
 					tos.emit("StoredValue", "uint256", value)
 				end,
 			})
@@ -1673,11 +1661,11 @@ func TestLvmContractArrayStorage(t *testing.T) {
 	})
 
 	t.Run("arr_and_scalar_namespaces_separate", func(t *testing.T) {
-		// tos.set("k", 7) and tos.arrPush("k", 7) must not collide.
+		// tos.sstore("k", 7) and tos.arrPush("k", 7) must not collide.
 		const code = `
-			tos.set("k", 42)
+			tos.sstore("k", 42)
 			tos.arrPush("k", 99)
-			assert(tos.get("k") == 42,       "scalar k not corrupted")
+			assert(tos.sload("k") == 42,       "scalar k not corrupted")
 			assert(tos.arrGet("k", 1) == 99, "array k not corrupted")
 		`
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
@@ -1723,7 +1711,7 @@ func TestLvmContractArrayStorage(t *testing.T) {
 //   - Two-key nested mapping (mapSet/mapGet with 2 keys)
 //   - mapGetStr / mapSetStr round-trip (single and nested keys)
 //   - Unset key returns nil
-//   - Namespace isolation: mapGet and tos.get on same logical string are
+//   - Namespace isolation: mapGet and tos.sload on same logical string are
 //     in different namespaces → different values
 //   - mapSet reverts in staticcall
 //   - tos.at(addr).mapGet reads another contract's mapping
@@ -1813,14 +1801,14 @@ func TestLvmContractMapping(t *testing.T) {
 		runLvmTx(t, bc, addr, big.NewInt(0))
 	})
 
-	t.Run("namespace_isolation_from_set_get", func(t *testing.T) {
-		// tos.mapGet("x", "y") and tos.get("x") use different namespaces;
+	t.Run("namespace_isolation_from_sstore_sload", func(t *testing.T) {
+		// tos.mapGet("x", "y") and tos.sload("x") use different namespaces;
 		// setting one must not affect the other.
 		const code = `
-			tos.set("balance", 99)
+			tos.sstore("balance", 99)
 			tos.mapSet("balance", "alice", 42)
-			-- tos.get still reads the uint256 storage namespace
-			assert(tos.get("balance") == 99, "tos.get should be unchanged")
+			-- tos.sload still reads the uint256 storage namespace
+			assert(tos.sload("balance") == 99, "tos.sload should be unchanged")
 			-- tos.mapGet reads the map namespace
 			assert(tos.mapGet("balance", "alice") == 42, "mapGet should be 42")
 		`
@@ -1895,7 +1883,7 @@ func TestLvmContractMapping(t *testing.T) {
 // via the same slot derivation used by applyLua.
 func TestLvmContractCrossContractRead(t *testing.T) {
 
-	// Pre-compute the storage slots that B's tos.set/setStr/arrPush would write.
+	// Pre-compute the storage slots that B's tos.sstore/setStr/arrPush would write.
 	// We inject them directly into genesis so block-1 can read them via tos.at.
 	slotUint := func(key string) common.Hash { return lvm.StorageSlot(key) }
 	slotStrLen := func(key string) common.Hash { return lvm.StrLenSlot(key) }
@@ -1980,7 +1968,7 @@ func TestLvmContractCrossContractRead(t *testing.T) {
 				Balance: new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS)),
 				Code:    []byte(codeB),
 				Storage: map[common.Hash]common.Hash{
-					// tos.set("score", 42)
+					// tos.sstore("score", 42)
 					slotUint("score"): uint256Slot(42),
 					// tos.setStr("name", "hello")
 					slotStrLen("name"):      strLenSlotValue(storageName),
@@ -2104,7 +2092,7 @@ func TestLvmContractCall(t *testing.T) {
 	t.Run("executes_callee_code", func(t *testing.T) {
 		// A calls B; B writes "called"=1 to its own storage.
 		// After the tx, contractAddrB's storage slot for "called" must be 1.
-		codeB := `tos.set("called", 1)`
+		codeB := `tos.sstore("called", 1)`
 		codeA := fmt.Sprintf(`
 			local ok = tos.call(%q)
 			tos.require(ok, "call failed")
@@ -2197,11 +2185,11 @@ func TestLvmContractCall(t *testing.T) {
 		// A calls B; B writes "dead"=1 to B's storage, then reverts.
 		// After tx: A's write preserved, B's write undone.
 		codeB := `
-			tos.set("dead", 1)
+			tos.sstore("dead", 1)
 			tos.revert("intentional revert")
 		`
 		codeA := fmt.Sprintf(`
-			tos.set("alive", 1)
+			tos.sstore("alive", 1)
 			tos.call(%q)   -- returns false; ignored here
 		`, "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
 
@@ -2261,7 +2249,7 @@ func TestLvmContractCall(t *testing.T) {
 		codeB := `
 			tos.dispatch({
 				["store(uint256)"] = function(val)
-					tos.set("stored", val)
+					tos.sstore("stored", val)
 				end,
 			})
 		`
@@ -2360,7 +2348,7 @@ func TestLvmContractCallResult(t *testing.T) {
 	t.Run("no_result_gives_nil", func(t *testing.T) {
 		// B does not call tos.result(); caller's second return value is nil.
 		// A stores 0 if data is nil, 1 if data is a string.
-		codeB := `tos.set("ran", 1)` // no tos.result()
+		codeB := `tos.sstore("ran", 1)` // no tos.result()
 		codeA := fmt.Sprintf(`
 			local ok, data = tos.call(%q)
 			tos.require(ok, "call failed")
@@ -2390,7 +2378,7 @@ func TestLvmContractCallResult(t *testing.T) {
 		// B writes storage AND calls tos.result() — the write must be committed
 		// (tos.result is a clean return, not a revert).
 		codeB := `
-			tos.set("written", 77)
+			tos.sstore("written", 77)
 			tos.result("uint256", 1)
 		`
 		codeA := fmt.Sprintf(`
@@ -2420,7 +2408,7 @@ func TestLvmContractCallResult(t *testing.T) {
 		// tos.revert() after it never runs. We test the opposite ordering:
 		// B writes, then tos.revert() — result is nil, state is reverted.
 		codeB := `
-			tos.set("shouldNotExist", 1)
+			tos.sstore("shouldNotExist", 1)
 			tos.revert("bailing out")
 		`
 		codeA := fmt.Sprintf(`
@@ -2477,11 +2465,11 @@ func TestLvmContractStaticCall(t *testing.T) {
 	})
 
 	t.Run("write_in_callee_fails", func(t *testing.T) {
-		// B tries tos.set — must fail; staticcall returns false.
+		// B tries tos.sstore — must fail; staticcall returns false.
 		// A's write before the call is preserved.
-		codeB := `tos.set("x", 1)`
+		codeB := `tos.sstore("x", 1)`
 		codeA := fmt.Sprintf(`
-			tos.set("alive", 42)
+			tos.sstore("alive", 42)
 			local ok, _ = tos.staticcall(%q)
 			if ok then tos.revert("expected false") end
 			tos.emit("Done", "uint256", 1)
@@ -2581,7 +2569,7 @@ func TestLvmContractStaticCall(t *testing.T) {
 		codeB := `
 			tos.dispatch({
 				["totalSupply()"] = function()
-					tos.result("uint256", tos.get("supply") or 0)
+					tos.result("uint256", tos.sload("supply") or 0)
 				end,
 			})
 		`
@@ -2893,18 +2881,18 @@ func TestLvmContractPrimGas(t *testing.T) {
 
 	// params.TxGas = 3000; st.gas = gasLimit - 3000.
 
-	t.Run("tos_get_charges_sload", func(t *testing.T) {
+	t.Run("tos_sload_charges_sload", func(t *testing.T) {
 		// luaGasSLoad = 100.  st.gas=99 (<100) → OOG; st.gas=300 → success.
-		tightOOG(t, `tos.get("k")`, 3099, 3300)
+		tightOOG(t, `tos.sload("k")`, 3099, 3300)
 	})
 
-	t.Run("tos_set_charges_sstore", func(t *testing.T) {
+	t.Run("tos_sstore_charges_sstore", func(t *testing.T) {
 		// luaGasSStore = 5000.  st.gas=100 (<5000) → OOG; st.gas=6000 → success.
-		tightOOG(t, `tos.set("k", 1)`, 3100, 9000)
+		tightOOG(t, `tos.sstore("k", 1)`, 3100, 9000)
 	})
 
 	t.Run("tos_arrLen_charges_sload", func(t *testing.T) {
-		// luaGasSLoad = 100.  Same budget as tos.get.
+		// luaGasSLoad = 100.  Same budget as tos.sload.
 		tightOOG(t, `tos.arrLen("a")`, 3099, 3300)
 	})
 
@@ -2931,13 +2919,13 @@ func TestLvmContractPrimGas(t *testing.T) {
 	})
 
 	t.Run("gasleft_reflects_prim_charges", func(t *testing.T) {
-		// After tos.set the gasleft must drop by at least luaGasSStore (5000).
+		// After tos.sstore the gasleft must drop by at least luaGasSStore (5000).
 		const code = `
 			local g1 = tos.gasleft()
-			tos.set("x", 1)
+			tos.sstore("x", 1)
 			local g2 = tos.gasleft()
 			assert(g1 - g2 >= 5000,
-				"gasleft should decrease by >= 5000 after tos.set, got " .. tostring(g1-g2))
+				"gasleft should decrease by >= 5000 after tos.sstore, got " .. tostring(g1-g2))
 		`
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -2945,13 +2933,13 @@ func TestLvmContractPrimGas(t *testing.T) {
 	})
 
 	t.Run("gasleft_reflects_get_charge", func(t *testing.T) {
-		// After tos.get the gasleft must drop by at least luaGasSLoad (100).
+		// After tos.sload the gasleft must drop by at least luaGasSLoad (100).
 		const code = `
 			local g1 = tos.gasleft()
-			tos.get("x")
+			tos.sload("x")
 			local g2 = tos.gasleft()
 			assert(g1 - g2 >= 100,
-				"gasleft should decrease by >= 100 after tos.get, got " .. tostring(g1-g2))
+				"gasleft should decrease by >= 100 after tos.sload, got " .. tostring(g1-g2))
 		`
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -3063,12 +3051,12 @@ func TestLvmContractMappingProxy(t *testing.T) {
 	})
 
 	t.Run("namespace_isolation_from_set", func(t *testing.T) {
-		// tos.mapping("score")["k"] must not collide with tos.set("score").
+		// tos.mapping("score")["k"] must not collide with tos.sstore("score").
 		const code = `
-			tos.set("score", 99)
+			tos.sstore("score", 99)
 			local m = tos.mapping("score")
 			m["alice"] = 42
-			assert(tos.get("score") == 99, "tos.get must be unchanged")
+			assert(tos.sload("score") == 99, "tos.sload must be unchanged")
 			assert(m["alice"] == 42,       "mapping must be 42")
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3191,10 +3179,10 @@ func TestLvmContractSend(t *testing.T) {
 		// State writes before AND after the failed send must both be committed.
 		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
 		code := fmt.Sprintf(`
-			tos.set("before", 1)
+			tos.sstore("before", 1)
 			local ok = tos.send("0x4444444444444444444444444444444444444444", %s)
 			assert(ok == false)
-			tos.set("after", 2)
+			tos.sstore("after", 2)
 		`, twoTOS.Text(10))
 
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
@@ -3500,7 +3488,7 @@ func TestLvmContractAddressUtils(t *testing.T) {
 			local to = %q
 			require(tos.isAddress(to),     "invalid address")
 			require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
-			tos.set("ok", 1)
+			tos.sstore("ok", 1)
 		`, validAddr)
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -3518,9 +3506,9 @@ func TestLvmContractDeploy(t *testing.T) {
 	// childCode is a minimal contract used as the deployed child in most subtests.
 	const childCode = `
 		tos.oncreate(function()
-			tos.set("creator", 1)
+			tos.sstore("creator", 1)
 		end)
-		tos.set("ping", 42)
+		tos.sstore("ping", 42)
 	`
 
 	t.Run("returns_deterministic_address", func(t *testing.T) {
@@ -3540,7 +3528,7 @@ func TestLvmContractDeploy(t *testing.T) {
 	t.Run("deployed_code_is_callable", func(t *testing.T) {
 		// After tos.create, tos.codeAt should return true and tos.call should work.
 		code := `
-			local src = "tos.set([[hit]], 99)"
+			local src = "tos.sstore([[hit]], 99)"
 			local child = tos.create(src)
 			assert(tos.codeAt(child), "no code at child")
 			local ok = tos.call(child, 0)
@@ -3554,8 +3542,8 @@ func TestLvmContractDeploy(t *testing.T) {
 	t.Run("successive_deploys_differ", func(t *testing.T) {
 		// Two tos.create calls from same contract yield different addresses (nonce increments).
 		code := `
-			local a = tos.create("tos.set([[x]],1)")
-			local b = tos.create("tos.set([[x]],2)")
+			local a = tos.create("tos.sstore([[x]],1)")
+			local b = tos.create("tos.sstore([[x]],2)")
 			assert(a ~= b, "expected different addresses")
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3569,8 +3557,8 @@ func TestLvmContractDeploy(t *testing.T) {
 		want1 := crypto.CreateAddress(contractAddr, 1)
 
 		code := fmt.Sprintf(`
-			tos.create("tos.set([[x]],1)")       -- nonce 0
-			local b = tos.create("tos.set([[x]],2)") -- nonce 1
+			tos.create("tos.sstore([[x]],1)")       -- nonce 0
+			local b = tos.create("tos.sstore([[x]],2)") -- nonce 1
 			assert(b == %q, "wrong nonce-1 addr: " .. tostring(b))
 		`, want1.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -3586,7 +3574,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`, halfTOS.String())
 		// empty code reverts — test value transfer with non-empty code instead:
 		code = fmt.Sprintf(`
-			local child = tos.create("tos.set([[x]],1)", %s)
+			local child = tos.create("tos.sstore([[x]],1)", %s)
 			local bal = tos.balance(child)
 			assert(bal == %s, "balance mismatch: " .. tostring(bal))
 		`, halfTOS.String(), halfTOS.String())
@@ -3606,7 +3594,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		// Contract has 1 TOS; try to deploy with 2 TOS → should revert.
 		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
 		code := fmt.Sprintf(`
-			tos.create("tos.set([[x]],1)", %s)
+			tos.create("tos.sstore([[x]],1)", %s)
 		`, twoTOS.String())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -3622,7 +3610,7 @@ func TestLvmContractDeploy(t *testing.T) {
 			local ok = tos.staticcall(%q)
 			require(ok, "deploy in staticcall must fail")
 		`, helperAddr.Hex())
-		helperCode := `tos.create("tos.set([[x]],1)")`
+		helperCode := `tos.create("tos.sstore([[x]],1)")`
 
 		bc, callerAddr, _, cleanup := lvmTestSetup2(t, callerCode, helperCode)
 		defer cleanup()
@@ -3640,7 +3628,7 @@ func TestLvmContractDeploy(t *testing.T) {
 }
 
 func TestLvmContractCreate2(t *testing.T) {
-	const childCode = `tos.set("ping", 42)`
+	const childCode = `tos.sstore("ping", 42)`
 
 	// contractAddr is fixed by lvmTestSetup.
 	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
@@ -3750,7 +3738,7 @@ func TestLvmContractCreate2(t *testing.T) {
 			local child = tos.create2(%q, "0x77", %s)
 			local bal = tos.balance(child)
 			assert(bal == %s, "balance mismatch: " .. tostring(bal))
-		`, `tos.set([[x]],1)`, halfTOS.String(), halfTOS.String())
+		`, `tos.sstore([[x]],1)`, halfTOS.String(), halfTOS.String())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		runLvmTx(t, bc, addr, big.NewInt(0))
@@ -3797,7 +3785,7 @@ func TestLvmContractRevertError(t *testing.T) {
 		wantSel := abiSelector("InsufficientBalance(uint256,uint256)")
 
 		calleeCode := `
-			local avail = tos.get("avail") or 0
+			local avail = tos.sload("avail") or 0
 			local req   = 1000
 			tos.revert("InsufficientBalance", "uint256", avail, "uint256", req)
 		`
@@ -3878,7 +3866,7 @@ func TestLvmContractRevertError(t *testing.T) {
 	t.Run("state_reverted_on_named_error", func(t *testing.T) {
 		// tos.revert("E", ...) must revert the callee's state changes.
 		calleeCode := `
-			tos.set("x", 99)
+			tos.sstore("x", 99)
 			tos.revert("Fail", "uint256", 1)
 		`
 		callerCode := fmt.Sprintf(`
@@ -4247,7 +4235,7 @@ func TestLvmContractTOS20(t *testing.T) {
 func TestLvmContractBytecode(t *testing.T) {
 	t.Run("precompiled_bytecode_executes", func(t *testing.T) {
 		code := `
-			tos.set("counter", 2)
+			tos.sstore("counter", 2)
 		`
 		bc, addr, cleanup := lvmTestSetupBytecode(t, code)
 		defer cleanup()
@@ -4272,8 +4260,8 @@ func TestLvmContractBytecode(t *testing.T) {
 
 	t.Run("source_and_bytecode_match_semantics", func(t *testing.T) {
 		code := `
-			local v = tos.get("x") or 0
-			tos.set("x", v + 3)
+			local v = tos.sload("x") or 0
+			tos.sstore("x", v + 3)
 		`
 		srcBC, srcAddr, srcCleanup := lvmTestSetup(t, code)
 		defer srcCleanup()
@@ -4303,7 +4291,7 @@ func TestLvmContractBytecode(t *testing.T) {
 		childAddr := crypto.CreateAddress(contractAddr, 0) // first deploy, nonce=0
 
 		code := `
-			local childSrc = "tos.set([[ping]], 7)"
+			local childSrc = "tos.sstore([[ping]], 7)"
 			local bc = tos.compileBytecode(childSrc)
 			local child = tos.create(bc)
 			local ok = tos.call(child, 0)
@@ -4330,7 +4318,7 @@ func TestLvmContractBytecode(t *testing.T) {
 		contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
 		childAddr := crypto.CreateAddress(contractAddr, 0)
 
-		childSrc := `tos.set([[val]], 55)`
+		childSrc := `tos.sstore([[val]], 55)`
 
 		srcCode := fmt.Sprintf(`
 			local child = tos.create(%q)
@@ -4651,9 +4639,9 @@ func TestLvmContractDelegatecall(t *testing.T) {
 	}
 
 	t.Run("storage_written_to_proxy_not_impl", func(t *testing.T) {
-		// impl writes tos.set("x", 99); because of delegatecall this write lands
+		// impl writes tos.sstore("x", 99); because of delegatecall this write lands
 		// in proxy's storage, not in impl's storage.
-		codeB := `tos.set("x", 99)`
+		codeB := `tos.sstore("x", 99)`
 		codeA := fmt.Sprintf(`
 			local ok, _ = tos.delegatecall(%q)
 			assert(ok, "delegatecall failed")
@@ -4721,9 +4709,9 @@ func TestLvmContractDelegatecall(t *testing.T) {
 		// proxy writes "x=42" before delegatecall (kept on impl failure).
 		// impl writes "y=99" to proxy storage then reverts.
 		// Expected: proxy.x=42 survives; proxy.y=0 (reverted).
-		codeB := `tos.set("y", 99); tos.revert("impl failed")`
+		codeB := `tos.sstore("y", 99); tos.revert("impl failed")`
 		codeA := fmt.Sprintf(`
-			tos.set("x", 42)
+			tos.sstore("x", 42)
 			local ok, _ = tos.delegatecall(%q)
 			assert(not ok, "expected delegatecall to fail")
 		`, addrB)
@@ -4776,8 +4764,8 @@ func TestLvmContractDelegatecall(t *testing.T) {
 		// tos.msg.data is hex-encoded, so we distinguish calls by a 1-byte magic:
 		//   no data ("0x") → run current impl via delegatecall
 		//   "0x01"         → deploy v2 and update "impl" pointer
-		v1Code := `tos.set("version", 1)`
-		v2Code := `tos.set("version", 2)`
+		v1Code := `tos.sstore("version", 1)`
+		v2Code := `tos.sstore("version", 2)`
 
 		proxyCode := fmt.Sprintf(`
 			local data = tos.msg.data
@@ -4962,7 +4950,7 @@ func TestLvmContractAccess(t *testing.T) {
 			tos.dispatch({
 				["mint()"] = function()
 					AC.requireRole("MINTER")
-					tos.set("minted", (tos.get("minted") or 0) + 1)
+					tos.sstore("minted", (tos.sload("minted") or 0) + 1)
 				end,
 				["grant_minter(address)"] = function(addr)
 					AC.grantRole("MINTER", addr)
@@ -5032,7 +5020,7 @@ func TestLvmContractTimelock(t *testing.T) {
 			elseif data == "0x01" then
 				-- Tx 2: execute (block.timestamp advanced by 3 s → eta check passes)
 				TL.execute(tos.ZERO_ADDRESS, 0, "0x", "s0")
-				tos.set("done", 1)
+				tos.sstore("done", 1)
 			end
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
@@ -5077,7 +5065,7 @@ func TestLvmContractTimelock(t *testing.T) {
 			-- execute now fails: "timelock: not scheduled"
 			local ok = pcall(TL.execute, tos.ZERO_ADDRESS, 0, "0x", "sc")
 			assert(not ok, "execute after cancel should fail")
-			tos.set("verified", 1)
+			tos.sstore("verified", 1)
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
@@ -5126,7 +5114,7 @@ func TestLvmContractTimelock(t *testing.T) {
 		// codeA is the timelock; codeB is the target.
 		// Tx 1: addr1 → codeA (no data) → init + schedule call to codeB with delay=0.
 		// Tx 2: addr1 → codeA (data=0x01) → execute → tos.call(codeB) → codeB sets triggered=1.
-		codeB := `tos.set("triggered", 1)`
+		codeB := `tos.sstore("triggered", 1)`
 
 		codeA := fmt.Sprintf(`
 			local TL = tos.import("timelock")
@@ -5330,12 +5318,12 @@ func TestLvmContractPausable(t *testing.T) {
 				PA.pause()
 			elseif tos.msg.data == "0x01" then
 				PA.requireNotPaused()   -- reverts whole tx because paused
-				tos.set("done", 1)
+				tos.sstore("done", 1)
 			elseif tos.msg.data == "0x02" then
 				PA.unpause()
 			elseif tos.msg.data == "0x03" then
 				PA.requireNotPaused()   -- must pass; live again
-				tos.set("done", 1)
+				tos.sstore("done", 1)
 			end
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)

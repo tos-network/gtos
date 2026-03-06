@@ -76,7 +76,7 @@ local ts_ms = tos.block.timestamp_ms
 if ts_ms ~= ts * 1000 then
   error("timestamp_ms mismatch: " .. tostring(ts_ms) .. " vs " .. tostring(ts * 1000))
 end
-tos.set("ts_ms", ts_ms)
+tos.sstore("ts_ms", ts_ms)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestAgentLoadStake(t *testing.T) {
 	src := `
 local addr = "` + agentAddr.Hex() + `"
 local s = tos.agentload(addr, "stake")
-tos.set("stake", s)
+tos.sstore("stake", s)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestAgentLoadIsRegistered(t *testing.T) {
 	src := `
 local addr = "` + agentAddr.Hex() + `"
 local r = tos.agentload(addr, "is_registered")
-tos.set("reg", r)
+tos.sstore("reg", r)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestAgentLoadSuspended(t *testing.T) {
 	src := `
 local addr = "` + agentAddr.Hex() + `"
 local s = tos.agentload(addr, "suspended")
-tos.set("susp", s)
+tos.sstore("susp", s)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -199,7 +199,7 @@ func TestAgentLoadCapabilities(t *testing.T) {
 	src := `
 local addr = "` + agentAddr.Hex() + `"
 local c = tos.agentload(addr, "capabilities")
-tos.set("caps", c)
+tos.sstore("caps", c)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -230,8 +230,8 @@ func TestAgentLoadReputation(t *testing.T) {
 local addr = "` + agentAddr.Hex() + `"
 local rep = tos.agentload(addr, "reputation")
 local cnt = tos.agentload(addr, "rating_count")
-tos.set("rep", rep)
-tos.set("cnt", cnt)
+tos.sstore("rep", rep)
+tos.sstore("cnt", cnt)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -286,7 +286,7 @@ end
 if tos.hascapability(addr, 6) then
   error("expected hascapability=false for bit 6")
 end
-tos.set("ok", 1)
+tos.sstore("ok", 1)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -311,7 +311,7 @@ local b = tos.capabilitybit("oracle")
 if b == nil then
   error("expected non-nil bit for 'oracle'")
 end
-tos.set("bit", b)
+tos.sstore("bit", b)
 local missing = tos.capabilitybit("nonexistent")
 if missing ~= nil then
   error("expected nil for unregistered name")
@@ -342,7 +342,7 @@ local p = "` + principal.Hex() + `"
 if tos.delegationused(p, 99) then
   error("nonce should not be used yet")
 end
-tos.set("before", 0)
+tos.sstore("before", 0)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -356,7 +356,7 @@ local p = "` + principal.Hex() + `"
 if not tos.delegationused(p, 99) then
   error("nonce should be used")
 end
-tos.set("after", 1)
+tos.sstore("after", 1)
 `
 	_, _, _, err = runLua(st, contractAddr, src2, 1_000_000)
 	if err != nil {
@@ -384,7 +384,7 @@ local bal = tos.escrowbalanceof(agent, 0)
 if bal ~= amount then
   error("escrow balance mismatch: " .. tostring(bal))
 end
-tos.set("escrowed", 1)
+tos.sstore("escrowed", 1)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
@@ -407,7 +407,7 @@ local bal = tos.escrowbalanceof(agent, 0)
 if bal ~= 0 then
   error("escrow balance should be 0 after release")
 end
-tos.set("released", 1)
+tos.sstore("released", 1)
 `
 	_, _, _, err = runLua(st, contractAddr, src2, 1_000_000)
 	if err != nil {

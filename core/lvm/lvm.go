@@ -608,7 +608,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	var totalChildGas uint64
 
 	// primGasCharged accumulates gas charged by individual primitive calls
-	// (tos.set, tos.get, tos.emit, etc.) on top of per-opcode VM gas.
+	// (tos.sstore, tos.sload, tos.emit, etc.) on top of per-opcode VM gas.
 	var primGasCharged uint64
 
 	// chargePrimGas deducts cost gas units for a single primitive invocation.
@@ -650,9 +650,13 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	// ── "tos" module ──────────────────────────────────────────────────────────
 	tosTable := L.NewTable()
 
-	// tos.get(key) → LNumber | LNil
-	//   Reads a uint256 value from contract storage. Returns nil if never set.
-	L.SetField(tosTable, "get", L.NewFunction(func(L *lua.LState) int {
+	// tos.sload(key) → LUint256 | LNil
+	//   Reads a uint256 value from contract storage.
+	//   Returns nil if the slot has never been written (unset).
+	//   TOL-compiled contracts access this via the __tol_sload wrapper, which
+	//   converts nil → 0.  Stdlib and legacy raw-Lua code can use "or default"
+	//   patterns directly (nil is falsy in Lua).
+	L.SetField(tosTable, "sload", L.NewFunction(func(L *lua.LState) int {
 		key := L.CheckString(1)
 		chargePrimGas(gasSLoad)
 		val := stateDB.GetState(contractAddr, StorageSlot(key))
@@ -665,30 +669,51 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		return 1
 	}))
 
-	// tos.set(key, value)
-	//   Stores a uint256 value (LUint256 or numeric string) in contract storage.
-	L.SetField(tosTable, "set", L.NewFunction(func(L *lua.LState) int {
+	// tos.sstore(key, value)
+	//   TOL-generated __tol_sstore hook. Stores a uint256, bool, or agent hex
+	//   string value into contract persistent storage.
+	L.SetField(tosTable, "sstore", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
-			L.RaiseError("tos.set: state modification not allowed in staticcall")
+			L.RaiseError("tos.sstore: state modification not allowed in staticcall")
 			return 0
 		}
 		chargePrimGas(gasSStore)
 		key := L.CheckString(1)
-		var numStr string
-		switch v := L.CheckAny(2).(type) {
-		case lua.LUint256:
-			numStr = v.String()
-		case lua.LString:
-			numStr = string(v)
-		default:
-			L.RaiseError("tos.set: value must be a number or numeric string")
-		}
-		n, ok := new(big.Int).SetString(numStr, 10)
-		if !ok || n.Sign() < 0 {
-			L.RaiseError("tos.set: invalid uint256 value")
-		}
+		lv := L.CheckAny(2)
 		var slot common.Hash
-		n.FillBytes(slot[:])
+		switch v := lv.(type) {
+		case lua.LUint256:
+			n, ok := new(big.Int).SetString(v.String(), 10)
+			if !ok || n.Sign() < 0 {
+				L.RaiseError("tos.sstore: invalid uint256 value")
+				return 0
+			}
+			n.FillBytes(slot[:])
+		case lua.LBool:
+			if bool(v) {
+				slot[31] = 1
+			}
+		case lua.LString:
+			s := strings.TrimSpace(string(v))
+			if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+				// Agent / bytes32 hex address: right-align decoded bytes in 32-byte slot.
+				b := common.FromHex(s)
+				copy(slot[common.HashLength-len(b):], b)
+			} else {
+				// Decimal string: parse as u256.
+				n, ok := new(big.Int).SetString(s, 10)
+				if !ok || n.Sign() < 0 {
+					L.RaiseError("tos.sstore: invalid decimal value %q", s)
+					return 0
+				}
+				n.FillBytes(slot[:])
+			}
+		case *lua.LNilType:
+			// Explicit nil / zero: leave slot as zero hash (clear).
+		default:
+			L.RaiseError("tos.sstore: unsupported value type %T", lv)
+			return 0
+		}
 		stateDB.SetState(contractAddr, StorageSlot(key), slot)
 		return 0
 	}))
@@ -2900,7 +2925,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//   context.  Analogous to EVM DELEGATECALL.
 	//
 	//   Semantics differ from tos.call in three critical ways:
-	//     • Storage — All tos.set / tos.get / tos.mapSet … inside the called code
+	//     • Storage — All tos.sstore / tos.sload / tos.mapSet … inside the called code
 	//       operate on the CALLING contract's slots, not on addr's slots.
 	//     • tos.self  — reports the calling contract's address (not addr).
 	//     • tos.caller — preserved from the outer call (original msg.sender).
@@ -3024,9 +3049,9 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//
 	//   Example — factory pattern:
 	//     local child = tos.create([[
-	//         tos.oncreate(function() tos.set("parent", tos.caller) end)
+	//         tos.oncreate(function() tos.sstore("parent", tos.caller) end)
 	//     ]])
-	//     tos.set("child", child)
+	//     tos.sstore("child", child)
 	L.SetField(tosTable, "create", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
 			L.RaiseError("tos.create: contract deployment not allowed in staticcall")
@@ -3270,7 +3295,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	//         })
 	//     ]])
 	//     local child = tos.create(bc)
-	//     tos.set("child", child)
+	//     tos.sstore("child", child)
 	//
 	//   Without tos.compileBytecode:
 	//     local child = tos.create(luaSrc)   -- source re-parsed on every call
@@ -4164,7 +4189,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 	L.SetGlobal("tos", tosTable)
 
 	// Make every tos.* field also available as a bare global.
-	// tos.caller / caller, tos.set() / set(), tos.block.number / block.number …
+	// tos.caller / caller, tos.sstore() / sstore(), tos.block.number / block.number …
 	tosTable.ForEach(func(k, v lua.LValue) {
 		if name, ok := k.(lua.LString); ok {
 			L.SetGlobal(string(name), v)

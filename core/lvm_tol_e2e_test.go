@@ -95,7 +95,6 @@ func runLvmCallTor(t *testing.T, bc *BlockChain, key *ecdsa.PrivateKey, contract
 	}
 
 	parent := bc.CurrentBlock()
-	t.Logf("runLvmCallTor: building on block #%d (hash=%s)", parent.NumberU64(), parent.Hash().Hex()[:10])
 	blocks, _ := GenerateChain(bc.Config(), parent, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
 		b.AddTx(tx)
 	})
@@ -277,16 +276,6 @@ func TestTolTRC20EndToEnd(t *testing.T) {
 	}
 	if !foundMint {
 		t.Errorf("constructor Transfer(NOBODY,addr1,supply) event not found; logs=%d", len(deployReceipt.Logs))
-	}
-
-	// Diagnostic: verify contract code exists at contractAddr in current state.
-	{
-		state2, err2 := bc.State()
-		if err2 != nil {
-			t.Fatalf("bc.State after deploy: %v", err2)
-		}
-		code := state2.GetCode(contractAddr)
-		t.Logf("Contract code at %s: %d bytes", contractAddr.Hex(), len(code))
 	}
 
 	// Step 5: Call transfer(bob, 100) from addr1.
