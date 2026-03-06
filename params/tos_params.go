@@ -36,6 +36,9 @@ var (
 	KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000105")
 	TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000106")
 	ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000107")
+
+	// TaskSchedulerAddress stores on-chain scheduled-task state via storage slots.
+	TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000108")
 )
 
 // DPoS validator stake and reward parameters.
@@ -56,6 +59,19 @@ const (
 	ValidationGasCap uint64 = 50_000
 	// AgentLoadGas is the gas cost of tos.agentload() — equivalent to 1 SLOAD.
 	AgentLoadGas uint64 = 100
+)
+
+// Scheduled task constants.
+const (
+	TaskScheduleGas       uint64 = 200
+	TaskCancelGas         uint64 = 100
+	TaskInfoGas           uint64 = 100
+	TaskMinGasLimit       uint64 = 10_000
+	TaskMaxGasLimit       uint64 = 500_000
+	TaskMaxPerBlock       uint64 = 50
+	TaskMaxPerContract    uint64 = 100
+	TaskMinIntervalBlocks uint64 = 10
+	TaskMaxHorizonBlocks  uint64 = 1_000_000
 )
 
 // TNS / KYC / Referral constants.

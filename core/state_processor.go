@@ -23,11 +23,13 @@ import (
 	"github.com/tos-network/gtos/common"
 	cmath "github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/core/lvm"
 	"github.com/tos-network/gtos/core/parallel"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/task"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -83,6 +85,8 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		msgs[i] = msg
 	}
 
+	RunScheduledTasks(statedb, blockCtx, p.config, header.Number.Uint64())
+
 	var err error
 	receipts, allLogs, *usedGas, err = ExecuteTransactions(
 		p.config, blockCtx, statedb, txs, block.Hash(), header.Number, gp, msgs,
@@ -129,6 +133,22 @@ func ExecuteTransactions(
 		return &parallel.TxResult{UsedGas: result.UsedGas, VMErr: result.Err}, nil
 	}
 	return parallel.ExecuteParallel(config, blockCtx, statedb, txs, blockHash, blockNumber, gp, msgs, applyMsgFn)
+}
+
+// RunScheduledTasks executes all tasks due at blockNum against statedb.
+// Called by both Process() (block validation) and the miner (block building)
+// before user transactions are applied, so the resulting state root is identical
+// in both paths.
+func RunScheduledTasks(statedb *state.StateDB, blockCtx vm.BlockContext, chainCfg *params.ChainConfig, blockNum uint64) {
+	task.ProcessDueTasks(statedb, blockCtx, chainCfg, blockNum,
+		func(db vm.StateDB, bCtx vm.BlockContext, cfg *params.ChainConfig,
+			caller, target common.Address, calldata []byte, gasLimit uint64,
+		) (uint64, error) {
+			ctx := lvm.CallCtx{From: caller, To: target, Data: calldata}
+			code := db.GetCode(target)
+			gasUsed, _, _, err := lvm.Execute(db, bCtx, cfg, ctx, code, gasLimit)
+			return gasUsed, err
+		})
 }
 
 // TxAsMessageWithAccountSigner converts a transaction to a Message using the

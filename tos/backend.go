@@ -44,6 +44,7 @@ import (
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
+	_ "github.com/tos-network/gtos/task"      // registers TASK_SCHEDULE/TASK_CANCEL handlers via init()
 	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
 )
 

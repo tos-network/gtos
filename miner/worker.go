@@ -1107,6 +1107,9 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, error) {
 	}
 	defer work.discard()
 
+	blockCtx := core.NewTVMBlockContext(work.header, w.chain, &work.coinbase)
+	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
+
 	if !params.noTxs {
 		w.fillTransactions(nil, work)
 	}
@@ -1139,6 +1142,10 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
 		w.commit(work.copy(), nil, false, start)
 	}
+
+	// Run scheduled tasks before user transactions so the state root matches validators.
+	blockCtx := core.NewTVMBlockContext(work.header, w.chain, &work.coinbase)
+	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
 
 	// Fill pending transactions from the txpool
 	err = w.fillTransactions(interrupt, work)

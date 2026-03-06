@@ -26,6 +26,7 @@ import (
 	"github.com/tos-network/gtos/kyc"
 	"github.com/tos-network/gtos/tns"
 	"github.com/tos-network/gtos/referral"
+	"github.com/tos-network/gtos/task"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -1736,6 +1737,174 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 		return 1
 	}))
 
+	// ── Scheduled tasks ───────────────────────────────────────────────────────
+
+	// tos.TASK_SCHEDULER — the canonical address of the on-chain task scheduler.
+	L.SetField(tosTable, "TASK_SCHEDULER", lua.LString(params.TaskSchedulerAddress.Hex()))
+
+	// tos.schedule(target, selector, taskData, gasLimit, delayBlocks, intervalBlocks, maxRuns)
+	//   Schedules a future call to target:selector(taskData) on behalf of the
+	//   calling contract. A gas deposit is deducted from the contract's balance.
+	//   Returns the task ID as a hex string, or raises an error on failure.
+	//   Write primitive — fails in staticcall.
+	L.SetField(tosTable, "schedule", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.schedule: state modification not allowed in staticcall")
+			return 0
+		}
+		chargePrimGas(params.TaskScheduleGas)
+
+		targetAddr := common.HexToAddress(L.CheckString(1))
+		selectorHex := L.CheckString(2)
+		taskDataHex := L.CheckString(3)
+		gasLimit := uint64(L.CheckInt64(4))
+		delayBlocks := uint64(L.CheckInt64(5))
+		intervalBlocks := uint64(L.CheckInt64(6))
+		maxRuns := uint64(L.CheckInt64(7))
+
+		if gasLimit < params.TaskMinGasLimit {
+			L.RaiseError("tos.schedule: gas_limit below minimum")
+			return 0
+		}
+		if gasLimit > params.TaskMaxGasLimit {
+			L.RaiseError("tos.schedule: gas_limit above maximum")
+			return 0
+		}
+		if delayBlocks < 1 {
+			L.RaiseError("tos.schedule: delay_blocks must be >= 1")
+			return 0
+		}
+		if delayBlocks > params.TaskMaxHorizonBlocks {
+			L.RaiseError("tos.schedule: delay_blocks exceeds horizon")
+			return 0
+		}
+		if intervalBlocks != 0 && intervalBlocks < params.TaskMinIntervalBlocks {
+			L.RaiseError("tos.schedule: interval_blocks below minimum")
+			return 0
+		}
+		if task.ReadActiveCount(stateDB, contractAddr) >= params.TaskMaxPerContract {
+			L.RaiseError("tos.schedule: per-contract active task limit reached")
+			return 0
+		}
+
+		deposit := new(big.Int).Mul(
+			new(big.Int).SetUint64(gasLimit),
+			big.NewInt(params.GTOSPriceWei),
+		)
+		if stateDB.GetBalance(contractAddr).Cmp(deposit) < 0 {
+			L.RaiseError("tos.schedule: insufficient contract balance for gas deposit")
+			return 0
+		}
+		stateDB.SubBalance(contractAddr, deposit)
+		stateDB.AddBalance(params.TaskSchedulerAddress, deposit)
+
+		targetBlock := blockCtx.BlockNumber.Uint64() + delayBlocks
+		nonce := task.IncrementContractNonce(stateDB, contractAddr)
+		taskId := task.NewTaskID(contractAddr, targetBlock, nonce)
+
+		selBytes := common.FromHex(selectorHex)
+		var selector [4]byte
+		copy(selector[:], selBytes)
+
+		taskDataBytes := common.FromHex(taskDataHex)
+		var taskData common.Hash
+		copy(taskData[:], taskDataBytes)
+
+		rec := &task.TaskRecord{
+			Scheduler:      contractAddr,
+			Target:         targetAddr,
+			Selector:       selector,
+			TaskData:       taskData,
+			GasLimit:       gasLimit,
+			TargetBlock:    targetBlock,
+			IntervalBlocks: intervalBlocks,
+			MaxRuns:        maxRuns,
+			Runs:           0,
+			Status:         task.TaskPending,
+		}
+		task.WriteTask(stateDB, taskId, rec)
+		task.EnqueueTask(stateDB, targetBlock, taskId)
+		task.AdjustActiveCount(stateDB, contractAddr, +1)
+
+		L.Push(lua.LString(taskId.Hex()))
+		return 1
+	}))
+
+	// tos.canceltask(taskIdHex) → bool
+	//   Cancels a pending task created by this contract and refunds the deposit.
+	//   Returns true on success, raises an error on failure.
+	//   Write primitive — fails in staticcall.
+	L.SetField(tosTable, "canceltask", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.canceltask: state modification not allowed in staticcall")
+			return 0
+		}
+		chargePrimGas(params.TaskCancelGas)
+
+		taskId := common.HexToHash(L.CheckString(1))
+		rec, ok := task.ReadTask(stateDB, taskId)
+		if !ok || rec.Status != task.TaskPending {
+			L.RaiseError("tos.canceltask: task not found or not pending")
+			return 0
+		}
+		if contractAddr != rec.Scheduler {
+			L.RaiseError("tos.canceltask: caller is not the task scheduler")
+			return 0
+		}
+
+		deposit := new(big.Int).Mul(
+			new(big.Int).SetUint64(rec.GasLimit),
+			big.NewInt(params.GTOSPriceWei),
+		)
+		stateDB.SubBalance(params.TaskSchedulerAddress, deposit)
+		stateDB.AddBalance(rec.Scheduler, deposit)
+
+		rec.Status = task.TaskCancelled
+		task.WriteTask(stateDB, taskId, rec)
+		task.AdjustActiveCount(stateDB, rec.Scheduler, -1)
+
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// tos.taskinfo(taskIdHex, field) → value | nil
+	//   Returns a single field of a task record, or nil if the task does not exist.
+	//   field is one of: "scheduler", "target", "status", "runs", "target_block",
+	//   "gas_limit", "interval_blocks", "max_runs".
+	L.SetField(tosTable, "taskinfo", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(params.TaskInfoGas)
+
+		taskId := common.HexToHash(L.CheckString(1))
+		field := L.CheckString(2)
+
+		rec, ok := task.ReadTask(stateDB, taskId)
+		if !ok {
+			L.Push(lua.LNil)
+			return 1
+		}
+		switch field {
+		case "scheduler":
+			L.Push(lua.LString(rec.Scheduler.Hex()))
+		case "target":
+			L.Push(lua.LString(rec.Target.Hex()))
+		case "status":
+			L.Push(luBig(new(big.Int).SetUint64(uint64(rec.Status))))
+		case "runs":
+			L.Push(luBig(new(big.Int).SetUint64(rec.Runs)))
+		case "target_block":
+			L.Push(luBig(new(big.Int).SetUint64(rec.TargetBlock)))
+		case "gas_limit":
+			L.Push(luBig(new(big.Int).SetUint64(rec.GasLimit)))
+		case "interval_blocks":
+			L.Push(luBig(new(big.Int).SetUint64(rec.IntervalBlocks)))
+		case "max_runs":
+			L.Push(luBig(new(big.Int).SetUint64(rec.MaxRuns)))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+
 	// ── Address utilities + constants ─────────────────────────────────────────
 
 	// tos.ZERO_ADDRESS  — the all-zeros address "0x0000...0000" (20 bytes).
@@ -3073,8 +3242,23 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 			luaArgs[i] = lv
 		}
 
+		// Use Protect:true so that Lua errors from the handler (wrong args, etc.)
+		// are caught here.  But tos.result() and tos.revert() raise typed LUserData
+		// sentinels that must reach Execute's outer PCall unchanged so that
+		// isResultSignal / isRevertSignal can detect them.  Re-raise those sentinels
+		// as-is; convert everything else to a regular Lua error.
 		callParams := lua.P{Fn: entry.fn, NRet: 0, Protect: true}
 		if err := L.CallByParam(callParams, luaArgs...); err != nil {
+			if isResultSignal(err) || isRevertSignal(err) {
+				// Propagate sentinel unchanged so Execute sees it correctly.
+				var apiErr *lua.ApiError
+				if errors.As(err, &apiErr) {
+					L.Error(apiErr.Object, 0)
+				} else {
+					panic("dispatch: sentinel err has unexpected type")
+				}
+				return 0
+			}
 			L.RaiseError("%v", err)
 		}
 		return 0

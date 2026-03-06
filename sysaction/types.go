@@ -48,6 +48,10 @@ const (
 
 	// Referral relationship.
 	ActionReferralBind ActionKind = "REFERRAL_BIND"
+
+	// Scheduled tasks.
+	ActionTaskSchedule ActionKind = "TASK_SCHEDULE"
+	ActionTaskCancel   ActionKind = "TASK_CANCEL"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.
