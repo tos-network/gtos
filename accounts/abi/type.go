@@ -143,11 +143,22 @@ func NewType(t string, internalType string, components []ArgumentMarshaling) (ty
 	case "uint":
 		typ.Size = varSize
 		typ.T = UintTy
+	case "u":
+		// TOL short form: u8, u16, ..., u256 parsed as "u" with varSize
+		typ.Size = varSize
+		typ.T = UintTy
+		typ.stringKind = "uint" + t[1:] // normalise u256 → uint256
+	case "i":
+		// TOL short form: i8, i16, ..., i256
+		typ.Size = varSize
+		typ.T = IntTy
+		typ.stringKind = "int" + t[1:]
 	case "bool":
 		typ.T = BoolTy
-	case "address":
+	case "address", "agent":
 		typ.Size = 20
 		typ.T = AddressTy
+		typ.stringKind = "address" // normalise to canonical ABI name
 	case "string":
 		typ.T = StringTy
 	case "bytes":

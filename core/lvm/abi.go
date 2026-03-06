@@ -99,11 +99,16 @@ func abiLuaToGo(typ abi.Type, val lua.LValue) (interface{}, error) {
 		}
 
 	case abi.AddressTy:
-		s, ok := val.(lua.LString)
-		if !ok {
-			return nil, fmt.Errorf("address: expected hex string")
+		var hexStr string
+		switch v := val.(type) {
+		case lua.LAgent:
+			hexStr = string(v)
+		case lua.LString:
+			hexStr = string(v)
+		default:
+			return nil, fmt.Errorf("address: expected agent or hex string, got %T", val)
 		}
-		b := common.FromHex(string(s))
+		b := common.FromHex(hexStr)
 		var addr common.Address
 		if len(b) > common.AddressLength {
 			return nil, fmt.Errorf("address: hex string too long")
@@ -228,6 +233,8 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 		if !ok {
 			return nil, fmt.Errorf("expected common.Address, got %T", val)
 		}
+		// Return as LString for compatibility with stdlib modules (tos20, tos721, etc.)
+		// that use L.CheckString() for address keys.
 		return lua.LString(addr.Hex()), nil
 
 	case abi.StringTy:
@@ -501,11 +508,16 @@ func abiPackedOne(typ abi.Type, val lua.LValue) ([]byte, error) {
 		}
 
 	case abi.AddressTy:
-		s, ok := val.(lua.LString)
-		if !ok {
-			return nil, fmt.Errorf("address: expected hex string")
+		var hexStr string
+		switch v := val.(type) {
+		case lua.LAgent:
+			hexStr = string(v)
+		case lua.LString:
+			hexStr = string(v)
+		default:
+			return nil, fmt.Errorf("address: expected agent or hex string, got %T", val)
 		}
-		raw := common.FromHex(string(s))
+		raw := common.FromHex(hexStr)
 		word := make([]byte, common.AddressLength)
 		copy(word[common.AddressLength-len(raw):], raw)
 		return word, nil
