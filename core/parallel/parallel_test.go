@@ -466,6 +466,127 @@ func TestWriteBufMultipleMergeDeltaCorrectness(t *testing.T) {
 	}
 }
 
+// ─── WriteBufStateDB AccessList ──────────────────────────────────────────────
+
+// TestWriteBufAccessListPrepare verifies that PrepareAccessList populates the
+// local access list in WriteBufStateDB identically to how state.StateDB does.
+func TestWriteBufAccessListPrepare(t *testing.T) {
+	parent := newTestStateDB(t)
+	buf := NewWriteBufStateDB(parent)
+
+	sender := addr("0xAA")
+	dst := addr("0xBB")
+	storageAddr := addr("0xCC")
+	slot := common.HexToHash("0x01")
+
+	al := types.AccessList{
+		{Address: storageAddr, StorageKeys: []common.Hash{slot}},
+	}
+	buf.PrepareAccessList(sender, &dst, nil, al)
+
+	// sender and dst are implicitly warmed by PrepareAccessList
+	if !buf.AddressInAccessList(sender) {
+		t.Error("sender not in access list after Prepare")
+	}
+	if !buf.AddressInAccessList(dst) {
+		t.Error("dst not in access list after Prepare")
+	}
+	// explicit entry from the AccessList field
+	if !buf.AddressInAccessList(storageAddr) {
+		t.Error("storageAddr not in access list after Prepare")
+	}
+	addrOk, slotOk := buf.SlotInAccessList(storageAddr, slot)
+	if !addrOk || !slotOk {
+		t.Errorf("slot not in access list: addrOk=%v slotOk=%v", addrOk, slotOk)
+	}
+	// Unknown address/slot should return false
+	if buf.AddressInAccessList(addr("0xFF")) {
+		t.Error("unexpected address in access list")
+	}
+	_, slotOk = buf.SlotInAccessList(storageAddr, common.HexToHash("0x99"))
+	if slotOk {
+		t.Error("unexpected slot in access list")
+	}
+}
+
+// TestWriteBufAccessListAddMethods verifies AddAddressToAccessList and
+// AddSlotToAccessList work correctly on WriteBufStateDB.
+func TestWriteBufAccessListAddMethods(t *testing.T) {
+	parent := newTestStateDB(t)
+	buf := NewWriteBufStateDB(parent)
+
+	a := addr("0xA1")
+	b := addr("0xB2")
+	slot1 := common.HexToHash("0x11")
+	slot2 := common.HexToHash("0x22")
+
+	// Fresh buf — nothing in list
+	if buf.AddressInAccessList(a) {
+		t.Error("address should not be in empty access list")
+	}
+
+	buf.AddAddressToAccessList(a)
+	if !buf.AddressInAccessList(a) {
+		t.Error("address should be in access list after Add")
+	}
+
+	// Add slot implies address is also added
+	buf.AddSlotToAccessList(b, slot1)
+	if !buf.AddressInAccessList(b) {
+		t.Error("address should be added when slot is added")
+	}
+	addrOk, slotOk := buf.SlotInAccessList(b, slot1)
+	if !addrOk || !slotOk {
+		t.Errorf("slot1 not tracked: addrOk=%v slotOk=%v", addrOk, slotOk)
+	}
+
+	buf.AddSlotToAccessList(b, slot2)
+	_, slotOk = buf.SlotInAccessList(b, slot2)
+	if !slotOk {
+		t.Error("slot2 not tracked after second AddSlot")
+	}
+}
+
+// TestWriteBufAccessListMatchesStateDB verifies that serial (state.StateDB) and
+// parallel (WriteBufStateDB) produce identical access list query results after
+// PrepareAccessList, ensuring GTOS parallel/serial consistency.
+func TestWriteBufAccessListMatchesStateDB(t *testing.T) {
+	parent := newTestStateDB(t)
+
+	sender := addr("0xAA")
+	dst := addr("0xBB")
+	storageAddr := addr("0xCC")
+	slot := common.HexToHash("0x42")
+
+	al := types.AccessList{
+		{Address: storageAddr, StorageKeys: []common.Hash{slot}},
+	}
+
+	// Serial path: real StateDB
+	parent.PrepareAccessList(sender, &dst, nil, al)
+
+	// Parallel path: WriteBufStateDB
+	buf := NewWriteBufStateDB(parent.Copy())
+	buf.PrepareAccessList(sender, &dst, nil, al)
+
+	addrs := []common.Address{sender, dst, storageAddr, addr("0xFF")}
+	for _, a := range addrs {
+		want := parent.AddressInAccessList(a)
+		got := buf.AddressInAccessList(a)
+		if want != got {
+			t.Errorf("AddressInAccessList(%v): serial=%v parallel=%v", a.Hex(), want, got)
+		}
+	}
+	for _, s := range []common.Hash{slot, common.HexToHash("0x99")} {
+		wantAddr, wantSlot := parent.SlotInAccessList(storageAddr, s)
+		gotAddr, gotSlot := buf.SlotInAccessList(storageAddr, s)
+		if wantAddr != gotAddr || wantSlot != gotSlot {
+			t.Errorf("SlotInAccessList(%v): serial=(%v,%v) parallel=(%v,%v)",
+				s.Hex(), wantAddr, wantSlot, gotAddr, gotSlot)
+		}
+	}
+}
+
 // ─── ExecuteParallel ─────────────────────────────────────────────────────────
 
 // simpleGasPool is a minimal BlockGasPool for tests.

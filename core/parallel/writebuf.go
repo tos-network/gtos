@@ -43,6 +43,12 @@ type WriteBufStateDB struct {
 	txHash  common.Hash
 	txIndex int
 	logs    []*types.Log
+
+	// per-transaction access list (mirrors state.StateDB.accessList).
+	// GTOS has no warm/cold gas distinction, but tracking is kept for
+	// serial/parallel consistency and future compatibility.
+	alAddrs  map[common.Address]bool
+	alSlots  map[common.Address]map[common.Hash]bool
 }
 
 // NewWriteBufStateDB creates a new overlay backed by parent.
@@ -271,14 +277,64 @@ func (b *WriteBufStateDB) RevertToSnapshot(id int) {
 	b.snapshots = b.snapshots[:id]
 }
 
-func (b *WriteBufStateDB) PrepareAccessList(_ common.Address, _ *common.Address, _ []common.Address, _ types.AccessList) {
+// ── Per-transaction access list ───────────────────────────────────────────────
+//
+// GTOS does not use EIP-2929 warm/cold gas semantics, so the access list has no
+// effect on gas costs.  We track it here anyway so that serial and parallel
+// execution produce identical vm.StateDB.AddressInAccessList / SlotInAccessList
+// responses, which is required for correctness if any future primitive checks it.
+//
+// The local maps are per-WriteBufStateDB (one per tx in a parallel level) and
+// are never merged back into the parent — consistent with the go-ethereum model
+// where access list state is not persisted across blocks.
+
+func (b *WriteBufStateDB) PrepareAccessList(sender common.Address, dst *common.Address, precompiles []common.Address, list types.AccessList) {
+	b.alAddrs = make(map[common.Address]bool)
+	b.alSlots = make(map[common.Address]map[common.Hash]bool)
+	b.AddAddressToAccessList(sender)
+	if dst != nil {
+		b.AddAddressToAccessList(*dst)
+	}
+	for _, addr := range precompiles {
+		b.AddAddressToAccessList(addr)
+	}
+	for _, el := range list {
+		b.AddAddressToAccessList(el.Address)
+		for _, key := range el.StorageKeys {
+			b.AddSlotToAccessList(el.Address, key)
+		}
+	}
 }
-func (b *WriteBufStateDB) AddressInAccessList(_ common.Address) bool { return false }
-func (b *WriteBufStateDB) SlotInAccessList(_ common.Address, _ common.Hash) (bool, bool) {
-	return false, false
+
+func (b *WriteBufStateDB) AddressInAccessList(addr common.Address) bool {
+	return b.alAddrs[addr]
 }
-func (b *WriteBufStateDB) AddAddressToAccessList(_ common.Address) {}
-func (b *WriteBufStateDB) AddSlotToAccessList(_ common.Address, _ common.Hash) {}
+
+func (b *WriteBufStateDB) SlotInAccessList(addr common.Address, slot common.Hash) (addressPresent bool, slotPresent bool) {
+	addressPresent = b.alAddrs[addr]
+	if addressPresent && b.alSlots[addr] != nil {
+		slotPresent = b.alSlots[addr][slot]
+	}
+	return
+}
+
+func (b *WriteBufStateDB) AddAddressToAccessList(addr common.Address) {
+	if b.alAddrs == nil {
+		b.alAddrs = make(map[common.Address]bool)
+	}
+	b.alAddrs[addr] = true
+}
+
+func (b *WriteBufStateDB) AddSlotToAccessList(addr common.Address, slot common.Hash) {
+	b.AddAddressToAccessList(addr)
+	if b.alSlots == nil {
+		b.alSlots = make(map[common.Address]map[common.Hash]bool)
+	}
+	if b.alSlots[addr] == nil {
+		b.alSlots[addr] = make(map[common.Hash]bool)
+	}
+	b.alSlots[addr][slot] = true
+}
 
 func (b *WriteBufStateDB) ForEachStorage(_ common.Address, _ func(common.Hash, common.Hash) bool) error {
 	return nil
