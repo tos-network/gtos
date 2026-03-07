@@ -167,9 +167,8 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		snap.Recents[slot] = signer // record at slot, not block number
 
 		// Epoch boundary: update validator set from header.Extra.
-		// Extra is verified against the on-chain registry by VerifyFinalizedState
-		// (consensus.FinalizedStateVerifier), called from StateProcessor.Process
-		// after transaction execution — same state window used by FinalizeAndAssemble.
+		// Extra is verified against the parent-state validator registry during
+		// header verification, so malformed epoch headers never enter the header chain.
 		if number%snap.config.Epoch == 0 {
 			validators, err := parseEpochValidators(header.Extra, snap.config)
 			if err != nil {

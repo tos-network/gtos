@@ -31,6 +31,8 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/misc"
+	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
@@ -62,6 +64,7 @@ var (
 	errInvalidTimestamp            = errors.New("dpos: invalid timestamp")
 	errInvalidChain                = errors.New("dpos: non-contiguous header chain")
 	errInvalidSlot                 = errors.New("dpos: slot did not advance")
+	errMissingParentState          = errors.New("dpos: missing parent state")
 )
 
 // Package-level difficulty values.
@@ -80,14 +83,14 @@ func headerSlot(headerTime, genesisTime, periodMs uint64) (uint64, bool) {
 }
 
 const (
-	extraVanity            = 32   // bytes of vanity prefix in Extra
-	extraSeal              = 65   // legacy/test helper: secp256k1 seal length
-	extraSealSecp256k1     = 65   // bytes of secp256k1 seal in Extra (crypto.SignatureLength)
-	extraSealEd25519       = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
-	inmemorySnapshots      = 128  // recent snapshots to keep in LRU
-	inmemorySignatures     = 4096 // recent signatures to cache
-	minWiggleTime = 100 * time.Millisecond
-	maxWiggleTime = 1 * time.Second
+	extraVanity        = 32   // bytes of vanity prefix in Extra
+	extraSeal          = 65   // legacy/test helper: secp256k1 seal length
+	extraSealSecp256k1 = 65   // bytes of secp256k1 seal in Extra (crypto.SignatureLength)
+	extraSealEd25519   = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
+	inmemorySnapshots  = 128  // recent snapshots to keep in LRU
+	inmemorySignatures = 4096 // recent signatures to cache
+	minWiggleTime      = 100 * time.Millisecond
+	maxWiggleTime      = 1 * time.Second
 )
 
 // SignerFn is the callback the miner uses to sign a header hash.
@@ -109,6 +112,32 @@ type DPoS struct {
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
 	fakeFailSet bool   // true when fakeFailAt is active
 }
+
+type rawChainReader struct {
+	config *params.ChainConfig
+	db     tosdb.Database
+}
+
+func (r *rawChainReader) Config() *params.ChainConfig  { return r.config }
+func (r *rawChainReader) CurrentHeader() *types.Header { return nil }
+func (r *rawChainReader) GetHeader(hash common.Hash, number uint64) *types.Header {
+	return rawdb.ReadHeader(r.db, hash, number)
+}
+func (r *rawChainReader) GetHeaderByNumber(number uint64) *types.Header {
+	hash := rawdb.ReadCanonicalHash(r.db, number)
+	if hash == (common.Hash{}) {
+		return nil
+	}
+	return rawdb.ReadHeader(r.db, hash, number)
+}
+func (r *rawChainReader) GetHeaderByHash(hash common.Hash) *types.Header {
+	number := rawdb.ReadHeaderNumber(r.db, hash)
+	if number == nil {
+		return nil
+	}
+	return rawdb.ReadHeader(r.db, hash, *number)
+}
+func (r *rawChainReader) GetTd(hash common.Hash, number uint64) *big.Int { return nil }
 
 // New creates a DPoS engine. Returns error if config values are invalid (R2-C4).
 func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
@@ -395,14 +424,10 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		}
 	}
 
-	if header.GasLimit == 0 {
-		return errors.New("invalid gasLimit: zero")
-	}
 	if header.GasLimit > params.MaxGasLimit {
 		return fmt.Errorf("invalid gasLimit: have %v, max %v", header.GasLimit, params.MaxGasLimit)
 	}
 	if number > 0 {
-		// Gas limit must not change by more than 1/GasLimitBoundDivisor of the parent's limit.
 		var parent *types.Header
 		if len(parents) > 0 {
 			parent = parents[len(parents)-1]
@@ -410,13 +435,8 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 			parent = chain.GetHeaderByNumber(number - 1)
 		}
 		if parent != nil {
-			diff := int64(parent.GasLimit) - int64(header.GasLimit)
-			if diff < 0 {
-				diff = -diff
-			}
-			if uint64(diff) >= parent.GasLimit/params.GasLimitBoundDivisor {
-				return fmt.Errorf("invalid gas limit: have %d, want %d ±%d",
-					header.GasLimit, parent.GasLimit, parent.GasLimit/params.GasLimitBoundDivisor-1)
+			if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
+				return err
 			}
 		}
 	}
@@ -439,6 +459,18 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	}
 	if parent == nil || parent.Number.Uint64() != number-1 || parent.Hash() != header.ParentHash {
 		return consensus.ErrUnknownAncestor
+	}
+	if header.GasUsed > header.GasLimit {
+		return fmt.Errorf("invalid gasUsed: have %d, gasLimit %d",
+			header.GasUsed, header.GasLimit)
+	}
+	// Shape-check epoch Extra: validator bytes must be a non-zero multiple of AddressLength.
+	isEpoch := number%d.config.Epoch == 0
+	if isEpoch {
+		validatorBytes := len(header.Extra) - extraVanity - d.sealLength
+		if validatorBytes <= 0 || validatorBytes%common.AddressLength != 0 {
+			return errInvalidCheckpointValidators
+		}
 	}
 	if header.Time < parent.Time+d.config.TargetBlockPeriodMs() {
 		return errInvalidTimestamp
@@ -464,8 +496,86 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	if hdrSlot <= parentSlot {
 		return errInvalidSlot
 	}
+	if isEpoch {
+		expected, err := d.activeValidatorsAtRoot(parent.Root, state.NewDatabase(d.db))
+		switch {
+		case err == nil:
+			if len(expected) == 0 {
+				expected = append([]common.Address(nil), snap.Validators...)
+			}
+			if err := d.verifyEpochExtraAgainstValidators(header, expected); err != nil {
+				return err
+			}
+		case errors.Is(err, errMissingParentState):
+			// Header verification may run ahead of block-state import for batched
+			// segments. Defer the definitive epoch-extra check to finalized-state
+			// verification once the parent root is available through the state DB.
+		default:
+			return err
+		}
+	}
 
 	return d.verifySeal(snap, header)
+}
+
+func (d *DPoS) activeValidatorsAtRoot(root common.Hash, db state.Database) ([]common.Address, error) {
+	if db == nil {
+		return nil, errors.New("dpos: missing database for validator lookup")
+	}
+	statedb, err := state.New(root, db, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errMissingParentState, err)
+	}
+	return validator.ReadActiveValidators(statedb, d.config.MaxValidators), nil
+}
+
+func (d *DPoS) expectedEpochValidators(parent *types.Header, fallback []common.Address, db state.Database) ([]common.Address, error) {
+	actual, err := d.activeValidatorsAtRoot(parent.Root, db)
+	if err == nil && len(actual) > 0 {
+		return actual, nil
+	}
+	if len(fallback) > 0 {
+		out := make([]common.Address, len(fallback))
+		copy(out, fallback)
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, errors.New("dpos: no active validators at epoch boundary")
+}
+
+func (d *DPoS) fallbackValidatorsFromHeader(chain consensus.ChainHeaderReader, header *types.Header) ([]common.Address, error) {
+	for header != nil {
+		number := header.Number.Uint64()
+		if number == 0 {
+			return parseGenesisValidators(header.Extra)
+		}
+		if number%d.config.Epoch == 0 {
+			return parseEpochValidators(header.Extra, d.config)
+		}
+		header = chain.GetHeader(header.ParentHash, number-1)
+	}
+	return nil, consensus.ErrUnknownAncestor
+}
+
+func (d *DPoS) verifyEpochExtraAgainstValidators(header *types.Header, actual []common.Address) error {
+	claimed, err := parseEpochValidators(header.Extra, d.config)
+	if err != nil {
+		return err
+	}
+	number := header.Number.Uint64()
+	if len(claimed) != len(actual) {
+		return fmt.Errorf("dpos: epoch %d validator count mismatch: Extra has %d, expected %d",
+			number, len(claimed), len(actual))
+	}
+	for i, v := range actual {
+		if claimed[i] != v {
+			return fmt.Errorf("dpos: epoch %d validator mismatch at index %d: Extra=%s, expected=%s",
+				number, i, claimed[i].Hex(), v.Hex())
+		}
+	}
+	return nil
 }
 
 func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
@@ -653,11 +763,10 @@ func (d *DPoS) Prepare(chain consensus.ChainHeaderReader, header *types.Header) 
 	return nil
 }
 
-// VerifyEpochExtra checks that an epoch block's Extra validator list exactly
-// matches the active validator registry in statedb.  Called by
-// StateProcessor.Process after transaction execution so that the state seen
-// here is the same state FinalizeAndAssemble used when building the block.
-// No-op for non-epoch blocks and in faker (test) mode.
+// VerifyEpochExtra checks that an epoch block's Extra validator list matches
+// the validator registry in the parent-state snapshot. This keeps epoch Extra
+// fully header-verifiable and prevents malformed epoch headers from being
+// admitted into the header chain before full block execution.
 func (d *DPoS) VerifyEpochExtra(header *types.Header, statedb *state.StateDB) error {
 	if d.fakeDiff {
 		return nil
@@ -666,22 +775,28 @@ func (d *DPoS) VerifyEpochExtra(header *types.Header, statedb *state.StateDB) er
 	if number == 0 || number%d.config.Epoch != 0 {
 		return nil
 	}
-	claimed, err := parseEpochValidators(header.Extra, d.config)
+	if d.db == nil {
+		return errors.New("dpos: missing database for epoch verification")
+	}
+	parent := rawdb.ReadHeader(d.db, header.ParentHash, number-1)
+	if parent == nil {
+		return consensus.ErrUnknownAncestor
+	}
+	chainCfg := &params.ChainConfig{DPoS: d.config}
+	rawChain := &rawChainReader{config: chainCfg, db: d.db}
+	fallback, err := d.fallbackValidatorsFromHeader(rawChain, parent)
 	if err != nil {
 		return err
 	}
-	actual := validator.ReadActiveValidators(statedb, d.config.MaxValidators)
-	if len(claimed) != len(actual) {
-		return fmt.Errorf("dpos: epoch %d validator count mismatch: Extra has %d, registry has %d",
-			number, len(claimed), len(actual))
+	parentDB := state.NewDatabase(d.db)
+	if statedb != nil {
+		parentDB = statedb.Database()
 	}
-	for i, v := range actual {
-		if claimed[i] != v {
-			return fmt.Errorf("dpos: epoch %d validator mismatch at index %d: Extra=%s, registry=%s",
-				number, i, claimed[i].Hex(), v.Hex())
-		}
+	expected, err := d.expectedEpochValidators(parent, fallback, parentDB)
+	if err != nil {
+		return err
 	}
-	return nil
+	return d.verifyEpochExtraAgainstValidators(header, expected)
 }
 
 // VerifyFinalizedState implements consensus.FinalizedStateVerifier.
@@ -707,12 +822,24 @@ func (d *DPoS) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *ty
 
 	number := header.Number.Uint64()
 
-	// At epoch boundaries, embed the current active validator set into Extra.
-	// In faker mode, skip this step (no on-chain validator state in unit tests).
+	// At epoch boundaries, embed the validator set from the parent-state snapshot
+	// into Extra so the value is fully header-verifiable. Validator registry
+	// mutations inside the epoch block itself take effect at the next epoch.
 	if number%d.config.Epoch == 0 && !d.fakeDiff {
-		validators := validator.ReadActiveValidators(st, d.config.MaxValidators)
-		if len(validators) == 0 {
-			return nil, errors.New("dpos: no active validators at epoch boundary")
+		parent := chain.GetHeader(header.ParentHash, number-1)
+		if parent == nil && d.db != nil {
+			parent = rawdb.ReadHeader(d.db, header.ParentHash, number-1)
+		}
+		if parent == nil {
+			return nil, consensus.ErrUnknownAncestor
+		}
+		fallback, err := d.fallbackValidatorsFromHeader(chain, parent)
+		if err != nil {
+			return nil, err
+		}
+		validators, err := d.expectedEpochValidators(parent, fallback, st.Database())
+		if err != nil {
+			return nil, err
 		}
 		// validators is already address-sorted (ReadActiveValidators phase 3).
 		vanity := header.Extra[:extraVanity]

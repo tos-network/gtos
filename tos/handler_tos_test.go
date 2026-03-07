@@ -24,6 +24,27 @@ import (
 	"github.com/tos-network/gtos/tos/protocols/tos"
 )
 
+func newSignedNetworkTestTx(t *testing.T, nonce uint64, data []byte) *types.Transaction {
+	t.Helper()
+
+	to := common.Address{}
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    new(big.Int).Set(params.TestChainConfig.ChainID),
+		Nonce:      nonce,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        100000,
+		Data:       data,
+		From:       testAddr,
+		SignerType: "secp256k1",
+	})
+	signed, err := types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
+	if err != nil {
+		t.Fatalf("sign test tx %d: %v", nonce, err)
+	}
+	return signed
+}
+
 // testTosHandler is a mock event handler to listen for inbound network requests
 // on the `tos` protocol and convert them into a more easily testable form.
 type testTosHandler struct {
@@ -248,8 +269,7 @@ func testRecvTransactions(t *testing.T, protocol uint) {
 		t.Fatalf("failed to run protocol handshake")
 	}
 	// Send the transaction to the sink and verify that it's added to the tx pool
-	tx := types.NewTransaction(0, common.Address{}, big.NewInt(0), 100000, big.NewInt(0), nil)
-	tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
+	tx := newSignedNetworkTestTx(t, 0, nil)
 
 	if err := src.SendTransactions([]*types.Transaction{tx}); err != nil {
 		t.Fatalf("failed to send transaction: %v", err)
@@ -278,10 +298,7 @@ func testSendTransactions(t *testing.T, protocol uint) {
 
 	insert := make([]*types.Transaction, 100)
 	for nonce := range insert {
-		tx := types.NewTransaction(uint64(nonce), common.Address{}, big.NewInt(0), 100000, big.NewInt(0), make([]byte, 10240))
-		tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
-
-		insert[nonce] = tx
+		insert[nonce] = newSignedNetworkTestTx(t, uint64(nonce), make([]byte, 10240))
 	}
 	go handler.txpool.AddRemotes(insert) // Need goroutine to not block on feed
 	time.Sleep(250 * time.Millisecond)   // Wait until tx events get out of the system (can't use events, tx broadcaster races with peer join)
@@ -402,10 +419,7 @@ func testTransactionPropagation(t *testing.T, protocol uint) {
 	// Fill the source pool with transactions and wait for them at the sinks
 	txs := make([]*types.Transaction, 1024)
 	for nonce := range txs {
-		tx := types.NewTransaction(uint64(nonce), common.Address{}, big.NewInt(0), 100000, big.NewInt(0), nil)
-		tx, _ = types.SignTx(tx, types.LatestSigner(params.TestChainConfig), testKey)
-
-		txs[nonce] = tx
+		txs[nonce] = newSignedNetworkTestTx(t, uint64(nonce), nil)
 	}
 	source.txpool.AddRemotes(txs)
 

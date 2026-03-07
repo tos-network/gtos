@@ -268,7 +268,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		config = params.TestChainConfig
 	}
 	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
-	chainreader := &fakeChainReader{config: config}
+	chainreader := &fakeChainReader{config: config, parent: parent, chain: blocks}
 	genblock := func(i int, parent *types.Block, statedb *state.StateDB) (*types.Block, types.Receipts) {
 		// initStatedb is a read-only view at the start of this block (shares the
 		// same underlying trie DB; reads are independent of statedb's journal).
@@ -379,6 +379,8 @@ func makeBlockChain(parent *types.Block, n int, engine consensus.Engine, db tosd
 
 type fakeChainReader struct {
 	config *params.ChainConfig
+	parent *types.Block
+	chain  []*types.Block
 }
 
 // Config returns the chain configuration.
@@ -386,9 +388,61 @@ func (cr *fakeChainReader) Config() *params.ChainConfig {
 	return cr.config
 }
 
-func (cr *fakeChainReader) CurrentHeader() *types.Header                            { return nil }
-func (cr *fakeChainReader) GetHeaderByNumber(number uint64) *types.Header           { return nil }
-func (cr *fakeChainReader) GetHeaderByHash(hash common.Hash) *types.Header          { return nil }
-func (cr *fakeChainReader) GetHeader(hash common.Hash, number uint64) *types.Header { return nil }
-func (cr *fakeChainReader) GetBlock(hash common.Hash, number uint64) *types.Block   { return nil }
-func (cr *fakeChainReader) GetTd(hash common.Hash, number uint64) *big.Int          { return nil }
+func (cr *fakeChainReader) CurrentHeader() *types.Header {
+	if len(cr.chain) > 0 {
+		for i := len(cr.chain) - 1; i >= 0; i-- {
+			if cr.chain[i] != nil {
+				return cr.chain[i].Header()
+			}
+		}
+	}
+	if cr.parent != nil {
+		return cr.parent.Header()
+	}
+	return nil
+}
+
+func (cr *fakeChainReader) GetHeaderByNumber(number uint64) *types.Header {
+	if cr.parent != nil && cr.parent.NumberU64() == number {
+		return cr.parent.Header()
+	}
+	for _, block := range cr.chain {
+		if block != nil && block.NumberU64() == number {
+			return block.Header()
+		}
+	}
+	return nil
+}
+
+func (cr *fakeChainReader) GetHeaderByHash(hash common.Hash) *types.Header {
+	if cr.parent != nil && cr.parent.Hash() == hash {
+		return cr.parent.Header()
+	}
+	for _, block := range cr.chain {
+		if block != nil && block.Hash() == hash {
+			return block.Header()
+		}
+	}
+	return nil
+}
+
+func (cr *fakeChainReader) GetHeader(hash common.Hash, number uint64) *types.Header {
+	header := cr.GetHeaderByNumber(number)
+	if header != nil && header.Hash() == hash {
+		return header
+	}
+	return nil
+}
+
+func (cr *fakeChainReader) GetBlock(hash common.Hash, number uint64) *types.Block {
+	if cr.parent != nil && cr.parent.NumberU64() == number && cr.parent.Hash() == hash {
+		return cr.parent
+	}
+	for _, block := range cr.chain {
+		if block != nil && block.NumberU64() == number && block.Hash() == hash {
+			return block
+		}
+	}
+	return nil
+}
+func (cr *fakeChainReader) GetTd(hash common.Hash, number uint64) *big.Int { return nil }

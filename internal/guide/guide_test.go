@@ -70,8 +70,17 @@ func TestAccountManagement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create signer account: %v", err)
 	}
-	tx := types.NewTransaction(0, common.Address{}, big.NewInt(0), 0, big.NewInt(0), nil)
 	chain := big.NewInt(1)
+	to := common.Address{}
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    new(big.Int).Set(chain),
+		Nonce:      0,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Gas:        21000,
+		From:       signer.Address,
+		SignerType: "secp256k1",
+	})
 
 	// Sign a transaction with a single authorization
 	if _, err := ks.SignTxWithPassphrase(signer, "Signer password", tx, chain); err != nil {

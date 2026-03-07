@@ -499,7 +499,7 @@ func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V 
 	if !ok {
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
-	if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
+	if txdata.ChainID.Sign() == 0 || txdata.ChainID.Cmp(s.chainId) != 0 {
 		return nil, nil, nil, ErrInvalidChainId
 	}
 	R, S, V, err = decodeSignerTxSignature(txdata.SignerType, sig)
@@ -520,8 +520,8 @@ func (s accessListSigner) Hash(tx *Transaction) common.Hash {
 		return common.Hash{}
 	}
 	signerType, ok := tx.SignerType()
-	if !ok {
-		return common.Hash{}
+	if !ok || signerType == "" {
+		panic("accessListSigner.Hash: transaction has no signerType")
 	}
 	return prefixedRlpHash(
 		tx.Type(),

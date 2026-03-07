@@ -399,8 +399,13 @@ func TestReplayProtectionSigning(t *testing.T) {
 	key, _ := crypto.GenerateKey()
 	addr := crypto.PubkeyToAddress(key.PublicKey)
 
-	signer := NewReplayProtectedSigner(big.NewInt(18))
-	tx, err := SignTx(NewTransaction(0, addr, new(big.Int), 0, new(big.Int), nil), signer, key)
+	chainId := big.NewInt(18)
+	signer := NewReplayProtectedSigner(chainId)
+	tx, err := SignTx(NewTx(&SignerTx{
+		ChainID: chainId, Nonce: 0, To: &addr, Value: new(big.Int), Gas: 0,
+		Data: nil, From: common.Address{}, SignerType: "secp256k1",
+		V: new(big.Int), R: new(big.Int), S: new(big.Int),
+	}), signer, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,6 +417,26 @@ func TestReplayProtectionSigning(t *testing.T) {
 	if from != addr {
 		t.Errorf("exected from and address to be equal. Got %x want %x", from, addr)
 	}
+}
+
+func TestAccessListSignerHashPanicsWithoutSignerType(t *testing.T) {
+	signer := LatestSignerForChainID(big.NewInt(1))
+	to := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
+	tx := NewTx(&SignerTx{
+		ChainID: big.NewInt(1),
+		Nonce:   1,
+		To:      &to,
+		Value:   big.NewInt(1),
+		Gas:     21000,
+		From:    common.HexToAddress("0x85b1f044bab6d30f3a19c1501563915e194d8cfba1943570603f7606a3115508"),
+	})
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for missing signerType")
+		}
+	}()
+	_ = signer.Hash(tx)
 }
 
 func TestReplayProtectionChainId(t *testing.T) {
@@ -492,10 +517,16 @@ func TestReplayProtectionSigningVitalik(t *testing.T) {
 func TestChainId(t *testing.T) {
 	key, _ := defaultTestKey()
 
-	tx := NewTransaction(0, common.Address{}, new(big.Int), 0, new(big.Int), nil)
+	chainId1 := big.NewInt(1)
+	to := common.Address{}
+	tx := NewTx(&SignerTx{
+		ChainID: chainId1, Nonce: 0, To: &to, Value: new(big.Int), Gas: 0,
+		Data: nil, From: common.Address{}, SignerType: "secp256k1",
+		V: new(big.Int), R: new(big.Int), S: new(big.Int),
+	})
 
 	var err error
-	tx, err = SignTx(tx, NewReplayProtectedSigner(big.NewInt(1)), key)
+	tx, err = SignTx(tx, NewReplayProtectedSigner(chainId1), key)
 	if err != nil {
 		t.Fatal(err)
 	}

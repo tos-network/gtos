@@ -1,6 +1,7 @@
 package tos
 
 import (
+	"errors"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -176,6 +177,9 @@ func (p *Peer) markTransaction(hash common.Hash) {
 func (p *Peer) SendTransactions(txs types.Transactions) error {
 	// Mark all the transactions as known, but ensure we don't overflow our limits
 	for _, tx := range txs {
+		if tx == nil {
+			return errors.New("tos: nil transaction")
+		}
 		p.knownTxs.Add(tx.Hash())
 	}
 	return p2p.Send(p.rw, TransactionsMsg, txs)

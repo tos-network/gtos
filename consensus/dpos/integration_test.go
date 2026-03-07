@@ -743,3 +743,141 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestDPoSEpochExtraUsesParentState(t *testing.T) {
+	genesisKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate genesis key: %v", err)
+	}
+	registrantKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate registrant key: %v", err)
+	}
+	genesisSigner := crypto.PubkeyToAddress(genesisKey.PublicKey)
+	registrant := crypto.PubkeyToAddress(registrantKey.PublicKey)
+	stake := new(big.Int).Set(params.DPoSMinValidatorStake)
+
+	dposCfg := &params.DPoSConfig{
+		PeriodMs:       1000,
+		Epoch:          2,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+	}
+	chainCfg := *params.AllDPoSProtocolChanges
+	chainCfg.DPoS = dposCfg
+
+	genesisExtra := make([]byte, extraVanity+common.AddressLength)
+	copy(genesisExtra[extraVanity:], genesisSigner.Bytes())
+	genspec := &core.Genesis{
+		Config:    &chainCfg,
+		ExtraData: genesisExtra,
+		Coinbase:  genesisSigner,
+		Alloc: map[common.Address]core.GenesisAccount{
+			genesisSigner: {Balance: new(big.Int).Mul(big.NewInt(10), stake)},
+			registrant:    {Balance: new(big.Int).Mul(big.NewInt(10), stake)},
+		},
+		BaseFee: big.NewInt(params.InitialBaseFee),
+	}
+
+	registerPayload, err := sysaction.MakeSysAction(sysaction.ActionValidatorRegister, nil)
+	if err != nil {
+		t.Fatalf("make register payload: %v", err)
+	}
+	txSigner := types.LatestSignerForChainID(chainCfg.ChainID)
+	sysTo := params.SystemActionAddress
+	registerTx, err := types.SignTx(types.NewTx(&types.SignerTx{
+		ChainID:    txSigner.ChainID(),
+		Nonce:      0,
+		To:         &sysTo,
+		Value:      new(big.Int).Set(stake),
+		Gas:        500_000,
+		Data:       registerPayload,
+		From:       registrant,
+		SignerType: "secp256k1",
+	}), txSigner, registrantKey)
+	if err != nil {
+		t.Fatalf("sign register tx: %v", err)
+	}
+
+	buildDB := rawdb.NewMemoryDatabase()
+	genesis := genspec.MustCommit(buildDB)
+	buildEngine, err := New(dposCfg, buildDB)
+	if err != nil {
+		t.Fatalf("New(buildEngine): %v", err)
+	}
+	blocks, _ := core.GenerateChain(&chainCfg, genesis, buildEngine, buildDB, 2, func(i int, b *core.BlockGen) {
+		b.SetExtra(make([]byte, extraVanity))
+		b.SetCoinbase(genesisSigner)
+		b.SetDifficulty(diffInTurn)
+		if i == 1 {
+			b.AddTx(registerTx)
+		}
+	})
+	for i, block := range blocks {
+		header := block.Header()
+		if i > 0 {
+			header.ParentHash = blocks[i-1].Hash()
+		}
+		newExtra := make([]byte, extraVanity+extraSeal)
+		copy(newExtra[:extraVanity], header.Extra[:extraVanity])
+		if header.Number.Uint64()%dposCfg.Epoch == 0 {
+			validatorPayloadLen := len(header.Extra) - extraVanity - extraSeal
+			withPayload := make([]byte, extraVanity+validatorPayloadLen+extraSeal)
+			copy(withPayload[:extraVanity], header.Extra[:extraVanity])
+			copy(withPayload[extraVanity:extraVanity+validatorPayloadLen], header.Extra[extraVanity:len(header.Extra)-extraSeal])
+			newExtra = withPayload
+		}
+		header.Extra = newExtra
+		sig, signErr := crypto.Sign(SealHash(header).Bytes(), genesisKey)
+		if signErr != nil {
+			t.Fatalf("sign block %d: %v", header.Number.Uint64(), signErr)
+		}
+		copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+		blocks[i] = block.WithSeal(header)
+	}
+
+	epochValidators, err := parseEpochValidators(blocks[1].Header().Extra, dposCfg)
+	if err != nil {
+		t.Fatalf("parse epoch validators: %v", err)
+	}
+	if want := []common.Address{genesisSigner}; !reflect.DeepEqual(epochValidators, want) {
+		t.Fatalf("epoch validator list must come from parent state: have=%v want=%v", epochValidators, want)
+	}
+
+	runDB := rawdb.NewMemoryDatabase()
+	genspec.MustCommit(runDB)
+	runEngine, err := New(dposCfg, runDB)
+	if err != nil {
+		t.Fatalf("New(runEngine): %v", err)
+	}
+	chain, err := core.NewBlockChain(runDB, nil, &chainCfg, runEngine, nil, nil)
+	if err != nil {
+		t.Fatalf("NewBlockChain: %v", err)
+	}
+	defer chain.Stop()
+	if _, err := chain.InsertChain(blocks[:1]); err != nil {
+		t.Fatalf("InsertChain(block1): %v", err)
+	}
+	if err := runEngine.VerifyHeader(chain, blocks[1].Header(), true); err != nil {
+		t.Fatalf("VerifyHeader(valid epoch block): %v", err)
+	}
+
+	tampered := types.CopyHeader(blocks[1].Header())
+	payloadValidators := []common.Address{genesisSigner, registrant}
+	sort.Sort(addressAscending(payloadValidators))
+	tampered.Extra = make([]byte, extraVanity+len(payloadValidators)*common.AddressLength+extraSeal)
+	copy(tampered.Extra[:extraVanity], blocks[1].Header().Extra[:extraVanity])
+	for i, addr := range payloadValidators {
+		copy(tampered.Extra[extraVanity+i*common.AddressLength:], addr.Bytes())
+	}
+	sig, err := crypto.Sign(SealHash(tampered).Bytes(), genesisKey)
+	if err != nil {
+		t.Fatalf("sign tampered epoch block: %v", err)
+	}
+	copy(tampered.Extra[len(tampered.Extra)-extraSeal:], sig)
+	tamperedBlock := blocks[1].WithSeal(tampered)
+
+	if _, err := chain.InsertChain([]*types.Block{tamperedBlock}); err == nil {
+		t.Fatal("expected insert failure for epoch extra derived from in-block state")
+	}
+}

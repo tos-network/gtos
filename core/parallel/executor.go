@@ -14,6 +14,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 )
@@ -60,6 +61,17 @@ type BlockGasPool interface {
 type goroutineResult struct {
 	result *TxResult
 	err    error // fatal block-level error
+}
+
+// receiptData stores the post-execution fields needed to build a final receipt
+// once cumulative gas can be assigned in canonical tx order.
+type receiptData struct {
+	txHash          common.Hash
+	txType          uint8
+	gasUsed         uint64
+	status          uint64
+	txLogs          []*types.Log
+	contractAddress common.Address
 }
 
 // ExecuteParallel runs transactions in parallel levels and returns receipts,
@@ -117,7 +129,7 @@ func ExecuteParallel(
 	// Pre-allocate result slots indexed by tx position.
 	goroutineResults := make([]goroutineResult, len(txs))
 	txBufs := make([]*WriteBufStateDB, len(txs))
-	receiptsByTx := make(types.Receipts, len(txs))
+	receiptDataByTx := make([]receiptData, len(txs))
 
 	var (
 		allLogs  []*types.Log
@@ -189,35 +201,47 @@ func ExecuteParallel(
 				allLogs = append(allLogs, &lCopy)
 			}
 
-			// Build receipt.
-			receipt := &types.Receipt{
-				Type:              tx.Type(),
-				CumulativeGasUsed: 0, // filled in tx index order below
-				TxHash:            tx.Hash(),
-				GasUsed:           result.UsedGas,
-				BlockHash:         blockHash,
-				BlockNumber:       blockNumber,
-				TransactionIndex:  uint(txIdx),
-				Logs:              txLogs,
+			receipt := receiptData{
+				txHash:  tx.Hash(),
+				txType:  tx.Type(),
+				gasUsed: result.UsedGas,
+				txLogs:  txLogs,
 			}
 			if result.Failed() {
-				receipt.Status = types.ReceiptStatusFailed
+				receipt.status = types.ReceiptStatusFailed
 			} else {
-				receipt.Status = types.ReceiptStatusSuccessful
+				receipt.status = types.ReceiptStatusSuccessful
 			}
-			receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
-			receiptsByTx[txIdx] = receipt
+			if tx.To() == nil && !result.Failed() {
+				receipt.contractAddress = crypto.CreateAddress(msgs[txIdx].From(), tx.Nonce())
+			}
+			receiptDataByTx[txIdx] = receipt
 		}
 	}
 
-	// Fill cumulative gas strictly in tx order.
+	// Build receipts strictly in tx order so CumulativeGasUsed is final when the
+	// receipt object is created, avoiding any intermediate zero-value phase.
+	receiptsByTx := make(types.Receipts, len(txs))
 	var cumulativeGasUsed uint64
-	for i, receipt := range receiptsByTx {
-		if receipt == nil {
+	for i, data := range receiptDataByTx {
+		if data.txHash == (common.Hash{}) {
 			return nil, nil, 0, fmt.Errorf("missing receipt for tx index %d", i)
 		}
-		cumulativeGasUsed += receipt.GasUsed
-		receipt.CumulativeGasUsed = cumulativeGasUsed
+		cumulativeGasUsed += data.gasUsed
+		receipt := &types.Receipt{
+			Type:              data.txType,
+			Status:            data.status,
+			CumulativeGasUsed: cumulativeGasUsed,
+			TxHash:            data.txHash,
+			GasUsed:           data.gasUsed,
+			ContractAddress:   data.contractAddress,
+			BlockHash:         blockHash,
+			BlockNumber:       blockNumber,
+			TransactionIndex:  uint(i),
+			Logs:              data.txLogs,
+		}
+		receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
+		receiptsByTx[i] = receipt
 	}
 
 	return receiptsByTx, allLogs, totalGas, nil
