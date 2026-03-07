@@ -121,6 +121,13 @@ type DPoS struct {
 
 	votePool *checkpointVotePool // in-memory checkpoint vote cache (nil when inactive)
 
+	// Callbacks wired by the network/chain layer at startup (nil = inactive).
+	broadcastVoteFn func(*types.CheckpointVoteEnvelope) // send vote to all peers
+	setFinalizedFn  func(*types.Header)                  // update blockchain finality state
+	chainID         *big.Int                             // local chain ID for vote admission (§9 rule 3)
+
+	finalizedVSHash sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
+
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
 	fakeFailSet bool   // true when fakeFailAt is active
@@ -234,6 +241,138 @@ func (d *DPoS) CanSignVotes() bool {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 	return d.validator != (common.Address{}) && d.signFn != nil
+}
+
+// SetVoteCallbacks wires the DPoS engine to the network and blockchain layers.
+// Must be called once after New() and before Seal() is invoked.
+// broadcastFn: called to send a signed vote envelope to all connected peers.
+// setFinalizedFn: called when a QC is cryptographically verified; updates blockchain finality.
+// chainID: local chain ID stored for vote admission ChainID check (§9 rule 3).
+func (d *DPoS) SetVoteCallbacks(
+	broadcastFn func(*types.CheckpointVoteEnvelope),
+	setFinalizedFn func(*types.Header),
+	chainID *big.Int,
+) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+	d.broadcastVoteFn = broadcastFn
+	d.setFinalizedFn = setFinalizedFn
+	if chainID != nil {
+		d.chainID = new(big.Int).Set(chainID)
+	}
+}
+
+// HandleIncomingVote is the P2P handler callback. Called for each checkpoint vote
+// envelope received from peers. Performs basic admission (chain ID, eligible number)
+// and queues the vote in the pool, or in the pending queue if the snapshot is not yet
+// available.
+func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
+	if d.votePool == nil || env == nil {
+		return
+	}
+	d.lock.RLock()
+	cfg, localChainID := d.config, d.chainID
+	d.lock.RUnlock()
+
+	// Basic structural admission (§9 rules 1–3; no state access).
+	if cfg.CheckpointInterval == 0 || cfg.CheckpointFinalityBlock == nil {
+		return
+	}
+	// Rule 3: ChainID must match local chain config.
+	if env.Vote.ChainID == nil || localChainID == nil || env.Vote.ChainID.Cmp(localChainID) != 0 {
+		return
+	}
+	// Rule 1: must be an eligible checkpoint height.
+	firstEligible := firstCheckpointAtOrAfter(cfg.CheckpointFinalityBlock.Uint64(), cfg.CheckpointInterval)
+	if env.Vote.Number < firstEligible {
+		return
+	}
+	if env.Vote.Number%cfg.CheckpointInterval != 0 {
+		return
+	}
+	// Queue for later full verification; QC assembly promotes and verifies sigs.
+	d.votePool.AddPending(env)
+}
+
+// FinalizedValidatorSetHash returns the ValidatorSetHash of the most recently
+// finalized checkpoint QC, or zero if no checkpoint has been finalized yet.
+func (d *DPoS) FinalizedValidatorSetHash() common.Hash {
+	if v, ok := d.finalizedVSHash.Load("vsHash"); ok {
+		return v.(common.Hash)
+	}
+	return common.Hash{}
+}
+
+// RestartGossip re-gossips signed checkpoint votes for checkpoints that this node
+// has signed but that are not yet finalized. Called once on startup after Authorize.
+// Implements §11 "Restart re-gossip" requirement.
+func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber uint64) {
+	if d.db == nil || d.votePool == nil {
+		return
+	}
+	numbers, hashes, err := ListUnsettledSignedCheckpoints(d.db, finalizedNumber)
+	if err != nil {
+		log.Debug("DPoS restart gossip: failed to list checkpoints", "err", err)
+		return
+	}
+	if len(numbers) == 0 {
+		return
+	}
+
+	d.lock.RLock()
+	v, signFn, bcastFn := d.validator, d.signFn, d.broadcastVoteFn
+	d.lock.RUnlock()
+
+	if v == (common.Address{}) || signFn == nil {
+		return // not authorized yet
+	}
+
+	chainID := chain.Config().ChainID
+	for i, candidate := range numbers {
+		hash := hashes[i]
+		cpHeader := chain.GetHeaderByNumber(candidate)
+		if cpHeader == nil || cpHeader.Hash() != hash {
+			continue // reorganized away
+		}
+		preSnap, err := d.snapshot(chain, candidate-1, cpHeader.ParentHash, nil)
+		if err != nil {
+			continue
+		}
+		records, err := d.buildSignerSet(preSnap)
+		if err != nil {
+			continue
+		}
+		found := false
+		for _, r := range records {
+			if r.Address == v {
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		vsHash := computeValidatorSetHash(records)
+		vote := types.CheckpointVote{
+			ChainID:          new(big.Int).Set(chainID),
+			Number:           candidate,
+			Hash:             hash,
+			ValidatorSetHash: vsHash,
+		}
+		signingHash := vote.SigningHash()
+		rawSig, err := signFn(accounts.Account{Address: v}, accounts.MimetypeDPoS, signingHash[:])
+		if err != nil || len(rawSig) != ed25519.SignatureSize {
+			continue
+		}
+		var sig [64]byte
+		copy(sig[:], rawSig)
+		env := &types.CheckpointVoteEnvelope{Vote: vote, Signer: v, Signature: sig}
+		d.votePool.AddVote(env)
+		if bcastFn != nil {
+			bcastFn(env)
+		}
+		log.Debug("DPoS restart gossip: re-gossiped checkpoint vote", "number", candidate, "hash", hash)
+	}
 }
 
 // SignVote signs a vote digest with the local validator key.
@@ -421,12 +560,19 @@ func (d *DPoS) verifyCheckpointQCFull(chain consensus.ChainHeaderReader, header 
 		return nil // absent QC is valid
 	}
 
-	// Step 1: ancestor walk — verify qc.Vote.Hash matches block at qc.Vote.Number.
+	// Step 1: walk ancestors of header back to qc.Vote.Number.
+	// We follow ParentHash links (not the canonical chain index) so the check is correct
+	// even when the block being verified is not yet the canonical head — e.g. during a
+	// reorg where the importing block is on a side branch.
 	// The staleness limit from Phase 1 bounds this walk to at most 2*CheckpointInterval.
-	ancestor := chain.GetHeaderByNumber(qc.Vote.Number)
-	if ancestor == nil {
+	cur := chain.GetHeader(header.ParentHash, number-1)
+	for cur != nil && cur.Number.Uint64() > qc.Vote.Number {
+		cur = chain.GetHeader(cur.ParentHash, cur.Number.Uint64()-1)
+	}
+	if cur == nil || cur.Number.Uint64() != qc.Vote.Number {
 		return fmt.Errorf("%w: cannot find ancestor at %d", errQCNotAncestor, qc.Vote.Number)
 	}
+	ancestor := cur
 	if ancestor.Hash() != qc.Vote.Hash {
 		return fmt.Errorf("%w: hash mismatch at height %d", errQCNotAncestor, qc.Vote.Number)
 	}
@@ -483,7 +629,17 @@ func (d *DPoS) verifyCheckpointQCFull(chain consensus.ChainHeaderReader, header 
 	}
 
 	// Step 8: advance finalized state on snapshot.
-	snap.UpdateFinalized(qc.Vote.Number, qc.Vote.Hash)
+	if snap.UpdateFinalized(qc.Vote.Number, qc.Vote.Hash) {
+		// §14: keep both layers in sync. Store vsHash for RPC.
+		d.finalizedVSHash.Store("vsHash", qc.Vote.ValidatorSetHash)
+		// ancestor header was already retrieved above for the hash check.
+		d.lock.RLock()
+		setFn := d.setFinalizedFn
+		d.lock.RUnlock()
+		if setFn != nil {
+			setFn(ancestor)
+		}
+	}
 	return nil
 }
 
@@ -542,12 +698,6 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		return nil, nil // pre-state not available; skip silently
 	}
 
-	// Collect votes from pool.
-	votes := d.votePool.GetVotes(candidate, cpHash)
-	if len(votes) == 0 {
-		return nil, nil
-	}
-
 	// Build signer set.
 	records, err := d.buildSignerSet(preSnap)
 	if err != nil {
@@ -562,16 +712,45 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		addrIdx[r.Address] = i
 	}
 
-	// Collect valid votes.
+	// Compute ValidatorSetHash and the canonical signing hash for this checkpoint.
+	// Both are needed before we can verify vote signatures (§12 step 5).
+	vsHash := computeValidatorSetHash(records)
+	signingHash := (&types.CheckpointVote{
+		ChainID:          chain.Config().ChainID,
+		Number:           candidate,
+		Hash:             cpHash,
+		ValidatorSetHash: vsHash,
+	}).SigningHash()
+
+	// Promote pending votes (§9): votes received while the snapshot was unavailable.
+	// Now that we have the signer set, run admission checks 4–6 and move valid ones
+	// into the main vote cache so they contribute to the QC.
+	for _, env := range d.votePool.DrainPending(candidate) {
+		idx, ok := addrIdx[env.Signer]
+		if !ok {
+			continue
+		}
+		pub := ed25519.PublicKey(records[idx].SignerPub)
+		if !ed25519.Verify(pub, signingHash[:], env.Signature[:]) {
+			continue
+		}
+		d.votePool.AddVote(env)
+	}
+
+	// Collect valid votes — verify each signature before including in the QC (§12 step 5).
 	type validVote struct {
 		idx int
 		sig [64]byte
 	}
 	var validVotes []validVote
-	for _, env := range votes {
+	for _, env := range d.votePool.GetVotes(candidate, cpHash) {
 		idx, ok := addrIdx[env.Signer]
 		if !ok {
 			continue
+		}
+		pub := ed25519.PublicKey(records[idx].SignerPub)
+		if !ed25519.Verify(pub, signingHash[:], env.Signature[:]) {
+			continue // invalid sig; exclude from QC
 		}
 		validVotes = append(validVotes, validVote{idx: idx, sig: env.Signature})
 	}
@@ -587,9 +766,6 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		bitmap |= 1 << uint(v.idx)
 		sigs = append(sigs, v.sig)
 	}
-
-	// Compute ValidatorSetHash.
-	vsHash := computeValidatorSetHash(records)
 
 	qc := &types.CheckpointQC{
 		Vote: types.CheckpointVote{
@@ -1339,6 +1515,8 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	// eligible checkpoint, produce a CheckpointVote and store it in the vote pool.
 	if d.config.IsCheckpointFinality(header.Number) && d.votePool != nil {
 		d.maybeProduceCheckpointVote(chain, header, snap, v, signFn)
+		// Prune stale votes to bound memory usage (§9 cache cleanup).
+		d.votePool.Prune(snap.FinalizedNumber, header.Number.Uint64(), d.config.CheckpointInterval)
 	}
 
 	go func() {
@@ -1387,13 +1565,23 @@ func (d *DPoS) maybeProduceCheckpointVote(
 	if cpHeader == nil {
 		return
 	}
+	cpHash := cpHeader.Hash()
+
+	// §11 step 3–4: double-sign guard. Check DB before committing to this hash.
+	if d.db != nil {
+		if existing, ok := ReadSignedCheckpoint(d.db, candidate); ok && existing != cpHash {
+			log.Debug("DPoS checkpoint vote: different hash already signed, skipping",
+				"checkpoint", candidate, "signed", existing, "current", cpHash)
+			return
+		}
+	}
 
 	// Build the vote.
 	chainID := chain.Config().ChainID
 	vote := types.CheckpointVote{
 		ChainID: new(big.Int).Set(chainID),
 		Number:  candidate,
-		Hash:    cpHeader.Hash(),
+		Hash:    cpHash,
 		// ValidatorSetHash will be filled after loading the signer set below.
 	}
 
@@ -1442,7 +1630,24 @@ func (d *DPoS) maybeProduceCheckpointVote(
 		Signer:    v,
 		Signature: sig,
 	}
+
+	// §11 step 7: durably write before gossiping (write-ahead safety).
+	if d.db != nil {
+		if err := WriteSignedCheckpoint(d.db, candidate, cpHash); err != nil {
+			log.Debug("DPoS checkpoint vote: failed to persist signed checkpoint", "err", err)
+			return
+		}
+	}
+
 	d.votePool.AddVote(env)
+
+	// §11 step 8: gossip to peers.
+	d.lock.RLock()
+	bcastFn := d.broadcastVoteFn
+	d.lock.RUnlock()
+	if bcastFn != nil {
+		bcastFn(env)
+	}
 }
 
 // CalcDifficulty implements consensus.Engine.

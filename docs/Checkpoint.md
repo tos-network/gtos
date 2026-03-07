@@ -157,11 +157,16 @@ The signer set is the ordered list of validator signer records:
 
 ```go
 type ValidatorSigner struct {
-    Address     common.Address
-    SignerType  string // canonical signer type
-    SignerValue string // canonical signer value from account signer state
+    Address    common.Address
+    SignerType string // canonical signer type, e.g. "ed25519"
+    SignerPub  []byte // normalized canonical public key bytes from NormalizeSigner(...)
 }
 ```
+
+`SignerPub` is the normalized public key bytes produced by `NormalizeSigner(signerType,
+signerValue)`, **not** the raw `signerValue` string returned by `accountsigner.Get`.
+Using the normalized form ensures the hash is over the canonical binary key material,
+independent of the raw storage encoding.
 
 The record must be derived from the state associated with the snapshot at `h-1`.
 
@@ -201,16 +206,19 @@ This rule keeps the quorum denominator unambiguous:
 
 ```text
 keccak256(RLP([
-  {address, signerType, signerValue},
+  {address, signerType, signerPub},
   ...
 ]))
 ```
 
-where the list is sorted by validator address ascending.
+where the list is sorted by validator address ascending, and `signerPub` is the
+**normalized canonical public key bytes** (output of `NormalizeSigner`), not the raw
+`signerValue` string stored in account signer state.
 
-Binding `signerType` and `signerValue` into `ValidatorSetHash` ensures the vote is tied
-not only to the validator addresses, but also to the exact consensus public keys active
-for that checkpoint.
+Binding `signerType` and `signerPub` into `ValidatorSetHash` ensures the vote is tied
+not only to the validator addresses, but also to the exact canonical consensus public
+keys active for that checkpoint. Using the normalized binary form makes the hash
+independent of storage encoding.
 
 ---
 
@@ -231,7 +239,7 @@ type CheckpointVote struct {
     ChainID          *big.Int    // replay protection; mirrors GTOS chain config semantics
     Number           uint64      // checkpoint block number
     Hash             common.Hash // checkpoint block hash
-    ValidatorSetHash common.Hash // hash of ordered {address, signerType, signerValue} at Number-1
+    ValidatorSetHash common.Hash // hash of ordered {address, signerType, signerPub} at Number-1
 }
 
 type CheckpointVoteEnvelope struct {
@@ -774,7 +782,8 @@ of the current GTOS DPoS chain.
    domain string, and QC verification must compare `Vote.ChainID` against local chain
    config.
 3. **Signer-set binding**: signed payload must include `ValidatorSetHash`, computed from
-   `{address, signerType, signerValue}` records.
+   `{address, signerType, signerPub}` records, where `signerPub` is the normalized
+   canonical public key bytes (not the raw stored string).
 4. **Ancestor-only rule**: a QC may only finalize a real ancestor of the current block,
    not an arbitrary known block.
 5. **Fork-choice enforcement**: finalized checkpoints must constrain reorgs.
@@ -846,8 +855,8 @@ After implementation, verify:
 - [ ] `FirstEligibleCheckpoint` is computed identically on all nodes
 - [ ] QC parser correctly distinguishes absent payload from malformed payload
 - [ ] validator ordering is deterministic and identical across all nodes
-- [ ] `ValidatorSetHash` matches ordered `{address, signerType, signerValue}` at
-      checkpoint pre-state
+- [ ] `ValidatorSetHash` matches ordered `{address, signerType, signerPub}` at
+      checkpoint pre-state (where `signerPub` is normalized canonical pubkey bytes)
 - [ ] every active validator has valid canonical signer metadata of the chain-wide
       `ed25519` signer type before `FirstEligibleCheckpoint`
 - [ ] signature count equals bitmap popcount

@@ -2307,9 +2307,10 @@ func (s *TOSAPI) GetChainProfile() *RPCChainProfile {
 
 // RPCFinalizedBlock is the response type for tos_getFinalizedBlock.
 type RPCFinalizedBlock struct {
-	Number    hexutil.Uint64 `json:"number"`
-	Hash      common.Hash    `json:"hash"`
-	Timestamp hexutil.Uint64 `json:"timestamp"`
+	Number           hexutil.Uint64 `json:"number"`
+	Hash             common.Hash    `json:"hash"`
+	Timestamp        hexutil.Uint64 `json:"timestamp"`
+	ValidatorSetHash common.Hash    `json:"validatorSetHash"`
 }
 
 // GetFinalizedBlock returns the latest finalized checkpoint block.
@@ -2320,9 +2321,10 @@ func (s *TOSAPI) GetFinalizedBlock() *RPCFinalizedBlock {
 		return nil
 	}
 	return &RPCFinalizedBlock{
-		Number:    hexutil.Uint64(block.NumberU64()),
-		Hash:      block.Hash(),
-		Timestamp: hexutil.Uint64(block.Time()),
+		Number:           hexutil.Uint64(block.NumberU64()),
+		Hash:             block.Hash(),
+		Timestamp:        hexutil.Uint64(block.Time()),
+		ValidatorSetHash: s.b.FinalizedValidatorSetHash(),
 	}
 }
 

@@ -14,7 +14,7 @@ type CheckpointVote struct {
 	ChainID          *big.Int    // replay protection; mirrors GTOS chain config semantics
 	Number           uint64      // checkpoint block number
 	Hash             common.Hash // checkpoint block hash
-	ValidatorSetHash common.Hash // keccak256(RLP ordered {address,signerType,signerValue}) at Number-1
+	ValidatorSetHash common.Hash // keccak256(RLP ordered {address,signerType,signerPub}) at Number-1
 }
 
 // SigningHash returns the hash that validators sign.

@@ -383,7 +383,8 @@ func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent)
 	return nil
 }
 
-func (b *backendMock) Engine() consensus.Engine { return b.engine }
+func (b *backendMock) Engine() consensus.Engine                    { return b.engine }
+func (b *backendMock) FinalizedValidatorSetHash() common.Hash      { return common.Hash{} }
 
 func mustNewStateDB(t *testing.T) *state.StateDB {
 	t.Helper()

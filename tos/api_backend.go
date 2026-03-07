@@ -11,6 +11,7 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/rawdb"
@@ -40,6 +41,13 @@ func (b *TOSAPIBackend) CurrentBlock() *types.Block {
 
 func (b *TOSAPIBackend) CurrentFinalizedBlock() *types.Block {
 	return b.tos.blockchain.CurrentFinalizedBlock()
+}
+
+func (b *TOSAPIBackend) FinalizedValidatorSetHash() common.Hash {
+	if d, ok := b.tos.engine.(*dpos.DPoS); ok {
+		return d.FinalizedValidatorSetHash()
+	}
+	return common.Hash{}
 }
 
 func (b *TOSAPIBackend) SetHead(number uint64) {

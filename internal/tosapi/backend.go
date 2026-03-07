@@ -43,6 +43,7 @@ type Backend interface {
 	CurrentHeader() *types.Header
 	CurrentBlock() *types.Block
 	CurrentFinalizedBlock() *types.Block
+	FinalizedValidatorSetHash() common.Hash
 	BlockByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Block, error)
 	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
 	BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error)

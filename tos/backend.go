@@ -224,6 +224,20 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 		return nil, err
 	}
 
+	// Wire checkpoint finality callbacks between the DPoS engine, P2P handler,
+	// and blockchain. Must happen after handler and blockchain are initialised.
+	if d, ok := tosNode.engine.(*dpos.DPoS); ok {
+		bc := tosNode.blockchain
+		d.SetVoteCallbacks(
+			tosNode.handler.BroadcastCheckpointVote,
+			func(h *types.Header) {
+				bc.SetFinalized(types.NewBlockWithHeader(h))
+			},
+			chainConfig.ChainID,
+		)
+		tosNode.handler.CheckpointVoteHandler = d.HandleIncomingVote
+	}
+
 	tosNode.miner = miner.New(tosNode, &config.Miner, chainConfig, tosNode.EventMux(), tosNode.engine, tosNode.isLocalBlock)
 	tosNode.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 
@@ -433,6 +447,12 @@ func (s *TOS) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			d.Authorize(eb, wallet.SignData)
+			// §11 Restart re-gossip: re-broadcast any signed but unfinalized votes.
+			finalizedNumber := uint64(0)
+			if fb := s.blockchain.CurrentFinalizedBlock(); fb != nil {
+				finalizedNumber = fb.NumberU64()
+			}
+			go d.RestartGossip(s.blockchain, finalizedNumber)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.
