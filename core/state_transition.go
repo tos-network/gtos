@@ -337,10 +337,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 			toCode := st.state.GetCode(toAddr)
 
-			if len(st.data) > 0 && len(toCode) == 0 {
-				// Data with no contract code at destination: reject
-				vmerr = ErrContractNotSupported
-			} else if len(toCode) > 0 {
+			if len(toCode) > 0 {
 				// Destination has LVM contract code: execute it.
 				ret, st.gas, vmerr = st.lvm.Call(vm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
 				if errors.Is(vmerr, vm.ErrGasLimitExceeded) {
