@@ -33,10 +33,13 @@ import (
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
+	"github.com/tos-network/gtos/task"
 	"github.com/tos-network/gtos/trie"
 	"golang.org/x/crypto/sha3"
 )
@@ -398,6 +401,91 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 	}
 	if chainA.CurrentBlock().Root() != chainB.CurrentBlock().Root() {
 		t.Fatalf("state root mismatch after replay rejection: A=%s B=%s", chainA.CurrentBlock().Root().Hex(), chainB.CurrentBlock().Root().Hex())
+	}
+}
+
+func TestScheduledTaskGasCountedInGeneratedBlock(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+	}
+	signer := types.LatestSigner(config)
+	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	if err != nil {
+		t.Fatalf("failed to load scheduler key: %v", err)
+	}
+	scheduler := crypto.PubkeyToAddress(key.PublicKey)
+	target := common.HexToAddress("0x5001")
+
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config: config,
+		Alloc: GenesisAlloc{
+			scheduler: {
+				Balance: new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(params.TOS)),
+			},
+			target: {
+				Balance: big.NewInt(0),
+				Code:    []byte(`tos.sstore("task_counter", 1)`),
+			},
+		},
+	}
+	genesis := gspec.MustCommit(db)
+
+	blocks, _ := GenerateChain(config, genesis, dpos.NewFaker(), db, 2, func(i int, b *BlockGen) {
+		if i != 0 {
+			return
+		}
+		data, err := sysaction.MakeSysAction(sysaction.ActionTaskSchedule, map[string]interface{}{
+			"target":          target.Hex(),
+			"selector":        "0x00000000",
+			"task_data":       common.Hash{}.Hex(),
+			"gas_limit":       params.TaskMinGasLimit,
+			"delay_blocks":    uint64(1),
+			"interval_blocks": uint64(0),
+			"max_runs":        uint64(1),
+		})
+		if err != nil {
+			t.Fatalf("MakeSysAction: %v", err)
+		}
+		tx, err := signTestSignerTx(
+			signer, key, b.TxNonce(scheduler), params.SystemActionAddress,
+			big.NewInt(0), 500_000, big.NewInt(1), data,
+		)
+		if err != nil {
+			t.Fatalf("signTestSignerTx: %v", err)
+		}
+		b.AddTx(tx)
+	})
+
+	postBlock1State, err := state.New(blocks[0].Root(), state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("state.New(block1): %v", err)
+	}
+	taskID := task.NewTaskID(scheduler, 2, 0)
+	if rec, ok := task.ReadTask(postBlock1State, taskID); !ok || rec.TargetBlock != 2 || rec.Status != task.TaskPending {
+		t.Fatalf("scheduled task missing after block 1: ok=%v rec=%+v", ok, rec)
+	}
+
+	if blocks[1].GasUsed() == 0 {
+		t.Fatal("scheduled task gas was not counted into the generated block")
+	}
+
+	blockchain, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatalf("NewBlockChain: %v", err)
+	}
+	defer blockchain.Stop()
+
+	if _, err := blockchain.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	postState, err := blockchain.State()
+	if err != nil {
+		t.Fatalf("State: %v", err)
+	}
+	if got := postState.GetState(target, vm.StorageSlot("task_counter")).Big().Uint64(); got != 1 {
+		t.Fatalf("scheduled task did not mutate target storage: got %d want 1", got)
 	}
 }
 

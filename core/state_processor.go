@@ -85,15 +85,23 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		msgs[i] = msg
 	}
 
-	RunScheduledTasks(statedb, blockCtx, p.config, header.Number.Uint64())
+	scheduledGas, err := RunScheduledTasks(statedb, blockCtx, p.config, header.Number.Uint64(), gp)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
-	var err error
-	receipts, allLogs, *usedGas, err = ExecuteTransactions(
+	receipts, allLogs, txGas, err := ExecuteTransactions(
 		p.config, blockCtx, statedb, txs, block.Hash(), header.Number, gp, msgs,
 	)
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	if scheduledGas != 0 {
+		for _, receipt := range receipts {
+			receipt.CumulativeGasUsed += scheduledGas
+		}
+	}
+	*usedGas = scheduledGas + txGas
 
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
@@ -139,16 +147,28 @@ func ExecuteTransactions(
 // Called by both Process() (block validation) and the miner (block building)
 // before user transactions are applied, so the resulting state root is identical
 // in both paths.
-func RunScheduledTasks(statedb *state.StateDB, blockCtx vm.BlockContext, chainCfg *params.ChainConfig, blockNum uint64) {
-	task.ProcessDueTasks(statedb, blockCtx, chainCfg, blockNum,
+func RunScheduledTasks(statedb *state.StateDB, blockCtx vm.BlockContext, chainCfg *params.ChainConfig, blockNum uint64, gp *GasPool) (uint64, error) {
+	_, gasUsed, err := task.ProcessDueTasks(statedb, blockCtx, chainCfg, blockNum,
 		func(db vm.StateDB, bCtx vm.BlockContext, cfg *params.ChainConfig,
 			caller, target common.Address, calldata []byte, gasLimit uint64,
-		) (uint64, error) {
+		) task.ExecResult {
+			if gp != nil && gasLimit > gp.Gas() {
+				return task.ExecResult{Err: ErrGasLimitReached, Fatal: true}
+			}
 			ctx := vm.CallCtx{From: caller, To: target, Data: calldata}
 			code := db.GetCode(target)
 			gasUsed, _, _, err := vm.Execute(db, bCtx, cfg, ctx, code, gasLimit)
-			return gasUsed, err
+			if gp != nil {
+				if gasUsed > gasLimit {
+					gasUsed = gasLimit
+				}
+				if err := gp.SubGas(gasUsed); err != nil {
+					return task.ExecResult{GasUsed: gasUsed, Err: ErrGasLimitReached, Fatal: true}
+				}
+			}
+			return task.ExecResult{GasUsed: gasUsed, Err: err}
 		})
+	return gasUsed, err
 }
 
 // TxAsMessageWithAccountSigner converts a transaction to a Message using the

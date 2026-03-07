@@ -8,6 +8,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
 	vmtypes "github.com/tos-network/gtos/core/vmtypes"
 	"github.com/tos-network/gtos/params"
 )
@@ -361,14 +362,20 @@ func TestProcessDueTasksOneShot(t *testing.T) {
 	execCalled := false
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
-	) (uint64, error) {
+	) ExecResult {
 		execCalled = true
-		return gasLimit / 2, nil
+		return ExecResult{GasUsed: gasLimit / 2}
 	}
 
-	n := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	n, gasUsed, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if n != 1 {
 		t.Errorf("expected 1 task processed, got %d", n)
+	}
+	if gasUsed != params.TaskMinGasLimit/2 {
+		t.Errorf("expected gasUsed=%d, got %d", params.TaskMinGasLimit/2, gasUsed)
 	}
 	if !execCalled {
 		t.Error("executor was not called")
@@ -392,11 +399,13 @@ func TestProcessDueTasksRepeatReenqueues(t *testing.T) {
 
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
-	) (uint64, error) {
-		return gasLimit, nil // use all gas — no refund
+	) ExecResult {
+		return ExecResult{GasUsed: gasLimit} // use all gas — no refund
 	}
 
-	ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if _, _, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	rec, _ := ReadTask(db, taskId)
 	if rec.Status != TaskPending {
@@ -427,13 +436,15 @@ func TestProcessDueTasksMaxRunsExhaustion(t *testing.T) {
 
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
-	) (uint64, error) {
-		return gasLimit, nil
+	) ExecResult {
+		return ExecResult{GasUsed: gasLimit}
 	}
 
 	// Run 1.
 	target1 := uint64(15)
-	ProcessDueTasks(db, noopBlockCtx(target1), params.MainnetChainConfig, target1, exec)
+	if _, _, err := ProcessDueTasks(db, noopBlockCtx(target1), params.MainnetChainConfig, target1, exec); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	rec, _ := ReadTask(db, taskId)
 	if rec.Status != TaskPending || rec.Runs != 1 {
 		t.Errorf("after run 1: status=%d runs=%d", rec.Status, rec.Runs)
@@ -441,7 +452,9 @@ func TestProcessDueTasksMaxRunsExhaustion(t *testing.T) {
 
 	// Run 2 (max).
 	target2 := target1 + params.TaskMinIntervalBlocks
-	ProcessDueTasks(db, noopBlockCtx(target2), params.MainnetChainConfig, target2, exec)
+	if _, _, err := ProcessDueTasks(db, noopBlockCtx(target2), params.MainnetChainConfig, target2, exec); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	rec, _ = ReadTask(db, taskId)
 	if rec.Status != TaskExpired {
 		t.Errorf("expected Expired after maxRuns exhausted, got %d", rec.Status)
@@ -464,11 +477,13 @@ func TestProcessDueTasksPartialRefund(t *testing.T) {
 	gasUsed := uint64(5_000)
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, _ uint64,
-	) (uint64, error) {
-		return gasUsed, nil
+	) ExecResult {
+		return ExecResult{GasUsed: gasUsed}
 	}
 
-	ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if _, _, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	refund := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit-gasUsed), big.NewInt(params.TxPriceWei))
 	expected := new(big.Int).Add(balBefore, refund)
@@ -491,11 +506,14 @@ func TestProcessDueTasksOverflowDeferred(t *testing.T) {
 
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
-	) (uint64, error) {
-		return gasLimit, nil
+	) ExecResult {
+		return ExecResult{GasUsed: gasLimit}
 	}
 
-	n := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	n, _, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if uint64(n) != params.TaskMaxPerBlock {
 		t.Errorf("expected %d tasks processed, got %d", params.TaskMaxPerBlock, n)
 	}
@@ -516,11 +534,14 @@ func TestProcessDueTasksCallbackFailurePreservesFramework(t *testing.T) {
 	errCallback := errors.New("callback failed")
 	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
-	) (uint64, error) {
-		return gasLimit / 2, errCallback
+	) ExecResult {
+		return ExecResult{GasUsed: gasLimit / 2, Err: errCallback}
 	}
 
-	n := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	n, _, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if n != 1 {
 		t.Errorf("expected 1 task processed even on callback failure, got %d", n)
 	}
@@ -528,5 +549,38 @@ func TestProcessDueTasksCallbackFailurePreservesFramework(t *testing.T) {
 	// One-shot with maxRuns=1, so status should be Done regardless of callback outcome.
 	if rec.Status != TaskDone {
 		t.Errorf("expected Done after callback failure, got %d", rec.Status)
+	}
+}
+
+func TestProcessDueTasksCallbackLogIsFatal(t *testing.T) {
+	db := newStateDB(t)
+	sched := common.HexToAddress("0xD00D")
+	fund(db, sched, 100)
+
+	taskId, _ := doSchedule(t, db, 10, sched, params.TaskMinGasLimit, 5, 0, 1)
+	targetBlock := uint64(15)
+
+	exec := func(db vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
+		_, _ common.Address, _ []byte, gasLimit uint64,
+	) ExecResult {
+		db.AddLog(&types.Log{Address: common.HexToAddress("0xBEEF")})
+		return ExecResult{GasUsed: gasLimit / 2}
+	}
+
+	n, gasUsed, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
+	if !errors.Is(err, ErrTaskLogsNotAllowed) {
+		t.Fatalf("expected ErrTaskLogsNotAllowed, got %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 completed tasks before fatal stop, got %d", n)
+	}
+	if gasUsed != params.TaskMinGasLimit/2 {
+		t.Fatalf("expected gasUsed=%d, got %d", params.TaskMinGasLimit/2, gasUsed)
+	}
+	if rec, _ := ReadTask(db, taskId); rec.Status != TaskPending {
+		t.Fatalf("task status changed on fatal error: got %d", rec.Status)
+	}
+	if len(db.Logs()) != 0 {
+		t.Fatal("task logs must be reverted on fatal error")
 	}
 }

@@ -19,25 +19,27 @@ type ExecutorFn func(
 	target common.Address,
 	calldata []byte,
 	gasLimit uint64,
-) (gasUsed uint64, err error)
+) ExecResult
 
 // ProcessDueTasks executes all tasks scheduled at blockNum against db.
 // It is called by both Process() (block validation) and the miner (block building)
 // before user transactions, ensuring the state root is identical in both paths.
-// Returns the number of tasks processed.
+// Returns the number of tasks processed, total callback gas consumed, and any
+// fatal error that invalidates the block.
 func ProcessDueTasks(
 	db vmtypes.StateDB,
 	blockCtx vmtypes.BlockContext,
 	chainCfg *params.ChainConfig,
 	blockNum uint64,
 	exec ExecutorFn,
-) int {
+) (int, uint64, error) {
 	taskIds := DequeueTasksAt(db, blockNum)
 	if len(taskIds) == 0 {
-		return 0
+		return 0, 0, nil
 	}
 
 	processed := 0
+	totalGasUsed := uint64(0)
 	deferred := taskIds[:0:0] // tasks that overflow TaskMaxPerBlock
 
 	for i, taskId := range taskIds {
@@ -61,13 +63,22 @@ func ProcessDueTasks(
 		// Task framework state (WriteTask, AdjustActiveCount, refund) is applied
 		// outside the snapshot and is always committed.
 		snap := db.Snapshot()
-		gasUsed, execErr := exec(db, blockCtx, chainCfg,
+		preLogCount := len(db.Logs())
+		res := exec(db, blockCtx, chainCfg,
 			params.TaskSchedulerAddress, rec.Target, calldata, rec.GasLimit)
-		if execErr != nil {
+		gasUsed := res.GasUsed
+		if gasUsed > rec.GasLimit {
+			gasUsed = rec.GasLimit
+		}
+		totalGasUsed += gasUsed
+		if len(db.Logs()) != preLogCount {
 			db.RevertToSnapshot(snap)
-			// Still count gas used toward the pre-deposited amount.
-			if gasUsed > rec.GasLimit {
-				gasUsed = rec.GasLimit
+			return processed, totalGasUsed, ErrTaskLogsNotAllowed
+		}
+		if res.Err != nil {
+			db.RevertToSnapshot(snap)
+			if res.Fatal {
+				return processed, totalGasUsed, res.Err
 			}
 		}
 
@@ -132,5 +143,5 @@ func ProcessDueTasks(
 		EnqueueTask(db, blockNum+1, tid)
 	}
 
-	return processed
+	return processed, totalGasUsed, nil
 }

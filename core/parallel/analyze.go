@@ -3,6 +3,7 @@ package parallel
 import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
@@ -52,7 +53,29 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 
 	case params.PrivacyRouterAddress:
 		// UNO transactions are serialized in MVP for deterministic proof/state handling.
+		// They also read the LVM sentinel because UNO unshield/transfer can write
+		// arbitrary recipient accounts that overlap with dynamic LVM balance writes.
 		as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
+		as.ReadAddrs[params.LVMSerialAddress] = struct{}{}
+
+		env, err := uno.DecodeEnvelope(msg.Data())
+		if err != nil {
+			break
+		}
+		switch env.Action {
+		case uno.ActionTransfer:
+			payload, err := uno.DecodeTransferPayload(env.Body)
+			if err == nil {
+				as.WriteAddrs[payload.To] = struct{}{}
+				as.ReadAddrs[payload.To] = struct{}{}
+			}
+		case uno.ActionUnshield:
+			payload, err := uno.DecodeUnshieldPayload(env.Body)
+			if err == nil {
+				as.WriteAddrs[payload.To] = struct{}{}
+				as.ReadAddrs[payload.To] = struct{}{}
+			}
+		}
 
 	default:
 		// Plain TOS transfer: writes recipient balance.

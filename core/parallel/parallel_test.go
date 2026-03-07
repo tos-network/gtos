@@ -64,6 +64,34 @@ func unoMsg(from common.Address, nonce uint64) types.Message {
 		wire, nil, true)
 }
 
+func unoTransferMsg(from, to common.Address, nonce uint64) types.Message {
+	dst := params.PrivacyRouterAddress
+	body, _ := uno.EncodeTransferPayload(uno.TransferPayload{
+		To:            to,
+		NewSender:     unoCipher(0x11),
+		ReceiverDelta: unoCipher(0x21),
+		ProofBundle:   []byte{0x01},
+	})
+	wire, _ := uno.EncodeEnvelope(uno.ActionTransfer, body)
+	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
+		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+		wire, nil, true)
+}
+
+func unoUnshieldMsg(from, to common.Address, nonce uint64) types.Message {
+	dst := params.PrivacyRouterAddress
+	body, _ := uno.EncodeUnshieldPayload(uno.UnshieldPayload{
+		To:          to,
+		Amount:      1,
+		NewSender:   unoCipher(0x31),
+		ProofBundle: []byte{0x01},
+	})
+	wire, _ := uno.EncodeEnvelope(uno.ActionUnshield, body)
+	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
+		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+		wire, nil, true)
+}
+
 // ─── AccessSet.Conflicts ─────────────────────────────────────────────────────
 
 func TestAccessSetConflictsWriteWrite(t *testing.T) {
@@ -227,6 +255,44 @@ func TestAnalyzeTxUNOSerializedAcrossSenders(t *testing.T) {
 	b := AnalyzeTx(unoMsg(addr("0x7202"), 0), nil)
 	if !a.Conflicts(&b) {
 		t.Error("UNO txs should conflict via shared PrivacyRouterAddress")
+	}
+}
+
+func TestAnalyzeTxUNOTransferIncludesRecipient(t *testing.T) {
+	recipient := addr("0x7210")
+	as := AnalyzeTx(unoTransferMsg(addr("0x720F"), recipient, 0), nil)
+
+	if _, ok := as.WriteAddrs[recipient]; !ok {
+		t.Fatal("UNO transfer recipient must be in WriteAddrs")
+	}
+	if _, ok := as.ReadAddrs[recipient]; !ok {
+		t.Fatal("UNO transfer recipient must be in ReadAddrs")
+	}
+	if _, ok := as.ReadAddrs[params.LVMSerialAddress]; !ok {
+		t.Fatal("UNO transfer must read LVMSerialAddress")
+	}
+}
+
+func TestUNOUnshieldConflictsWithPlainTransfer(t *testing.T) {
+	recipient := addr("0x7220")
+	unoSet := AnalyzeTx(unoUnshieldMsg(addr("0x7221"), recipient, 0), nil)
+	plainSet := AnalyzeTx(plainMsg(addr("0x7222"), recipient, 0, 1), nil)
+
+	if !unoSet.Conflicts(&plainSet) {
+		t.Fatal("UNO unshield must conflict with plain transfer to the same recipient")
+	}
+}
+
+func TestUNOUnshieldConflictsWithLVMCall(t *testing.T) {
+	db := newTestStateDB(t)
+	contract := addr("0x7230")
+	db.SetCode(contract, []byte{0x01})
+
+	unoSet := AnalyzeTx(unoUnshieldMsg(addr("0x7231"), addr("0x7232"), 0), db)
+	lvmSet := AnalyzeTx(plainMsg(addr("0x7233"), contract, 0, 0), db)
+
+	if !unoSet.Conflicts(&lvmSet) {
+		t.Fatal("UNO unshield must conflict with LVM calls via LVMSerialAddress")
 	}
 }
 
@@ -879,6 +945,52 @@ func TestExecuteParallelIndependentTxs(t *testing.T) {
 	expectedCoinbase := big.NewInt(int64(3) * int64(fee))
 	if got := db.GetBalance(coinbase); got.Cmp(expectedCoinbase) != 0 {
 		t.Errorf("coinbase balance = %v, want %v", got, expectedCoinbase)
+	}
+}
+
+func TestExecuteParallelKeepsSerialGasSemanticsAcrossLevel(t *testing.T) {
+	coinbase := addr("0xCBEE")
+	senders := []common.Address{addr("0xAA61"), addr("0xAA62")}
+	recipients := []common.Address{addr("0xBB61"), addr("0xBB62")}
+
+	db := newTestStateDB(t)
+	for _, s := range senders {
+		db.AddBalance(s, big.NewInt(1000))
+	}
+	db.Finalise(false)
+
+	mkMsg := func(from, to common.Address) types.Message {
+		return types.NewMessage(from, &to, 0, big.NewInt(0),
+			60, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+			nil, nil, true)
+	}
+	msgs := []types.Message{
+		mkMsg(senders[0], recipients[0]),
+		mkMsg(senders[1], recipients[1]),
+	}
+	txs := []*types.Transaction{
+		types.NewTx(&types.SignerTx{ChainID: big.NewInt(1), Nonce: 0, Gas: 60, V: new(big.Int), R: new(big.Int), S: new(big.Int)}),
+		types.NewTx(&types.SignerTx{ChainID: big.NewInt(1), Nonce: 1, Gas: 60, V: new(big.Int), R: new(big.Int), S: new(big.Int)}),
+	}
+	block := makeTestBlock(t, txs)
+	gp := simpleGasPool(100)
+
+	receipts, _, totalGas, err := ExecuteParallel(
+		&params.ChainConfig{},
+		vm.BlockContext{BlockNumber: big.NewInt(1), Difficulty: big.NewInt(1), Coinbase: coinbase},
+		db, block.Transactions(), block.Hash(), block.Header().Number, &gp, msgs, mockApplyMsg(1),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(receipts) != 2 {
+		t.Fatalf("expected 2 receipts, got %d", len(receipts))
+	}
+	if totalGas != 2 {
+		t.Fatalf("expected totalGas 2, got %d", totalGas)
+	}
+	if gp.Gas() != 98 {
+		t.Fatalf("expected remaining gas 98, got %d", gp.Gas())
 	}
 }
 

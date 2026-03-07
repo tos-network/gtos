@@ -52,6 +52,8 @@ type BlockGen struct {
 
 	config *params.ChainConfig
 	engine consensus.Engine
+
+	tasksApplied bool
 }
 
 // SetCoinbase sets the coinbase of the generated block.
@@ -105,9 +107,7 @@ func (b *BlockGen) AddTx(tx *types.Transaction) {
 // added. If contract code relies on the BLOCKHASH instruction,
 // the block in chain will be returned.
 func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
-	if b.gasPool == nil {
-		b.SetCoinbase(common.Address{})
-	}
+	b.ensurePreBlockTasks(bc)
 	signer := types.MakeSigner(b.config, b.header.Number)
 	// Use initStatedb (pre-block state) for sender resolution so that the semantics
 	// match StateProcessor.Process: an ACCOUNT_SET_SIGNER tx earlier in this block
@@ -132,6 +132,22 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 	receipt.CumulativeGasUsed = b.header.GasUsed
 	b.txs = append(b.txs, tx)
 	b.receipts = append(b.receipts, receipt)
+}
+
+func (b *BlockGen) ensurePreBlockTasks(bc *BlockChain) {
+	if b.tasksApplied {
+		return
+	}
+	if b.gasPool == nil {
+		b.gasPool = new(GasPool).AddGas(b.header.GasLimit)
+	}
+	blockCtx := NewVMBlockContext(b.header, bc, &b.header.Coinbase)
+	gasUsed, err := RunScheduledTasks(b.statedb, blockCtx, b.config, b.header.Number.Uint64(), b.gasPool)
+	if err != nil {
+		panic(err)
+	}
+	b.header.GasUsed += gasUsed
+	b.tasksApplied = true
 }
 
 // GetBalance returns the balance of the given address at the generated block.
@@ -280,6 +296,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		if gen != nil {
 			gen(i, b)
 		}
+		b.ensurePreBlockTasks(nil)
 
 		if b.engine != nil {
 			// Finalize and seal the block

@@ -1108,7 +1108,14 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, error) {
 	defer work.discard()
 
 	blockCtx := core.NewVMBlockContext(work.header, w.chain, &work.coinbase)
-	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
+	if work.gasPool == nil {
+		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
+	}
+	taskGas, err := core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64(), work.gasPool)
+	if err != nil {
+		return nil, err
+	}
+	work.header.GasUsed += taskGas
 
 	if !params.noTxs {
 		w.fillTransactions(nil, work)
@@ -1145,7 +1152,16 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 
 	// Run scheduled tasks before user transactions so the state root matches validators.
 	blockCtx := core.NewVMBlockContext(work.header, w.chain, &work.coinbase)
-	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
+	if work.gasPool == nil {
+		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
+	}
+	taskGas, err := core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64(), work.gasPool)
+	if err != nil {
+		log.Error("Failed to execute scheduled tasks during block building", "err", err)
+		work.discard()
+		return
+	}
+	work.header.GasUsed += taskGas
 
 	// Fill pending transactions from the txpool
 	err = w.fillTransactions(interrupt, work)

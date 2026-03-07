@@ -40,4 +40,11 @@ var (
 	ErrTaskInsufficientDeposit = errors.New("task: insufficient balance for gas deposit")
 	ErrTaskNotPending          = errors.New("task: task is not in Pending state")
 	ErrTaskNotScheduler        = errors.New("task: caller is not the task scheduler")
+	ErrTaskLogsNotAllowed      = errors.New("task: callback emitted logs")
 )
+
+type ExecResult struct {
+	GasUsed uint64
+	Err     error
+	Fatal   bool
+}
