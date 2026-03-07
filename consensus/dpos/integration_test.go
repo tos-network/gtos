@@ -512,7 +512,7 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 		t.Fatalf("unexpected head number: have %d want %d", have, want)
 	}
 
-	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg)
+	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg, false)
 	if err != nil {
 		t.Fatalf("parse epoch validators: %v", err)
 	}
@@ -742,7 +742,7 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 		blocks[i] = block.WithSeal(header)
 	}
 
-	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg)
+	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg, false)
 	if err != nil {
 		t.Fatalf("parse epoch validators: %v", err)
 	}

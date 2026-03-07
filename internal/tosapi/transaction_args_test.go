@@ -304,6 +304,7 @@ func (b *backendMock) HeaderByHash(ctx context.Context, hash common.Hash) (*type
 func (b *backendMock) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Header, error) {
 	return nil, nil
 }
+func (b *backendMock) CurrentFinalizedBlock() *types.Block { return nil }
 func (b *backendMock) CurrentBlock() *types.Block {
 	if b.block != nil {
 		return b.block

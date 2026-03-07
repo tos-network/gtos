@@ -28,7 +28,7 @@ var ProtocolVersions = []uint{TOS67, TOS66}
 
 // protocolLengths are the number of implemented message corresponding to
 // different protocol versions.
-var protocolLengths = map[uint]uint64{TOS67: 17, TOS66: 17}
+var protocolLengths = map[uint]uint64{TOS67: 18, TOS66: 18}
 
 // maxMessageSize is the maximum cap on the size of a protocol message.
 const maxMessageSize = 10 * 1024 * 1024
@@ -49,6 +49,7 @@ const (
 	NewPooledTransactionHashesMsg = 0x08
 	GetPooledTransactionsMsg      = 0x09
 	PooledTransactionsMsg         = 0x0a
+	NewCheckpointVoteMsg          = 0x11
 )
 
 var (
@@ -311,6 +312,14 @@ type PooledTransactionsRLPPacket66 struct {
 	RequestId uint64
 	PooledTransactionsRLPPacket
 }
+
+// NewCheckpointVotePacket is the gossip message for a single checkpoint vote envelope.
+type NewCheckpointVotePacket struct {
+	types.CheckpointVoteEnvelope
+}
+
+func (*NewCheckpointVotePacket) Name() string { return "NewCheckpointVote" }
+func (*NewCheckpointVotePacket) Kind() byte   { return NewCheckpointVoteMsg }
 
 func (*StatusPacket) Name() string { return "Status" }
 func (*StatusPacket) Kind() byte   { return StatusMsg }

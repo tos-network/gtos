@@ -147,7 +147,7 @@ func TestEpochExtraParse(t *testing.T) {
 	a1 := common.Address{0x01}
 	extra := append(append(vanity, a1.Bytes()...), seal...)
 	d := NewFaker()
-	out, err := parseEpochValidators(extra, d.config)
+	out, err := parseEpochValidators(extra, d.config, false)
 	if err != nil {
 		t.Fatalf("N=1: %v", err)
 	}
@@ -156,13 +156,13 @@ func TestEpochExtraParse(t *testing.T) {
 	}
 
 	// Missing seal (too short).
-	if _, err := parseEpochValidators(append(vanity, a1.Bytes()...), d.config); err == nil {
+	if _, err := parseEpochValidators(append(vanity, a1.Bytes()...), d.config, false); err == nil {
 		t.Error("missing seal: expected error")
 	}
 
 	// Bad alignment: vanity + 19 bytes + seal.
 	badPayload := append(append(vanity, make([]byte, 19)...), seal...)
-	if _, err := parseEpochValidators(badPayload, d.config); err == nil {
+	if _, err := parseEpochValidators(badPayload, d.config, false); err == nil {
 		t.Error("bad alignment: expected error")
 	}
 }

@@ -102,6 +102,11 @@ type handler struct {
 	requiredBlocks map[uint64]common.Hash
 	blockValidator func(*types.Block) error
 
+	// CheckpointVoteHandler is called when a checkpoint vote envelope is received
+	// from a peer. It should deliver the vote to the consensus engine's vote pool.
+	// If nil, checkpoint vote messages are silently discarded.
+	CheckpointVoteHandler func(*types.CheckpointVoteEnvelope)
+
 	// channels for fetcher, syncer, txsyncLoop
 	quitSync chan struct{}
 
@@ -554,6 +559,15 @@ func (h *handler) Stop() {
 	h.peerWG.Wait()
 
 	log.Info("TOS protocol stopped")
+}
+
+// BroadcastCheckpointVote sends a CheckpointVoteEnvelope to all connected peers.
+func (h *handler) BroadcastCheckpointVote(env *types.CheckpointVoteEnvelope) {
+	for _, p := range h.peers.allPeers() {
+		if err := p.SendCheckpointVote(env); err != nil {
+			p.Log().Debug("Failed to send checkpoint vote", "err", err)
+		}
+	}
 }
 
 // BroadcastBlock will either propagate a block to a subset of its peers, or

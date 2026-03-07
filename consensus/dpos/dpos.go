@@ -21,6 +21,7 @@ import (
 	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"math/big"
+	"math/bits"
 	"math/rand"
 	"sort"
 	"sync"
@@ -28,6 +29,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/misc"
@@ -64,6 +66,18 @@ var (
 	errInvalidChain                = errors.New("dpos: non-contiguous header chain")
 	errInvalidSlot                 = errors.New("dpos: slot did not advance")
 	errMissingParentState          = errors.New("dpos: missing parent state")
+
+	// Checkpoint QC sentinel errors (Phase 1 structural + Phase 2 cryptographic).
+	errInvalidCheckpointQC        = errors.New("dpos: invalid checkpoint QC")
+	errInvalidQCChainID           = errors.New("dpos: checkpoint QC chain ID mismatch")
+	errInvalidQCNumber            = errors.New("dpos: checkpoint QC number invalid")
+	errQCTooStale                 = errors.New("dpos: checkpoint QC too stale")
+	errQCBitmapOverflow           = errors.New("dpos: checkpoint QC bitmap exceeds validator count")
+	errQCSignatureCountMismatch   = errors.New("dpos: checkpoint QC signature count != popcount(bitmap)")
+	errQCInsufficientSignatures   = errors.New("dpos: checkpoint QC below 2/3 quorum")
+	errQCInvalidSignature         = errors.New("dpos: checkpoint QC signature verification failed")
+	errQCValidatorSetHashMismatch = errors.New("dpos: checkpoint QC ValidatorSetHash mismatch")
+	errQCNotAncestor              = errors.New("dpos: checkpoint QC target is not an ancestor")
 )
 
 // Package-level difficulty values.
@@ -104,6 +118,8 @@ type DPoS struct {
 	validator common.Address
 	signFn    SignerFn
 	lock      sync.RWMutex
+
+	votePool *checkpointVotePool // in-memory checkpoint vote cache (nil when inactive)
 
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
@@ -155,15 +171,22 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 		return nil, err
 	}
 	config.SealSignerType = sealSignerType
+	if err := config.ValidateCheckpointConfig(); err != nil {
+		return nil, err
+	}
 	recents, _ := lru.NewARC(inmemorySnapshots)
 	signatures, _ := lru.NewARC(inmemorySignatures)
-	return &DPoS{
+	d := &DPoS{
 		config:     config,
 		db:         db,
 		recents:    recents,
 		signatures: signatures,
 		sealLength: sealLengthForSignerType(config.SealSignerType),
-	}, nil
+	}
+	if config.CheckpointFinalityBlock != nil {
+		d.votePool = newCheckpointVotePool()
+	}
+	return d, nil
 }
 
 // NewFaker returns a DPoS engine suitable for unit tests. It skips difficulty
@@ -271,6 +294,314 @@ func encodeSigHeader(w io.Writer, header *types.Header, sealLen int) {
 
 func sealLengthForSignerType(signerType string) int {
 	return extraSealEd25519
+}
+
+// firstCheckpointAtOrAfter returns the smallest h such that
+// h >= activationBlock && h % interval == 0.
+// interval must be > 0.
+func firstCheckpointAtOrAfter(activationBlock, interval uint64) uint64 {
+	if interval == 0 {
+		return activationBlock
+	}
+	rem := activationBlock % interval
+	if rem == 0 {
+		return activationBlock
+	}
+	return activationBlock + (interval - rem)
+}
+
+// parseCheckpointQCFromExtra extracts the CheckpointQC RLP bytes from header.Extra.
+// Returns (qc, nil) if present and valid RLP, (nil, nil) if absent, (nil, err) if malformed.
+// sealLen is extraSealEd25519 (96).
+func parseCheckpointQCFromExtra(extra []byte, isEpoch bool, isCheckpointFinality bool) (*types.CheckpointQC, error) {
+	sealLen := extraSealEd25519
+	if len(extra) < extraVanity+sealLen {
+		return nil, nil
+	}
+	middle := extra[extraVanity : len(extra)-sealLen]
+
+	var qcBytes []byte
+	if isEpoch && isCheckpointFinality {
+		// New format: [1B count=N][N×AddressLength][QC RLP (optional)]
+		if len(middle) == 0 {
+			return nil, nil
+		}
+		n := int(middle[0])
+		valEnd := 1 + n*common.AddressLength
+		if valEnd > len(middle) {
+			return nil, errInvalidCheckpointQC
+		}
+		qcBytes = middle[valEnd:]
+	} else if isEpoch {
+		// Old format: no QC possible
+		return nil, nil
+	} else {
+		// Non-epoch: middle is entirely the QC (if any)
+		qcBytes = middle
+	}
+
+	if len(qcBytes) == 0 {
+		return nil, nil
+	}
+	var qc types.CheckpointQC
+	if err := rlp.DecodeBytes(qcBytes, &qc); err != nil {
+		return nil, fmt.Errorf("%w: RLP decode: %v", errInvalidCheckpointQC, err)
+	}
+	return &qc, nil
+}
+
+// verifyCheckpointQCStructure performs Phase 1 (structural-only) QC checks.
+// Called from verifyCascadingFields during VerifyHeader; no pre-state access.
+func (d *DPoS) verifyCheckpointQCStructure(chain consensus.ChainHeaderReader, header *types.Header) error {
+	if !d.config.IsCheckpointFinality(header.Number) {
+		return nil
+	}
+	number := header.Number.Uint64()
+	isEpoch := number%d.config.Epoch == 0
+	qc, err := parseCheckpointQCFromExtra(header.Extra, isEpoch, true)
+	if err != nil {
+		return err
+	}
+	if qc == nil {
+		return nil // absent QC is always valid
+	}
+
+	// Step 3: compute firstEligible
+	firstEligible := firstCheckpointAtOrAfter(d.config.CheckpointFinalityBlock.Uint64(), d.config.CheckpointInterval)
+
+	// Step 4: qc.Vote.Number >= firstEligible
+	if qc.Vote.Number < firstEligible {
+		return fmt.Errorf("%w: vote number %d below firstEligible %d", errInvalidQCNumber, qc.Vote.Number, firstEligible)
+	}
+	// Step 5: qc.Vote.Number % CheckpointInterval == 0
+	if d.config.CheckpointInterval > 0 && qc.Vote.Number%d.config.CheckpointInterval != 0 {
+		return fmt.Errorf("%w: vote number %d not a checkpoint multiple", errInvalidQCNumber, qc.Vote.Number)
+	}
+	// Step 6: header.Number > qc.Vote.Number
+	if number <= qc.Vote.Number {
+		return fmt.Errorf("%w: header %d must be after checkpoint %d", errInvalidQCNumber, number, qc.Vote.Number)
+	}
+	// Step 7: staleness limit: header.Number - qc.Vote.Number <= 2 * CheckpointInterval
+	if d.config.CheckpointInterval > 0 && number-qc.Vote.Number > 2*d.config.CheckpointInterval {
+		return fmt.Errorf("%w: gap %d exceeds 2*interval %d", errQCTooStale, number-qc.Vote.Number, 2*d.config.CheckpointInterval)
+	}
+	// Step 8: ChainID check
+	chainID := chain.Config().ChainID
+	if qc.Vote.ChainID == nil || chainID == nil || qc.Vote.ChainID.Cmp(chainID) != 0 {
+		return errInvalidQCChainID
+	}
+	// Step 9: popcount(Bitmap) > 0 && <= MaxValidators
+	pop := bits.OnesCount64(qc.Bitmap)
+	if pop == 0 {
+		return fmt.Errorf("%w: empty bitmap", errQCBitmapOverflow)
+	}
+	if uint64(pop) > d.config.MaxValidators {
+		return fmt.Errorf("%w: popcount %d exceeds maxValidators %d", errQCBitmapOverflow, pop, d.config.MaxValidators)
+	}
+	// Step 10: len(Signatures) == popcount(Bitmap)
+	if len(qc.Signatures) != pop {
+		return fmt.Errorf("%w: have %d sigs, bitmap pop %d", errQCSignatureCountMismatch, len(qc.Signatures), pop)
+	}
+	return nil
+}
+
+// verifyCheckpointQCFull performs Phase 2 (cryptographic) QC checks.
+// Called from VerifyFinalizedState after state and ancestors are available.
+func (d *DPoS) verifyCheckpointQCFull(chain consensus.ChainHeaderReader, header *types.Header, snap *Snapshot) error {
+	if !d.config.IsCheckpointFinality(header.Number) {
+		return nil
+	}
+	number := header.Number.Uint64()
+	isEpoch := number%d.config.Epoch == 0
+	qc, err := parseCheckpointQCFromExtra(header.Extra, isEpoch, true)
+	if err != nil {
+		return err
+	}
+	if qc == nil {
+		return nil // absent QC is valid
+	}
+
+	// Step 1: ancestor walk — verify qc.Vote.Hash matches block at qc.Vote.Number.
+	// The staleness limit from Phase 1 bounds this walk to at most 2*CheckpointInterval.
+	ancestor := chain.GetHeaderByNumber(qc.Vote.Number)
+	if ancestor == nil {
+		return fmt.Errorf("%w: cannot find ancestor at %d", errQCNotAncestor, qc.Vote.Number)
+	}
+	if ancestor.Hash() != qc.Vote.Hash {
+		return fmt.Errorf("%w: hash mismatch at height %d", errQCNotAncestor, qc.Vote.Number)
+	}
+
+	// Step 2: load snapshot at qc.Vote.Number - 1 (checkpoint pre-state).
+	if qc.Vote.Number == 0 {
+		return fmt.Errorf("%w: checkpoint number must be > 0", errInvalidQCNumber)
+	}
+	preSnap, err := d.snapshot(chain, qc.Vote.Number-1, ancestor.ParentHash, nil)
+	if err != nil {
+		return fmt.Errorf("dpos: checkpoint pre-state snapshot unavailable: %w", err)
+	}
+
+	// Steps 3–4: build ordered signer set and validate all metadata.
+	// The signer set is the validators in preSnap, sorted ascending by address.
+	signerSet, err := d.buildSignerSet(preSnap)
+	if err != nil {
+		return err
+	}
+
+	// Recompute ValidatorSetHash and compare.
+	vsHash := computeValidatorSetHash(signerSet)
+	if vsHash != qc.Vote.ValidatorSetHash {
+		return errQCValidatorSetHashMismatch
+	}
+
+	// Step 5–6: verify signatures against bitmap.
+	signingHash := qc.Vote.SigningHash()
+	N := len(signerSet)
+	sigIdx := 0
+	for i := 0; i < 64 && sigIdx < len(qc.Signatures); i++ {
+		if qc.Bitmap&(1<<uint(i)) == 0 {
+			continue
+		}
+		if i >= N {
+			return fmt.Errorf("%w: bitmap bit %d exceeds signer set size %d", errQCBitmapOverflow, i, N)
+		}
+		rec := signerSet[i]
+		if rec.SignerType != accountsigner.SignerTypeEd25519 {
+			return fmt.Errorf("%w: validator %s has non-ed25519 signer type %q", errQCInvalidSignature, rec.Address.Hex(), rec.SignerType)
+		}
+		pub := ed25519.PublicKey(rec.SignerPub)
+		sig := qc.Signatures[sigIdx][:]
+		if !ed25519.Verify(pub, signingHash[:], sig) {
+			return fmt.Errorf("%w: validator %s index %d", errQCInvalidSignature, rec.Address.Hex(), i)
+		}
+		sigIdx++
+	}
+
+	// Step 7: require >= ceil(2*N/3) valid signatures.
+	quorum := (2*N + 2) / 3 // ceil(2N/3)
+	if sigIdx < quorum {
+		return fmt.Errorf("%w: have %d, need %d (N=%d)", errQCInsufficientSignatures, sigIdx, quorum, N)
+	}
+
+	// Step 8: advance finalized state on snapshot.
+	snap.UpdateFinalized(qc.Vote.Number, qc.Vote.Hash)
+	return nil
+}
+
+// buildSignerSet loads the ordered ValidatorSigner list for a checkpoint pre-state.
+// It opens the state at preSnap and delegates to loadSignerSet from signer_set.go.
+func (d *DPoS) buildSignerSet(preSnap *Snapshot) ([]ValidatorSigner, error) {
+	if d.db == nil {
+		return nil, errors.New("dpos: missing database for signer set lookup")
+	}
+	preHeader := rawdb.ReadHeader(d.db, preSnap.Hash, preSnap.Number)
+	if preHeader == nil {
+		return nil, fmt.Errorf("dpos: missing header for snapshot at %d", preSnap.Number)
+	}
+	stateDB, err := state.New(preHeader.Root, state.NewDatabase(d.db), nil)
+	if err != nil {
+		return nil, fmt.Errorf("dpos: cannot open pre-state at %d: %w", preSnap.Number, err)
+	}
+	return loadSignerSet(preSnap, stateDB)
+}
+
+// assembleCheckpointQC assembles a CheckpointQC from the vote pool for the latest
+// unfinalized eligible checkpoint preceding the given header, if a quorum exists.
+// Returns (nil, nil) if no quorum is available.
+func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *types.Header, snap *Snapshot) (*types.CheckpointQC, error) {
+	if d.votePool == nil || d.config.CheckpointInterval == 0 || d.config.CheckpointFinalityBlock == nil {
+		return nil, nil
+	}
+	number := header.Number.Uint64()
+	firstEligible := firstCheckpointAtOrAfter(d.config.CheckpointFinalityBlock.Uint64(), d.config.CheckpointInterval)
+
+	// Find the latest unfinalized eligible checkpoint strictly before this block.
+	// Walk backwards in multiples of CheckpointInterval.
+	k := d.config.CheckpointInterval
+	// Largest checkpoint < number that is a multiple of k and >= firstEligible.
+	if number <= firstEligible {
+		return nil, nil
+	}
+	candidate := (number - 1) / k * k
+	if candidate < firstEligible {
+		return nil, nil
+	}
+	if candidate <= snap.FinalizedNumber {
+		return nil, nil // already finalized
+	}
+
+	// Load the checkpoint block header to get its hash.
+	cpHeader := chain.GetHeaderByNumber(candidate)
+	if cpHeader == nil {
+		return nil, nil
+	}
+	cpHash := cpHeader.Hash()
+
+	// Load pre-state snapshot for this checkpoint.
+	preSnap, err := d.snapshot(chain, candidate-1, cpHeader.ParentHash, nil)
+	if err != nil {
+		return nil, nil // pre-state not available; skip silently
+	}
+
+	// Collect votes from pool.
+	votes := d.votePool.GetVotes(candidate, cpHash)
+	if len(votes) == 0 {
+		return nil, nil
+	}
+
+	// Build signer set.
+	records, err := d.buildSignerSet(preSnap)
+	if err != nil {
+		return nil, nil
+	}
+	N := len(records)
+	quorum := (2*N + 2) / 3
+
+	// Build address→index map for fast lookup.
+	addrIdx := make(map[common.Address]int, N)
+	for i, r := range records {
+		addrIdx[r.Address] = i
+	}
+
+	// Collect valid votes.
+	type validVote struct {
+		idx int
+		sig [64]byte
+	}
+	var validVotes []validVote
+	for _, env := range votes {
+		idx, ok := addrIdx[env.Signer]
+		if !ok {
+			continue
+		}
+		validVotes = append(validVotes, validVote{idx: idx, sig: env.Signature})
+	}
+	if len(validVotes) < quorum {
+		return nil, nil
+	}
+	// Sort by index for deterministic bitmap.
+	sort.Slice(validVotes, func(i, j int) bool { return validVotes[i].idx < validVotes[j].idx })
+
+	var bitmap uint64
+	sigs := make([][64]byte, 0, len(validVotes))
+	for _, v := range validVotes {
+		bitmap |= 1 << uint(v.idx)
+		sigs = append(sigs, v.sig)
+	}
+
+	// Compute ValidatorSetHash.
+	vsHash := computeValidatorSetHash(records)
+
+	qc := &types.CheckpointQC{
+		Vote: types.CheckpointVote{
+			ChainID:          chain.Config().ChainID,
+			Number:           candidate,
+			Hash:             cpHash,
+			ValidatorSetHash: vsHash,
+		},
+		Bitmap:     bitmap,
+		Signatures: sigs,
+	}
+	return qc, nil
 }
 
 func (d *DPoS) normalizeSealPayload(payload []byte) ([]byte, error) {
@@ -390,13 +721,35 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 			return errMissingSignature
 		}
 		isEpoch := number%d.config.Epoch == 0
-		validatorBytes := len(header.Extra) - extraVanity - d.sealLength
-		if !isEpoch && validatorBytes != 0 {
-			return errExtraValidators
+		cfActive := d.config.IsCheckpointFinality(header.Number)
+		middle := header.Extra[extraVanity : len(header.Extra)-d.sealLength]
+		if isEpoch && cfActive {
+			// New format: [1B count=N][N×AddressLength][QC RLP (optional)]
+			if len(middle) == 0 {
+				return errInvalidCheckpointValidators
+			}
+			n := int(middle[0])
+			valEnd := 1 + n*common.AddressLength
+			if valEnd > len(middle) {
+				return errInvalidCheckpointValidators
+			}
+			// validator bytes must be a non-zero multiple of AddressLength (n > 0)
+			if n == 0 {
+				return errInvalidCheckpointValidators
+			}
+		} else if isEpoch {
+			// Old epoch format: [N×AddressLength]
+			if len(middle) == 0 || len(middle)%common.AddressLength != 0 {
+				return errInvalidCheckpointValidators
+			}
+		} else if !cfActive {
+			// Pre-activation non-epoch: no validator bytes allowed.
+			if len(middle) != 0 {
+				return errExtraValidators
+			}
 		}
-		if isEpoch && validatorBytes%common.AddressLength != 0 {
-			return errInvalidCheckpointValidators
-		}
+		// Post-activation non-epoch: middle may contain a QC (any length is OK here;
+		// structural QC checks are done in verifyCheckpointQCStructure).
 	}
 
 	if header.GasLimit > params.MaxGasLimit {
@@ -441,10 +794,27 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	}
 	// Shape-check epoch Extra: validator bytes must be a non-zero multiple of AddressLength.
 	isEpoch := number%d.config.Epoch == 0
+	cfActive := d.config.IsCheckpointFinality(header.Number)
 	if isEpoch {
-		validatorBytes := len(header.Extra) - extraVanity - d.sealLength
-		if validatorBytes <= 0 || validatorBytes%common.AddressLength != 0 {
-			return errInvalidCheckpointValidators
+		middle := header.Extra[extraVanity : len(header.Extra)-d.sealLength]
+		if cfActive {
+			// New format: [1B count=N][N×AddressLength][optional QC]
+			if len(middle) == 0 {
+				return errInvalidCheckpointValidators
+			}
+			n := int(middle[0])
+			if n == 0 {
+				return errInvalidCheckpointValidators
+			}
+			valEnd := 1 + n*common.AddressLength
+			if valEnd > len(middle) {
+				return errInvalidCheckpointValidators
+			}
+		} else {
+			// Old format: [N×AddressLength]
+			if len(middle) <= 0 || len(middle)%common.AddressLength != 0 {
+				return errInvalidCheckpointValidators
+			}
 		}
 	}
 	if header.Time < parent.Time+d.config.TargetBlockPeriodMs() {
@@ -490,6 +860,11 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 		}
 	}
 
+	// Phase 1 structural QC checks (no state access required).
+	if err := d.verifyCheckpointQCStructure(chain, header); err != nil {
+		return err
+	}
+
 	return d.verifySeal(snap, header)
 }
 
@@ -527,7 +902,8 @@ func (d *DPoS) fallbackValidatorsFromHeader(chain consensus.ChainHeaderReader, h
 			return parseGenesisValidators(header.Extra)
 		}
 		if number%d.config.Epoch == 0 {
-			return parseEpochValidators(header.Extra, d.config)
+			cfActive := d.config.IsCheckpointFinality(header.Number)
+			return parseEpochValidators(header.Extra, d.config, cfActive)
 		}
 		header = chain.GetHeader(header.ParentHash, number-1)
 	}
@@ -535,7 +911,8 @@ func (d *DPoS) fallbackValidatorsFromHeader(chain consensus.ChainHeaderReader, h
 }
 
 func (d *DPoS) verifyEpochExtraAgainstValidators(header *types.Header, actual []common.Address) error {
-	claimed, err := parseEpochValidators(header.Extra, d.config)
+	cfActive := d.config.IsCheckpointFinality(header.Number)
+	claimed, err := parseEpochValidators(header.Extra, d.config, cfActive)
 	if err != nil {
 		return err
 	}
@@ -775,10 +1152,28 @@ func (d *DPoS) VerifyEpochExtra(header *types.Header, statedb *state.StateDB) er
 }
 
 // VerifyFinalizedState implements consensus.FinalizedStateVerifier.
-// It delegates to VerifyEpochExtra, enabling StateProcessor to use the
-// consensus package interface rather than a local ad-hoc interface.
+// It delegates to VerifyEpochExtra for epoch blocks, and additionally runs
+// Phase 2 checkpoint QC verification when checkpoint finality is active.
 func (d *DPoS) VerifyFinalizedState(header *types.Header, st *state.StateDB) error {
-	return d.VerifyEpochExtra(header, st)
+	if err := d.VerifyEpochExtra(header, st); err != nil {
+		return err
+	}
+	if d.config.IsCheckpointFinality(header.Number) && header.Number.Uint64() > 0 {
+		if d.db == nil {
+			return nil // no db in faker mode; skip Phase 2
+		}
+		chainCfg := &params.ChainConfig{DPoS: d.config}
+		rawChain := &rawChainReader{config: chainCfg, db: d.db}
+		number := header.Number.Uint64()
+		snap, err := d.snapshot(rawChain, number-1, header.ParentHash, nil)
+		if err != nil {
+			return err
+		}
+		if err := d.verifyCheckpointQCFull(rawChain, header, snap); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Finalize implements consensus.Engine, adding the block reward.
@@ -818,12 +1213,52 @@ func (d *DPoS) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *ty
 		}
 		// validators is already address-sorted (ReadActiveValidators phase 3).
 		vanity := header.Extra[:extraVanity]
-		extra := make([]byte, extraVanity+len(validators)*common.AddressLength+d.sealLength)
-		copy(extra, vanity)
-		for i, v := range validators {
-			copy(extra[extraVanity+i*common.AddressLength:], v.Bytes())
+		cfActive := d.config.IsCheckpointFinality(header.Number)
+		if cfActive {
+			// New format: [32B vanity][1B count=N][N×AddressLength][QC RLP (optional)][seal]
+			snap, snapErr := d.snapshot(chain, number-1, header.ParentHash, nil)
+			var qcBytes []byte
+			if snapErr == nil {
+				qc, qcErr := d.assembleCheckpointQC(chain, header, snap)
+				if qcErr == nil && qc != nil {
+					qcBytes, _ = rlp.EncodeToBytes(qc)
+				}
+			}
+			valPayload := make([]byte, 1+len(validators)*common.AddressLength)
+			valPayload[0] = byte(len(validators))
+			for i, v := range validators {
+				copy(valPayload[1+i*common.AddressLength:], v.Bytes())
+			}
+			extra := make([]byte, extraVanity+len(valPayload)+len(qcBytes)+d.sealLength)
+			copy(extra, vanity)
+			copy(extra[extraVanity:], valPayload)
+			copy(extra[extraVanity+len(valPayload):], qcBytes)
+			header.Extra = extra
+		} else {
+			// Old format: [32B vanity][N×AddressLength][seal]
+			extra := make([]byte, extraVanity+len(validators)*common.AddressLength+d.sealLength)
+			copy(extra, vanity)
+			for i, v := range validators {
+				copy(extra[extraVanity+i*common.AddressLength:], v.Bytes())
+			}
+			header.Extra = extra // trailing seal bytes are the seal placeholder
 		}
-		header.Extra = extra // trailing seal bytes are the seal placeholder
+	} else if !d.fakeDiff && d.config.IsCheckpointFinality(header.Number) {
+		// Non-epoch block with checkpoint finality active: try to embed a QC.
+		snap, snapErr := d.snapshot(chain, number-1, header.ParentHash, nil)
+		if snapErr == nil {
+			qc, qcErr := d.assembleCheckpointQC(chain, header, snap)
+			if qcErr == nil && qc != nil {
+				qcBytes, encErr := rlp.EncodeToBytes(qc)
+				if encErr == nil {
+					vanity := header.Extra[:extraVanity]
+					extra := make([]byte, extraVanity+len(qcBytes)+d.sealLength)
+					copy(extra, vanity)
+					copy(extra[extraVanity:], qcBytes)
+					header.Extra = extra
+				}
+			}
+		}
 	}
 
 	d.Finalize(chain, header, st, txs, uncles)
@@ -900,6 +1335,12 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	}
 	copy(header.Extra[len(header.Extra)-d.sealLength:], seal)
 
+	// Vote production: if checkpoint finality is active and the parent block is an
+	// eligible checkpoint, produce a CheckpointVote and store it in the vote pool.
+	if d.config.IsCheckpointFinality(header.Number) && d.votePool != nil {
+		d.maybeProduceCheckpointVote(chain, header, snap, v, signFn)
+	}
+
 	go func() {
 		select {
 		case <-stop:
@@ -913,6 +1354,95 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 		}
 	}()
 	return nil
+}
+
+// maybeProduceCheckpointVote checks if the block being sealed follows an eligible
+// checkpoint, and if so produces a signed CheckpointVoteEnvelope and stores it in
+// the vote pool. Errors are logged but not propagated (vote production is best-effort).
+func (d *DPoS) maybeProduceCheckpointVote(
+	chain consensus.ChainHeaderReader,
+	header *types.Header,
+	snap *Snapshot,
+	v common.Address,
+	signFn SignerFn,
+) {
+	if d.config.CheckpointInterval == 0 || d.config.CheckpointFinalityBlock == nil {
+		return
+	}
+	number := header.Number.Uint64()
+	firstEligible := firstCheckpointAtOrAfter(d.config.CheckpointFinalityBlock.Uint64(), d.config.CheckpointInterval)
+	k := d.config.CheckpointInterval
+
+	// Find eligible checkpoints strictly less than the current block that the validator
+	// has not yet voted for. We attempt the most recent one.
+	if number <= firstEligible {
+		return
+	}
+	candidate := (number - 1) / k * k
+	if candidate < firstEligible || candidate <= snap.FinalizedNumber {
+		return
+	}
+
+	cpHeader := chain.GetHeaderByNumber(candidate)
+	if cpHeader == nil {
+		return
+	}
+
+	// Build the vote.
+	chainID := chain.Config().ChainID
+	vote := types.CheckpointVote{
+		ChainID: new(big.Int).Set(chainID),
+		Number:  candidate,
+		Hash:    cpHeader.Hash(),
+		// ValidatorSetHash will be filled after loading the signer set below.
+	}
+
+	// Load pre-state snapshot to get signer set and ValidatorSetHash.
+	preSnap, err := d.snapshot(chain, candidate-1, cpHeader.ParentHash, nil)
+	if err != nil {
+		log.Debug("DPoS checkpoint vote: pre-state snapshot unavailable", "checkpoint", candidate, "err", err)
+		return
+	}
+	records, err := d.buildSignerSet(preSnap)
+	if err != nil {
+		log.Debug("DPoS checkpoint vote: signer set unavailable", "checkpoint", candidate, "err", err)
+		return
+	}
+	vsHash := computeValidatorSetHash(records)
+	vote.ValidatorSetHash = vsHash
+
+	// Check that this validator is in the signer set.
+	found := false
+	for _, r := range records {
+		if r.Address == v {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+
+	// Sign the vote digest.
+	signingHash := vote.SigningHash()
+	rawSig, err := signFn(accounts.Account{Address: v}, accounts.MimetypeDPoS, signingHash[:])
+	if err != nil {
+		log.Debug("DPoS checkpoint vote: signing failed", "checkpoint", candidate, "err", err)
+		return
+	}
+	if len(rawSig) != ed25519.SignatureSize {
+		log.Debug("DPoS checkpoint vote: unexpected signature length", "len", len(rawSig))
+		return
+	}
+	var sig [64]byte
+	copy(sig[:], rawSig)
+
+	env := &types.CheckpointVoteEnvelope{
+		Vote:      vote,
+		Signer:    v,
+		Signature: sig,
+	}
+	d.votePool.AddVote(env)
 }
 
 // CalcDifficulty implements consensus.Engine.

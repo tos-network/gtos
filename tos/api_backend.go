@@ -38,6 +38,10 @@ func (b *TOSAPIBackend) CurrentBlock() *types.Block {
 	return b.tos.blockchain.CurrentBlock()
 }
 
+func (b *TOSAPIBackend) CurrentFinalizedBlock() *types.Block {
+	return b.tos.blockchain.CurrentFinalizedBlock()
+}
+
 func (b *TOSAPIBackend) SetHead(number uint64) {
 	b.tos.handler.downloader.Cancel()
 	b.tos.blockchain.SetHead(number)

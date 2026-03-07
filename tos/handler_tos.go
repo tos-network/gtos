@@ -60,6 +60,13 @@ func (h *tosHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 	case *tos.PooledTransactionsPacket:
 		return h.txFetcher.Enqueue(peer.ID(), *packet, true)
 
+	case *tos.NewCheckpointVotePacket:
+		if h.CheckpointVoteHandler != nil {
+			env := packet.CheckpointVoteEnvelope
+			h.CheckpointVoteHandler(&env)
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("unexpected tos packet type: %T", packet)
 	}

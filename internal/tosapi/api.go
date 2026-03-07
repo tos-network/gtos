@@ -2305,6 +2305,27 @@ func (s *TOSAPI) GetChainProfile() *RPCChainProfile {
 	}
 }
 
+// RPCFinalizedBlock is the response type for tos_getFinalizedBlock.
+type RPCFinalizedBlock struct {
+	Number    hexutil.Uint64 `json:"number"`
+	Hash      common.Hash    `json:"hash"`
+	Timestamp hexutil.Uint64 `json:"timestamp"`
+}
+
+// GetFinalizedBlock returns the latest finalized checkpoint block.
+// Returns null if no checkpoint has been finalized yet.
+func (s *TOSAPI) GetFinalizedBlock() *RPCFinalizedBlock {
+	block := s.b.CurrentFinalizedBlock()
+	if block == nil || block.NumberU64() == 0 {
+		return nil
+	}
+	return &RPCFinalizedBlock{
+		Number:    hexutil.Uint64(block.NumberU64()),
+		Hash:      block.Hash(),
+		Timestamp: hexutil.Uint64(block.Time()),
+	}
+}
+
 // GetRetentionPolicy returns the configured retention/snapshot values and current watermark.
 func (s *TOSAPI) GetRetentionPolicy() *RPCRetentionPolicy {
 	head := s.currentHead()

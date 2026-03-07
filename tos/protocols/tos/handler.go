@@ -163,6 +163,7 @@ var tos66 = map[uint64]msgHandler{
 	ReceiptsMsg:                   handleReceipts66,
 	GetPooledTransactionsMsg:      handleGetPooledTransactions66,
 	PooledTransactionsMsg:         handlePooledTransactions66,
+	NewCheckpointVoteMsg:          handleNewCheckpointVote,
 }
 
 var tos67 = map[uint64]msgHandler{
@@ -178,6 +179,7 @@ var tos67 = map[uint64]msgHandler{
 	ReceiptsMsg:                   handleReceipts66,
 	GetPooledTransactionsMsg:      handleGetPooledTransactions66,
 	PooledTransactionsMsg:         handlePooledTransactions66,
+	NewCheckpointVoteMsg:          handleNewCheckpointVote,
 }
 
 // handleMessage is invoked whenever an inbound message is received from a remote
@@ -214,4 +216,14 @@ func handleMessage(backend Backend, peer *Peer) error {
 		return handler(backend, msg, peer)
 	}
 	return fmt.Errorf("%w: %v", errInvalidMsgCode, msg.Code)
+}
+
+// handleNewCheckpointVote decodes an inbound checkpoint vote gossip message and
+// forwards it to the backend for delivery to the consensus vote pool.
+func handleNewCheckpointVote(backend Backend, msg Decoder, peer *Peer) error {
+	var packet NewCheckpointVotePacket
+	if err := msg.Decode(&packet); err != nil {
+		return fmt.Errorf("%w: message %v: %v", errDecode, msg, err)
+	}
+	return backend.Handle(peer, &packet)
 }

@@ -284,6 +284,11 @@ func (p *Peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 	}
 }
 
+// SendCheckpointVote sends a checkpoint vote envelope to the peer.
+func (p *Peer) SendCheckpointVote(env *types.CheckpointVoteEnvelope) error {
+	return p2p.Send(p.rw, NewCheckpointVoteMsg, &NewCheckpointVotePacket{*env})
+}
+
 // ReplyBlockHeadersRLP is the tos/66 response to GetBlockHeaders.
 func (p *Peer) ReplyBlockHeadersRLP(id uint64, headers []rlp.RawValue) error {
 	return p2p.Send(p.rw, BlockHeadersMsg, &BlockHeadersRLPPacket66{

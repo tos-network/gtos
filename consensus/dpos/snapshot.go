@@ -29,13 +29,15 @@ type Snapshot struct {
 	config   *params.DPoSConfig
 	sigcache *lru.ARCCache // hash → common.Address, shared with engine
 
-	Number        uint64                      `json:"number"`
-	Hash          common.Hash                 `json:"hash"`
-	Validators    []common.Address            `json:"validators"`    // sorted ascending by address
-	ValidatorsMap map[common.Address]struct{} `json:"validatorsMap"` // O(1) lookup
-	Recents       map[uint64]common.Address   `json:"recents"`       // slot → signer
-	GenesisTime   uint64                      `json:"genesisTime"`   // unix ms
-	PeriodMs      uint64                      `json:"periodMs"`      // target block period ms
+	Number          uint64                      `json:"number"`
+	Hash            common.Hash                 `json:"hash"`
+	Validators      []common.Address            `json:"validators"`              // sorted ascending by address
+	ValidatorsMap   map[common.Address]struct{} `json:"validatorsMap"`           // O(1) lookup
+	Recents         map[uint64]common.Address   `json:"recents"`                 // slot → signer
+	GenesisTime     uint64                      `json:"genesisTime"`             // unix ms
+	PeriodMs        uint64                      `json:"periodMs"`                // target block period ms
+	FinalizedNumber uint64                      `json:"finalizedNumber,omitempty"` // highest finalized checkpoint number
+	FinalizedHash   common.Hash                 `json:"finalizedHash,omitempty"`   // hash of the highest finalized checkpoint
 }
 
 // newSnapshot creates a new snapshot. validators must already be sorted ascending by address.
@@ -72,15 +74,17 @@ func newSnapshot(
 // goroutines; in-place mutation causes data races.
 func (s *Snapshot) copy() *Snapshot {
 	cpy := &Snapshot{
-		config:        s.config,
-		sigcache:      s.sigcache,
-		Number:        s.Number,
-		Hash:          s.Hash,
-		Validators:    make([]common.Address, len(s.Validators)),
-		ValidatorsMap: make(map[common.Address]struct{}, len(s.ValidatorsMap)),
-		Recents:       make(map[uint64]common.Address, len(s.Recents)),
-		GenesisTime:   s.GenesisTime,
-		PeriodMs:      s.PeriodMs,
+		config:          s.config,
+		sigcache:        s.sigcache,
+		Number:          s.Number,
+		Hash:            s.Hash,
+		Validators:      make([]common.Address, len(s.Validators)),
+		ValidatorsMap:   make(map[common.Address]struct{}, len(s.ValidatorsMap)),
+		Recents:         make(map[uint64]common.Address, len(s.Recents)),
+		GenesisTime:     s.GenesisTime,
+		PeriodMs:        s.PeriodMs,
+		FinalizedNumber: s.FinalizedNumber,
+		FinalizedHash:   s.FinalizedHash,
 	}
 	copy(cpy.Validators, s.Validators)
 	for v := range s.ValidatorsMap {
@@ -90,6 +94,18 @@ func (s *Snapshot) copy() *Snapshot {
 		cpy.Recents[seenSlot] = signer
 	}
 	return cpy
+}
+
+// UpdateFinalized advances the finalized checkpoint state if qcNumber is strictly
+// greater than the current FinalizedNumber. Returns true if the state advanced.
+// Finality is monotonic: this method never moves FinalizedNumber backward.
+func (s *Snapshot) UpdateFinalized(qcNumber uint64, qcHash common.Hash) bool {
+	if qcNumber <= s.FinalizedNumber {
+		return false
+	}
+	s.FinalizedNumber = qcNumber
+	s.FinalizedHash = qcHash
+	return true
 }
 
 // inturnSlot returns true if validator is the expected proposer for the given slot.
@@ -170,7 +186,8 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		// Extra is verified against the parent-state validator registry during
 		// header verification, so malformed epoch headers never enter the header chain.
 		if number%snap.config.Epoch == 0 {
-			validators, err := parseEpochValidators(header.Extra, snap.config)
+			cfActive := snap.config.IsCheckpointFinality(header.Number)
+			validators, err := parseEpochValidators(header.Extra, snap.config, cfActive)
 			if err != nil {
 				return nil, err
 			}
@@ -201,9 +218,17 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 }
 
 // parseEpochValidators extracts the validator list from an epoch block's Extra.
-// Format: [32B vanity][N×AddressLength addresses][seal]
+//
+// Before checkpoint finality activation:
+//
+//	Format: [32B vanity][N×AddressLength addresses][seal]
+//
+// After checkpoint finality activation:
+//
+//	Format: [32B vanity][1B count=N][N×AddressLength addresses][QC RLP (optional)][seal]
+//
 // Enforces: count ≤ MaxValidators, no duplicates, strict ascending address order.
-func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Address, error) {
+func parseEpochValidators(extra []byte, cfg *params.DPoSConfig, isCheckpointFinality bool) ([]common.Address, error) {
 	maxValidators := 0
 	if cfg != nil {
 		maxValidators = int(cfg.MaxValidators)
@@ -211,10 +236,28 @@ func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Addres
 	if len(extra) < extraVanity+extraSealEd25519 {
 		return nil, errMissingSignature
 	}
-	payload := extra[extraVanity : len(extra)-extraSealEd25519]
-	if len(payload)%common.AddressLength != 0 {
-		return nil, errInvalidCheckpointValidators
+	middle := extra[extraVanity : len(extra)-extraSealEd25519]
+
+	var payload []byte
+	if isCheckpointFinality {
+		// New format: [1B count][N×AddressLength][optional QC]
+		if len(middle) == 0 {
+			return nil, errInvalidCheckpointValidators
+		}
+		n := int(middle[0])
+		valEnd := 1 + n*common.AddressLength
+		if valEnd > len(middle) {
+			return nil, errInvalidCheckpointValidators
+		}
+		payload = middle[1:valEnd]
+	} else {
+		// Old format: payload is exactly the middle
+		payload = middle
+		if len(payload)%common.AddressLength != 0 {
+			return nil, errInvalidCheckpointValidators
+		}
 	}
+
 	n := len(payload) / common.AddressLength
 	if maxValidators > 0 && n > maxValidators {
 		return nil, fmt.Errorf("dpos: epoch validator count %d exceeds maxValidators %d", n, maxValidators)

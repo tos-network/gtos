@@ -1337,6 +1337,22 @@ func (bc *BlockChain) WriteBlockAndSetHead(block *types.Block, receipts []*types
 	return bc.writeBlockAndSetHead(block, receipts, logs, state, emitHeadEvent)
 }
 
+// isFinalizedAncestor checks whether finalized is an ancestor of block by
+// walking back from block to finalized.NumberU64(). The walk is bounded by
+// the staleness limit (2 * CheckpointInterval) enforced during Phase 1
+// structural verification, so it is always O(CheckpointInterval).
+func (bc *BlockChain) isFinalizedAncestor(block *types.Block, finalized *types.Block) bool {
+	if block.NumberU64() < finalized.NumberU64() {
+		return false
+	}
+	h := bc.GetHeaderByHash(block.Hash())
+	target := finalized.NumberU64()
+	for h != nil && h.Number.Uint64() > target {
+		h = bc.GetHeader(h.ParentHash, h.Number.Uint64()-1)
+	}
+	return h != nil && h.Number.Uint64() == target && h.Hash() == finalized.Hash()
+}
+
 // writeBlockAndSetHead is the internal implementation of WriteBlockAndSetHead.
 // This function expects the chain mutex to be held.
 func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types.Receipt, logs []*types.Log, state *state.StateDB, emitHeadEvent bool) (status WriteStatus, err error) {
@@ -1349,6 +1365,15 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 		return NonStatTy, err
 	}
 	if reorg {
+		// Finality fork-choice guard: reject reorgs that cross the finalized checkpoint.
+		// FinalizedNumber == 0 means no checkpoint has been finalized yet; skip the check.
+		if finalized := bc.CurrentFinalizedBlock(); finalized != nil && finalized.NumberU64() > 0 {
+			if !bc.isFinalizedAncestor(block, finalized) {
+				log.Warn("Rejecting reorg: new branch does not contain finalized checkpoint",
+					"finalized", finalized.NumberU64(), "newHead", block.NumberU64())
+				return SideStatTy, nil
+			}
+		}
 		// Reorganise the chain if the parent is not the head block
 		if block.ParentHash() != currentBlock.Hash() {
 			if err := bc.reorg(currentBlock, block); err != nil {

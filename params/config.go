@@ -183,11 +183,13 @@ type ChainConfig struct {
 
 // DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
 type DPoSConfig struct {
-	PeriodMs           uint64 `json:"periodMs"`                     // target block interval (milliseconds)
-	Epoch              uint64 `json:"epoch"`                        // blocks between validator-set snapshots
-	MaxValidators      uint64 `json:"maxValidators"`                // maximum active validators
-	RecentSignerWindow uint64 `json:"recentSignerWindow,omitempty"` // recent-sign window in blocks; 0 => auto (validators/3 + 1)
-	SealSignerType     string `json:"sealSignerType,omitempty"`     // consensus block-seal signer type: ed25519 only
+	PeriodMs                uint64   `json:"periodMs"`                              // target block interval (milliseconds)
+	Epoch                   uint64   `json:"epoch"`                                 // blocks between validator-set snapshots
+	MaxValidators           uint64   `json:"maxValidators"`                         // maximum active validators
+	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`          // recent-sign window in blocks; 0 => auto (validators/3 + 1)
+	SealSignerType          string   `json:"sealSignerType,omitempty"`              // consensus block-seal signer type: ed25519 only
+	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`          // blocks between checkpoint finality votes (0 => inactive)
+	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"`     // activation block for checkpoint finality (nil => inactive)
 }
 
 // TargetBlockPeriodMs returns the configured target block interval in milliseconds.
@@ -236,6 +238,43 @@ func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 func (c *DPoSConfig) String() string {
 	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, sealSignerType: %s}",
 		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.SealSignerType)
+}
+
+// IsCheckpointFinality reports whether checkpoint finality is active at the given block number.
+func (c *DPoSConfig) IsCheckpointFinality(num *big.Int) bool {
+	return c != nil && c.CheckpointFinalityBlock != nil &&
+		num != nil && num.Cmp(c.CheckpointFinalityBlock) >= 0
+}
+
+// FirstEligibleCheckpoint returns the smallest checkpoint height h such that
+// h >= CheckpointFinalityBlock and h % CheckpointInterval == 0.
+// Returns 0 if checkpoint finality is not configured.
+func (c *DPoSConfig) FirstEligibleCheckpoint() uint64 {
+	if c == nil || c.CheckpointFinalityBlock == nil || c.CheckpointInterval == 0 {
+		return 0
+	}
+	base := c.CheckpointFinalityBlock.Uint64()
+	k := c.CheckpointInterval
+	rem := base % k
+	if rem == 0 {
+		return base
+	}
+	return base + (k - rem)
+}
+
+// ValidateCheckpointConfig returns an error if the checkpoint finality configuration
+// is invalid. Called during engine construction.
+func (c *DPoSConfig) ValidateCheckpointConfig() error {
+	if c == nil || c.CheckpointFinalityBlock == nil {
+		return nil
+	}
+	if c.MaxValidators > 64 {
+		return fmt.Errorf("checkpoint finality v1 requires MaxValidators <= 64, got %d", c.MaxValidators)
+	}
+	if c.CheckpointInterval == 0 {
+		c.CheckpointInterval = 200
+	}
+	return nil
 }
 
 // String implements the fmt.Stringer interface.
