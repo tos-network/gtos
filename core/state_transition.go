@@ -17,6 +17,7 @@
 package core
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -51,6 +52,7 @@ type StateTransition struct {
 	blockCtx    vm.BlockContext
 	chainConfig *params.ChainConfig
 	lvm         *vm.LVM
+	goCtx       context.Context // RPC timeout context; nil for block-processing
 }
 
 // Message represents a message sent to a contract.
@@ -156,9 +158,12 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 }
 
 // NewStateTransition initialises and returns a new state transition object.
-func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) *StateTransition {
+// goCtx is the optional Go context from the originating RPC call; pass
+// context.Background() for block-processing paths (no timeout interrupts).
+func NewStateTransition(goCtx context.Context, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) *StateTransition {
 	txCtx := vm.TxContext{Origin: msg.From(), GasPrice: msg.TxPrice()}
 	l := vm.NewLVM(blockCtx, txCtx, statedb, chainConfig)
+	l.SetGoCtx(goCtx)
 	return &StateTransition{
 		gp:          gp,
 		msg:         msg,
@@ -171,13 +176,16 @@ func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfi
 		blockCtx:    blockCtx,
 		chainConfig: chainConfig,
 		lvm:         l,
+		goCtx:       goCtx,
 	}
 }
 
 // ApplyMessage computes the new state by applying the given message
 // against the old state within the environment.
-func ApplyMessage(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) (*ExecutionResult, error) {
-	return NewStateTransition(blockCtx, chainConfig, msg, gp, statedb).TransitionDb()
+// goCtx is the caller's Go context; when cancelled the Lua VM aborts on the
+// next instruction.  Pass context.Background() for block-processing paths.
+func ApplyMessage(goCtx context.Context, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) (*ExecutionResult, error) {
+	return NewStateTransition(goCtx, blockCtx, chainConfig, msg, gp, statedb).TransitionDb()
 }
 
 // to returns the recipient of the message.
@@ -427,6 +435,7 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		TxOrigin: st.msg.From(),
 		TxPrice:  st.txPrice,
 		Readonly: false,
+		GoCtx:    st.goCtx,
 	}
 	code := st.state.GetCode(toAddr)
 	gasUsed, retData, _, execErr := vm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)

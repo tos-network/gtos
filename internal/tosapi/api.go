@@ -1011,7 +1011,7 @@ func doCallOnState(ctx context.Context, b Backend, args TransactionArgs, state v
 	}
 	blockCtx := core.NewVMBlockContext(header, &backendChainContext{b}, nil)
 	gp := new(core.GasPool).AddGas(stdmath.MaxUint64)
-	return core.ApplyMessage(blockCtx, b.ChainConfig(), msg, gp, state)
+	return core.ApplyMessage(ctx, blockCtx, b.ChainConfig(), msg, gp, state)
 }
 
 func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides *StateOverride, timeout time.Duration, globalGasCap uint64) (*core.ExecutionResult, error) {
@@ -1033,7 +1033,11 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 	}
 	defer cancel()
 
-	return doCallOnState(ctx, b, args, state, header, globalGasCap)
+	result, err := doCallOnState(ctx, b, args, state, header, globalGasCap)
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("execution aborted (timeout = %v)", timeout)
+	}
+	return result, err
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {

@@ -17,6 +17,7 @@
 package core
 
 import (
+	"context"
 	"sync/atomic"
 
 	"github.com/tos-network/gtos/consensus"
@@ -65,7 +66,7 @@ func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, i
 			return // Also invalid block, bail out
 		}
 		statedb.Prepare(tx.Hash(), i)
-		if _, err := ApplyMessage(blockCtx, p.config, msg, gaspool, statedb); err != nil {
+		if _, err := ApplyMessage(context.Background(), blockCtx, p.config, msg, gaspool, statedb); err != nil {
 			return // Ugh, something went horribly wrong, bail out
 		}
 	}

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"bytes"
+	"context"
 	gosha256 "crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -103,6 +104,12 @@ type CallCtx struct {
 	TxPrice  *big.Int       // tx.gasprice: constant across all levels
 	Readonly bool           // if true, all state-mutating primitives raise an error
 	// (EVM STATICCALL semantics; propagates to nested calls)
+
+	// GoCtx is the optional Go context from the originating RPC call.
+	// When non-nil and the context is cancelled/timed-out, the Lua VM aborts
+	// execution on the next instruction.  Nil for block-processing paths.
+	// Propagated unchanged into all nested Execute calls.
+	GoCtx context.Context
 }
 
 // ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
@@ -117,13 +124,19 @@ type LVM struct {
 	TxContext
 	StateDB     StateDB
 	chainConfig *params.ChainConfig
-	depth       int // current call/create nesting depth
+	depth       int            // current call/create nesting depth
+	goCtx       context.Context // RPC timeout context; nil for block-processing
 }
 
 // NewLVM creates a new LVM instance bound to the given block context, tx context, state, and chain config.
 func NewLVM(blockCtx BlockContext, txCtx TxContext, stateDB StateDB, chainConfig *params.ChainConfig) *LVM {
 	return &LVM{Context: blockCtx, TxContext: txCtx, StateDB: stateDB, chainConfig: chainConfig}
 }
+
+// SetGoCtx stores the caller's Go context so that LVM.Call and LVM.Create
+// propagate it into Execute, enabling RPC timeout interrupts.
+// Analogous to the goroutine + evm.Cancel() pattern in go-ethereum.
+func (l *LVM) SetGoCtx(goCtx context.Context) { l.goCtx = goCtx }
 
 // ChainConfig returns the chain configuration.
 func (l *LVM) ChainConfig() *params.ChainConfig { return l.chainConfig }
@@ -150,6 +163,7 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	ctx := CallCtx{
 		From: callerAddr, To: addr, Value: value, Data: input,
 		Depth: 0, TxOrigin: l.Origin, TxPrice: l.GasPrice,
+		GoCtx: l.goCtx,
 	}
 	code := l.StateDB.GetCode(addr)
 	gasUsed, returnData, _, execErr := Execute(l.StateDB, l.Context, l.chainConfig, ctx, code, gas)
@@ -370,6 +384,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 			IsCreate: true,
 			TxOrigin: l.Origin,
 			TxPrice:  l.GasPrice,
+			GoCtx:    l.goCtx,
 		}
 		ctorGasUsed, _, _, ctorErr := Execute(l.StateDB, l.Context, l.chainConfig, ctorCtx, initArtifactBytecode, gas)
 		if ctorErr != nil {
@@ -591,6 +606,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
 	defer L.Close()
 	L.SetGasLimit(gasLimit)
+	if ctx.GoCtx != nil {
+		L.SetInterrupt(ctx.GoCtx.Done())
+	}
 
 	// totalChildGas accumulates opcodes consumed by all nested tos.call
 	// invocations at this call level (not recursively — each level tracks its
@@ -2771,14 +2789,15 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		// Build child context: msg.sender = this contract, tx.origin unchanged.
 		// readonly propagates: a call made from within a staticcall is also readonly.
 		childCtx := CallCtx{
-			From: contractAddr, // callee sees caller contract as msg.sender
-			To: calleeAddr,
-			Value: callValue,
-			Data: callData,
-			Depth: ctx.Depth + 1,
+			From:     contractAddr, // callee sees caller contract as msg.sender
+			To:       calleeAddr,
+			Value:    callValue,
+			Data:     callData,
+			Depth:    ctx.Depth + 1,
 			TxOrigin: ctx.TxOrigin,
-			TxPrice: ctx.TxPrice,
+			TxPrice:  ctx.TxPrice,
 			Readonly: ctx.Readonly, // propagate staticcall constraint
+			GoCtx:    ctx.GoCtx,   // propagate RPC timeout
 		}
 
 		childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGasLimit)
@@ -2869,14 +2888,15 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 
 		childCtx := CallCtx{
-			From: contractAddr,
-			To: calleeAddr,
-			Value: new(big.Int), // always zero for staticcall
-			Data: callData,
-			Depth: ctx.Depth + 1,
+			From:     contractAddr,
+			To:       calleeAddr,
+			Value:    new(big.Int), // always zero for staticcall
+			Data:     callData,
+			Depth:    ctx.Depth + 1,
 			TxOrigin: ctx.TxOrigin,
-			TxPrice: ctx.TxPrice,
-			Readonly: true, // the defining property of staticcall
+			TxPrice:  ctx.TxPrice,
+			Readonly: true,       // the defining property of staticcall
+			GoCtx:    ctx.GoCtx, // propagate RPC timeout
 		}
 
 		childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGasLimit)
@@ -2975,14 +2995,15 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		//   from:  ctx.From      — msg.sender preserved (not the proxy)
 		//   value: ctx.Value     — msg.value preserved
 		childCtx := CallCtx{
-			From: ctx.From,     // preserve original msg.sender
-			To: contractAddr, // run in THIS contract's storage namespace
-			Value: ctx.Value,    // preserve msg.value
-			Data: callData,
-			Depth: ctx.Depth + 1,
+			From:     ctx.From,     // preserve original msg.sender
+			To:       contractAddr, // run in THIS contract's storage namespace
+			Value:    ctx.Value,    // preserve msg.value
+			Data:     callData,
+			Depth:    ctx.Depth + 1,
 			TxOrigin: ctx.TxOrigin,
-			TxPrice: ctx.TxPrice,
+			TxPrice:  ctx.TxPrice,
 			Readonly: ctx.Readonly, // propagate staticcall constraint
+			GoCtx:    ctx.GoCtx,   // propagate RPC timeout
 		}
 
 		childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, implCode, childGasLimit)
@@ -4100,6 +4121,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			TxOrigin: ctx.TxOrigin,
 			TxPrice:  ctx.TxPrice,
 			Readonly: ctx.Readonly,
+			GoCtx:    ctx.GoCtx, // propagate RPC timeout
 		}
 		childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGasLimit)
 		totalChildGas += childGasUsed

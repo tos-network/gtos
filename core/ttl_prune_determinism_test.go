@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -55,7 +56,7 @@ func ttlBlockContext(block uint64, coinbase common.Address) vm.BlockContext {
 func applyTTLMessage(t *testing.T, statedb *state.StateDB, cfg *params.ChainConfig, coinbase common.Address, block uint64, msg types.Message) {
 	t.Helper()
 	gp := new(GasPool).AddGas(msg.Gas())
-	result, err := ApplyMessage(ttlBlockContext(block, coinbase), cfg, msg, gp, statedb)
+	result, err := ApplyMessage(context.Background(), ttlBlockContext(block, coinbase), cfg, msg, gp, statedb)
 	if err != nil {
 		t.Fatalf("apply message at block %d: %v", block, err)
 	}

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/big"
@@ -57,7 +58,7 @@ func TestUNOShieldProofFailureHasNoStateWrite(t *testing.T) {
 	}
 	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 	gp := new(GasPool).AddGas(msg.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestUNOTransferProofFailureHasNoStateWrite(t *testing.T) {
 	}
 	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 	gp := new(GasPool).AddGas(msg.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestUNOUnshieldProofFailureHasNoStateWrite(t *testing.T) {
 	}
 	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 	gp := new(GasPool).AddGas(msg.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -213,7 +214,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 		}
 		msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 		gp := new(GasPool).AddGas(msg.Gas())
-		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+		res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 		if err != nil {
 			t.Fatalf("ApplyMessage: %v", err)
 		}
@@ -257,7 +258,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 		}
 		msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 		gp := new(GasPool).AddGas(msg.Gas())
-		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+		res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 		if err != nil {
 			t.Fatalf("ApplyMessage: %v", err)
 		}
@@ -304,7 +305,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 		}
 		msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 		gp := new(GasPool).AddGas(msg.Gas())
-		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+		res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 		if err != nil {
 			t.Fatalf("ApplyMessage: %v", err)
 		}
@@ -348,7 +349,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 		}
 		msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, false)
 		gp := new(GasPool).AddGas(msg.Gas())
-		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+		res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
 		if err != nil {
 			t.Fatalf("ApplyMessage: %v", err)
 		}
@@ -443,7 +444,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 				msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), tc.data(t), nil, false)
 
 				gp1 := new(GasPool).AddGas(msg.Gas())
-				res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp1, st)
+				res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp1, st)
 				if err != nil {
 					t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
 				}
@@ -452,7 +453,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 				}
 
 				gp2 := new(GasPool).AddGas(msg.Gas())
-				_, err = ApplyMessage(ttlBlockContext(1, coinbase), cfg, msg, gp2, st)
+				_, err = ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp2, st)
 				if !errors.Is(err, ErrNonceTooLow) {
 					t.Fatalf("second ApplyMessage expected %v, got %v", ErrNonceTooLow, err)
 				}
@@ -470,7 +471,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 		secondDifferentAction := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), makeTransferData(t), nil, false)
 
 		gp1 := new(GasPool).AddGas(first.Gas())
-		res, err := ApplyMessage(ttlBlockContext(1, coinbase), cfg, first, gp1, st)
+		res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, first, gp1, st)
 		if err != nil {
 			t.Fatalf("first ApplyMessage unexpected precheck error: %v", err)
 		}
@@ -479,7 +480,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 		}
 
 		gp2 := new(GasPool).AddGas(secondDifferentAction.Gas())
-		_, err = ApplyMessage(ttlBlockContext(1, coinbase), cfg, secondDifferentAction, gp2, st)
+		_, err = ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, secondDifferentAction, gp2, st)
 		if !errors.Is(err, ErrNonceTooLow) {
 			t.Fatalf("second ApplyMessage expected %v, got %v", ErrNonceTooLow, err)
 		}

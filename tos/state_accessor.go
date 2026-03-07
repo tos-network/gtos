@@ -1,6 +1,7 @@
 package tos
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -171,7 +172,7 @@ func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec u
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		statedb.Prepare(tx.Hash(), idx)
-		if _, err := core.ApplyMessage(blockCtx, tosNode.blockchain.Config(), msg, new(core.GasPool).AddGas(tx.Gas()), statedb); err != nil {
+		if _, err := core.ApplyMessage(context.Background(), blockCtx, tosNode.blockchain.Config(), msg, new(core.GasPool).AddGas(tx.Gas()), statedb); err != nil {
 			return nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Ensure any modifications are committed to the state

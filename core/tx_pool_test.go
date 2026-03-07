@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/ecdsa"
 	crand "crypto/rand"
 	"errors"
@@ -1103,7 +1104,7 @@ func TestUNOTxPoolExecutionRejectParityShieldInsufficientBalance(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1154,7 +1155,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverVersionOverflow(t *testin
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1190,7 +1191,7 @@ func TestUNOTxPoolExecutionRejectParityShieldSenderVersionOverflow(t *testing.T)
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1241,7 +1242,7 @@ func TestUNOTxPoolExecutionRejectParityTransferSenderVersionOverflow(t *testing.
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1278,7 +1279,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldSenderVersionOverflow(t *testing.
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1313,7 +1314,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverMissingSigner(t *testing.
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1351,7 +1352,7 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLow(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	_, err = ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if !errors.Is(err, ErrNonceTooLow) {
 		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
 	}
@@ -1401,7 +1402,7 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLowTransfer(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	_, err = ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if !errors.Is(err, ErrNonceTooLow) {
 		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
 	}
@@ -1435,7 +1436,7 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLowUnshield(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	_, err = ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	_, err = ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if !errors.Is(err, ErrNonceTooLow) {
 		t.Fatalf("execution expected %v, got %v", ErrNonceTooLow, err)
 	}
@@ -1469,7 +1470,7 @@ func TestUNOTxPoolExecutionRejectParityShieldInvalidProofShape(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1518,7 +1519,7 @@ func TestUNOTxPoolExecutionRejectParityTransferInvalidProofShape(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1553,7 +1554,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldInvalidProofShape(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1587,7 +1588,7 @@ func TestUNOTxPoolExecutionRejectParityInvalidEnvelope(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1621,7 +1622,7 @@ func TestUNOTxPoolExecutionRejectParityUnsupportedAction(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1655,7 +1656,7 @@ func TestUNOTxPoolExecutionRejectParityEmptyPayload(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1707,7 +1708,7 @@ func TestUNOTxPoolExecutionRejectParitySenderSignerTypeMismatch(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1741,7 +1742,7 @@ func TestUNOTxPoolExecutionRejectParityMissingSenderSigner(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1775,7 +1776,7 @@ func TestUNOTxPoolExecutionRejectParityNonZeroValue(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1809,7 +1810,7 @@ func TestUNOTxPoolExecutionRejectParityOversizedProofBundle(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1858,7 +1859,7 @@ func TestUNOTxPoolExecutionRejectParityTransferOversizedProofBundle(t *testing.T
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1893,7 +1894,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldOversizedProofBundle(t *testing.T
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1927,7 +1928,7 @@ func TestUNOTxPoolExecutionRejectParityLowGas(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if !errors.Is(err, ErrIntrinsicGas) && (res == nil || !errors.Is(res.Err, ErrIntrinsicGas)) {
 		t.Fatalf("execution expected %v, got outer=%v result=%v", ErrIntrinsicGas, err, func() error {
 			if res == nil {
@@ -1963,7 +1964,7 @@ func TestUNOTxPoolExecutionRejectParityShieldZeroAmount(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -1997,7 +1998,7 @@ func TestUNOTxPoolExecutionRejectParityTransferZeroReceiver(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2031,7 +2032,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldZeroReceiver(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2065,7 +2066,7 @@ func TestUNOTxPoolExecutionRejectParityShieldMalformedCiphertext(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2114,7 +2115,7 @@ func TestUNOTxPoolExecutionRejectParityTransferMalformedCiphertext(t *testing.T)
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2149,7 +2150,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldMalformedCiphertext(t *testing.T)
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2183,7 +2184,7 @@ func TestUNOTxPoolExecutionRejectParityShieldEmptyProof(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2232,7 +2233,7 @@ func TestUNOTxPoolExecutionRejectParityTransferEmptyProof(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2267,7 +2268,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldEmptyProof(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2334,7 +2335,7 @@ func TestUNOTxPoolExecutionRejectParityTransferSelfTransfer(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2368,7 +2369,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldZeroAmount(t *testing.T) {
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}
@@ -2411,7 +2412,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverSignerTypeMismatch(t *tes
 		t.Fatalf("TxAsMessageWithAccountSigner: %v", err)
 	}
 	gp := new(GasPool).AddGas(tx.Gas())
-	res, err := ApplyMessage(ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, common.HexToAddress("0xCAFE")), params.TestChainConfig, msg, gp, execState)
 	if err != nil {
 		t.Fatalf("ApplyMessage: %v", err)
 	}

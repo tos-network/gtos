@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -82,7 +83,7 @@ func benchApplyUNOShield(b *testing.B, wire []byte) {
 			wire, nil, false,
 		)
 		gp := new(GasPool).AddGas(msg.Gas())
-		_, _ = ApplyMessage(benchBlockContext(1, coinbase), cfg, msg, gp, st)
+		_, _ = ApplyMessage(context.Background(), benchBlockContext(1, coinbase), cfg, msg, gp, st)
 	}
 }
 

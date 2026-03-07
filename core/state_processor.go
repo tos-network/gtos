@@ -17,6 +17,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 
@@ -125,7 +126,7 @@ func ExecuteTransactions(
 ) (types.Receipts, []*types.Log, uint64, error) {
 	applyMsgFn := func(bCtx vm.BlockContext, cfg *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*parallel.TxResult, error) {
 		perTxGP := new(GasPool).AddGas(msg.Gas())
-		result, err := ApplyMessage(bCtx, cfg, msg, perTxGP, sdb)
+		result, err := ApplyMessage(context.Background(), bCtx, cfg, msg, perTxGP, sdb)
 		if err != nil {
 			return nil, err
 		}
