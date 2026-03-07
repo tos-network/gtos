@@ -1035,7 +1035,10 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 
 	result, err := doCallOnState(ctx, b, args, state, header, globalGasCap)
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("execution aborted (timeout = %v)", timeout)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("execution aborted (timeout = %v)", timeout)
+		}
+		return nil, errors.New("execution aborted (canceled)")
 	}
 	return result, err
 }

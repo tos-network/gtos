@@ -107,6 +107,12 @@ func (result *ExecutionResult) Revert() []byte {
 // call a smart contract, which is not supported in GTOS.
 var ErrContractNotSupported = errors.New("smart contract execution not supported in GTOS")
 
+// ErrExecutionAborted is returned when a transaction is interrupted by context
+// cancellation or timeout before or during execution of a non-LVM branch
+// (SystemAction, UNO). The LVM branch signals interruption via the Lua VM
+// interrupt channel and surfaces its own error; this sentinel covers the rest.
+var ErrExecutionAborted = errors.New("execution aborted")
+
 // ErrAAValidationFailed is returned when an account contract's validate() call
 // returns false, reverts, or runs out of gas during the AA two-phase check.
 var ErrAAValidationFailed = errors.New("AA: account validation failed")
@@ -177,6 +183,21 @@ func NewStateTransition(goCtx context.Context, blockCtx vm.BlockContext, chainCo
 		chainConfig: chainConfig,
 		lvm:         l,
 		goCtx:       goCtx,
+	}
+}
+
+// ctxAborted reports whether the caller's Go context has been cancelled or
+// timed out. Returns false for block-processing paths (goCtx == nil or
+// context.Background()).
+func (st *StateTransition) ctxAborted() bool {
+	if st.goCtx == nil {
+		return false
+	}
+	select {
+	case <-st.goCtx.Done():
+		return true
+	default:
+		return false
 	}
 }
 
@@ -318,8 +339,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
-			// Guard: handler must not execute if remaining gas is below the flat sysaction cost.
-			if st.gas < params.SysActionGas {
+			if st.ctxAborted() {
+				vmerr = ErrExecutionAborted
+			} else if st.gas < params.SysActionGas {
+				// Guard: handler must not execute if remaining gas is below the flat sysaction cost.
 				st.gas = 0
 				vmerr = vm.ErrOutOfGas
 			} else {
@@ -328,7 +351,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				vmerr = execErr
 			}
 		} else if toAddr == params.PrivacyRouterAddress {
-			vmerr = st.applyUNO(msg)
+			if st.ctxAborted() {
+				vmerr = ErrExecutionAborted
+			} else {
+				vmerr = st.applyUNO(msg)
+			}
 		} else {
 			// Check sender has enough balance for value transfer
 			if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
@@ -519,6 +546,9 @@ func (st *StateTransition) applyUNO(msg Message) error {
 			senderState.Ciphertext,
 			payload.NewSender,
 		)
+		if st.ctxAborted() {
+			return ErrExecutionAborted
+		}
 		if err := uno.VerifyShieldProofBundleWithContext(
 			payload.ProofBundle,
 			payload.NewSender.Commitment[:],
@@ -577,6 +607,9 @@ func (st *StateTransition) applyUNO(msg Message) error {
 			receiverState.Ciphertext,
 			payload.ReceiverDelta,
 		)
+		if st.ctxAborted() {
+			return ErrExecutionAborted
+		}
 		if err := uno.VerifyTransferProofBundleWithContext(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey, transferCtx); err != nil {
 			return err
 		}
@@ -620,6 +653,9 @@ func (st *StateTransition) applyUNO(msg Message) error {
 			senderState.Ciphertext,
 			payload.NewSender,
 		)
+		if st.ctxAborted() {
+			return ErrExecutionAborted
+		}
 		if err := uno.VerifyUnshieldProofBundleWithContext(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount, unshieldCtx); err != nil {
 			return err
 		}
