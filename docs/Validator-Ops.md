@@ -28,16 +28,27 @@ At the time of writing, GTOS already has:
 - grouped-turn DPoS proposer ownership via `TurnLength`
 - a local three-node deployment script:
   - [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
-- per-node `systemd` units with validator-specific flags embedded directly in
-  `ExecStart`
+- template-driven validator deployment artifacts:
+  - shared `config.toml`
+  - per-node `validator.env`
+  - `gtos-validator@.service`
+- protocol-aware validator maintenance:
+  - `VALIDATOR_ENTER_MAINTENANCE`
+  - `VALIDATOR_EXIT_MAINTENANCE`
+- operator watchdog tooling:
+  - [validator_guard.sh](/home/tomi/gtos/scripts/validator_guard.sh)
+  - [dpos_livenet_soak.sh](/home/tomi/gtos/scripts/dpos_livenet_soak.sh)
 
-The current approach works for local testing, but it has clear operational
-limits:
+The current approach is now materially closer to a production-style validator
+deployment model, but operators should still treat these areas as active
+discipline, not solved forever:
 
-- each validator unit duplicates a long command line
-- validator-specific and network-wide settings are mixed together
-- startup ordering and peering behavior have to be encoded in shell logic
-- there is no protocol-aware maintenance workflow
+- template deployment must be the only supported path; old ad-hoc units should
+  be retired
+- validator guard journals and alerts should be wired into your actual alerting
+  stack
+- maintenance overrun governance still lives at the runbook layer, not in
+  protocol slashing
 
 Current DPoS rotation semantics are no longer "one proposer per block". GTOS
 uses grouped turns:
@@ -184,25 +195,23 @@ Wants=network-online.target
 Type=simple
 User=tomi
 Group=tomi
-WorkingDirectory=/home/tomi/gtos
+WorkingDirectory=/data/gtos
 EnvironmentFile=/data/gtos/node%i/validator.env
 ExecStart=/usr/local/bin/gtos \
   --config ${GTOS_CONFIG} \
   --datadir ${GTOS_DATADIR} \
   --networkid ${GTOS_NETWORK_ID} \
   --port ${GTOS_P2P_PORT} \
+  --netrestrict 127.0.0.0/8 \
+  --nat none \
   --http --http.addr 127.0.0.1 --http.port ${GTOS_HTTP_PORT} \
-  --http.api admin,net,web3,tos,dpos,miner \
   --ws --ws.addr 127.0.0.1 --ws.port ${GTOS_WS_PORT} \
-  --ws.api net,web3,tos,dpos \
   --authrpc.addr 127.0.0.1 --authrpc.port ${GTOS_AUTHRPC_PORT} \
   --unlock ${GTOS_VALIDATOR_ADDR} \
   --password ${GTOS_PASSFILE} \
   --allow-insecure-unlock \
   --mine \
   --miner.coinbase ${GTOS_VALIDATOR_ADDR} \
-  --syncmode ${GTOS_SYNCMODE} \
-  ${GTOS_GC_FLAGS} \
   --verbosity ${GTOS_VERBOSITY} \
   --bootnodes ${GTOS_BOOTNODES}
 Restart=always
@@ -223,17 +232,16 @@ Each validator should have a per-node environment file, for example:
 ```bash
 GTOS_CONFIG=/data/gtos/config.toml
 GTOS_DATADIR=/data/gtos/node1
-GTOS_NETWORK_ID=1666
 GTOS_P2P_PORT=30311
 GTOS_HTTP_PORT=8545
 GTOS_WS_PORT=8645
 GTOS_AUTHRPC_PORT=9551
 GTOS_VALIDATOR_ADDR=0x...
 GTOS_PASSFILE=/data/gtos/pass.txt
-GTOS_SYNCMODE=full
-GTOS_GC_FLAGS=
 GTOS_VERBOSITY=3
 GTOS_BOOTNODES=enode://...@127.0.0.1:30311,enode://...@127.0.0.1:30312,enode://...@127.0.0.1:30313
+GTOS_NETWORK_ID=1666
+GTOS_GC_MODE=full
 ```
 
 This separates:
@@ -241,6 +249,7 @@ This separates:
 - node identity and ports
 - validator key material and password path
 - process-level options
+- machine-local service paths
 
 from the shared node configuration.
 
@@ -576,6 +585,19 @@ Validator operations should track at least the following:
 - unexpectedly low peer count
 - no recent local block production while validator is `Active`
 
+Current operator tooling:
+
+- [validator_guard.sh](/home/tomi/gtos/scripts/validator_guard.sh)
+  - writes `events.jsonl`, `alerts.jsonl`, and `state.json`
+  - monitors peer health, head/finalized lag, grouped-turn integrity, and
+    maintenance overruns
+  - emits an approximate conflict alert if different nodes report different
+    latest hashes for the same `miner,height` pair
+  - is installed as `gtos-validator-guard.service` for continuous supervision
+- [dpos_livenet_soak.sh](/home/tomi/gtos/scripts/dpos_livenet_soak.sh)
+  - grouped-turn-aware long-duration soak monitor
+  - validates within-group proposer consistency and finalized-lag bounds
+
 ## Recommended Rollout Plan
 
 ### Phase 1: Configuration Cleanup
@@ -584,6 +606,10 @@ Validator operations should track at least the following:
 - introduce per-node `validator.env`
 - introduce `gtos-validator@.service`
 - keep current local script as the artifact generator
+
+Status:
+
+- complete
 
 ### Phase 2: Role Separation
 
@@ -610,6 +636,13 @@ Status:
 - add finalized-head monitoring
 - add maintenance runbook
 - add restart and recovery drills
+
+Status:
+
+- validator health, grouped-turn, finality, and maintenance-overrun monitoring
+  are implemented with `validator_guard.sh`
+- long-duration liveness/finality soak is implemented with
+  `dpos_livenet_soak.sh`
 
 ## Non-Goals for v1
 

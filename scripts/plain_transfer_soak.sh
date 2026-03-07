@@ -2,7 +2,7 @@
 # plain_transfer_soak.sh — 3-node DPoS public transfer stability soak.
 #
 # Runs two workloads in parallel for the same duration:
-# 1) dpos_livenet_soak.sh consensus health monitor (halts/peer losses/validators seen)
+# 1) dpos_livenet_soak.sh consensus health monitor (halts/peer losses/grouped turns/finality lag)
 # 2) Multi-wallet concurrent plain transfers via tos_sendTransaction
 #
 # Outputs a single evidence directory containing logs and JSON reports.

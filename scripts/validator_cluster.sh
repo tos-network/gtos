@@ -18,7 +18,15 @@ CHECKPOINT_FINALITY_BLOCK="${CHECKPOINT_FINALITY_BLOCK:-}"
 GC_MODE="${GC_MODE:-full}"
 GENESIS_START_DELAY_MS="${GENESIS_START_DELAY_MS:-5000}"
 VERIFY_SLEEP_SEC="${VERIFY_SLEEP_SEC:-3}"
-SERVICE_PREFIX="${SERVICE_PREFIX:-gtos-node}"
+SERVICE_PREFIX="${SERVICE_PREFIX:-gtos-validator@}"
+LEGACY_SERVICE_PREFIX="${LEGACY_SERVICE_PREFIX:-gtos-node}"
+SYSTEMD_TEMPLATE_SOURCE="${SYSTEMD_TEMPLATE_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-validator@.service}"
+SYSTEMD_TEMPLATE_DEST="${SYSTEMD_TEMPLATE_DEST:-/etc/systemd/system/gtos-validator@.service}"
+GUARD_SERVICE_SOURCE="${GUARD_SERVICE_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-validator-guard.service}"
+GUARD_SERVICE_DEST="${GUARD_SERVICE_DEST:-/etc/systemd/system/gtos-validator-guard.service}"
+GUARD_SERVICE_NAME="${GUARD_SERVICE_NAME:-gtos-validator-guard.service}"
+SHARED_CONFIG_FILE="${SHARED_CONFIG_FILE:-${BASE_DIR}/config.toml}"
+VERBOSITY="${VERBOSITY:-3}"
 
 VANITY_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 FUNDED_BALANCE_HEX="0x33b2e3c9fd0803ce8000000"
@@ -79,7 +87,7 @@ Environment overrides:
   GTOS_BIN, BASE_DIR, PASSFILE, NETWORK_ID, PERIOD_MS, EPOCH, MAX_VALIDATORS,
   TURN_LENGTH, CHECKPOINT_INTERVAL, CHECKPOINT_FINALITY_BLOCK, GC_MODE,
   GENESIS_START_DELAY_MS, TOSKEY_BIN,
-  SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX
+  SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX, VERBOSITY
 EOF_USAGE
 }
 
@@ -160,9 +168,26 @@ done
 node_dir() { echo "${BASE_DIR}/node$1"; }
 node_ipc() { echo "$(node_dir "$1")/gtos.ipc"; }
 node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
+node_env_file() { echo "$(node_dir "$1")/validator.env"; }
+ops_dir() { echo "${BASE_DIR}/ops"; }
+maintenance_state_dir() { echo "$(ops_dir)/maintenance"; }
+maintenance_state_file() { echo "$(maintenance_state_dir)/node$1.env"; }
+guard_env_file() { echo "$(ops_dir)/validator_guard.env"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
 node_service() { echo "${SERVICE_PREFIX}$1.service"; }
+legacy_node_service() { echo "${LEGACY_SERVICE_PREFIX}$1.service"; }
+normalize_local_enode() {
+	local enode="$1"
+	python3 -c '
+import re, sys
+enode = sys.argv[1].strip()
+m = re.match(r"^(enode://[^@]+)@[^:]+:(\d+)$", enode)
+if not m:
+    raise SystemExit(enode)
+print(f"{m.group(1)}@127.0.0.1:{m.group(2)}")
+' "${enode}"
+}
 require_target_node() {
 	if [[ -z "${TARGET_NODE}" ]]; then
 		echo "this action requires a node index: 1, 2, or 3" >&2
@@ -216,10 +241,10 @@ EOF_CHECKPOINT
 expected_service_gc_flags() {
 	case "${GC_MODE}" in
 	archive)
-		echo "--gcmode archive"
+		echo "archive"
 		;;
 	full)
-		echo ""
+		echo "full"
 		;;
 	*)
 		echo ""
@@ -274,6 +299,147 @@ node_http_port() {
 
 ensure_dirs() {
 	mkdir -p "${BASE_DIR}/logs" "$(node_dir 1)" "$(node_dir 2)" "$(node_dir 3)"
+	mkdir -p "$(maintenance_state_dir)"
+}
+
+write_maintenance_state() {
+	local idx="$1" state="$2" txhash="${3:-}" validator_addr="${4:-}"
+	cat >"$(maintenance_state_file "${idx}")" <<EOF_STATE
+STATE=${state}
+UPDATED_AT=$(date -u +%s)
+TX_HASH=${txhash}
+VALIDATOR_ADDR=${validator_addr}
+EOF_STATE
+}
+
+write_validator_guard_env() {
+	cat >"$(guard_env_file)" <<EOF_ENV
+NODES=http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8549
+POLL_SEC=15
+DURATION=0
+JOURNAL_DIR=${BASE_DIR}/ops/validator_guard
+MAINTENANCE_MAX_SEC=7200
+FINALITY_LAG_MAX_BLOCKS=512
+HALT_TOLERANCE=4
+PEER_MIN=1
+GROUP_SAMPLE_FACTOR=2
+BASE_DIR=${BASE_DIR}
+EOF_ENV
+}
+
+write_shared_config_toml() {
+	local no_pruning
+	case "${GC_MODE}" in
+	archive) no_pruning=true ;;
+	full) no_pruning=false ;;
+	*)
+		echo "unsupported gc mode for config generation: ${GC_MODE}" >&2
+		exit 1
+		;;
+	esac
+
+	cat >"${SHARED_CONFIG_FILE}" <<EOF_CONFIG
+[TOS]
+NetworkId = ${NETWORK_ID}
+SyncMode = "full"
+NoPruning = ${no_pruning}
+NoPrefetch = false
+FilterLogCacheSize = 32
+RPCGasCap = 50000000
+RPCEVMTimeout = 5000000000
+RPCTxFeeCap = 1.0
+
+[TOS.Miner]
+GasCeil = 30000000
+Recommit = 3000000000
+Noverify = false
+
+[Node]
+IPCPath = "gtos.ipc"
+HTTPHost = "127.0.0.1"
+HTTPVirtualHosts = ["localhost"]
+HTTPModules = ["admin", "net", "web3", "tos", "dpos", "miner"]
+AuthAddr = "127.0.0.1"
+AuthVirtualHosts = ["localhost"]
+WSHost = "127.0.0.1"
+WSModules = ["net", "web3", "tos", "dpos"]
+GraphQLVirtualHosts = ["localhost"]
+
+[Node.P2P]
+NoDiscovery = false
+EOF_CONFIG
+}
+
+bootnodes_csv_value() {
+	if [[ -s "${BOOTNODES_FILE}" ]]; then
+		tr -d '\n\r' <"${BOOTNODES_FILE}"
+	fi
+}
+
+write_validator_env() {
+	local idx="$1" addr p2p_port http_port ws_port authrpc_port bootnodes
+	addr="$(node_validator_address "${idx}")"
+	p2p_port=$((30310 + idx))
+	http_port="$(node_http_port "${idx}")"
+	ws_port=$((8643 + (idx * 2)))
+	authrpc_port=$((9550 + idx))
+	bootnodes="$(bootnodes_csv_value)"
+
+	cat >"$(node_env_file "${idx}")" <<EOF_ENV
+GTOS_CONFIG=${SHARED_CONFIG_FILE}
+GTOS_DATADIR=$(node_dir "${idx}")
+GTOS_P2P_PORT=${p2p_port}
+GTOS_HTTP_PORT=${http_port}
+GTOS_WS_PORT=${ws_port}
+GTOS_AUTHRPC_PORT=${authrpc_port}
+GTOS_VALIDATOR_ADDR=${addr}
+GTOS_PASSFILE=${PASSFILE}
+GTOS_VERBOSITY=${VERBOSITY}
+GTOS_BOOTNODES=${bootnodes}
+GTOS_NETWORK_ID=${NETWORK_ID}
+GTOS_GC_MODE=$(expected_service_gc_flags)
+EOF_ENV
+}
+
+write_validator_envs() {
+	local idx
+	for idx in 1 2 3; do
+		write_validator_env "${idx}"
+	done
+}
+
+install_template_service() {
+	if [[ ! -f "${SYSTEMD_TEMPLATE_SOURCE}" ]]; then
+		echo "missing systemd template source: ${SYSTEMD_TEMPLATE_SOURCE}" >&2
+		exit 1
+	fi
+	if [[ "${EUID}" -eq 0 ]]; then
+		install -m 0644 "${SYSTEMD_TEMPLATE_SOURCE}" "${SYSTEMD_TEMPLATE_DEST}"
+	else
+		sudo install -m 0644 "${SYSTEMD_TEMPLATE_SOURCE}" "${SYSTEMD_TEMPLATE_DEST}"
+	fi
+	run_systemctl daemon-reload
+}
+
+prepare_runtime_assets() {
+	write_shared_config_toml
+	write_validator_envs
+	write_validator_guard_env
+	install_template_service
+	install_guard_service
+}
+
+install_guard_service() {
+	if [[ ! -f "${GUARD_SERVICE_SOURCE}" ]]; then
+		echo "missing guard service source: ${GUARD_SERVICE_SOURCE}" >&2
+		exit 1
+	fi
+	if [[ "${EUID}" -eq 0 ]]; then
+		install -m 0644 "${GUARD_SERVICE_SOURCE}" "${GUARD_SERVICE_DEST}"
+	else
+		sudo install -m 0644 "${GUARD_SERVICE_SOURCE}" "${GUARD_SERVICE_DEST}"
+	fi
+	run_systemctl daemon-reload
 }
 
 ensure_gtos_bin() {
@@ -445,27 +611,6 @@ ${tos3_storage}
 EOF_GENESIS
 }
 
-warn_service_defaults() {
-	local gc_flags svc idx missing=0
-	gc_flags="$(expected_service_gc_flags)"
-	if [[ -z "${gc_flags}" ]]; then
-		return
-	fi
-	for idx in 1 2 3; do
-		svc="$(node_service "${idx}")"
-		if ! service_exists "${idx}"; then
-			continue
-		fi
-		if ! run_systemctl cat "${svc}" 2>/dev/null | grep -q -- "${gc_flags}"; then
-			echo "warning: ${svc} ExecStart does not include expected GC flags: ${gc_flags}" >&2
-			missing=1
-		fi
-	done
-	if (( missing )) && is_checkpoint_finality_enabled && [[ "${GC_MODE}" == "archive" ]]; then
-		echo "warning: checkpoint finality is enabled; validators should run with archive retention" >&2
-	fi
-}
-
 init_datadirs() {
 	local genesis idx
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
@@ -493,14 +638,42 @@ service_exists() {
 	run_systemctl cat "$(node_service "${idx}")" >/dev/null 2>&1
 }
 
+legacy_service_exists() {
+	local idx="$1"
+	run_systemctl cat "$(legacy_node_service "${idx}")" >/dev/null 2>&1
+}
+
 assert_services_prepared() {
 	local idx
 	for idx in 1 2 3; do
 		if ! service_exists "${idx}"; then
 			echo "missing systemd service: $(node_service "${idx}")" >&2
-			echo "create services first (see docs/LOCAL_TESTNET_3NODES_SYSTEMD.md)." >&2
+			echo "run setup first so validator_cluster.sh installs template units and env files." >&2
 			exit 1
 		fi
+	done
+}
+
+stop_legacy_nodes() {
+	local idx svc
+	for idx in 1 2 3; do
+		svc="$(legacy_node_service "${idx}")"
+		if run_systemctl is-active --quiet "${svc}"; then
+			run_systemctl stop "${svc}"
+			echo "stopped legacy service ${svc}"
+		fi
+	done
+}
+
+retire_legacy_units() {
+	local idx svc
+	for idx in 1 2 3; do
+		if ! legacy_service_exists "${idx}"; then
+			continue
+		fi
+		svc="$(legacy_node_service "${idx}")"
+		run_systemctl disable --now "${svc}" >/dev/null 2>&1 || true
+		echo "retired legacy unit ${svc}"
 	done
 }
 
@@ -541,6 +714,18 @@ wait_for_service_active() {
 	return 1
 }
 
+wait_for_named_service_active() {
+	local svc="$1" timeout_s="${2:-30}" elapsed=0
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		if run_systemctl is-active --quiet "${svc}"; then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
 start_service_node() {
 	local idx="$1"
 	run_systemctl start "$(node_service "${idx}")"
@@ -555,6 +740,24 @@ start_service_node() {
 		exit 1
 	fi
 	echo "node${idx} started via $(node_service "${idx}")"
+}
+
+start_guard_service() {
+	run_systemctl enable "${GUARD_SERVICE_NAME}" >/dev/null 2>&1 || true
+	run_systemctl restart "${GUARD_SERVICE_NAME}"
+	if ! wait_for_named_service_active "${GUARD_SERVICE_NAME}" 15; then
+		echo "guard service failed to become active: ${GUARD_SERVICE_NAME}" >&2
+		run_systemctl status --no-pager "${GUARD_SERVICE_NAME}" || true
+		exit 1
+	fi
+	echo "guard started via ${GUARD_SERVICE_NAME}"
+}
+
+stop_guard_service() {
+	if run_systemctl is-active --quiet "${GUARD_SERVICE_NAME}"; then
+		run_systemctl stop "${GUARD_SERVICE_NAME}"
+		echo "guard stopped via ${GUARD_SERVICE_NAME}"
+	fi
 }
 
 restart_service_node() {
@@ -578,7 +781,7 @@ get_node_enode() {
 	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
 		enode="$("${GTOS_BIN}" --exec 'admin.nodeInfo.enode' attach "$(node_ipc "${idx}")" 2>/dev/null | tr -d '"\r\n[:space:]')"
 		if [[ "${enode}" =~ ^enode:// ]]; then
-			echo "${enode}"
+			echo "$(normalize_local_enode "${enode}")"
 			return 0
 		fi
 		sleep 1
@@ -1094,6 +1297,7 @@ refresh_mesh_artifacts() {
 	fi
 	connect_mesh "${e1}" "${e2}" "${e3}"
 	write_peer_artifacts "${e1}" "${e2}" "${e3}"
+	write_validator_envs
 	echo "mesh connected:"
 	echo "  node1=${e1}"
 	echo "  node2=${e2}"
@@ -1103,15 +1307,8 @@ refresh_mesh_artifacts() {
 start_nodes() {
 	assert_services_prepared
 	assert_accounts_prepared
-	warn_service_defaults
-	# Stop any running nodes before wiping chaindata to avoid undefined behavior.
-	stop_nodes
-	# Write a fresh genesis with a short start delay so all validators can come
-	# online and peer before slot 1. Starting from "now" lets isolated nodes
-	# each mine their own competing block 1 and deadlock on recents.
-	write_genesis
-	init_datadirs
-	echo "genesis written: ${BASE_DIR}/genesis_testnet_3vals.json"
+	stop_guard_service
+	stop_legacy_nodes
 	start_service_node 1
 	start_service_node 2
 	start_service_node 3
@@ -1119,15 +1316,18 @@ start_nodes() {
 	if ! wait_for_peer_mesh 30; then
 		echo "warning: peer mesh did not converge to 2 peers per node within timeout" >&2
 	fi
+	start_guard_service
 }
 
 restart_nodes() {
 	assert_services_prepared
-	warn_service_defaults
+	stop_guard_service
+	stop_legacy_nodes
 	restart_service_node 1
 	restart_service_node 2
 	restart_service_node 3
 	refresh_mesh_artifacts
+	start_guard_service
 }
 
 precollect_enodes() {
@@ -1148,6 +1348,7 @@ enter_maintenance() {
 	query_idx="$(first_running_node || true)"
 	status="$(validator_status_on_node "${query_idx}" "${addr}")"
 	if [[ "${status}" == "2" ]]; then
+		write_maintenance_state "${idx}" "maintenance" "" "${addr}"
 		echo "node${idx} is already in maintenance; proposer-set removal takes effect at the next epoch: $(describe_next_epoch "${query_idx}")"
 		return 0
 	fi
@@ -1166,9 +1367,11 @@ enter_maintenance() {
 	fi
 	query_idx="$(first_running_node_except "${idx}" || first_running_node || true)"
 	if [[ -z "${query_idx}" ]]; then
+		write_maintenance_state "${idx}" "maintenance" "${txhash}" "${addr}"
 		echo "submitted enter maintenance for node${idx}, tx=${txhash}"
 		return 0
 	fi
+	write_maintenance_state "${idx}" "maintenance" "${txhash}" "${addr}"
 	if validator_active_on_node "${query_idx}" "${addr}"; then
 		echo "node${idx} entered maintenance, tx=${txhash}; removal from proposer set takes effect at the next epoch: $(describe_next_epoch "${query_idx}")"
 	else
@@ -1190,6 +1393,7 @@ exit_maintenance() {
 	2)
 		;;
 	1)
+		write_maintenance_state "${idx}" "active" "" "${addr}"
 		echo "node${idx} is already active; no exit-maintenance transaction needed"
 		return 0
 		;;
@@ -1211,6 +1415,7 @@ exit_maintenance() {
 		esac
 		echo "warning: exit maintenance tx=${txhash} for node${idx} not mined within timeout" >&2
 	fi
+	write_maintenance_state "${idx}" "active" "${txhash}" "${addr}"
 	if validator_active_on_node "${query_idx}" "${addr}"; then
 		echo "node${idx} exited maintenance, tx=${txhash}"
 	else
@@ -1287,8 +1492,10 @@ verify_nodes() {
 	fi
 	for n in 1 2 3; do
 		if (( "$(hex_to_dec "${block_after_hex["${n}"]}")" <= "$(hex_to_dec "${block_before_hex["${n}"]}")" )); then
-			echo "verify failed: node${n} block number did not grow" >&2
-			exit 1
+			if ! wait_for_block_growth "${n}" 15 1; then
+				echo "verify failed: node${n} block number did not grow" >&2
+				exit 1
+			fi
 		fi
 	done
 
@@ -1336,29 +1543,40 @@ print("grouped-turn sample:", len(records), "blocks,", "turnLength=", turn_lengt
 for num, miner, slot, group in records:
     print(f"  block={num} slot={slot} group={group} miner={miner}")
 
-group_to_miner = {}
+group_counts = {}
 group_order = []
+group_totals = {}
 for _, miner, _, group in records:
-    prev = group_to_miner.get(group)
-    if prev is None:
-        group_to_miner[group] = miner
+    counts = group_counts.get(group)
+    if counts is None:
+        counts = {}
+        group_counts[group] = counts
         group_order.append(group)
-        continue
-    if prev != miner:
-        print(f"verify failed: group {group} has multiple miners ({prev}, {miner})", file=sys.stderr)
-        sys.exit(1)
+    counts[miner] = counts.get(miner, 0) + 1
+    group_totals[group] = group_totals.get(group, 0) + 1
 
 if len(group_order) >= 2:
-    for i in range(1, len(group_order)):
-        prev_group = group_order[i - 1]
-        curr_group = group_order[i]
-        if group_to_miner[prev_group] == group_to_miner[curr_group]:
+    dominant = {}
+    out_of_turn = 0
+    strict_groups = group_order[1:-1] if len(group_order) > 2 else group_order
+    for group in group_order:
+        counts = group_counts[group]
+        miner, count = max(counts.items(), key=lambda item: item[1])
+        dominant[group] = miner
+        out_of_turn += group_totals[group] - count
+        if group in strict_groups and count * 2 <= group_totals[group]:
+            print(f"verify failed: group {group} has no dominant proposer: {counts}", file=sys.stderr)
+            sys.exit(1)
+    for i in range(1, len(strict_groups)):
+        prev_group = strict_groups[i - 1]
+        curr_group = strict_groups[i]
+        if dominant[prev_group] == dominant[curr_group]:
             print(
-                f"verify failed: proposer did not rotate across groups {prev_group}->{curr_group}",
+                f"verify failed: dominant proposer did not rotate across groups {prev_group}->{curr_group}",
                 file=sys.stderr,
             )
             sys.exit(1)
-    print("grouped-turn rotation observed across", len(group_order), "groups")
+    print("grouped-turn rotation observed across", len(group_order), "groups;", "out-of-turn blocks=", out_of_turn)
 else:
     print("grouped-turn sample covers one group only; proposer continuity is expected")
 PY
@@ -1368,6 +1586,7 @@ PY
 
 stop_nodes() {
 	local idx svc
+	stop_guard_service
 	for idx in 1 2 3; do
 		stop_service_node "${idx}"
 	done
@@ -1410,6 +1629,11 @@ status_nodes() {
 		fi
 		echo "node${idx}: ${state}, http=127.0.0.1:${port}, block=${block}, peers=${peers}"
 	done
+	if run_systemctl is-active --quiet "${GUARD_SERVICE_NAME}"; then
+		echo "guard: running(service=${GUARD_SERVICE_NAME})"
+	else
+		echo "guard: stopped(service=${GUARD_SERVICE_NAME})"
+	fi
 }
 
 setup_network() {
@@ -1417,16 +1641,24 @@ setup_network() {
 	ensure_gtos_bin
 	ensure_passfile
 	validate_local_checkpoint_config
+	stop_nodes
+	stop_legacy_nodes
+	retire_legacy_units
 	write_validators_files
-	echo "setup done (accounts created; genesis written at start time):"
+	prepare_runtime_assets
+	write_genesis
+	init_datadirs
+	echo "setup done (accounts/config/genesis initialized):"
 	echo "  validators: ${BASE_DIR}/validator_accounts.txt"
+	echo "  shared config: ${SHARED_CONFIG_FILE}"
+	echo "  systemd template: ${SYSTEMD_TEMPLATE_DEST}"
 	echo "  turn length: ${TURN_LENGTH}"
 	echo "  turn group duration (ms): $((TURN_LENGTH * PERIOD_MS))"
 	if is_checkpoint_finality_enabled; then
 		echo "  checkpoint interval: ${CHECKPOINT_INTERVAL}"
 		echo "  checkpoint finality block: ${CHECKPOINT_FINALITY_BLOCK}"
 		echo "  first eligible checkpoint: $(checkpoint_first_eligible)"
-		echo "  expected service flags: $(expected_service_gc_flags)"
+		echo "  gc mode: $(expected_service_gc_flags)"
 	else
 		echo "  checkpoint finality: disabled"
 	fi
@@ -1435,6 +1667,7 @@ setup_network() {
 
 clean_network() {
 	stop_nodes
+	stop_legacy_nodes
 	rm -rf "$(node_dir 1)/gtos" "$(node_dir 2)/gtos" "$(node_dir 3)/gtos"
 	rm -f "${BASE_DIR}/logs/node1.log" "${BASE_DIR}/logs/node2.log" "${BASE_DIR}/logs/node3.log"
 	echo "clean done (keystore preserved)"
@@ -1454,12 +1687,16 @@ start)
 	ensure_gtos_bin
 	ensure_passfile
 	validate_local_checkpoint_config
+	prepare_runtime_assets
+	assert_accounts_prepared
 	start_nodes
 	;;
 restart)
 	ensure_dirs
 	ensure_gtos_bin
+	ensure_passfile
 	validate_local_checkpoint_config
+	prepare_runtime_assets
 	assert_accounts_prepared
 	restart_nodes
 	;;
@@ -1486,7 +1723,9 @@ resume)
 precollect-enode)
 	ensure_dirs
 	ensure_gtos_bin
+	ensure_passfile
 	validate_local_checkpoint_config
+	prepare_runtime_assets
 	assert_accounts_prepared
 	precollect_enodes
 	;;

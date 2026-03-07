@@ -154,6 +154,14 @@ Recommended alerts:
 - repeated checkpoint QC verification errors
 - repeated missing signer metadata errors
 
+Current local operator tooling:
+
+- [validator_guard.sh](/home/tomi/gtos/scripts/validator_guard.sh)
+  - continuous validator/finality watchdog with JSONL journals
+  - normally managed by `gtos-validator-guard.service`
+- [dpos_livenet_soak.sh](/home/tomi/gtos/scripts/dpos_livenet_soak.sh)
+  - grouped-turn-aware soak monitor for longer validation windows
+
 ## 11. Recommended Rollout Procedure
 
 Use this rollout order:

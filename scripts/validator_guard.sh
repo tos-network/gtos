@@ -1,0 +1,342 @@
+#!/usr/bin/env bash
+# validator_guard.sh — validator safety/journal watchdog for GTOS clusters.
+set -euo pipefail
+
+NODES="${NODES:-http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8549}"
+POLL_SEC="${POLL_SEC:-15}"
+DURATION="${DURATION:-0}"
+JOURNAL_DIR="${JOURNAL_DIR:-/data/gtos/ops/validator_guard}"
+MAINTENANCE_MAX_SEC="${MAINTENANCE_MAX_SEC:-7200}"
+FINALITY_LAG_MAX_BLOCKS="${FINALITY_LAG_MAX_BLOCKS:-512}"
+HALT_TOLERANCE="${HALT_TOLERANCE:-4}"
+PEER_MIN="${PEER_MIN:-1}"
+GROUP_SAMPLE_FACTOR="${GROUP_SAMPLE_FACTOR:-2}"
+BASE_DIR="${BASE_DIR:-/data/gtos}"
+
+usage() {
+	cat <<'USAGE'
+Usage: scripts/validator_guard.sh [options]
+
+Continuously watches a GTOS validator cluster and writes operational journals.
+
+Options:
+  --nodes <url,url,...>             comma-separated node HTTP endpoints
+  --poll-sec <n>                    poll interval in seconds (default: 15)
+  --duration <value>                total runtime, e.g. 2h, 30m, 0=forever
+  --journal-dir <path>              directory for events.jsonl and alerts.jsonl
+  --maintenance-max-sec <n>         alert if maintenance exceeds this age
+  --finality-lag-max-blocks <n>     alert threshold for head-finalized lag
+  --halt-tolerance <n>              consecutive no-growth polls before halt alert
+  --peer-min <n>                    minimum healthy peer count per node
+  --group-sample-factor <n>         grouped-turn sample multiplier (default: 2)
+  --base-dir <path>                 cluster base dir for maintenance state files
+  -h, --help                        show help
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--nodes) NODES="$2"; shift 2 ;;
+	--poll-sec) POLL_SEC="$2"; shift 2 ;;
+	--duration) DURATION="$2"; shift 2 ;;
+	--journal-dir) JOURNAL_DIR="$2"; shift 2 ;;
+	--maintenance-max-sec) MAINTENANCE_MAX_SEC="$2"; shift 2 ;;
+	--finality-lag-max-blocks) FINALITY_LAG_MAX_BLOCKS="$2"; shift 2 ;;
+	--halt-tolerance) HALT_TOLERANCE="$2"; shift 2 ;;
+	--peer-min) PEER_MIN="$2"; shift 2 ;;
+	--group-sample-factor) GROUP_SAMPLE_FACTOR="$2"; shift 2 ;;
+	--base-dir) BASE_DIR="$2"; shift 2 ;;
+	-h|--help) usage; exit 0 ;;
+	*) echo "unknown argument: $1" >&2; usage; exit 1 ;;
+	esac
+done
+
+duration_to_sec() {
+	local d="$1"
+	if [[ "$d" == "0" ]]; then
+		echo 0
+		return
+	fi
+	python3 -c '
+import re, sys
+s = sys.argv[1]
+total = 0
+for val, unit in re.findall(r"(\d+)([smhd])", s):
+    total += int(val) * {"s":1,"m":60,"h":3600,"d":86400}[unit]
+if total == 0:
+    raise SystemExit("invalid duration: " + s)
+print(total)
+' "$d"
+}
+
+TOTAL_SEC="$(duration_to_sec "${DURATION}")"
+START_TS="$(date -u +%s)"
+DEADLINE=0
+if (( TOTAL_SEC > 0 )); then
+	DEADLINE=$(( START_TS + TOTAL_SEC ))
+fi
+
+IFS=',' read -ra NODE_URLS <<< "${NODES}"
+mkdir -p "${JOURNAL_DIR}"
+EVENTS_FILE="${JOURNAL_DIR}/events.jsonl"
+ALERTS_FILE="${JOURNAL_DIR}/alerts.jsonl"
+STATE_FILE="${JOURNAL_DIR}/state.json"
+
+rpc() {
+	local url="$1" method="$2" params="$3"
+	python3 - <<PY
+import json, urllib.request, sys
+try:
+    params = json.loads(r'''${params}''')
+    data = json.dumps({"jsonrpc":"2.0","id":1,"method":"${method}","params":params}).encode()
+    req = urllib.request.Request("${url}", data=data, headers={"Content-Type":"application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        d = json.loads(r.read())
+    if "error" in d:
+        sys.exit("rpc error: " + str(d["error"]))
+    print(json.dumps(d["result"]))
+except Exception as e:
+    sys.exit(str(e))
+PY
+}
+
+hex_to_dec() {
+	python3 -c 'import sys; v=sys.argv[1]; print(int(v,16) if v.startswith("0x") else int(v))' "$1"
+}
+
+alert() {
+	local level="$1" kind="$2" message="$3" detail_json="${4:-}"
+	if [[ -z "${detail_json}" ]]; then
+		detail_json='{}'
+	fi
+	python3 - <<PY >>"${ALERTS_FILE}"
+import json, time
+print(json.dumps({
+    "ts": int(time.time()),
+    "level": ${level@Q},
+    "kind": ${kind@Q},
+    "message": ${message@Q},
+    "detail": json.loads(${detail_json@Q}),
+}, sort_keys=True))
+PY
+	echo "${level}: ${message}"
+}
+
+declare -A prev_block
+for i in "${!NODE_URLS[@]}"; do
+	prev_block[$i]=0
+done
+declare -A no_growth_streak
+
+echo "==> validator guard started"
+echo "nodes: ${NODES}"
+echo "journal: ${JOURNAL_DIR}"
+
+while true; do
+	now="$(date -u +%s)"
+	if (( DEADLINE > 0 && now >= DEADLINE )); then
+		break
+	fi
+
+	latest_records=()
+	for i in "${!NODE_URLS[@]}"; do
+		url="${NODE_URLS[$i]}"
+		node_n=$((i + 1))
+		block_json="$(rpc "${url}" "tos_getBlockByNumber" '["latest", false]' 2>/dev/null || echo "")"
+		peer_json="$(rpc "${url}" "net_peerCount" '[]' 2>/dev/null || echo "")"
+		if [[ -z "${block_json}" || -z "${peer_json}" ]]; then
+			alert "ERROR" "rpc" "node${node_n} RPC unreachable" '{}'
+			no_growth_streak[$i]=$(( ${no_growth_streak[$i]:-0} + 1 ))
+			continue
+		fi
+		block_number="$(python3 -c 'import json,sys; b=json.load(sys.stdin); print(b["number"])' <<<"${block_json}")"
+		block_hash="$(python3 -c 'import json,sys; b=json.load(sys.stdin); print(b["hash"].lower())' <<<"${block_json}")"
+		block_miner="$(python3 -c 'import json,sys; b=json.load(sys.stdin); print(b["miner"].lower())' <<<"${block_json}")"
+		peer_count_raw="$(python3 -c 'import json,sys; print(json.load(sys.stdin))' <<<"${peer_json}")"
+		block_dec="$(hex_to_dec "${block_number}")"
+		peer_dec="$(hex_to_dec "${peer_count_raw}")"
+		if (( block_dec <= ${prev_block[$i]:-0} )); then
+			no_growth_streak[$i]=$(( ${no_growth_streak[$i]:-0} + 1 ))
+			if (( ${no_growth_streak[$i]} >= HALT_TOLERANCE )); then
+				alert "ERROR" "halt" "node${node_n} stuck at block ${block_dec}" "{\"node\":${node_n},\"block\":${block_dec}}"
+			fi
+		else
+			prev_block[$i]="${block_dec}"
+			no_growth_streak[$i]=0
+		fi
+		if (( peer_dec < PEER_MIN )); then
+			alert "WARN" "peers" "node${node_n} peer count below threshold: ${peer_dec}" "{\"node\":${node_n},\"peers\":${peer_dec}}"
+		fi
+		latest_records+=("${node_n}|${block_dec}|${block_hash}|${block_miner}|${peer_dec}")
+	done
+
+	# Approximate double-sign / fork alert: same miner at same height with different hashes across nodes.
+	if (( ${#latest_records[@]} > 1 )); then
+		latest_blob="$(printf '%s\n' "${latest_records[@]}")"
+		conflicts="$(python3 -c '
+import sys, json
+seen = {}
+conflicts = []
+for line in sys.stdin.read().splitlines():
+    if not line:
+        continue
+    node, height, block_hash, miner, peers = line.split("|")
+    key = (height, miner)
+    prev = seen.get(key)
+    if prev and prev != block_hash:
+        conflicts.append({"height": int(height), "miner": miner, "hashes": sorted({prev, block_hash})})
+    else:
+        seen[key] = block_hash
+print(json.dumps(conflicts))
+' <<<"${latest_blob}")"
+		if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.stdin.read()) else 1)' <<<"${conflicts}"; then
+			alert "ERROR" "conflict" "observed conflicting latest blocks for the same miner/height" "${conflicts}"
+		fi
+	fi
+
+	analysis="$(python3 - <<PY
+import json, urllib.request
+url = ${NODE_URLS[0]@Q}
+finality_lag_max = int(${FINALITY_LAG_MAX_BLOCKS})
+group_factor = max(int(${GROUP_SAMPLE_FACTOR}), 1)
+
+def rpc(method, params):
+    data = json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        body = json.loads(r.read())
+    if "error" in body:
+        raise RuntimeError(f"{method} error: {body['error']}")
+    return body["result"]
+
+def dec(value):
+    if value is None:
+        return 0
+    if isinstance(value, str) and value.startswith("0x"):
+        return int(value, 16)
+    return int(value)
+
+latest = dec(rpc("tos_blockNumber", []))
+finalized = rpc("tos_getFinalizedBlock", [])
+epoch_info = rpc("dpos_getEpochInfo", ["latest"])
+genesis = rpc("tos_getBlockByNumber", ["0x0", False])
+period_ms = dec(epoch_info.get("targetBlockPeriodMs") or "0x0")
+turn_length = dec(epoch_info.get("turnLength") or "0x0")
+if period_ms <= 0 or turn_length <= 0:
+    print(json.dumps({"error": "invalid epoch info"}))
+    raise SystemExit(0)
+lag = latest - dec(finalized["number"]) if finalized else 0
+sample_len = min(latest, max(turn_length * group_factor, 16))
+start = max(1, latest - sample_len + 1)
+group_counts = {}
+group_totals = {}
+group_order = []
+for num in range(start, latest + 1):
+    block = rpc("tos_getBlockByNumber", [hex(num), False])
+    miner = str(block["miner"]).lower()
+    ts = dec(block["timestamp"])
+    slot = (ts - dec(genesis["timestamp"])) // period_ms
+    if slot < 1:
+        print(json.dumps({"error": f"block {num} has invalid slot {slot}"}))
+        raise SystemExit(0)
+    group = (slot - 1) // turn_length
+    if group not in group_counts:
+        group_counts[group] = {}
+        group_order.append(group)
+    group_counts[group][miner] = group_counts[group].get(miner, 0) + 1
+    group_totals[group] = group_totals.get(group, 0) + 1
+dominant = {}
+strict_groups = group_order[1:-1] if len(group_order) > 2 else group_order
+for group, counts in group_counts.items():
+    miner, count = max(counts.items(), key=lambda item: item[1])
+    dominant[group] = miner
+    if group in strict_groups and count * 2 <= group_totals[group]:
+        print(json.dumps({"error": f"group {group} has no dominant proposer: {counts}"}))
+        raise SystemExit(0)
+for i in range(1, len(strict_groups)):
+    prev_group = strict_groups[i - 1]
+    curr_group = strict_groups[i]
+    if dominant[prev_group] == dominant[curr_group]:
+        print(json.dumps({"error": f"group rotation stalled across {prev_group}->{curr_group}"}))
+        raise SystemExit(0)
+print(json.dumps({
+    "head": latest,
+    "finalized": dec(finalized["number"]) if finalized else 0,
+    "finalityLag": lag,
+    "finalityAlert": lag > finality_lag_max,
+    "turnLength": turn_length,
+    "turnGroupDurationMs": turn_length * period_ms,
+    "groupsObserved": len(group_counts),
+}))
+PY
+2>/dev/null || true)"
+	if [[ -n "${analysis}" ]]; then
+		if python3 -c 'import json,sys; sys.exit(0 if "error" in json.loads(sys.stdin.read()) else 1)' <<<"${analysis}"; then
+			msg="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["error"])' <<<"${analysis}")"
+			alert "WARN" "grouped-turn" "${msg}" '{}'
+		else
+			if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.stdin.read())["finalityAlert"] else 1)' <<<"${analysis}"; then
+				lag="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["finalityLag"])' <<<"${analysis}")"
+				alert "WARN" "finality" "finalized lag ${lag} exceeds threshold ${FINALITY_LAG_MAX_BLOCKS}" "${analysis}"
+			fi
+		fi
+	fi
+
+	for idx in 1 2 3; do
+		state_file="${BASE_DIR}/ops/maintenance/node${idx}.env"
+		if [[ ! -f "${state_file}" ]]; then
+			continue
+		fi
+		# shellcheck disable=SC1090
+		source "${state_file}"
+		if [[ "${STATE:-}" == "maintenance" && -n "${UPDATED_AT:-}" ]]; then
+			age=$(( now - UPDATED_AT ))
+			if (( age > MAINTENANCE_MAX_SEC )); then
+				alert "WARN" "maintenance" "node${idx} maintenance exceeds ${MAINTENANCE_MAX_SEC}s" "{\"node\":${idx},\"ageSec\":${age},\"validator\":\"${VALIDATOR_ADDR:-}\",\"txHash\":\"${TX_HASH:-}\"}"
+			fi
+		fi
+	done
+
+	latest_json="$(python3 -c '
+import json, sys
+items = []
+for line in sys.stdin.read().splitlines():
+    if not line:
+        continue
+    node, height, block_hash, miner, peers = line.split("|")
+    items.append({
+        "node": int(node),
+        "height": int(height),
+        "hash": block_hash,
+        "miner": miner,
+        "peers": int(peers),
+    })
+print(json.dumps(items, sort_keys=True))
+' <<<"$(printf '%s\n' "${latest_records[@]}")")"
+	analysis_json="${analysis:-null}"
+	python3 - <<PY >>"${EVENTS_FILE}"
+import json, time
+analysis = json.loads(${analysis_json@Q}) if ${analysis_json@Q} not in ("", "null") else None
+latest = json.loads(${latest_json@Q})
+print(json.dumps({
+    "ts": int(time.time()),
+    "latest": latest,
+    "analysis": analysis,
+}, sort_keys=True))
+PY
+
+	python3 - <<PY >"${STATE_FILE}"
+import json, time
+analysis = json.loads(${analysis_json@Q}) if ${analysis_json@Q} not in ("", "null") else None
+latest = json.loads(${latest_json@Q})
+print(json.dumps({
+    "updated_at": int(time.time()),
+    "latest": latest,
+    "analysis": analysis,
+}, indent=2, sort_keys=True))
+PY
+
+	sleep "${POLL_SEC}"
+done
+
+echo "validator guard finished; journals written under ${JOURNAL_DIR}"

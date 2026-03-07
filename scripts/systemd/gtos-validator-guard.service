@@ -1,0 +1,17 @@
+[Unit]
+Description=GTOS Validator Guard
+After=network-online.target gtos-validator@1.service gtos-validator@2.service gtos-validator@3.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tomi
+Group=tomi
+WorkingDirectory=/data/gtos
+EnvironmentFile=/data/gtos/ops/validator_guard.env
+ExecStart=/bin/bash /home/tomi/gtos/scripts/validator_guard.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

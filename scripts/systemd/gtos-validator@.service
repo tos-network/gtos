@@ -1,0 +1,19 @@
+[Unit]
+Description=GTOS Validator %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tomi
+Group=tomi
+WorkingDirectory=/data/gtos
+EnvironmentFile=/data/gtos/node%i/validator.env
+ExecStart=/usr/local/bin/gtos --config ${GTOS_CONFIG} --datadir ${GTOS_DATADIR} --networkid ${GTOS_NETWORK_ID} --port ${GTOS_P2P_PORT} --netrestrict 127.0.0.0/8 --nat none --http --http.addr 127.0.0.1 --http.port ${GTOS_HTTP_PORT} --ws --ws.addr 127.0.0.1 --ws.port ${GTOS_WS_PORT} --authrpc.addr 127.0.0.1 --authrpc.port ${GTOS_AUTHRPC_PORT} --unlock ${GTOS_VALIDATOR_ADDR} --password ${GTOS_PASSFILE} --allow-insecure-unlock --mine --miner.coinbase ${GTOS_VALIDATOR_ADDR} --verbosity ${GTOS_VERBOSITY} --bootnodes ${GTOS_BOOTNODES}
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

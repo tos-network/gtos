@@ -58,7 +58,7 @@ The agent economy runs on three foundational layers.
 
 - `360ms` target block interval, DPoS consensus
 - Parallel transaction execution — independent txs run concurrently within each block via DAG scheduling
-- Configurable validator signer: `ed25519` (default), `secp256k1`
+- Validator sealing signer: `ed25519` only
 - Agent wallets support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 
 ### Privacy
