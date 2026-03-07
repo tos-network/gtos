@@ -10,9 +10,9 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	lvm "github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
-	lvm "github.com/tos-network/gtos/core/vm"
 )
 
 // secBlockCtx returns a minimal BlockContext for security tests.
@@ -312,10 +312,11 @@ func TestNonceNotIncrementedOnIntrinsicGasFailureCall(t *testing.T) {
 // Issue 4: End-to-end AA validation success path.
 //
 // A truthy validate() contract must result in:
-//   (a) no error returned from ApplyMessage
-//   (b) result.UsedGas > TxGas — validationGas is included in the reported gas
-//   (c) coinbase received result.UsedGas * txPrice as a fee
-//   (d) sender balance decreased by at least the fee charged
+//
+//	(a) no error returned from ApplyMessage
+//	(b) result.UsedGas > TxGas — validationGas is included in the reported gas
+//	(c) coinbase received result.UsedGas * txPrice as a fee
+//	(d) sender balance decreased by at least the fee charged
 //
 // The contract code "tos.result(\"uint256\", 1)" returns a 32-byte ABI-encoded
 // uint256(1), which satisfies the non-zero 32-byte requirement in validateAccountContract.
@@ -367,10 +368,11 @@ func TestAAValidateTruthyEndToEnd(t *testing.T) {
 		t.Errorf("coinbase fee: got %v, want %v (UsedGas=%d * txPrice=%v)", actualFee, expectedFee, result.UsedGas, txPrice)
 	}
 
-	// (d) Sender balance must have decreased.
+	// (d) Sender must have paid exactly result.UsedGas * txPrice.
 	senderAfter := st.GetBalance(from)
-	if senderAfter.Cmp(senderBefore) >= 0 {
-		t.Error("sender balance must have decreased after a successful AA tx")
+	actualSpend := new(big.Int).Sub(senderBefore, senderAfter)
+	if actualSpend.Cmp(expectedFee) != 0 {
+		t.Errorf("sender spend: got %v, want %v (UsedGas=%d * txPrice=%v)", actualSpend, expectedFee, result.UsedGas, txPrice)
 	}
 }
 

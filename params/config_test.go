@@ -115,6 +115,29 @@ func TestChainConfigJSONRejectsLegacyPeriod(t *testing.T) {
 	}
 }
 
+func TestCheckConfigForkOrder(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *ChainConfig
+		wantErr bool
+	}{
+		{name: "nil forks", cfg: &ChainConfig{ChainID: big.NewInt(1)}, wantErr: false},
+		{name: "ascending", cfg: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 20, 30}}, wantErr: false},
+		{name: "zero", cfg: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{0, 20}}, wantErr: true},
+		{name: "duplicate", cfg: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 10}}, wantErr: true},
+		{name: "descending", cfg: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{20, 10}}, wantErr: true},
+	}
+	for _, tc := range tests {
+		err := tc.cfg.CheckConfigForkOrder()
+		if tc.wantErr && err == nil {
+			t.Fatalf("%s: expected error", tc.name)
+		}
+		if !tc.wantErr && err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+	}
+}
+
 func TestCheckCompatible(t *testing.T) {
 	type test struct {
 		stored, new *ChainConfig
@@ -185,10 +208,38 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
-			head:   10,
+			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			head:    10,
 			wantErr: &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true},
+		},
+		{
+			stored:  &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 20}},
+			new:     &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 20, 30}},
+			head:    19,
+			wantErr: nil,
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 20}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 25}},
+			head:   25,
+			wantErr: &ConfigCompatError{
+				What:         "protocolForks",
+				StoredConfig: big.NewInt(20),
+				NewConfig:    big.NewInt(25),
+				RewindTo:     19,
+			},
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10, 20}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), ProtocolForks: []uint64{10}},
+			head:   25,
+			wantErr: &ConfigCompatError{
+				What:         "protocolForks",
+				StoredConfig: big.NewInt(20),
+				NewConfig:    nil,
+				RewindTo:     19,
+			},
 		},
 	}
 

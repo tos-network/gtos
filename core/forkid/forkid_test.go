@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"hash/crc32"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
@@ -105,5 +106,51 @@ func TestEncoding(t *testing.T) {
 		if !bytes.Equal(have, tt.want) {
 			t.Errorf("test %d: RLP mismatch: have %x, want %x", i, have, tt.want)
 		}
+	}
+}
+
+func TestCreationWithProtocolForks(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID:       big.NewInt(1),
+		ProtocolForks: []uint64{10, 20},
+	}
+	baseHash := crc32.ChecksumIEEE(params.MainnetGenesisHash[:])
+	hash10 := checksumUpdate(baseHash, 10)
+	hash20 := checksumUpdate(hash10, 20)
+
+	tests := []struct {
+		head uint64
+		want ID
+	}{
+		{0, ID{Hash: checksumToBytes(baseHash), Next: 10}},
+		{10, ID{Hash: checksumToBytes(hash10), Next: 20}},
+		{20, ID{Hash: checksumToBytes(hash20), Next: 0}},
+	}
+	for _, tc := range tests {
+		if have := NewID(config, params.MainnetGenesisHash, tc.head); have != tc.want {
+			t.Fatalf("head=%d: have %x want %x", tc.head, have, tc.want)
+		}
+	}
+}
+
+func TestValidationWithProtocolForks(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID:       big.NewInt(1),
+		ProtocolForks: []uint64{10, 20},
+	}
+	filter := newFilter(config, params.MainnetGenesisHash, func() uint64 { return 25 })
+
+	baseHash := crc32.ChecksumIEEE(params.MainnetGenesisHash[:])
+	hash10 := checksumUpdate(baseHash, 10)
+	hash20 := checksumUpdate(hash10, 20)
+
+	if err := filter(ID{Hash: checksumToBytes(hash20), Next: 0}); err != nil {
+		t.Fatalf("post-fork peer should be accepted: %v", err)
+	}
+	if err := filter(ID{Hash: checksumToBytes(hash10), Next: 20}); err != nil {
+		t.Fatalf("syncing pre-second-fork peer should be accepted: %v", err)
+	}
+	if err := filter(ID{Hash: checksumToBytes(hash10), Next: 30}); err != ErrRemoteStale {
+		t.Fatalf("stale peer mismatch: have %v want %v", err, ErrRemoteStale)
 	}
 }

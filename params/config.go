@@ -299,6 +299,14 @@ func (c *ChainConfig) CheckCompatible(newcfg *ChainConfig, height uint64) *Confi
 
 // CheckConfigForkOrder validates chain-config ordering constraints.
 func (c *ChainConfig) CheckConfigForkOrder() error {
+	for i, fork := range c.ProtocolForks {
+		if fork == 0 {
+			return fmt.Errorf("protocolForks[%d] must be > 0", i)
+		}
+		if i > 0 && fork <= c.ProtocolForks[i-1] {
+			return fmt.Errorf("protocolForks must be strictly increasing: index %d has %d after %d", i, fork, c.ProtocolForks[i-1])
+		}
+	}
 	return nil
 }
 
@@ -348,7 +356,48 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 			return &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true}
 		}
 	}
+	storedForks := appliedProtocolForks(c.ProtocolForks, head.Uint64())
+	newForks := appliedProtocolForks(newcfg.ProtocolForks, head.Uint64())
+	if storedFork, newFork := firstProtocolForkMismatch(storedForks, newForks); storedFork != nil || newFork != nil {
+		return newCompatError("protocolForks", storedFork, newFork)
+	}
 	return nil
+}
+
+func appliedProtocolForks(forks []uint64, head uint64) []uint64 {
+	var applied []uint64
+	for _, fork := range forks {
+		if fork > head {
+			break
+		}
+		applied = append(applied, fork)
+	}
+	return applied
+}
+
+func firstProtocolForkMismatch(stored, updated []uint64) (*big.Int, *big.Int) {
+	maxLen := len(stored)
+	if len(updated) > maxLen {
+		maxLen = len(updated)
+	}
+	for i := 0; i < maxLen; i++ {
+		var storedFork, newFork *big.Int
+		if i < len(stored) {
+			storedFork = new(big.Int).SetUint64(stored[i])
+		}
+		if i < len(updated) {
+			newFork = new(big.Int).SetUint64(updated[i])
+		}
+		switch {
+		case storedFork == nil && newFork == nil:
+			continue
+		case storedFork == nil || newFork == nil:
+			return storedFork, newFork
+		case storedFork.Cmp(newFork) != 0:
+			return storedFork, newFork
+		}
+	}
+	return nil, nil
 }
 
 func configNumEqual(x, y *big.Int) bool {
