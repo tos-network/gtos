@@ -150,20 +150,16 @@ func TestEstimateStorageFirstGas(t *testing.T) {
 	}
 
 	callData := hexutil.Bytes{0x60, 0x00}
-	_, err = estimateStorageFirstGas(TransactionArgs{
+	callGas, err := estimateStorageFirstGas(TransactionArgs{
 		From:  &from,
 		To:    &toTransfer,
 		Input: &callData,
 	})
-	if err == nil {
-		t.Fatalf("expected invalid params error for unsupported calldata auto-estimation")
+	if err != nil {
+		t.Fatalf("unexpected error for non-system calldata fallback estimate: %v", err)
 	}
-	rpcErr, ok := err.(*rpcAPIError)
-	if !ok {
-		t.Fatalf("unexpected error type %T", err)
-	}
-	if rpcErr.code != rpcErrInvalidParams {
-		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrInvalidParams)
+	if uint64(callGas) != params.TxGas {
+		t.Fatalf("unexpected non-system calldata fallback gas: have %d want %d", callGas, params.TxGas)
 	}
 
 	// Contract creation (to=nil): standard CREATE gas = intrinsic + 200 gas/byte.
