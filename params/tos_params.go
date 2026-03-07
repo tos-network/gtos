@@ -100,13 +100,13 @@ const (
 	UNOMaxProofBytes          = 96 * 1024
 )
 
-// GTOSPriceWei is the protocol-fixed tx price for GTOS transactions.
+// TxPriceWei is the protocol-fixed tx price for GTOS transactions.
 // 10 gwei = 10,000,000,000 wei.
-const GTOSPriceWei int64 = 10_000_000_000
+const TxPriceWei int64 = 10_000_000_000
 
-// GTOSPrice returns the protocol-fixed tx price as a new big.Int.
-func GTOSPrice() *big.Int {
-	return big.NewInt(GTOSPriceWei)
+// TxPrice returns the protocol-fixed tx price as a new big.Int.
+func TxPrice() *big.Int {
+	return big.NewInt(TxPriceWei)
 }
 
 // DPoS consensus parameters.

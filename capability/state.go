@@ -4,10 +4,16 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 // bitmapSlot returns the storage slot for an address's capability bitmap.
 // Key = keccak256("cap\x00bitmap\x00" || addr[20]).
@@ -34,27 +40,27 @@ func eligibleSlot(bit uint8) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
-func readBitmap(db vm.StateDB, addr common.Address) *big.Int {
+func readBitmap(db stateDB, addr common.Address) *big.Int {
 	raw := db.GetState(params.CapabilityRegistryAddress, bitmapSlot(addr))
 	return raw.Big()
 }
 
-func writeBitmap(db vm.StateDB, addr common.Address, bitmap *big.Int) {
+func writeBitmap(db stateDB, addr common.Address, bitmap *big.Int) {
 	db.SetState(params.CapabilityRegistryAddress, bitmapSlot(addr), common.BigToHash(bitmap))
 }
 
-func readBitCount(db vm.StateDB) uint8 {
+func readBitCount(db stateDB) uint8 {
 	raw := db.GetState(params.CapabilityRegistryAddress, bitCountSlot)
 	return uint8(raw.Big().Uint64())
 }
 
-func writeBitCount(db vm.StateDB, n uint8) {
+func writeBitCount(db stateDB, n uint8) {
 	var val common.Hash
 	val[31] = n
 	db.SetState(params.CapabilityRegistryAddress, bitCountSlot, val)
 }
 
-func readNameBit(db vm.StateDB, name string) (uint8, bool) {
+func readNameBit(db stateDB, name string) (uint8, bool) {
 	raw := db.GetState(params.CapabilityRegistryAddress, nameSlot(name))
 	v := raw[31]
 	if v == 0xFF && raw == (common.Hash{31: 0xFF}) {
@@ -68,46 +74,46 @@ func readNameBit(db vm.StateDB, name string) (uint8, bool) {
 	return v, true
 }
 
-func writeNameBit(db vm.StateDB, name string, bit uint8) {
+func writeNameBit(db stateDB, name string, bit uint8) {
 	var val common.Hash
 	val[30] = 1 // "set" marker
 	val[31] = bit
 	db.SetState(params.CapabilityRegistryAddress, nameSlot(name), val)
 }
 
-func readEligible(db vm.StateDB, bit uint8) *big.Int {
+func readEligible(db stateDB, bit uint8) *big.Int {
 	raw := db.GetState(params.CapabilityRegistryAddress, eligibleSlot(bit))
 	return raw.Big()
 }
 
-func writeEligible(db vm.StateDB, bit uint8, count *big.Int) {
+func writeEligible(db stateDB, bit uint8, count *big.Int) {
 	db.SetState(params.CapabilityRegistryAddress, eligibleSlot(bit), common.BigToHash(count))
 }
 
 // HasCapability returns true if addr holds the capability identified by bit.
-func HasCapability(db vm.StateDB, addr common.Address, bit uint8) bool {
+func HasCapability(db stateDB, addr common.Address, bit uint8) bool {
 	bitmap := readBitmap(db, addr)
 	return bitmap.Bit(int(bit)) == 1
 }
 
 // CapabilitiesOf returns the full capability bitmap for addr as a *big.Int.
-func CapabilitiesOf(db vm.StateDB, addr common.Address) *big.Int {
+func CapabilitiesOf(db stateDB, addr common.Address) *big.Int {
 	return readBitmap(db, addr)
 }
 
 // CapabilityBit resolves a capability name to its bit index.
 // Returns (bit, true) if found, (0, false) if not registered.
-func CapabilityBit(db vm.StateDB, name string) (uint8, bool) {
+func CapabilityBit(db stateDB, name string) (uint8, bool) {
 	return readNameBit(db, name)
 }
 
 // TotalEligible returns the count of addresses that hold a given capability bit.
-func TotalEligible(db vm.StateDB, bit uint8) *big.Int {
+func TotalEligible(db stateDB, bit uint8) *big.Int {
 	return readEligible(db, bit)
 }
 
 // GrantCapability sets bit in addr's capability bitmap and increments eligibleCount.
-func GrantCapability(db vm.StateDB, addr common.Address, bit uint8) {
+func GrantCapability(db stateDB, addr common.Address, bit uint8) {
 	bitmap := readBitmap(db, addr)
 	if bitmap.Bit(int(bit)) == 0 {
 		bitmap.SetBit(bitmap, int(bit), 1)
@@ -118,7 +124,7 @@ func GrantCapability(db vm.StateDB, addr common.Address, bit uint8) {
 }
 
 // RevokeCapability clears bit in addr's capability bitmap and decrements eligibleCount.
-func RevokeCapability(db vm.StateDB, addr common.Address, bit uint8) {
+func RevokeCapability(db stateDB, addr common.Address, bit uint8) {
 	bitmap := readBitmap(db, addr)
 	if bitmap.Bit(int(bit)) == 1 {
 		bitmap.SetBit(bitmap, int(bit), 0)
@@ -132,7 +138,7 @@ func RevokeCapability(db vm.StateDB, addr common.Address, bit uint8) {
 
 // RegisterCapabilityName allocates the next available bit for a new capability name.
 // Returns the allocated bit index, or an error if the name already exists or all bits are used.
-func RegisterCapabilityName(db vm.StateDB, name string) (uint8, error) {
+func RegisterCapabilityName(db stateDB, name string) (uint8, error) {
 	if _, exists := readNameBit(db, name); exists {
 		return 0, ErrCapabilityNameExists
 	}

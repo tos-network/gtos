@@ -1,4 +1,4 @@
-package lvm
+package vm
 
 // Ethereum ABI encoding/decoding for TOS Lua contracts.
 //

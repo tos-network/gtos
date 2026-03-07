@@ -5,10 +5,16 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 // agentSlot returns the storage slot for a per-agent field.
 // Key = keccak256(addr[20] || 0x00 || field).
@@ -38,23 +44,23 @@ func metadataSlot(addr common.Address) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
-func readAgentCount(db vm.StateDB) uint64 {
+func readAgentCount(db stateDB) uint64 {
 	raw := db.GetState(params.AgentRegistryAddress, agentCountSlot)
 	return raw.Big().Uint64()
 }
 
-func writeAgentCount(db vm.StateDB, n uint64) {
+func writeAgentCount(db stateDB, n uint64) {
 	var val common.Hash
 	binary.BigEndian.PutUint64(val[24:], n)
 	db.SetState(params.AgentRegistryAddress, agentCountSlot, val)
 }
 
-func readAgentAt(db vm.StateDB, i uint64) common.Address {
+func readAgentAt(db stateDB, i uint64) common.Address {
 	raw := db.GetState(params.AgentRegistryAddress, agentListSlot(i))
 	return common.BytesToAddress(raw[:])
 }
 
-func appendAgentToList(db vm.StateDB, addr common.Address) {
+func appendAgentToList(db stateDB, addr common.Address) {
 	n := readAgentCount(db)
 	slot := agentListSlot(n)
 	var val common.Hash
@@ -63,47 +69,47 @@ func appendAgentToList(db vm.StateDB, addr common.Address) {
 	writeAgentCount(db, n+1)
 }
 
-func readRegisteredFlag(db vm.StateDB, addr common.Address) bool {
+func readRegisteredFlag(db stateDB, addr common.Address) bool {
 	raw := db.GetState(params.AgentRegistryAddress, agentSlot(addr, "registered"))
 	return raw[31] != 0
 }
 
-func writeRegisteredFlag(db vm.StateDB, addr common.Address) {
+func writeRegisteredFlag(db stateDB, addr common.Address) {
 	var val common.Hash
 	val[31] = 1
 	db.SetState(params.AgentRegistryAddress, agentSlot(addr, "registered"), val)
 }
 
 // IsRegistered returns true if addr has ever registered as an agent.
-func IsRegistered(db vm.StateDB, addr common.Address) bool {
+func IsRegistered(db stateDB, addr common.Address) bool {
 	return readRegisteredFlag(db, addr)
 }
 
 // IsSuspended returns true if addr is currently suspended.
-func IsSuspended(db vm.StateDB, addr common.Address) bool {
+func IsSuspended(db stateDB, addr common.Address) bool {
 	raw := db.GetState(params.AgentRegistryAddress, agentSlot(addr, "suspended"))
 	return raw[31] != 0
 }
 
 // ReadStake returns the locked stake for addr (0 if not registered).
-func ReadStake(db vm.StateDB, addr common.Address) *big.Int {
+func ReadStake(db stateDB, addr common.Address) *big.Int {
 	raw := db.GetState(params.AgentRegistryAddress, agentSlot(addr, "stake"))
 	return raw.Big()
 }
 
 // ReadStatus returns the current status for addr.
-func ReadStatus(db vm.StateDB, addr common.Address) AgentStatus {
+func ReadStatus(db stateDB, addr common.Address) AgentStatus {
 	raw := db.GetState(params.AgentRegistryAddress, agentSlot(addr, "status"))
 	return AgentStatus(raw[31])
 }
 
 // WriteStake writes the locked stake for addr.
-func WriteStake(db vm.StateDB, addr common.Address, stake *big.Int) {
+func WriteStake(db stateDB, addr common.Address, stake *big.Int) {
 	db.SetState(params.AgentRegistryAddress, agentSlot(addr, "stake"), common.BigToHash(stake))
 }
 
 // WriteSuspended writes the suspended flag for addr.
-func WriteSuspended(db vm.StateDB, addr common.Address, suspended bool) {
+func WriteSuspended(db stateDB, addr common.Address, suspended bool) {
 	var val common.Hash
 	if suspended {
 		val[31] = 1
@@ -112,7 +118,7 @@ func WriteSuspended(db vm.StateDB, addr common.Address, suspended bool) {
 }
 
 // WriteStatus writes the lifecycle status for addr.
-func WriteStatus(db vm.StateDB, addr common.Address, s AgentStatus) {
+func WriteStatus(db stateDB, addr common.Address, s AgentStatus) {
 	var val common.Hash
 	val[31] = byte(s)
 	db.SetState(params.AgentRegistryAddress, agentSlot(addr, "status"), val)
@@ -121,7 +127,7 @@ func WriteStatus(db vm.StateDB, addr common.Address, s AgentStatus) {
 // MetadataOf returns the metadata URI stored for addr.
 // The URI is stored as-is in the slot (truncated to 32 bytes for short URIs,
 // or as a hash for longer ones — callers are expected to store short CID/URL strings).
-func MetadataOf(db vm.StateDB, addr common.Address) string {
+func MetadataOf(db stateDB, addr common.Address) string {
 	raw := db.GetState(params.AgentRegistryAddress, metadataSlot(addr))
 	// Trim trailing zero bytes.
 	b := raw[:]
@@ -133,7 +139,7 @@ func MetadataOf(db vm.StateDB, addr common.Address) string {
 }
 
 // WriteMetadata stores a metadata URI for addr (first 32 bytes only).
-func WriteMetadata(db vm.StateDB, addr common.Address, uri string) {
+func WriteMetadata(db stateDB, addr common.Address, uri string) {
 	var val common.Hash
 	copy(val[:], []byte(uri))
 	db.SetState(params.AgentRegistryAddress, metadataSlot(addr), val)

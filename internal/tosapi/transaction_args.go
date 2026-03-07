@@ -15,6 +15,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/rpc"
 )
 
 // TransactionArgs represents the arguments to construct a new transaction
@@ -89,17 +90,28 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		// pass the pointer directly.
 		data := args.data()
 		callArgs := TransactionArgs{
-			From:                 args.From,
-			To:                   args.To,
-			MaxFeePerGas:         args.MaxFeePerGas,
-			MaxPriorityFeePerGas: args.MaxPriorityFeePerGas,
-			Value:                args.Value,
-			Data:                 (*hexutil.Bytes)(&data),
-			AccessList:           args.AccessList,
+			From:       args.From,
+			To:         args.To,
+			Value:      args.Value,
+			Data:       (*hexutil.Bytes)(&data),
+			AccessList: args.AccessList,
 		}
-		estimated, err := estimateStorageFirstGas(callArgs)
-		if err != nil {
-			return err
+		var estimated hexutil.Uint64
+		// Contract calls (non-system address with calldata) require binary-search
+		// gas estimation via actual execution, not a static formula.
+		if args.To != nil && *args.To != params.SystemActionAddress && len(data) > 0 {
+			est, err := DoEstimateGas(ctx, b, callArgs,
+				rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber), b.RPCGasCap())
+			if err != nil {
+				return err
+			}
+			estimated = est
+		} else {
+			est, err := estimateStorageFirstGas(callArgs)
+			if err != nil {
+				return err
+			}
+			estimated = est
 		}
 		args.Gas = &estimated
 		log.Trace("Estimate gas usage automatically", "gas", args.Gas)
@@ -154,9 +166,6 @@ func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
 		}
 		return hexutil.Uint64(gas), nil
 	}
-	if len(data) > 0 {
-		return 0, newRPCInvalidParamsError("gas", "cannot auto-estimate gas for calldata to non-system address; specify gas explicitly")
-	}
 	gas, err := core.IntrinsicGas(nil, accessList, false, true, true)
 	if err != nil {
 		return 0, err
@@ -197,8 +206,8 @@ func (args *TransactionArgs) ToMessage(globalGasCap uint64, baseFee *big.Int) (t
 		log.Warn("Caller gas above allowance, capping", "requested", gas, "cap", globalGasCap)
 		gas = globalGasCap
 	}
-	txPrice := params.GTOSPrice()
-	gasFeeCap, gasTipCap := params.GTOSPrice(), params.GTOSPrice()
+	txPrice := params.TxPrice()
+	gasFeeCap, gasTipCap := params.TxPrice(), params.TxPrice()
 	value := new(big.Int)
 	if args.Value != nil {
 		value = args.Value.ToInt()

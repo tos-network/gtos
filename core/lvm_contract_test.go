@@ -15,7 +15,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
-	lvm "github.com/tos-network/gtos/core/lvm"
+	lvm "github.com/tos-network/gtos/core/vm"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 

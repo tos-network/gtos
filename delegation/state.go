@@ -4,10 +4,16 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 // usedSlot returns the storage slot tracking whether (principal, nonce) has been consumed.
 // Key = keccak256("del\x00used\x00" || principal[20] || nonce[32]).
@@ -27,14 +33,14 @@ func nonceCountSlot(principal common.Address) common.Hash {
 }
 
 // IsUsed reports whether (principal, nonce) has already been consumed.
-func IsUsed(db vm.StateDB, principal common.Address, nonce *big.Int) bool {
+func IsUsed(db stateDB, principal common.Address, nonce *big.Int) bool {
 	raw := db.GetState(params.DelegationRegistryAddress, usedSlot(principal, nonce))
 	return raw[31] != 0
 }
 
 // MarkUsed marks (principal, nonce) as consumed. Advances the nonce hint if this
 // nonce equals the current hint.
-func MarkUsed(db vm.StateDB, principal common.Address, nonce *big.Int) {
+func MarkUsed(db stateDB, principal common.Address, nonce *big.Int) {
 	var val common.Hash
 	val[31] = 1
 	db.SetState(params.DelegationRegistryAddress, usedSlot(principal, nonce), val)
@@ -49,13 +55,13 @@ func MarkUsed(db vm.StateDB, principal common.Address, nonce *big.Int) {
 
 // Revoke marks (principal, nonce) as used, preventing future use.
 // Semantically equivalent to MarkUsed but communicates revocation intent.
-func Revoke(db vm.StateDB, principal common.Address, nonce *big.Int) {
+func Revoke(db stateDB, principal common.Address, nonce *big.Int) {
 	MarkUsed(db, principal, nonce)
 }
 
 // NextNonce returns the next-nonce hint for principal (may not be the actual
 // smallest available nonce if non-sequential nonces were used).
-func NextNonce(db vm.StateDB, principal common.Address) *big.Int {
+func NextNonce(db stateDB, principal common.Address) *big.Int {
 	raw := db.GetState(params.DelegationRegistryAddress, nonceCountSlot(principal))
 	return raw.Big()
 }

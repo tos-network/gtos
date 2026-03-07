@@ -490,7 +490,7 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gasTipCap.Cmp(params.GTOSPrice()) != 0 {
+	if gasTipCap.Cmp(params.TxPrice()) != 0 {
 		t.Fatalf("unexpected gas tip cap: %v", gasTipCap)
 	}
 
@@ -504,8 +504,8 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 		OldestBlock: big.NewInt(2),
 		Reward: [][]*big.Int{
 			{
-				params.GTOSPrice(),
-				params.GTOSPrice(),
+				params.TxPrice(),
+				params.TxPrice(),
 			},
 		},
 		BaseFee: []*big.Int{

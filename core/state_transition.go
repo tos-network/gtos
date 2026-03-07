@@ -24,7 +24,6 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	lvm "github.com/tos-network/gtos/core/lvm"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
@@ -51,7 +50,7 @@ type StateTransition struct {
 	state       vm.StateDB
 	blockCtx    vm.BlockContext
 	chainConfig *params.ChainConfig
-	lvm         *lvm.LVM
+	lvm         *vm.LVM
 }
 
 // Message represents a message sent to a contract.
@@ -158,8 +157,8 @@ func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation b
 
 // NewStateTransition initialises and returns a new state transition object.
 func NewStateTransition(blockCtx vm.BlockContext, chainConfig *params.ChainConfig, msg Message, gp *GasPool, statedb vm.StateDB) *StateTransition {
-	txCtx := lvm.TxContext{Origin: msg.From(), GasPrice: msg.TxPrice()}
-	l := lvm.NewLVM(blockCtx, txCtx, statedb, chainConfig)
+	txCtx := vm.TxContext{Origin: msg.From(), GasPrice: msg.TxPrice()}
+	l := vm.NewLVM(blockCtx, txCtx, statedb, chainConfig)
 	return &StateTransition{
 		gp:          gp,
 		msg:         msg,
@@ -295,14 +294,14 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	var vmerr error
 
 	if contractCreation {
-		deployPkgBytes, ctorArgs, splitErr := lvm.SplitDeployDataAndConstructorArgs(st.data)
+		deployPkgBytes, ctorArgs, splitErr := vm.SplitDeployDataAndConstructorArgs(st.data)
 		if splitErr != nil {
 			// Not a valid .tor package — let Create() produce the proper error.
 			deployPkgBytes = st.data
 			ctorArgs = nil
 		}
-		_, st.gas, vmerr = st.lvm.Create(lvm.ContractAccount(msg.From()), deployPkgBytes, ctorArgs, st.gas, msg.Value(), st.msg.Nonce())
-		if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
+		_, st.gas, vmerr = st.lvm.Create(vm.ContractAccount(msg.From()), deployPkgBytes, ctorArgs, st.gas, msg.Value(), st.msg.Nonce())
+		if errors.Is(vmerr, vm.ErrGasLimitExceeded) {
 			vmerr = ErrIntrinsicGas
 		}
 	} else {
@@ -333,8 +332,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				vmerr = ErrContractNotSupported
 			} else if len(toCode) > 0 {
 				// Destination has LVM contract code: execute it.
-				ret, st.gas, vmerr = st.lvm.Call(lvm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
-				if errors.Is(vmerr, lvm.ErrGasLimitExceeded) {
+				ret, st.gas, vmerr = st.lvm.Call(vm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
+				if errors.Is(vmerr, vm.ErrGasLimitExceeded) {
 					vmerr = ErrIntrinsicGas
 				}
 			} else {
@@ -419,7 +418,7 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 	calldata = append(calldata, lenWord[:]...)
 	calldata = append(calldata, sigPadded...)
 
-	ctx := lvm.CallCtx{
+	ctx := vm.CallCtx{
 		From:     st.msg.From(),
 		To:       toAddr,
 		Value:    big.NewInt(0),
@@ -430,7 +429,7 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		Readonly: false,
 	}
 	code := st.state.GetCode(toAddr)
-	gasUsed, retData, _, execErr := lvm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
+	gasUsed, retData, _, execErr := vm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
 
 	if execErr != nil {
 		return ErrAAValidationFailed

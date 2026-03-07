@@ -5,7 +5,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
+	vmtypes "github.com/tos-network/gtos/core/vmtypes"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -14,7 +14,7 @@ type Context struct {
 	From        common.Address
 	Value       *big.Int
 	BlockNumber *big.Int
-	StateDB     vm.StateDB
+	StateDB     vmtypes.StateDB
 	ChainConfig *params.ChainConfig
 }
 
@@ -43,7 +43,7 @@ type Msg interface {
 
 // Execute processes a system action from msg and dispatches to a registered handler.
 // Returns (gasUsed, error) — called from core/state_transition.go.
-func Execute(msg Msg, db vm.StateDB, blockNumber *big.Int, chainConfig *params.ChainConfig) (uint64, error) {
+func Execute(msg Msg, db vmtypes.StateDB, blockNumber *big.Int, chainConfig *params.ChainConfig) (uint64, error) {
 	sa, err := Decode(msg.Data())
 	if err != nil {
 		return params.SysActionGas, err

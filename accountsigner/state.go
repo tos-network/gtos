@@ -4,9 +4,15 @@ import (
 	"encoding/binary"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 const signerChunkSize = 32
 
@@ -29,11 +35,11 @@ func signerChunkSlot(base common.Hash, index uint64) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(buf))
 }
 
-func readBool(db vm.StateDB, owner common.Address, slot common.Hash) bool {
+func readBool(db stateDB, owner common.Address, slot common.Hash) bool {
 	return db.GetState(owner, slot)[31] != 0
 }
 
-func writeBool(db vm.StateDB, owner common.Address, slot common.Hash, v bool) {
+func writeBool(db stateDB, owner common.Address, slot common.Hash, v bool) {
 	var word common.Hash
 	if v {
 		word[31] = 1
@@ -41,12 +47,12 @@ func writeBool(db vm.StateDB, owner common.Address, slot common.Hash, v bool) {
 	db.SetState(owner, slot, word)
 }
 
-func readUint64(db vm.StateDB, owner common.Address, slot common.Hash) uint64 {
+func readUint64(db stateDB, owner common.Address, slot common.Hash) uint64 {
 	raw := db.GetState(owner, slot)
 	return binary.BigEndian.Uint64(raw[24:])
 }
 
-func writeUint64(db vm.StateDB, owner common.Address, slot common.Hash, n uint64) {
+func writeUint64(db stateDB, owner common.Address, slot common.Hash, n uint64) {
 	var word common.Hash
 	binary.BigEndian.PutUint64(word[24:], n)
 	db.SetState(owner, slot, word)
@@ -59,7 +65,7 @@ func chunkCount(valueLen uint64) uint64 {
 	return (valueLen + signerChunkSize - 1) / signerChunkSize
 }
 
-func readBytes(db vm.StateDB, owner common.Address, base common.Hash, valueLen uint64) []byte {
+func readBytes(db stateDB, owner common.Address, base common.Hash, valueLen uint64) []byte {
 	if valueLen == 0 {
 		return nil
 	}
@@ -78,7 +84,7 @@ func readBytes(db vm.StateDB, owner common.Address, base common.Hash, valueLen u
 	return value
 }
 
-func writeBytes(db vm.StateDB, owner common.Address, base common.Hash, value []byte) {
+func writeBytes(db stateDB, owner common.Address, base common.Hash, value []byte) {
 	newChunks := chunkCount(uint64(len(value)))
 	for i := uint64(0); i < newChunks; i++ {
 		start := i * signerChunkSize
@@ -92,7 +98,7 @@ func writeBytes(db vm.StateDB, owner common.Address, base common.Hash, value []b
 	}
 }
 
-func clearBytesRemainder(db vm.StateDB, owner common.Address, base common.Hash, fromLen, toLen uint64) {
+func clearBytesRemainder(db stateDB, owner common.Address, base common.Hash, fromLen, toLen uint64) {
 	oldChunks := chunkCount(fromLen)
 	newChunks := chunkCount(toLen)
 	for i := newChunks; i < oldChunks; i++ {
@@ -101,7 +107,7 @@ func clearBytesRemainder(db vm.StateDB, owner common.Address, base common.Hash, 
 }
 
 // Set writes signer metadata for account.
-func Set(db vm.StateDB, account common.Address, signerType, signerValue string) {
+func Set(db stateDB, account common.Address, signerType, signerValue string) {
 	oldTypeLen := readUint64(db, account, signerTypeLenSlot)
 	oldValueLen := readUint64(db, account, signerValueLenSlot)
 	typeBytes := []byte(signerType)
@@ -118,7 +124,7 @@ func Set(db vm.StateDB, account common.Address, signerType, signerValue string) 
 }
 
 // Get returns signer metadata for account. ok=false means fallback-to-address should apply.
-func Get(db vm.StateDB, account common.Address) (signerType, signerValue string, ok bool) {
+func Get(db stateDB, account common.Address) (signerType, signerValue string, ok bool) {
 	if !readBool(db, account, signerExistsSlot) {
 		return "", "", false
 	}

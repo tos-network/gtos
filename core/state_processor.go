@@ -23,7 +23,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	cmath "github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
-	"github.com/tos-network/gtos/core/lvm"
 	"github.com/tos-network/gtos/core/parallel"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
@@ -66,7 +65,7 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 		header   = block.Header()
 		gp       = new(GasPool).AddGas(block.GasLimit())
 	)
-	blockCtx := NewTVMBlockContext(header, p.bc, nil)
+	blockCtx := NewVMBlockContext(header, p.bc, nil)
 	signer := types.MakeSigner(p.config, header.Number)
 
 	// Build per-transaction messages upfront using the pre-block statedb snapshot.
@@ -144,9 +143,9 @@ func RunScheduledTasks(statedb *state.StateDB, blockCtx vm.BlockContext, chainCf
 		func(db vm.StateDB, bCtx vm.BlockContext, cfg *params.ChainConfig,
 			caller, target common.Address, calldata []byte, gasLimit uint64,
 		) (uint64, error) {
-			ctx := lvm.CallCtx{From: caller, To: target, Data: calldata}
+			ctx := vm.CallCtx{From: caller, To: target, Data: calldata}
 			code := db.GetCode(target)
-			gasUsed, _, _, err := lvm.Execute(db, bCtx, cfg, ctx, code, gasLimit)
+			gasUsed, _, _, err := vm.Execute(db, bCtx, cfg, ctx, code, gasLimit)
 			return gasUsed, err
 		})
 }

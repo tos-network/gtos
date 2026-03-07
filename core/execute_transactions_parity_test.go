@@ -56,9 +56,9 @@ func TestExecuteTransactionsBatchVsPerTxParity(t *testing.T) {
 	baseState.Finalise(false)
 
 	msgs := []types.Message{
-		types.NewMessage(senderA, &recv1, 0, big.NewInt(100), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true),
-		types.NewMessage(senderA, &recv2, 1, big.NewInt(200), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true),
-		types.NewMessage(senderB, &recv3, 0, big.NewInt(300), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true),
+		types.NewMessage(senderA, &recv1, 0, big.NewInt(100), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true),
+		types.NewMessage(senderA, &recv2, 1, big.NewInt(200), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true),
+		types.NewMessage(senderB, &recv3, 0, big.NewInt(300), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true),
 	}
 	txs := types.Transactions{
 		makeTx(0, recv1),
@@ -205,9 +205,9 @@ func TestExecuteTransactionsBatchVsPerTxParityWithUNO(t *testing.T) {
 	unoWire1 := makeUNOWire(1, 0x01)
 	unoWire2 := makeUNOWire(2, 0x31)
 	msgs := []types.Message{
-		types.NewMessage(unoSender1, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), unoWire1, nil, true),
-		types.NewMessage(plainSender, &plainRecv, 0, big.NewInt(10), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true),
-		types.NewMessage(unoSender2, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), unoWire2, nil, true),
+		types.NewMessage(unoSender1, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), unoWire1, nil, true),
+		types.NewMessage(plainSender, &plainRecv, 0, big.NewInt(10), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true),
+		types.NewMessage(unoSender2, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), unoWire2, nil, true),
 	}
 	txs := types.Transactions{
 		makeSignerTx(0, params.PrivacyRouterAddress, 1_200_000, unoWire1),
@@ -387,10 +387,10 @@ func TestExecuteTransactionsBatchVsPerTxParityMixedSystemAndUNO(t *testing.T) {
 	unshieldWire := makeUnshieldWire(plainRecv, 7, idCt)
 
 	msgs := []types.Message{
-		types.NewMessage(plainSender, &plainRecv, 0, big.NewInt(10), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true),
-		types.NewMessage(sysSender, &params.SystemActionAddress, 0, big.NewInt(0), 500_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), sysWire, nil, true),
-		types.NewMessage(unoShieldSender, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), shieldWire, nil, true),
-		types.NewMessage(unoUnshieldSender, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), unshieldWire, nil, true),
+		types.NewMessage(plainSender, &plainRecv, 0, big.NewInt(10), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true),
+		types.NewMessage(sysSender, &params.SystemActionAddress, 0, big.NewInt(0), 500_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), sysWire, nil, true),
+		types.NewMessage(unoShieldSender, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), shieldWire, nil, true),
+		types.NewMessage(unoUnshieldSender, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), unshieldWire, nil, true),
 	}
 	txs := types.Transactions{
 		makeSignerTx(0, plainRecv, params.TxGas, nil),
@@ -614,7 +614,7 @@ func TestExecuteTransactionsBatchVsPerTxParityUNORandomizedStress(t *testing.T) 
 				from := plainSenders[rng.Intn(len(plainSenders))]
 				to := plainReceivers[rng.Intn(len(plainReceivers))]
 				value := int64(1 + rng.Intn(17))
-				msgs = append(msgs, types.NewMessage(from, &to, 0, big.NewInt(value), params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), nil, nil, true))
+				msgs = append(msgs, types.NewMessage(from, &to, 0, big.NewInt(value), params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(), nil, nil, true))
 				txs = append(txs, makeSignerTx(nonce, to, params.TxGas, nil))
 			case 1: // system action
 				from := plainSenders[rng.Intn(len(plainSenders))]
@@ -622,25 +622,25 @@ func TestExecuteTransactionsBatchVsPerTxParityUNORandomizedStress(t *testing.T) 
 				if err != nil {
 					t.Fatalf("MakeSysAction: %v", err)
 				}
-				msgs = append(msgs, types.NewMessage(from, &params.SystemActionAddress, 0, big.NewInt(0), 500_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), wire, nil, true))
+				msgs = append(msgs, types.NewMessage(from, &params.SystemActionAddress, 0, big.NewInt(0), 500_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), wire, nil, true))
 				txs = append(txs, makeSignerTx(nonce, params.SystemActionAddress, 500_000, wire))
 			case 2: // shield
 				from := unoSenders[rng.Intn(len(unoSenders))]
 				wire := makeShieldWire(uint64(1+rng.Intn(9)), byte(rng.Intn(200)))
-				msgs = append(msgs, types.NewMessage(from, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), wire, nil, true))
+				msgs = append(msgs, types.NewMessage(from, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), wire, nil, true))
 				txs = append(txs, makeSignerTx(nonce, params.PrivacyRouterAddress, 1_200_000, wire))
 			case 3: // unshield
 				from := unoSenders[rng.Intn(len(unoSenders))]
 				to := plainReceivers[rng.Intn(len(plainReceivers))]
 				wire := makeUnshieldWire(to, uint64(1+rng.Intn(9)), byte(rng.Intn(200)))
-				msgs = append(msgs, types.NewMessage(from, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), wire, nil, true))
+				msgs = append(msgs, types.NewMessage(from, &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), wire, nil, true))
 				txs = append(txs, makeSignerTx(nonce, params.PrivacyRouterAddress, 1_200_000, wire))
 			default: // transfer
 				fromIdx := rng.Intn(len(unoSenders))
 				toIdx := (fromIdx + 1 + rng.Intn(len(unoSenders)-1)) % len(unoSenders)
 				to := unoSenders[toIdx]
 				wire := makeTransferWire(to, byte(rng.Intn(200)), byte(rng.Intn(200)), rng.Intn(2) == 0)
-				msgs = append(msgs, types.NewMessage(unoSenders[fromIdx], &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(), wire, nil, true))
+				msgs = append(msgs, types.NewMessage(unoSenders[fromIdx], &params.PrivacyRouterAddress, 0, big.NewInt(0), 1_200_000, params.TxPrice(), params.TxPrice(), params.TxPrice(), wire, nil, true))
 				txs = append(txs, makeSignerTx(nonce, params.PrivacyRouterAddress, 1_200_000, wire))
 			}
 			nonce++

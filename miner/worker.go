@@ -915,7 +915,7 @@ func (w *worker) applyTxBatch(env *environment, txsMap map[common.Address]types.
 	if len(selected) == 0 {
 		return
 	}
-	blockCtx := core.NewTVMBlockContext(env.header, w.chain, &env.coinbase)
+	blockCtx := core.NewVMBlockContext(env.header, w.chain, &env.coinbase)
 	receipts, _, gasUsed, err := core.ExecuteTransactions(
 		w.chainConfig, blockCtx, env.state,
 		types.Transactions(selected), env.header.Hash(), env.header.Number,
@@ -1061,7 +1061,7 @@ func (w *worker) fillTransactions(interrupt *int32, env *environment) error {
 	}
 
 	// Phase 2: Execute all selected txs in a single parallel batch.
-	blockCtx := core.NewTVMBlockContext(env.header, w.chain, &env.coinbase)
+	blockCtx := core.NewVMBlockContext(env.header, w.chain, &env.coinbase)
 	receipts, coalescedLogs, gasUsed, err := core.ExecuteTransactions(
 		w.chainConfig, blockCtx, env.state,
 		types.Transactions(selected), env.header.Hash(), env.header.Number,
@@ -1107,7 +1107,7 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, error) {
 	}
 	defer work.discard()
 
-	blockCtx := core.NewTVMBlockContext(work.header, w.chain, &work.coinbase)
+	blockCtx := core.NewVMBlockContext(work.header, w.chain, &work.coinbase)
 	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
 
 	if !params.noTxs {
@@ -1144,7 +1144,7 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 	}
 
 	// Run scheduled tasks before user transactions so the state root matches validators.
-	blockCtx := core.NewTVMBlockContext(work.header, w.chain, &work.coinbase)
+	blockCtx := core.NewVMBlockContext(work.header, w.chain, &work.coinbase)
 	core.RunScheduledTasks(work.state, blockCtx, w.chainConfig, work.header.Number.Uint64())
 
 	// Fill pending transactions from the txpool

@@ -44,10 +44,10 @@ func NewTOSAPI(b Backend) *TOSAPI {
 	return &TOSAPI{b}
 }
 
-// GasPrice returns the protocol-fixed TOS gas price (params.GTOSPrice).
+// GasPrice returns the protocol-fixed TOS gas price (params.TxPrice).
 // TOS uses a fixed gas price model; this value is constant regardless of network load.
 func (s *TOSAPI) GasPrice(ctx context.Context) *hexutil.Big {
-	return (*hexutil.Big)(params.GTOSPrice())
+	return (*hexutil.Big)(params.TxPrice())
 }
 
 // MaxPriorityFeePerGas returns a suggestion for a gas tip cap for dynamic fee transactions.
@@ -988,7 +988,7 @@ func (diff *BlockOverrides) Apply(blockCtx *vm.BlockContext) {
 }
 
 // backendChainContext adapts Backend to the core.ChainContext interface used by
-// NewTVMBlockContext.
+// NewVMBlockContext.
 type backendChainContext struct {
 	b Backend
 }
@@ -1009,7 +1009,7 @@ func doCallOnState(ctx context.Context, b Backend, args TransactionArgs, state v
 	if err != nil {
 		return nil, err
 	}
-	blockCtx := core.NewTVMBlockContext(header, &backendChainContext{b}, nil)
+	blockCtx := core.NewVMBlockContext(header, &backendChainContext{b}, nil)
 	gp := new(core.GasPool).AddGas(stdmath.MaxUint64)
 	return core.ApplyMessage(blockCtx, b.ChainConfig(), msg, gp, state)
 }
@@ -1104,13 +1104,9 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 		}
 		hi = block.GasLimit()
 	}
-	// Normalize the max fee per gas the call is willing to spend.
-	var feeCap *big.Int
-	if args.MaxFeePerGas != nil {
-		feeCap = args.MaxFeePerGas.ToInt()
-	} else {
-		feeCap = common.Big0
-	}
+	// Use the protocol-fixed gas price as feeCap so the balance pre-clipping
+	// logic below always runs (MaxFeePerGas is not supported in GTOS).
+	feeCap := params.TxPrice()
 	// Recap the highest gas limit with account's available balance.
 	if feeCap.BitLen() != 0 {
 		state, _, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)

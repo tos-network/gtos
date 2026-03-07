@@ -8,7 +8,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
-	"github.com/tos-network/gtos/core/vm"
+	vmtypes "github.com/tos-network/gtos/core/vmtypes"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -26,14 +26,14 @@ func fund(db *state.StateDB, addr common.Address, tos int64) {
 	db.AddBalance(addr, new(big.Int).Mul(big.NewInt(tos), big.NewInt(1e18)))
 }
 
-// noopBlockCtx returns a minimal vm.BlockContext with the given block number.
-func noopBlockCtx(blockNum uint64) vm.BlockContext {
-	return vm.BlockContext{BlockNumber: big.NewInt(int64(blockNum))}
+// noopBlockCtx returns a minimal vmtypes.BlockContext with the given block number.
+func noopBlockCtx(blockNum uint64) vmtypes.BlockContext {
+	return vmtypes.BlockContext{BlockNumber: big.NewInt(int64(blockNum))}
 }
 
 // doSchedule mimics the core TASK_SCHEDULE logic against the state directly,
 // without going through JSON marshalling or sysaction routing.
-func doSchedule(t *testing.T, db vm.StateDB, blockNum uint64, from common.Address,
+func doSchedule(t *testing.T, db vmtypes.StateDB, blockNum uint64, from common.Address,
 	gasLimit, delayBlocks, intervalBlocks, maxRuns uint64,
 ) (common.Hash, error) {
 	t.Helper()
@@ -55,7 +55,7 @@ func doSchedule(t *testing.T, db vm.StateDB, blockNum uint64, from common.Addres
 	if ReadActiveCount(db, from) >= params.TaskMaxPerContract {
 		return common.Hash{}, ErrTaskActiveLimit
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), big.NewInt(params.GTOSPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), big.NewInt(params.TxPriceWei))
 	if db.GetBalance(from).Cmp(deposit) < 0 {
 		return common.Hash{}, ErrTaskInsufficientDeposit
 	}
@@ -81,7 +81,7 @@ func doSchedule(t *testing.T, db vm.StateDB, blockNum uint64, from common.Addres
 }
 
 // doCancel mimics the TASK_CANCEL logic.
-func doCancel(db vm.StateDB, from common.Address, taskId common.Hash) error {
+func doCancel(db vmtypes.StateDB, from common.Address, taskId common.Hash) error {
 	rec, ok := ReadTask(db, taskId)
 	if !ok || rec.Status != TaskPending {
 		return ErrTaskNotPending
@@ -89,7 +89,7 @@ func doCancel(db vm.StateDB, from common.Address, taskId common.Hash) error {
 	if from != rec.Scheduler {
 		return ErrTaskNotScheduler
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(rec.GasLimit), big.NewInt(params.GTOSPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(rec.GasLimit), big.NewInt(params.TxPriceWei))
 	db.SubBalance(params.TaskSchedulerAddress, deposit)
 	db.AddBalance(rec.Scheduler, deposit)
 	rec.Status = TaskCancelled
@@ -319,7 +319,7 @@ func TestCancelByScheduler(t *testing.T) {
 	if ReadActiveCount(db, from) != 0 {
 		t.Error("active count should be 0 after cancel")
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(params.TaskMinGasLimit), big.NewInt(params.GTOSPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(params.TaskMinGasLimit), big.NewInt(params.TxPriceWei))
 	expected := new(big.Int).Add(balBefore, deposit)
 	if db.GetBalance(from).Cmp(expected) != 0 {
 		t.Errorf("balance after cancel: got %v want %v", db.GetBalance(from), expected)
@@ -359,7 +359,7 @@ func TestProcessDueTasksOneShot(t *testing.T) {
 	targetBlock := uint64(15)
 
 	execCalled := false
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
 	) (uint64, error) {
 		execCalled = true
@@ -390,7 +390,7 @@ func TestProcessDueTasksRepeatReenqueues(t *testing.T) {
 	taskId, _ := doSchedule(t, db, 10, sched, params.TaskMinGasLimit, 5, params.TaskMinIntervalBlocks, 0)
 	targetBlock := uint64(15)
 
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
 	) (uint64, error) {
 		return gasLimit, nil // use all gas — no refund
@@ -425,7 +425,7 @@ func TestProcessDueTasksMaxRunsExhaustion(t *testing.T) {
 
 	taskId, _ := doSchedule(t, db, 10, sched, params.TaskMinGasLimit, 5, params.TaskMinIntervalBlocks, 2)
 
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
 	) (uint64, error) {
 		return gasLimit, nil
@@ -462,7 +462,7 @@ func TestProcessDueTasksPartialRefund(t *testing.T) {
 	balBefore := new(big.Int).Set(db.GetBalance(sched))
 
 	gasUsed := uint64(5_000)
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, _ uint64,
 	) (uint64, error) {
 		return gasUsed, nil
@@ -470,7 +470,7 @@ func TestProcessDueTasksPartialRefund(t *testing.T) {
 
 	ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
 
-	refund := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit-gasUsed), big.NewInt(params.GTOSPriceWei))
+	refund := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit-gasUsed), big.NewInt(params.TxPriceWei))
 	expected := new(big.Int).Add(balBefore, refund)
 	if db.GetBalance(sched).Cmp(expected) != 0 {
 		t.Errorf("partial refund: got %v want %v", db.GetBalance(sched), expected)
@@ -489,7 +489,7 @@ func TestProcessDueTasksOverflowDeferred(t *testing.T) {
 		doSchedule(t, db, targetBlock-5, sched, params.TaskMinGasLimit, 5, 0, 1) //nolint:errcheck
 	}
 
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
 	) (uint64, error) {
 		return gasLimit, nil
@@ -514,7 +514,7 @@ func TestProcessDueTasksCallbackFailurePreservesFramework(t *testing.T) {
 	targetBlock := uint64(15)
 
 	errCallback := errors.New("callback failed")
-	exec := func(_ vm.StateDB, _ vm.BlockContext, _ *params.ChainConfig,
+	exec := func(_ vmtypes.StateDB, _ vmtypes.BlockContext, _ *params.ChainConfig,
 		_, _ common.Address, _ []byte, gasLimit uint64,
 	) (uint64, error) {
 		return gasLimit / 2, errCallback

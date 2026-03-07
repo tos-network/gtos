@@ -31,14 +31,14 @@ func addr(hex string) common.Address { return common.HexToAddress(hex) }
 
 func plainMsg(from, to common.Address, nonce uint64, value int64) types.Message {
 	return types.NewMessage(from, &to, nonce, big.NewInt(value),
-		params.TxGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
+		params.TxGas, params.TxPrice(), params.TxPrice(), params.TxPrice(),
 		nil, nil, true)
 }
 
 func sysActionMsg(from common.Address, nonce uint64) types.Message {
 	dst := params.SystemActionAddress
 	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		params.TxGas+params.SysActionGas, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
+		params.TxGas+params.SysActionGas, params.TxPrice(), params.TxPrice(), params.TxPrice(),
 		[]byte(`{"action":"VALIDATOR_REGISTER"}`), nil, true)
 }
 
@@ -60,7 +60,7 @@ func unoMsg(from common.Address, nonce uint64) types.Message {
 	})
 	wire, _ := uno.EncodeEnvelope(uno.ActionShield, shieldBody)
 	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		1_000_000, params.GTOSPrice(), params.GTOSPrice(), params.GTOSPrice(),
+		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
 		wire, nil, true)
 }
 

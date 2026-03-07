@@ -1,4 +1,4 @@
-package lvm
+package vm
 
 import (
 	"bytes"
@@ -18,7 +18,6 @@ import (
 	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/delegation"
 	"github.com/tos-network/gtos/params"
@@ -109,29 +108,20 @@ type CallCtx struct {
 // ErrGasLimitExceeded is returned by Call/Create when the LVM runs out of gas.
 var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
 
-// ErrNonceUintOverflow is returned when the caller nonce would overflow uint64.
-var ErrNonceUintOverflow = errors.New("lvm: nonce uint64 overflow")
-
-// TxContext contains per-transaction fields, constant across all nested calls.
-type TxContext struct {
-	Origin   common.Address // tx.origin
-	GasPrice *big.Int       // tx.gasprice
-}
-
 // callCreateDepth is the maximum nesting depth for Create calls, matching EVM semantics.
 const callCreateDepth = 1024
 
 // LVM is the Lua Virtual Machine. Analogous to go-ethereum's EVM.
 type LVM struct {
-	Context     vm.BlockContext
+	Context     BlockContext
 	TxContext
-	StateDB     vm.StateDB
+	StateDB     StateDB
 	chainConfig *params.ChainConfig
 	depth       int // current call/create nesting depth
 }
 
 // NewLVM creates a new LVM instance bound to the given block context, tx context, state, and chain config.
-func NewLVM(blockCtx vm.BlockContext, txCtx TxContext, stateDB vm.StateDB, chainConfig *params.ChainConfig) *LVM {
+func NewLVM(blockCtx BlockContext, txCtx TxContext, stateDB StateDB, chainConfig *params.ChainConfig) *LVM {
 	return &LVM{Context: blockCtx, TxContext: txCtx, StateDB: stateDB, chainConfig: chainConfig}
 }
 
@@ -142,7 +132,7 @@ func (l *LVM) ChainConfig() *params.ChainConfig { return l.chainConfig }
 // Returns (returnData, leftOverGas, err). On failure the state is reverted.
 func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
 	if l.depth > callCreateDepth {
-		return nil, gas, vm.ErrDepth
+		return nil, gas, ErrDepth
 	}
 	l.depth++
 	defer func() { l.depth-- }()
@@ -254,7 +244,7 @@ func SplitDeployDataAndConstructorArgs(data []byte) (pkgBytes []byte, ctorArgs [
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
 func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
 	if l.depth > callCreateDepth {
-		return common.Address{}, gas, vm.ErrDepth
+		return common.Address{}, gas, ErrDepth
 	}
 
 	callerAddr := caller.Address()
@@ -276,7 +266,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	emptyCodeHash := crypto.Keccak256Hash(nil)
 	if l.StateDB.GetNonce(contractAddr) != 0 ||
 		(codeHash != (common.Hash{}) && codeHash != emptyCodeHash) {
-		return common.Address{}, gas, vm.ErrContractAddressCollision
+		return common.Address{}, gas, ErrContractAddressCollision
 	}
 
 	// Decode and validate manifest.
@@ -411,7 +401,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 // executePackage decodes the .tor archive, finds the contract whose dispatch tag
 // matches the first 4 calldata bytes, loads its .toc bytecode, strips the dispatch
 // tag, and calls Execute recursively.
-func executePackage(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, pkgBytes []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
+func executePackage(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, pkgBytes []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
 	if len(ctx.Data) < 4 {
 		return 0, nil, nil, fmt.Errorf("package call: calldata must be at least 4 bytes (dispatch tag + selector)")
 	}
@@ -582,7 +572,7 @@ func MapStrLenSlot(mapName string, keys []string) common.Hash {
 // Callers are responsible for StateDB snapshot/revert; this function does not
 // modify snapshot state itself (tos.call takes its own inner snapshot for
 // callee isolation).
-func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, src []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
+func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainConfig, ctx CallCtx, src []byte, gasLimit uint64) (uint64, []byte, []byte, error) {
 	// .tor (ZIP package): route to the named contract via calldata dispatch tag.
 	if lua.IsPackage(src) {
 		return executePackage(stateDB, blockCtx, chainConfig, ctx, src, gasLimit)
@@ -1952,7 +1942,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 		deposit := new(big.Int).Mul(
 			new(big.Int).SetUint64(gasLimit),
-			big.NewInt(params.GTOSPriceWei),
+			big.NewInt(params.TxPriceWei),
 		)
 		if stateDB.GetBalance(contractAddr).Cmp(deposit) < 0 {
 			L.Push(lua.LNil)
@@ -2028,7 +2018,7 @@ func Execute(stateDB vm.StateDB, blockCtx vm.BlockContext, chainConfig *params.C
 
 		deposit := new(big.Int).Mul(
 			new(big.Int).SetUint64(rec.GasLimit),
-			big.NewInt(params.GTOSPriceWei),
+			big.NewInt(params.TxPriceWei),
 		)
 		stateDB.SubBalance(params.TaskSchedulerAddress, deposit)
 		stateDB.AddBalance(rec.Scheduler, deposit)

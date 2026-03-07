@@ -418,7 +418,7 @@ func (s *TOS) StartMining(threads int) error {
 	// If the miner was not running, initialize it
 	if !s.IsMining() {
 		// Propagate the initial price point to the transaction pool
-		s.txPool.SetTxPrice(params.GTOSPrice())
+		s.txPool.SetTxPrice(params.TxPrice())
 
 		// Configure the local mining address
 		eb, err := s.Coinbase()

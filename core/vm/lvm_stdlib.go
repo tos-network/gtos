@@ -1,4 +1,4 @@
-package lvm
+package vm
 
 import lua "github.com/tos-network/tolang"
 

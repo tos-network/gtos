@@ -248,7 +248,7 @@ func testAddBalance(pool *TxPool, addr common.Address, amount *big.Int) {
 	// Many historical txpool tests were authored with unit tx price assumptions.
 	// Scale small literals to keep those scenarios valid under fixed GTOSPrice.
 	if abs := new(big.Int).Abs(scaled); abs.Cmp(big.NewInt(1_000_000_000)) < 0 {
-		scaled = scaled.Mul(scaled, params.GTOSPrice())
+		scaled = scaled.Mul(scaled, params.TxPrice())
 	}
 	pool.mu.Lock()
 	pool.currentState.AddBalance(addr, scaled)
@@ -866,7 +866,7 @@ func TestInvalidTransactions(t *testing.T) {
 	}
 
 	tx = transaction(1, 100000, key)
-	pool.txPrice = new(big.Int).Add(params.GTOSPrice(), big.NewInt(1))
+	pool.txPrice = new(big.Int).Add(params.TxPrice(), big.NewInt(1))
 	if err := pool.AddRemote(tx); err != ErrUnderpriced {
 		t.Error("expected", ErrUnderpriced, "got", err)
 	}
@@ -1005,7 +1005,7 @@ func TestTxPoolUNOShieldRejectsInsufficientPublicBalance(t *testing.T) {
 		const shieldAmount = uint64(1)
 		tx, from, pub := testUNOElgamalTx(t, 0, gas, testUNOShieldWire(t, shieldAmount))
 		// Add balance equal to tx.Cost() only (gas × price, value=0): 1 TOS (shield amount) short of gas+shield.
-		gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gas), params.GTOSPrice())
+		gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gas), params.TxPrice())
 		pool.mu.Lock()
 		pool.currentState.AddBalance(from, gasCost)
 		pool.mu.Unlock()
@@ -1145,7 +1145,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverVersionOverflow(t *testin
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
 	setupElgamalSigner(t, execState, receiver, receiverPub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 	coreuno.SetAccountState(execState, receiver, coreuno.AccountState{Version: math.MaxUint64})
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
@@ -1269,7 +1269,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldSenderVersionOverflow(t *testing.
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 	coreuno.SetAccountState(execState, from, coreuno.AccountState{Version: math.MaxUint64})
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
@@ -1305,7 +1305,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverMissingSigner(t *testing.
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -1392,7 +1392,7 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLowTransfer(t *testing.T) {
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
 	setupElgamalSigner(t, execState, receiver, receiverPub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 	execState.SetNonce(from, 1)
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
@@ -1426,7 +1426,7 @@ func TestUNOTxPoolExecutionRejectParityNonceTooLowUnshield(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 	execState.SetNonce(from, 1)
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
@@ -1510,7 +1510,7 @@ func TestUNOTxPoolExecutionRejectParityTransferInvalidProofShape(t *testing.T) {
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
 	setupElgamalSigner(t, execState, receiver, receiverPub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -1545,7 +1545,7 @@ func TestUNOTxPoolExecutionRejectParityUnshieldInvalidProofShape(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -1579,7 +1579,7 @@ func TestUNOTxPoolExecutionRejectParityInvalidEnvelope(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -1613,7 +1613,7 @@ func TestUNOTxPoolExecutionRejectParityUnsupportedAction(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -1647,7 +1647,7 @@ func TestUNOTxPoolExecutionRejectParityEmptyPayload(t *testing.T) {
 
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)
@@ -2403,7 +2403,7 @@ func TestUNOTxPoolExecutionRejectParityTransferReceiverSignerTypeMismatch(t *tes
 	execState := newTTLDeterminismState(t)
 	setupElgamalSigner(t, execState, from, pub)
 	testSetSecp256k1SignerInState(execState, receiver, crypto.FromECDSAPub(&key.PublicKey))
-	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.GTOSPrice()))
+	execState.SetBalance(from, new(big.Int).Mul(big.NewInt(1_000_000), params.TxPrice()))
 
 	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
 	msg, err := TxAsMessageWithAccountSigner(tx, signer, nil, execState)

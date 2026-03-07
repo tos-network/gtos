@@ -4,7 +4,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
+	vmtypes "github.com/tos-network/gtos/core/vmtypes"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -12,8 +12,8 @@ import (
 // This indirection breaks the task ↔ core/lvm import cycle: the task package
 // never imports core/lvm directly; the wiring is done in core/state_processor.go.
 type ExecutorFn func(
-	db vm.StateDB,
-	blockCtx vm.BlockContext,
+	db vmtypes.StateDB,
+	blockCtx vmtypes.BlockContext,
 	chainCfg *params.ChainConfig,
 	caller common.Address,
 	target common.Address,
@@ -26,8 +26,8 @@ type ExecutorFn func(
 // before user transactions, ensuring the state root is identical in both paths.
 // Returns the number of tasks processed.
 func ProcessDueTasks(
-	db vm.StateDB,
-	blockCtx vm.BlockContext,
+	db vmtypes.StateDB,
+	blockCtx vmtypes.BlockContext,
 	chainCfg *params.ChainConfig,
 	blockNum uint64,
 	exec ExecutorFn,
@@ -76,7 +76,7 @@ func ProcessDueTasks(
 		if refundGas > 0 {
 			refund := new(big.Int).Mul(
 				new(big.Int).SetUint64(refundGas),
-				big.NewInt(params.GTOSPriceWei),
+				big.NewInt(params.TxPriceWei),
 			)
 			db.SubBalance(params.TaskSchedulerAddress, refund)
 			db.AddBalance(rec.Scheduler, refund)
@@ -103,7 +103,7 @@ func ProcessDueTasks(
 			// Re-deposit gas for the next run (charged from scheduler balance).
 			reDeposit := new(big.Int).Mul(
 				new(big.Int).SetUint64(rec.GasLimit),
-				big.NewInt(params.GTOSPriceWei),
+				big.NewInt(params.TxPriceWei),
 			)
 			if db.GetBalance(rec.Scheduler).Cmp(reDeposit) >= 0 {
 				db.SubBalance(rec.Scheduler, reDeposit)

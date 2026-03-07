@@ -4,10 +4,16 @@ import (
 	"encoding/binary"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 // ── Slot helpers ──────────────────────────────────────────────────────────────
 
@@ -77,7 +83,7 @@ func hashToAddr(h common.Hash) common.Address {
 
 // ReadTask reads a TaskRecord from state. Returns (record, true) if found,
 // (nil, false) if the task ID has never been written.
-func ReadTask(db vm.StateDB, taskId common.Hash) (*TaskRecord, bool) {
+func ReadTask(db stateDB, taskId common.Hash) (*TaskRecord, bool) {
 	schedulerRaw := db.GetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, "scheduler"))
 	// If scheduler slot is zero the task was never written (scheduler is always a real account).
 	if schedulerRaw == (common.Hash{}) {
@@ -103,7 +109,7 @@ func ReadTask(db vm.StateDB, taskId common.Hash) (*TaskRecord, bool) {
 }
 
 // WriteTask persists a TaskRecord to state, one field per slot.
-func WriteTask(db vm.StateDB, taskId common.Hash, t *TaskRecord) {
+func WriteTask(db stateDB, taskId common.Hash, t *TaskRecord) {
 	store := func(field string, val common.Hash) {
 		db.SetState(params.TaskSchedulerAddress, taskFieldSlot(taskId, field), val)
 	}
@@ -141,7 +147,7 @@ func WriteTask(db vm.StateDB, taskId common.Hash, t *TaskRecord) {
 // ── Queue ──────────────────────────────────────────────────────────────────────
 
 // EnqueueTask appends taskId to the block queue at blockNum.
-func EnqueueTask(db vm.StateDB, blockNum uint64, taskId common.Hash) {
+func EnqueueTask(db stateDB, blockNum uint64, taskId common.Hash) {
 	qlenSlot := blockQlenSlot(blockNum)
 	n := db.GetState(params.TaskSchedulerAddress, qlenSlot).Big().Uint64()
 	db.SetState(params.TaskSchedulerAddress, blockQEntrySlot(blockNum, n), taskId)
@@ -151,7 +157,7 @@ func EnqueueTask(db vm.StateDB, blockNum uint64, taskId common.Hash) {
 }
 
 // DequeueTasksAt reads all task IDs scheduled at blockNum and resets the queue length to 0.
-func DequeueTasksAt(db vm.StateDB, blockNum uint64) []common.Hash {
+func DequeueTasksAt(db stateDB, blockNum uint64) []common.Hash {
 	qlenSlot := blockQlenSlot(blockNum)
 	n := db.GetState(params.TaskSchedulerAddress, qlenSlot).Big().Uint64()
 	if n == 0 {
@@ -170,7 +176,7 @@ func DequeueTasksAt(db vm.StateDB, blockNum uint64) []common.Hash {
 
 // IncrementContractNonce atomically bumps the per-contract nonce and returns
 // the value BEFORE the increment (used as the nonce component of NewTaskID).
-func IncrementContractNonce(db vm.StateDB, addr common.Address) uint64 {
+func IncrementContractNonce(db stateDB, addr common.Address) uint64 {
 	slot := contractNonceSlot(addr)
 	n := db.GetState(params.TaskSchedulerAddress, slot).Big().Uint64()
 	var h common.Hash
@@ -180,12 +186,12 @@ func IncrementContractNonce(db vm.StateDB, addr common.Address) uint64 {
 }
 
 // ReadActiveCount returns the number of active (Pending) tasks for addr.
-func ReadActiveCount(db vm.StateDB, addr common.Address) uint64 {
+func ReadActiveCount(db stateDB, addr common.Address) uint64 {
 	return db.GetState(params.TaskSchedulerAddress, contractActiveSlot(addr)).Big().Uint64()
 }
 
 // AdjustActiveCount increments (delta=+1) or decrements (delta=-1) the active count.
-func AdjustActiveCount(db vm.StateDB, addr common.Address, delta int) {
+func AdjustActiveCount(db stateDB, addr common.Address, delta int) {
 	slot := contractActiveSlot(addr)
 	n := db.GetState(params.TaskSchedulerAddress, slot).Big().Uint64()
 	if delta > 0 {

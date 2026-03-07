@@ -116,7 +116,7 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 	if err != nil {
 		panic(err)
 	}
-	blockCtx := NewTVMBlockContext(b.header, bc, &b.header.Coinbase)
+	blockCtx := NewVMBlockContext(b.header, bc, &b.header.Coinbase)
 	receipts, _, _, err := ExecuteTransactions(
 		b.config, blockCtx, b.statedb,
 		types.Transactions{tx}, common.Hash{}, b.header.Number,

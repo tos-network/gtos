@@ -1,4 +1,4 @@
-package lvm
+package vm
 
 import (
 	"math/big"
@@ -9,7 +9,6 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/delegation"
 	"github.com/tos-network/gtos/params"
@@ -27,12 +26,12 @@ func newAgentTestState() *state.StateDB {
 var testChainConfig = &params.ChainConfig{ChainID: big.NewInt(1)}
 
 // newBlockCtx returns a minimal BlockContext sufficient for LVM execution.
-func newBlockCtx() vm.BlockContext {
-	return vm.BlockContext{
-		CanTransfer: func(db vm.StateDB, addr common.Address, amount *big.Int) bool {
+func newBlockCtx() BlockContext {
+	return BlockContext{
+		CanTransfer: func(db StateDB, addr common.Address, amount *big.Int) bool {
 			return db.GetBalance(addr).Cmp(amount) >= 0
 		},
-		Transfer: func(db vm.StateDB, from, to common.Address, amount *big.Int) {
+		Transfer: func(db StateDB, from, to common.Address, amount *big.Int) {
 			db.SubBalance(from, amount)
 			db.AddBalance(to, amount)
 		},
@@ -49,7 +48,7 @@ func newBlockCtx() vm.BlockContext {
 // Execute accepts raw Lua source bytes directly (no pre-compilation needed).
 // contractAddr is the address used as tos.self; gasLimit caps execution.
 // Returns (gasUsed, returnData, revertData, err).
-func runLua(st vm.StateDB, contractAddr common.Address, src string, gasLimit uint64) (uint64, []byte, []byte, error) {
+func runLua(st StateDB, contractAddr common.Address, src string, gasLimit uint64) (uint64, []byte, []byte, error) {
 	ctx := CallCtx{
 		From:     common.Address{0xFF},
 		To:       contractAddr,

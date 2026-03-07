@@ -2,9 +2,11 @@ package tosapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +15,9 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/bloombits"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
@@ -182,9 +186,73 @@ func TestEstimateStorageFirstGas(t *testing.T) {
 	}
 }
 
+func TestSetDefaultsUsesDoEstimateGasForContractCalldata(t *testing.T) {
+	b := newBackendMock()
+	marker := errors.New("estimate branch reached")
+	b.blockByNumberOrHashErr = marker
+
+	from := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	to := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	calldata := hexutil.Bytes{0x60, 0x00}
+	args := &TransactionArgs{
+		From:  &from,
+		To:    &to,
+		Input: &calldata,
+	}
+	err := args.setDefaults(context.Background(), b)
+	if !errors.Is(err, marker) {
+		t.Fatalf("expected DoEstimateGas branch error %q, got %v", marker, err)
+	}
+	if strings.Contains(err.Error(), "cannot auto-estimate gas for calldata to non-system address") {
+		t.Fatalf("setDefaults fell back to estimateStorageFirstGas branch, err=%v", err)
+	}
+}
+
+func TestDoEstimateGasCapsByFundsBeforeBinarySearch(t *testing.T) {
+	b := newBackendMock()
+	from := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := common.HexToAddress("0x4444444444444444444444444444444444444444")
+
+	allowance := params.TxGas - 1000 // deliberately below intrinsic transfer gas
+	statedb := mustNewStateDB(t)
+	statedb.AddBalance(from, new(big.Int).Mul(new(big.Int).SetUint64(allowance), params.TxPrice()))
+
+	b.state = statedb
+	b.current = &types.Header{
+		Number:     big.NewInt(1),
+		Difficulty: big.NewInt(1),
+		GasLimit:   1_000_000,
+		Time:       1,
+		BaseFee:    new(big.Int).Set(params.TxPrice()),
+	}
+	b.block = types.NewBlockWithHeader(b.current)
+
+	_, err := DoEstimateGas(
+		context.Background(),
+		b,
+		TransactionArgs{From: &from, To: &to},
+		rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber),
+		0,
+	)
+	if err == nil {
+		t.Fatalf("expected allowance error, got nil")
+	}
+	want := fmt.Sprintf("gas required exceeds allowance (%d)", allowance)
+	if err.Error() != want {
+		t.Fatalf("unexpected error: have %q want %q", err.Error(), want)
+	}
+}
+
 type backendMock struct {
 	current *types.Header
 	config  *params.ChainConfig
+	engine  consensus.Engine
+
+	block *types.Block
+	state *state.StateDB
+
+	blockByNumberOrHashErr          error
+	stateAndHeaderByNumberOrHashErr error
 }
 
 func newBackendMock() *backendMock {
@@ -202,6 +270,7 @@ func newBackendMock() *backendMock {
 			BaseFee:    big.NewInt(10),
 		},
 		config: config,
+		engine: dpos.NewFaker(),
 	}
 }
 
@@ -213,7 +282,7 @@ func (b *backendMock) deactivateLondon() {
 	b.current.Number = big.NewInt(900)
 }
 func (b *backendMock) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
-	return params.GTOSPrice(), nil
+	return params.TxPrice(), nil
 }
 func (b *backendMock) CurrentHeader() *types.Header     { return b.current }
 func (b *backendMock) ChainConfig() *params.ChainConfig { return b.config }
@@ -239,21 +308,41 @@ func (b *backendMock) HeaderByHash(ctx context.Context, hash common.Hash) (*type
 func (b *backendMock) HeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Header, error) {
 	return nil, nil
 }
-func (b *backendMock) CurrentBlock() *types.Block { return nil }
+func (b *backendMock) CurrentBlock() *types.Block {
+	if b.block != nil {
+		return b.block
+	}
+	return types.NewBlockWithHeader(b.current)
+}
 func (b *backendMock) BlockByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Block, error) {
-	return nil, nil
+	return b.BlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(number))
 }
 func (b *backendMock) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+	if b.block != nil && b.block.Hash() == hash {
+		return b.block, nil
+	}
 	return nil, nil
 }
 func (b *backendMock) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*types.Block, error) {
-	return nil, nil
+	if b.blockByNumberOrHashErr != nil {
+		return nil, b.blockByNumberOrHashErr
+	}
+	if b.block != nil {
+		return b.block, nil
+	}
+	return types.NewBlockWithHeader(b.current), nil
 }
 func (b *backendMock) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*state.StateDB, *types.Header, error) {
-	return nil, nil, nil
+	return b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(number))
 }
 func (b *backendMock) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
-	return nil, nil, nil
+	if b.stateAndHeaderByNumberOrHashErr != nil {
+		return nil, nil, b.stateAndHeaderByNumberOrHashErr
+	}
+	if b.state == nil {
+		return nil, b.current, nil
+	}
+	return b.state.Copy(), b.current, nil
 }
 func (b *backendMock) PendingBlockAndReceipts() (*types.Block, types.Receipts) { return nil, nil }
 func (b *backendMock) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
@@ -297,7 +386,17 @@ func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent)
 	return nil
 }
 
-func (b *backendMock) Engine() consensus.Engine { return nil }
+func (b *backendMock) Engine() consensus.Engine { return b.engine }
+
+func mustNewStateDB(t *testing.T) *state.StateDB {
+	t.Helper()
+	db := rawdb.NewMemoryDatabase()
+	statedb, err := state.New(common.Hash{}, state.NewDatabase(db), nil)
+	if err != nil {
+		t.Fatalf("create statedb: %v", err)
+	}
+	return statedb
+}
 
 func rpcBlockPtr(number rpc.BlockNumber) *rpc.BlockNumberOrHash {
 	v := rpc.BlockNumberOrHashWithNumber(number)

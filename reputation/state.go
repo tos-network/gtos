@@ -4,10 +4,16 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+// stateDB is the minimal storage interface required by this package.
+// Avoids an import cycle with core/vm (which imports this package).
+type stateDB interface {
+	GetState(common.Address, common.Hash) common.Hash
+	SetState(common.Address, common.Hash, common.Hash)
+}
 
 var uint256Mod = new(big.Int).Lsh(big.NewInt(1), 256)
 
@@ -31,7 +37,7 @@ func scorerSlot(addr common.Address) common.Hash {
 
 // TotalScoreOf returns the cumulative score for addr as a signed *big.Int.
 // The value is stored as two's complement uint256; values >= 2^255 are negative.
-func TotalScoreOf(db vm.StateDB, addr common.Address) *big.Int {
+func TotalScoreOf(db stateDB, addr common.Address) *big.Int {
 	raw := db.GetState(params.ReputationHubAddress, scoreSlot(addr))
 	n := raw.Big()
 	// Convert from two's complement: if bit 255 is set, the value is negative.
@@ -43,19 +49,19 @@ func TotalScoreOf(db vm.StateDB, addr common.Address) *big.Int {
 }
 
 // RatingCountOf returns the total number of ratings recorded for addr.
-func RatingCountOf(db vm.StateDB, addr common.Address) *big.Int {
+func RatingCountOf(db stateDB, addr common.Address) *big.Int {
 	raw := db.GetState(params.ReputationHubAddress, countSlot(addr))
 	return raw.Big()
 }
 
 // IsAuthorizedScorer returns true if addr is an authorized scorer.
-func IsAuthorizedScorer(db vm.StateDB, addr common.Address) bool {
+func IsAuthorizedScorer(db stateDB, addr common.Address) bool {
 	raw := db.GetState(params.ReputationHubAddress, scorerSlot(addr))
 	return raw[31] != 0
 }
 
 // AuthorizeScorer grants or revokes scorer authorization for scorer.
-func AuthorizeScorer(db vm.StateDB, scorer common.Address, enabled bool) {
+func AuthorizeScorer(db stateDB, scorer common.Address, enabled bool) {
 	var val common.Hash
 	if enabled {
 		val[31] = 1
@@ -65,7 +71,7 @@ func AuthorizeScorer(db vm.StateDB, scorer common.Address, enabled bool) {
 
 // RecordScore adds a signed delta to the cumulative score for who,
 // and increments the rating count. delta may be negative.
-func RecordScore(db vm.StateDB, who common.Address, delta *big.Int) {
+func RecordScore(db stateDB, who common.Address, delta *big.Int) {
 	// Read current score as two's complement uint256.
 	raw := db.GetState(params.ReputationHubAddress, scoreSlot(who))
 	current := raw.Big()

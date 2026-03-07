@@ -19,8 +19,8 @@ type ChainContext interface {
 	GetHeader(common.Hash, uint64) *types.Header
 }
 
-// NewTVMBlockContext creates a new context for use in the TVM.
-func NewTVMBlockContext(header *types.Header, chain ChainContext, author *common.Address) vm.BlockContext {
+// NewVMBlockContext creates a new block context for VM execution.
+func NewVMBlockContext(header *types.Header, chain ChainContext, author *common.Address) vm.BlockContext {
 	var (
 		beneficiary common.Address
 		baseFee     *big.Int
@@ -50,14 +50,6 @@ func NewTVMBlockContext(header *types.Header, chain ChainContext, author *common
 		BaseFee:     baseFee,
 		GasLimit:    header.GasLimit,
 		Random:      random,
-	}
-}
-
-// NewTVMTxContext creates a new transaction context for a single transaction.
-func NewTVMTxContext(msg Message) vm.TxContext {
-	return vm.TxContext{
-		Origin:  msg.From(),
-		TxPrice: new(big.Int).Set(msg.TxPrice()),
 	}
 }
 
