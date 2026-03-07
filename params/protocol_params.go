@@ -32,7 +32,7 @@ const (
 	TxDataNonZeroGasReduced   uint64 = 16    // Per byte of non-zero data attached to a transaction (reduced rate)
 	// GTOS uses flat gas costs for all storage accesses (gasSLoad=100, gasSStore=5000
 	// in core/lvm/lvm.go) regardless of whether an address/slot appears in the transaction
-	// access list.  There is no EIP-2929 warm/cold distinction, so including an AccessList
+	// access list.  There is no warm/cold gas distinction, so including an AccessList
 	// in a transaction provides no runtime gas benefit.  The intrinsic gas charges are
 	// therefore zero to avoid users paying for a feature that has no effect.
 	TxAccessListAddressGas    uint64 = 0 // Per address specified in a transaction access list (no warm/cold in GTOS)

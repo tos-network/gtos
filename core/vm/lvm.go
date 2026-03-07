@@ -3126,7 +3126,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
 		}
 
-		// Store the contract code at the derived address.
+		// Initialize new contract account before writing code.
+		stateDB.CreateAccount(newAddr)
+		stateDB.SetNonce(newAddr, 1)
 		stateDB.SetCode(newAddr, []byte(code))
 
 		L.Push(lua.LString(newAddr.Hex()))
@@ -3227,6 +3229,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 
+		// Increment deployer nonce (mirrors CREATE behavior for both create and create2).
+		deployerNonce := stateDB.GetNonce(contractAddr)
+		stateDB.SetNonce(contractAddr, deployerNonce+1)
 		// Value transfer before code store (matches EVM CREATE2 order).
 		if deployValue.Sign() > 0 {
 			if !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
@@ -3236,6 +3241,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
 		}
 
+		// Initialize new contract account before writing code.
+		stateDB.CreateAccount(newAddr)
+		stateDB.SetNonce(newAddr, 1)
 		stateDB.SetCode(newAddr, []byte(code))
 
 		L.Push(lua.LString(newAddr.Hex()))

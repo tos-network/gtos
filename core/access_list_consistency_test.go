@@ -11,8 +11,8 @@ import (
 
 // TestAccessListIntrinsicGasIsZero verifies that including an access list in a
 // transaction does not increase intrinsic gas.  GTOS uses flat gas costs (no
-// EIP-2929 warm/cold distinction), so the access list provides no runtime
-// benefit; charging for it would be a net tax on users.
+// warm/cold distinction), so the access list provides no runtime benefit;
+// charging for it would be a net tax on users.
 func TestAccessListIntrinsicGasIsZero(t *testing.T) {
 	// A non-trivial access list with one address + one storage slot.
 	al := types.AccessList{

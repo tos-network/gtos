@@ -1423,7 +1423,7 @@ func (s *BlockChainAPI) CreateAccessList(ctx context.Context, args TransactionAr
 	return result, nil
 }
 
-// AccessList generates an EIP-2930 access list for the given transaction by
+// AccessList generates an access list for the given transaction by
 // wrapping the state with a tracking layer that records every GetState/SetState/
 // GetBalance call made during a single dry-run execution.
 func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrHash, args TransactionArgs) (acl types.AccessList, gasUsed uint64, vmErr error, err error) {

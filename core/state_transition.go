@@ -270,7 +270,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		var nonceBuf [8]byte
 		binary.BigEndian.PutUint64(nonceBuf[:], msg.Nonce())
 		txHashInput = append(txHashInput, nonceBuf[:]...)
-		txHashInput = append(txHashInput, msg.Value().Bytes()...)
+		var valueBuf [32]byte
+		msg.Value().FillBytes(valueBuf[:])
+		txHashInput = append(txHashInput, valueBuf[:]...)
 		txHashInput = append(txHashInput, msg.Data()...)
 		txHash := crypto.Keccak256Hash(txHashInput)
 
@@ -438,7 +440,13 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		GoCtx:    st.goCtx,
 	}
 	code := st.state.GetCode(toAddr)
+	// Reserve worst-case validation gas from block gas pool before execution.
+	if err := st.gp.SubGas(params.ValidationGasCap); err != nil {
+		return ErrAAValidationFailed
+	}
 	gasUsed, retData, _, execErr := vm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
+	// Always refund unused validation gas back to the block pool.
+	st.gp.AddGas(params.ValidationGasCap - gasUsed)
 
 	if execErr != nil {
 		return ErrAAValidationFailed

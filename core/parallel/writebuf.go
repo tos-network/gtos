@@ -279,7 +279,7 @@ func (b *WriteBufStateDB) RevertToSnapshot(id int) {
 
 // ── Per-transaction access list ───────────────────────────────────────────────
 //
-// GTOS does not use EIP-2929 warm/cold gas semantics, so the access list has no
+// GTOS does not use warm/cold gas semantics, so the access list has no
 // effect on gas costs.  We track it here anyway so that serial and parallel
 // execution produce identical vm.StateDB.AddressInAccessList / SlotInAccessList
 // responses, which is required for correctness if any future primitive checks it.
