@@ -1299,21 +1299,68 @@ def rpc(method, params):
     data = json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type":"application/json"})
     with urllib.request.urlopen(req, timeout=5) as r:
-        return json.loads(r.read())["result"]
+        body = json.loads(r.read())
+    if "error" in body:
+        raise SystemExit(f'{method} error: {body["error"]}')
+    return body["result"]
 
-latest = int(rpc("tos_blockNumber", []), 16)
-start = max(1, latest - 14)
-miners = []
+def dec(value):
+    if isinstance(value, str) and value.startswith("0x"):
+        return int(value, 16)
+    return int(value)
+
+latest = dec(rpc("tos_blockNumber", []))
+genesis = rpc("tos_getBlockByNumber", ["0x0", False])
+epoch_info = rpc("dpos_getEpochInfo", ["latest"])
+period_ms = dec(epoch_info.get("targetBlockPeriodMs") or "0x0")
+turn_length = dec(epoch_info.get("turnLength") or "0x0")
+if period_ms <= 0 or turn_length <= 0:
+    print("verify failed: invalid DPoS epoch info for grouped-turn validation", file=sys.stderr)
+    sys.exit(1)
+
+sample_len = min(latest, max(turn_length * 2, 16))
+start = max(1, latest - sample_len + 1)
+records = []
 for num in range(start, latest + 1):
     block = rpc("tos_getBlockByNumber", [hex(num), False])
-    miners.append(block["miner"].lower())
-uniq = sorted(set(miners))
-print("miner sample:", len(miners), "blocks,", len(uniq), "unique miners")
-for m in uniq:
-    print(" ", m)
-if len(uniq) < 2:
-    print("verify failed: miner rotation not observed", file=sys.stderr)
-    sys.exit(1)
+    miner = block["miner"].lower()
+    ts = dec(block["timestamp"])
+    slot = (ts - dec(genesis["timestamp"])) // period_ms
+    if slot < 1:
+        print(f"verify failed: block {num} has invalid slot {slot}", file=sys.stderr)
+        sys.exit(1)
+    group = (slot - 1) // turn_length
+    records.append((num, miner, slot, group))
+
+print("grouped-turn sample:", len(records), "blocks,", "turnLength=", turn_length)
+for num, miner, slot, group in records:
+    print(f"  block={num} slot={slot} group={group} miner={miner}")
+
+group_to_miner = {}
+group_order = []
+for _, miner, _, group in records:
+    prev = group_to_miner.get(group)
+    if prev is None:
+        group_to_miner[group] = miner
+        group_order.append(group)
+        continue
+    if prev != miner:
+        print(f"verify failed: group {group} has multiple miners ({prev}, {miner})", file=sys.stderr)
+        sys.exit(1)
+
+if len(group_order) >= 2:
+    for i in range(1, len(group_order)):
+        prev_group = group_order[i - 1]
+        curr_group = group_order[i]
+        if group_to_miner[prev_group] == group_to_miner[curr_group]:
+            print(
+                f"verify failed: proposer did not rotate across groups {prev_group}->{curr_group}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    print("grouped-turn rotation observed across", len(group_order), "groups")
+else:
+    print("grouped-turn sample covers one group only; proposer continuity is expected")
 PY
 
 	echo "verify passed"
