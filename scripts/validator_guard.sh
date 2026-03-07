@@ -12,6 +12,16 @@ HALT_TOLERANCE="${HALT_TOLERANCE:-4}"
 PEER_MIN="${PEER_MIN:-1}"
 GROUP_SAMPLE_FACTOR="${GROUP_SAMPLE_FACTOR:-2}"
 BASE_DIR="${BASE_DIR:-/data/gtos}"
+ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
+ALERT_WEBHOOK_TIMEOUT_SEC="${ALERT_WEBHOOK_TIMEOUT_SEC:-5}"
+ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-}"
+ALERT_EMAIL_FROM="${ALERT_EMAIL_FROM:-}"
+ALERT_EMAIL_SUBJECT_PREFIX="${ALERT_EMAIL_SUBJECT_PREFIX:-[GTOS Validator Guard]}"
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_USERNAME="${SMTP_USERNAME:-}"
+SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+SMTP_TLS="${SMTP_TLS:-true}"
 
 usage() {
 	cat <<'USAGE'
@@ -30,6 +40,16 @@ Options:
   --peer-min <n>                    minimum healthy peer count per node
   --group-sample-factor <n>         grouped-turn sample multiplier (default: 2)
   --base-dir <path>                 cluster base dir for maintenance state files
+  --alert-webhook-url <url>         optional webhook endpoint for alert delivery
+  --alert-webhook-timeout-sec <n>   webhook timeout in seconds (default: 5)
+  --alert-email-to <addr[,addr]>    optional alert email recipients
+  --alert-email-from <addr>         sender address for alert email
+  --alert-email-subject-prefix <s>  mail subject prefix
+  --smtp-host <host>                SMTP host for email delivery
+  --smtp-port <n>                   SMTP port (default: 587)
+  --smtp-username <user>            SMTP username
+  --smtp-password <pass>            SMTP password
+  --smtp-tls <true|false>           enable STARTTLS (default: true)
   -h, --help                        show help
 USAGE
 }
@@ -46,6 +66,16 @@ while [[ $# -gt 0 ]]; do
 	--peer-min) PEER_MIN="$2"; shift 2 ;;
 	--group-sample-factor) GROUP_SAMPLE_FACTOR="$2"; shift 2 ;;
 	--base-dir) BASE_DIR="$2"; shift 2 ;;
+	--alert-webhook-url) ALERT_WEBHOOK_URL="$2"; shift 2 ;;
+	--alert-webhook-timeout-sec) ALERT_WEBHOOK_TIMEOUT_SEC="$2"; shift 2 ;;
+	--alert-email-to) ALERT_EMAIL_TO="$2"; shift 2 ;;
+	--alert-email-from) ALERT_EMAIL_FROM="$2"; shift 2 ;;
+	--alert-email-subject-prefix) ALERT_EMAIL_SUBJECT_PREFIX="$2"; shift 2 ;;
+	--smtp-host) SMTP_HOST="$2"; shift 2 ;;
+	--smtp-port) SMTP_PORT="$2"; shift 2 ;;
+	--smtp-username) SMTP_USERNAME="$2"; shift 2 ;;
+	--smtp-password) SMTP_PASSWORD="$2"; shift 2 ;;
+	--smtp-tls) SMTP_TLS="$2"; shift 2 ;;
 	-h|--help) usage; exit 0 ;;
 	*) echo "unknown argument: $1" >&2; usage; exit 1 ;;
 	esac
@@ -106,13 +136,15 @@ hex_to_dec() {
 
 alert() {
 	local level="$1" kind="$2" message="$3" detail_json="${4:-}"
+	local ts
 	if [[ -z "${detail_json}" ]]; then
 		detail_json='{}'
 	fi
+	ts="$(date -u +%s)"
 	python3 - <<PY >>"${ALERTS_FILE}"
 import json, time
 print(json.dumps({
-    "ts": int(time.time()),
+    "ts": int(${ts}),
     "level": ${level@Q},
     "kind": ${kind@Q},
     "message": ${message@Q},
@@ -120,6 +152,85 @@ print(json.dumps({
 }, sort_keys=True))
 PY
 	echo "${level}: ${message}"
+	send_webhook_alert "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" || true
+	send_email_alert "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" || true
+}
+
+send_webhook_alert() {
+	local ts="$1" level="$2" kind="$3" message="$4" detail_json="$5"
+	if [[ -z "${ALERT_WEBHOOK_URL}" ]]; then
+		return 0
+	fi
+	if ! python3 - "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" <<'PY'
+import json, os, sys, urllib.request
+payload = {
+    "ts": int(sys.argv[1]),
+    "level": sys.argv[2],
+    "kind": sys.argv[3],
+    "message": sys.argv[4],
+    "detail": json.loads(sys.argv[5]),
+}
+req = urllib.request.Request(
+    os.environ["ALERT_WEBHOOK_URL"],
+    data=json.dumps(payload, sort_keys=True).encode(),
+    headers={"Content-Type": "application/json"},
+)
+with urllib.request.urlopen(req, timeout=int(os.environ.get("ALERT_WEBHOOK_TIMEOUT_SEC", "5"))) as _:
+    pass
+PY
+	then
+		echo "WARN: webhook delivery failed for alert kind=${kind}" >&2
+		return 0
+	fi
+}
+
+send_email_alert() {
+	local ts="$1" level="$2" kind="$3" message="$4" detail_json="$5"
+	if [[ -z "${ALERT_EMAIL_TO}" ]]; then
+		return 0
+	fi
+	if [[ -z "${ALERT_EMAIL_FROM}" || -z "${SMTP_HOST}" ]]; then
+		echo "WARN: email alert requested but ALERT_EMAIL_FROM or SMTP_HOST is unset" >&2
+		return 0
+	fi
+	if ! python3 - "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" <<'PY'
+import json, os, smtplib, sys
+from email.message import EmailMessage
+
+recipients = [item.strip() for item in os.environ["ALERT_EMAIL_TO"].split(",") if item.strip()]
+if not recipients:
+    raise SystemExit(0)
+detail = json.loads(sys.argv[5])
+msg = EmailMessage()
+msg["Subject"] = f'{os.environ.get("ALERT_EMAIL_SUBJECT_PREFIX", "[GTOS Validator Guard]")} [{sys.argv[2]}] {sys.argv[3]}'
+msg["From"] = os.environ["ALERT_EMAIL_FROM"]
+msg["To"] = ", ".join(recipients)
+body = {
+    "ts": int(sys.argv[1]),
+    "level": sys.argv[2],
+    "kind": sys.argv[3],
+    "message": sys.argv[4],
+    "detail": detail,
+}
+msg.set_content(json.dumps(body, indent=2, sort_keys=True))
+host = os.environ["SMTP_HOST"]
+port = int(os.environ.get("SMTP_PORT", "587"))
+use_tls = os.environ.get("SMTP_TLS", "true").strip().lower() not in ("0", "false", "no")
+username = os.environ.get("SMTP_USERNAME", "")
+password = os.environ.get("SMTP_PASSWORD", "")
+with smtplib.SMTP(host, port, timeout=10) as smtp:
+    smtp.ehlo()
+    if use_tls:
+        smtp.starttls()
+        smtp.ehlo()
+    if username:
+        smtp.login(username, password)
+    smtp.send_message(msg)
+PY
+	then
+		echo "WARN: email delivery failed for alert kind=${kind}" >&2
+		return 0
+	fi
 }
 
 declare -A prev_block
@@ -219,10 +330,11 @@ def dec(value):
 latest = dec(rpc("tos_blockNumber", []))
 finalized = rpc("tos_getFinalizedBlock", [])
 epoch_info = rpc("dpos_getEpochInfo", ["latest"])
+validators = [str(v).lower() for v in (rpc("dpos_getValidators", ["latest"]) or [])]
 genesis = rpc("tos_getBlockByNumber", ["0x0", False])
 period_ms = dec(epoch_info.get("targetBlockPeriodMs") or "0x0")
 turn_length = dec(epoch_info.get("turnLength") or "0x0")
-if period_ms <= 0 or turn_length <= 0:
+if period_ms <= 0 or turn_length <= 0 or not validators:
     print(json.dumps({"error": "invalid epoch info"}))
     raise SystemExit(0)
 lag = latest - dec(finalized["number"]) if finalized else 0
@@ -253,11 +365,10 @@ for group, counts in group_counts.items():
     if group in strict_groups and count * 2 <= group_totals[group]:
         print(json.dumps({"error": f"group {group} has no dominant proposer: {counts}"}))
         raise SystemExit(0)
-for i in range(1, len(strict_groups)):
-    prev_group = strict_groups[i - 1]
-    curr_group = strict_groups[i]
-    if dominant[prev_group] == dominant[curr_group]:
-        print(json.dumps({"error": f"group rotation stalled across {prev_group}->{curr_group}"}))
+for group in strict_groups:
+    expected = validators[group % len(validators)]
+    if dominant[group] != expected:
+        print(json.dumps({"error": f"group {group} dominant proposer {dominant[group]} != expected {expected}"}))
         raise SystemExit(0)
 print(json.dumps({
     "head": latest,

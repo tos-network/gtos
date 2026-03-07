@@ -108,6 +108,9 @@ var (
 		utils.NetworkIdFlag,
 		utils.NoCompactionFlag,
 		utils.MinerNotifyFullFlag,
+		utils.MonitorDoubleSignFlag,
+		utils.MonitorMaliciousVoteFlag,
+		utils.MonitorJournalDirFlag,
 		utils.IgnoreLegacyReceiptsFlag,
 		configFileFlag,
 	}, utils.NetworkFlags, utils.DatabasePathFlags)

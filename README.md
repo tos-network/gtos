@@ -59,8 +59,19 @@ The agent economy runs on three foundational layers.
 - `360ms` target block interval, DPoS consensus
 - Parallel transaction execution — independent txs run concurrently within each block via DAG scheduling
 - Validator sealing signer: `ed25519` only
-- Validator ops: template-driven `systemd` services with `validator_guard.sh`
-  and `validator_guard_report.sh`
+- Validator ops:
+  - template-driven validator services via `gtos-validator@.service`
+  - separate RPC role via `gtos-rpc@.service`
+  - native validator monitor flags:
+    - `--monitor.doublesign`
+    - `--monitor.maliciousvote`
+    - `--monitor.journal-dir`
+  - operator watchdog tooling with `validator_guard.sh`
+    and `validator_guard_report.sh`
+  - validator guard alert fan-out:
+    - local journals
+    - optional webhook delivery
+    - optional SMTP email delivery
 - Agent wallets support: `secp256k1`, `schnorr`, `secp256r1`, `ed25519`, `bls12-381`, `elgamal`
 
 ### Privacy

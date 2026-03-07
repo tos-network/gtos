@@ -32,6 +32,11 @@ REPORT_TIMER_SOURCE="${REPORT_TIMER_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-va
 REPORT_TIMER_DEST="${REPORT_TIMER_DEST:-/etc/systemd/system/gtos-validator-report.timer}"
 REPORT_TIMER_NAME="${REPORT_TIMER_NAME:-gtos-validator-report.timer}"
 SHARED_CONFIG_FILE="${SHARED_CONFIG_FILE:-${BASE_DIR}/config.toml}"
+RPC_SERVICE_PREFIX="${RPC_SERVICE_PREFIX:-gtos-rpc@}"
+RPC_TEMPLATE_SOURCE="${RPC_TEMPLATE_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-rpc@.service}"
+RPC_TEMPLATE_DEST="${RPC_TEMPLATE_DEST:-/etc/systemd/system/gtos-rpc@.service}"
+SHARED_RPC_CONFIG_FILE="${SHARED_RPC_CONFIG_FILE:-${BASE_DIR}/config-rpc.toml}"
+RPC_GC_MODE="${RPC_GC_MODE:-full}"
 VERBOSITY="${VERBOSITY:-3}"
 
 VANITY_HEX="0000000000000000000000000000000000000000000000000000000000000000"
@@ -50,11 +55,11 @@ Usage: scripts/validator_cluster.sh [action] [options]
 
 Actions:
   up       setup + start + verify (default)
-  setup    create accounts/genesis and run init for 3 nodes
+  setup    create accounts/genesis and run init for 3 validators + 1 rpc node
   precollect-enode
            start services, collect enodes, write peer artifacts, stop services
-  start    start 3 systemd services from prepared datadirs
-  restart  restart 3 systemd services
+  start    start validator + rpc systemd services from prepared datadirs
+  restart  restart validator + rpc systemd services
   enter-maintenance <node>
            submit VALIDATOR_ENTER_MAINTENANCE for node 1, 2, or 3
   exit-maintenance <node>
@@ -66,7 +71,7 @@ Actions:
   report   generate a guard report immediately via systemd oneshot service
   verify   check peers, block growth, and miner rotation
   status   print node status summary
-  stop     stop 3 systemd services
+  stop     stop validator + rpc systemd services
   down     same as stop
   clean    stop services and remove chain db/log files (keystore kept)
 
@@ -92,7 +97,7 @@ Options:
 
 Environment overrides:
   GTOS_BIN, BASE_DIR, PASSFILE, NETWORK_ID, PERIOD_MS, EPOCH, MAX_VALIDATORS,
-  TURN_LENGTH, CHECKPOINT_INTERVAL, CHECKPOINT_FINALITY_BLOCK, GC_MODE,
+  TURN_LENGTH, CHECKPOINT_INTERVAL, CHECKPOINT_FINALITY_BLOCK, GC_MODE, RPC_GC_MODE,
   GENESIS_START_DELAY_MS, TOSKEY_BIN,
   SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX, VERBOSITY
 EOF_USAGE
@@ -176,6 +181,20 @@ node_dir() { echo "${BASE_DIR}/node$1"; }
 node_ipc() { echo "$(node_dir "$1")/gtos.ipc"; }
 node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
 node_env_file() { echo "$(node_dir "$1")/validator.env"; }
+rpc_gc_mode_value() {
+	case "${RPC_GC_MODE}" in
+	archive) echo "archive" ;;
+	full) echo "full" ;;
+	*)
+		echo "unsupported rpc gc mode: ${RPC_GC_MODE}" >&2
+		exit 1
+		;;
+	esac
+}
+rpc_dir() { echo "${BASE_DIR}/rpc$1"; }
+rpc_ipc() { echo "$(rpc_dir "$1")/gtos.ipc"; }
+rpc_env_file() { echo "$(rpc_dir "$1")/rpc.env"; }
+rpc_service() { echo "${RPC_SERVICE_PREFIX}$1.service"; }
 ops_dir() { echo "${BASE_DIR}/ops"; }
 maintenance_state_dir() { echo "$(ops_dir)/maintenance"; }
 maintenance_state_file() { echo "$(maintenance_state_dir)/node$1.env"; }
@@ -305,8 +324,15 @@ node_http_port() {
 	esac
 }
 
+rpc_http_port() {
+	case "$1" in
+	1) echo 8555 ;;
+	*) return 1 ;;
+	esac
+}
+
 ensure_dirs() {
-	mkdir -p "${BASE_DIR}/logs" "$(node_dir 1)" "$(node_dir 2)" "$(node_dir 3)"
+	mkdir -p "${BASE_DIR}/logs" "$(node_dir 1)" "$(node_dir 2)" "$(node_dir 3)" "$(rpc_dir 1)"
 	mkdir -p "$(maintenance_state_dir)"
 }
 
@@ -332,6 +358,16 @@ HALT_TOLERANCE=4
 PEER_MIN=1
 GROUP_SAMPLE_FACTOR=2
 BASE_DIR=${BASE_DIR}
+ALERT_WEBHOOK_URL=
+ALERT_WEBHOOK_TIMEOUT_SEC=5
+ALERT_EMAIL_TO=
+ALERT_EMAIL_FROM=
+ALERT_EMAIL_SUBJECT_PREFIX=[GTOS Validator Guard]
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_TLS=true
 EOF_ENV
 }
 
@@ -387,6 +423,44 @@ NoDiscovery = false
 EOF_CONFIG
 }
 
+write_shared_rpc_config_toml() {
+	local no_pruning
+	case "${RPC_GC_MODE}" in
+	archive) no_pruning=true ;;
+	full) no_pruning=false ;;
+	*)
+		echo "unsupported rpc gc mode for config generation: ${RPC_GC_MODE}" >&2
+		exit 1
+		;;
+	esac
+
+	cat >"${SHARED_RPC_CONFIG_FILE}" <<EOF_CONFIG
+[TOS]
+NetworkId = ${NETWORK_ID}
+SyncMode = "full"
+NoPruning = ${no_pruning}
+NoPrefetch = false
+FilterLogCacheSize = 64
+RPCGasCap = 50000000
+RPCEVMTimeout = 5000000000
+RPCTxFeeCap = 1.0
+
+[Node]
+IPCPath = "gtos.ipc"
+HTTPHost = "127.0.0.1"
+HTTPVirtualHosts = ["localhost"]
+HTTPModules = ["admin", "net", "web3", "tos", "dpos", "txpool", "debug"]
+AuthAddr = "127.0.0.1"
+AuthVirtualHosts = ["localhost"]
+WSHost = "127.0.0.1"
+WSModules = ["net", "web3", "tos", "dpos", "txpool"]
+GraphQLVirtualHosts = ["localhost"]
+
+[Node.P2P]
+NoDiscovery = false
+EOF_CONFIG
+}
+
 bootnodes_csv_value() {
 	if [[ -s "${BOOTNODES_FILE}" ]]; then
 		tr -d '\n\r' <"${BOOTNODES_FILE}"
@@ -415,6 +489,8 @@ GTOS_VERBOSITY=${VERBOSITY}
 GTOS_BOOTNODES=${bootnodes}
 GTOS_NETWORK_ID=${NETWORK_ID}
 GTOS_GC_MODE=$(expected_service_gc_flags)
+GTOS_MONITOR_FLAGS=--monitor.doublesign --monitor.maliciousvote --monitor.journal-dir ${BASE_DIR}/ops/native_monitor/node${idx}
+GTOS_EXTRA_FLAGS=
 EOF_ENV
 }
 
@@ -423,6 +499,34 @@ write_validator_envs() {
 	for idx in 1 2 3; do
 		write_validator_env "${idx}"
 	done
+}
+
+write_rpc_env() {
+	local idx="$1" p2p_port http_port ws_port authrpc_port bootnodes
+	p2p_port=$((30400 + idx))
+	http_port="$(rpc_http_port "${idx}")"
+	ws_port=$((8654 + (idx * 2)))
+	authrpc_port=$((9650 + idx))
+	bootnodes="$(bootnodes_csv_value)"
+
+	cat >"$(rpc_env_file "${idx}")" <<EOF_ENV
+GTOS_CONFIG=${SHARED_RPC_CONFIG_FILE}
+GTOS_DATADIR=$(rpc_dir "${idx}")
+GTOS_P2P_PORT=${p2p_port}
+GTOS_HTTP_PORT=${http_port}
+GTOS_WS_PORT=${ws_port}
+GTOS_AUTHRPC_PORT=${authrpc_port}
+GTOS_HTTP_API=admin,net,web3,tos,dpos,txpool,debug
+GTOS_WS_API=net,web3,tos,dpos,txpool
+GTOS_VERBOSITY=${VERBOSITY}
+GTOS_BOOTNODES=${bootnodes}
+GTOS_NETWORK_ID=${NETWORK_ID}
+GTOS_EXTRA_FLAGS=--gcmode $(rpc_gc_mode_value)
+EOF_ENV
+}
+
+write_rpc_envs() {
+	write_rpc_env 1
 }
 
 install_template_service() {
@@ -438,12 +542,28 @@ install_template_service() {
 	run_systemctl daemon-reload
 }
 
+install_rpc_service() {
+	if [[ ! -f "${RPC_TEMPLATE_SOURCE}" ]]; then
+		echo "missing rpc systemd template source: ${RPC_TEMPLATE_SOURCE}" >&2
+		exit 1
+	fi
+	if [[ "${EUID}" -eq 0 ]]; then
+		install -m 0644 "${RPC_TEMPLATE_SOURCE}" "${RPC_TEMPLATE_DEST}"
+	else
+		sudo install -m 0644 "${RPC_TEMPLATE_SOURCE}" "${RPC_TEMPLATE_DEST}"
+	fi
+	run_systemctl daemon-reload
+}
+
 prepare_runtime_assets() {
 	write_shared_config_toml
+	write_shared_rpc_config_toml
 	write_validator_envs
+	write_rpc_envs
 	write_validator_guard_env
 	write_validator_report_env
 	install_template_service
+	install_rpc_service
 	install_guard_service
 	install_report_units
 }
@@ -661,6 +781,12 @@ init_datadirs() {
 		rm -f  "$(node_dir "${idx}")/gtos/transactions.rlp"
 		"${GTOS_BIN}" --datadir "$(node_dir "${idx}")" init "${genesis}" >"$(node_init_log "${idx}")" 2>&1
 	done
+	rm -rf "$(rpc_dir 1)/gtos/chaindata" \
+	       "$(rpc_dir 1)/gtos/lightchaindata" \
+	       "$(rpc_dir 1)/gtos/triecache" \
+	       "$(rpc_dir 1)/gtos/nodes"
+	rm -f  "$(rpc_dir 1)/gtos/transactions.rlp"
+	"${GTOS_BIN}" --datadir "$(rpc_dir 1)" init "${genesis}" >"${BASE_DIR}/logs/init_rpc1.log" 2>&1
 }
 
 run_systemctl() {
@@ -690,6 +816,14 @@ assert_services_prepared() {
 			exit 1
 		fi
 	done
+}
+
+assert_rpc_service_prepared() {
+	if ! run_systemctl cat "$(rpc_service 1)" >/dev/null 2>&1; then
+		echo "missing rpc systemd service: $(rpc_service 1)" >&2
+		echo "run setup first so validator_cluster.sh installs rpc template units and env files." >&2
+		exit 1
+	fi
 }
 
 stop_legacy_nodes() {
@@ -764,6 +898,31 @@ wait_for_named_service_active() {
 	return 1
 }
 
+wait_for_rpc_ipc() {
+	local idx="$1" timeout_s="${2:-30}" ipc elapsed=0
+	ipc="$(rpc_ipc "${idx}")"
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		if [[ -S "${ipc}" ]]; then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+wait_for_rpc_attach() {
+	local idx="$1" timeout_s="${2:-30}" elapsed=0
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		if "${GTOS_BIN}" --exec 'admin.nodeInfo.id' attach "$(rpc_ipc "${idx}")" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
 start_service_node() {
 	local idx="$1"
 	run_systemctl start "$(node_service "${idx}")"
@@ -778,6 +937,23 @@ start_service_node() {
 		exit 1
 	fi
 	echo "node${idx} started via $(node_service "${idx}")"
+}
+
+start_rpc_service() {
+	local idx="$1" svc
+	svc="$(rpc_service "${idx}")"
+	run_systemctl start "${svc}"
+	if ! wait_for_named_service_active "${svc}" 30; then
+		echo "rpc service failed to become active: ${svc}" >&2
+		run_systemctl status --no-pager "${svc}" || true
+		exit 1
+	fi
+	if ! wait_for_rpc_ipc "${idx}" 30 || ! wait_for_rpc_attach "${idx}" 30; then
+		echo "rpc${idx} attach not ready" >&2
+		run_systemctl status --no-pager "${svc}" || true
+		exit 1
+	fi
+	echo "rpc${idx} started via ${svc}"
 }
 
 start_guard_service() {
@@ -830,6 +1006,23 @@ restart_service_node() {
 		exit 1
 	fi
 	echo "node${idx} restarted via $(node_service "${idx}")"
+}
+
+restart_rpc_service() {
+	local idx="$1" svc
+	svc="$(rpc_service "${idx}")"
+	run_systemctl restart "${svc}"
+	if ! wait_for_named_service_active "${svc}" 30; then
+		echo "rpc service failed after restart: ${svc}" >&2
+		run_systemctl status --no-pager "${svc}" || true
+		exit 1
+	fi
+	if ! wait_for_rpc_ipc "${idx}" 30 || ! wait_for_rpc_attach "${idx}" 30; then
+		echo "rpc${idx} attach not ready after restart" >&2
+		run_systemctl status --no-pager "${svc}" || true
+		exit 1
+	fi
+	echo "rpc${idx} restarted via ${svc}"
 }
 
 get_node_enode() {
@@ -934,6 +1127,20 @@ wait_for_block_growth() {
 		if (( growth >= min_growth )); then
 			return 0
 		fi
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+wait_for_rpc_catchup() {
+	local timeout_s="${1:-30}" max_lag="${2:-4}" elapsed=0 validator_head rpc_head
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		validator_head="$(hex_to_dec "$(rpc_hex_result "$(node_http_port 1)" "tos_blockNumber" "[]" || echo 0x0)")"
+		rpc_head="$(hex_to_dec "$(rpc_hex_result "$(rpc_http_port 1)" "tos_blockNumber" "[]" || echo 0x0)")"
+		if (( rpc_head + max_lag >= validator_head )); then
+			return 0
+		fi
+		sleep 1
 		elapsed=$((elapsed + 1))
 	done
 	return 1
@@ -1354,6 +1561,7 @@ refresh_mesh_artifacts() {
 	connect_mesh "${e1}" "${e2}" "${e3}"
 	write_peer_artifacts "${e1}" "${e2}" "${e3}"
 	write_validator_envs
+	write_rpc_envs
 	echo "mesh connected:"
 	echo "  node1=${e1}"
 	echo "  node2=${e2}"
@@ -1362,6 +1570,7 @@ refresh_mesh_artifacts() {
 
 start_nodes() {
 	assert_services_prepared
+	assert_rpc_service_prepared
 	assert_accounts_prepared
 	stop_guard_service
 	stop_legacy_nodes
@@ -1372,18 +1581,27 @@ start_nodes() {
 	if ! wait_for_peer_mesh 30; then
 		echo "warning: peer mesh did not converge to 2 peers per node within timeout" >&2
 	fi
+	start_rpc_service 1
+	if ! wait_for_rpc_catchup 30 4; then
+		echo "warning: rpc1 did not catch up within 4 blocks of validator head" >&2
+	fi
 	start_guard_service
 	start_report_timer
 }
 
 restart_nodes() {
 	assert_services_prepared
+	assert_rpc_service_prepared
 	stop_guard_service
 	stop_legacy_nodes
 	restart_service_node 1
 	restart_service_node 2
 	restart_service_node 3
 	refresh_mesh_artifacts
+	restart_rpc_service 1
+	if ! wait_for_rpc_catchup 30 4; then
+		echo "warning: rpc1 did not catch up within 4 blocks of validator head after restart" >&2
+	fi
 	start_guard_service
 	start_report_timer
 }
@@ -1517,18 +1735,22 @@ resume_node() {
 
 verify_nodes() {
 	local n phex b1hex b2hex pdec b1dec b2dec
+	local rpc_before_hex rpc_after_hex rpc_peer_hex
 	local -A peer_count_hex block_before_hex block_after_hex
 
 	for n in 1 2 3; do
 		peer_count_hex["${n}"]="$(rpc_hex_result "$(node_http_port "${n}")" "net_peerCount" "[]")"
 		block_before_hex["${n}"]="$(rpc_hex_result "$(node_http_port "${n}")" "tos_blockNumber" "[]")"
 	done
+	rpc_peer_hex="$(rpc_hex_result "$(rpc_http_port 1)" "net_peerCount" "[]" || echo 0x0)"
+	rpc_before_hex="$(rpc_hex_result "$(rpc_http_port 1)" "tos_blockNumber" "[]" || echo 0x0)"
 
 	sleep "${VERIFY_SLEEP_SEC}"
 
 	for n in 1 2 3; do
 		block_after_hex["${n}"]="$(rpc_hex_result "$(node_http_port "${n}")" "tos_blockNumber" "[]")"
 	done
+	rpc_after_hex="$(rpc_hex_result "$(rpc_http_port 1)" "tos_blockNumber" "[]" || echo 0x0)"
 
 	echo "==> peer + block summary"
 	for n in 1 2 3; do
@@ -1540,6 +1762,7 @@ verify_nodes() {
 		b2dec="$(hex_to_dec "${b2hex}")"
 		echo "node${n}: peerCount=${pdec} block=${b1dec}->${b2dec}"
 	done
+	echo "rpc1: peerCount=$(hex_to_dec "${rpc_peer_hex}") block=$(hex_to_dec "${rpc_before_hex}")->$(hex_to_dec "${rpc_after_hex}")"
 
 	if (( "$(hex_to_dec "${peer_count_hex[2]}")" < 1 )); then
 		echo "verify failed: node2 peerCount < 1" >&2
@@ -1561,6 +1784,14 @@ verify_nodes() {
 			fi
 		fi
 	done
+	if (( "$(hex_to_dec "${rpc_peer_hex}")" < 1 )); then
+		echo "verify failed: rpc1 peerCount < 1" >&2
+		exit 1
+	fi
+	if (( "$(hex_to_dec "${rpc_after_hex}")" + 4 < "$(hex_to_dec "${block_after_hex[1]}")" )); then
+		echo "verify failed: rpc1 lag exceeds 4 blocks behind validator head" >&2
+		exit 1
+	fi
 
 	python3 - <<'PY'
 import json, urllib.request, sys
@@ -1582,9 +1813,10 @@ def dec(value):
 latest = dec(rpc("tos_blockNumber", []))
 genesis = rpc("tos_getBlockByNumber", ["0x0", False])
 epoch_info = rpc("dpos_getEpochInfo", ["latest"])
+validators = [str(v).lower() for v in (rpc("dpos_getValidators", ["latest"]) or [])]
 period_ms = dec(epoch_info.get("targetBlockPeriodMs") or "0x0")
 turn_length = dec(epoch_info.get("turnLength") or "0x0")
-if period_ms <= 0 or turn_length <= 0:
+if period_ms <= 0 or turn_length <= 0 or not validators:
     print("verify failed: invalid DPoS epoch info for grouped-turn validation", file=sys.stderr)
     sys.exit(1)
 
@@ -1618,7 +1850,7 @@ for _, miner, _, group in records:
     counts[miner] = counts.get(miner, 0) + 1
     group_totals[group] = group_totals.get(group, 0) + 1
 
-if len(group_order) >= 2:
+if len(group_order) >= 1:
     dominant = {}
     out_of_turn = 0
     strict_groups = group_order[1:-1] if len(group_order) > 2 else group_order
@@ -1630,15 +1862,14 @@ if len(group_order) >= 2:
         if group in strict_groups and count * 2 <= group_totals[group]:
             print(f"verify failed: group {group} has no dominant proposer: {counts}", file=sys.stderr)
             sys.exit(1)
-    for i in range(1, len(strict_groups)):
-        prev_group = strict_groups[i - 1]
-        curr_group = strict_groups[i]
-        if dominant[prev_group] == dominant[curr_group]:
-            print(
-                f"verify failed: dominant proposer did not rotate across groups {prev_group}->{curr_group}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        if group in strict_groups:
+            expected = validators[group % len(validators)]
+            if miner != expected:
+                print(
+                    f"verify failed: group {group} dominant proposer {miner} != expected {expected}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
     print("grouped-turn rotation observed across", len(group_order), "groups;", "out-of-turn blocks=", out_of_turn)
 else:
     print("grouped-turn sample covers one group only; proposer continuity is expected")
@@ -1648,12 +1879,28 @@ PY
 }
 
 stop_nodes() {
-	local idx svc
+	local idx
 	stop_guard_service
 	stop_report_timer
+	stop_rpc_service 1
 	for idx in 1 2 3; do
 		stop_service_node "${idx}"
 	done
+}
+
+stop_rpc_service() {
+	local idx="$1" svc
+	svc="$(rpc_service "${idx}")"
+	if ! run_systemctl cat "${svc}" >/dev/null 2>&1; then
+		echo "rpc${idx} service not installed (${svc})"
+		return 0
+	fi
+	if run_systemctl is-active --quiet "${svc}"; then
+		run_systemctl stop "${svc}"
+		echo "rpc${idx} stopped via ${svc}"
+	else
+		echo "rpc${idx} already stopped (${svc})"
+	fi
 }
 
 stop_service_node() {
@@ -1693,6 +1940,27 @@ status_nodes() {
 		fi
 		echo "node${idx}: ${state}, http=127.0.0.1:${port}, block=${block}, peers=${peers}"
 	done
+	svc="$(rpc_service 1)"
+	port="$(rpc_http_port 1)"
+	if ! run_systemctl cat "${svc}" >/dev/null 2>&1; then
+		echo "rpc1: not installed(service=${svc})"
+	elif run_systemctl is-active --quiet "${svc}"; then
+		pid="$(run_systemctl show -p MainPID --value "${svc}" | tr -d '\r')"
+		state="running(service=${svc},pid=${pid})"
+		block="$(rpc_hex_result "${port}" "tos_blockNumber" "[]" || true)"
+		peers="$(rpc_hex_result "${port}" "net_peerCount" "[]" || true)"
+		if [[ -n "${block}" ]]; then
+			block="$(hex_to_dec "${block}")"
+		fi
+		if [[ -n "${peers}" ]]; then
+			peers="$(hex_to_dec "${peers}")"
+		fi
+	else
+		state="stopped(service=${svc})"
+		block="-"
+		peers="-"
+	fi
+	echo "rpc1: ${state}, http=127.0.0.1:${port}, block=${block}, peers=${peers}"
 	if run_systemctl is-active --quiet "${GUARD_SERVICE_NAME}"; then
 		echo "guard: running(service=${GUARD_SERVICE_NAME})"
 	else
@@ -1720,7 +1988,9 @@ setup_network() {
 	echo "setup done (accounts/config/genesis initialized):"
 	echo "  validators: ${BASE_DIR}/validator_accounts.txt"
 	echo "  shared config: ${SHARED_CONFIG_FILE}"
+	echo "  shared rpc config: ${SHARED_RPC_CONFIG_FILE}"
 	echo "  systemd template: ${SYSTEMD_TEMPLATE_DEST}"
+	echo "  rpc systemd template: ${RPC_TEMPLATE_DEST}"
 	echo "  turn length: ${TURN_LENGTH}"
 	echo "  turn group duration (ms): $((TURN_LENGTH * PERIOD_MS))"
 	if is_checkpoint_finality_enabled; then
@@ -1737,8 +2007,8 @@ setup_network() {
 clean_network() {
 	stop_nodes
 	stop_legacy_nodes
-	rm -rf "$(node_dir 1)/gtos" "$(node_dir 2)/gtos" "$(node_dir 3)/gtos"
-	rm -f "${BASE_DIR}/logs/node1.log" "${BASE_DIR}/logs/node2.log" "${BASE_DIR}/logs/node3.log"
+	rm -rf "$(node_dir 1)/gtos" "$(node_dir 2)/gtos" "$(node_dir 3)/gtos" "$(rpc_dir 1)/gtos"
+	rm -f "${BASE_DIR}/logs/node1.log" "${BASE_DIR}/logs/node2.log" "${BASE_DIR}/logs/node3.log" "${BASE_DIR}/logs/rpc1.log"
 	echo "clean done (keystore preserved)"
 }
 

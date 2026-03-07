@@ -513,6 +513,22 @@ var (
 		Value:    tosconfig.Defaults.RPCTxFeeCap,
 		Category: flags.APICategory,
 	}
+	MonitorDoubleSignFlag = &cli.BoolFlag{
+		Name:     "monitor.doublesign",
+		Usage:    "Enable native validator double-sign monitoring and journaling",
+		Category: flags.LoggingCategory,
+	}
+	MonitorMaliciousVoteFlag = &cli.BoolFlag{
+		Name:     "monitor.maliciousvote",
+		Usage:    "Enable native checkpoint vote equivocation monitoring and journaling",
+		Category: flags.LoggingCategory,
+	}
+	MonitorJournalDirFlag = &flags.DirectoryFlag{
+		Name:     "monitor.journal-dir",
+		Usage:    "Directory for native validator monitor journals (events.jsonl, alerts.jsonl, state.json)",
+		Value:    flags.DirectoryString(tosconfig.Defaults.MonitorJournalDir),
+		Category: flags.LoggingCategory,
+	}
 	// Authenticated RPC HTTP settings
 	AuthListenFlag = &cli.StringFlag{
 		Name:     "authrpc.addr",
@@ -1584,6 +1600,15 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	}
 	if ctx.IsSet(RPCGlobalTxFeeCapFlag.Name) {
 		cfg.RPCTxFeeCap = ctx.Float64(RPCGlobalTxFeeCapFlag.Name)
+	}
+	if ctx.IsSet(MonitorDoubleSignFlag.Name) {
+		cfg.MonitorDoubleSign = ctx.Bool(MonitorDoubleSignFlag.Name)
+	}
+	if ctx.IsSet(MonitorMaliciousVoteFlag.Name) {
+		cfg.MonitorMaliciousVote = ctx.Bool(MonitorMaliciousVoteFlag.Name)
+	}
+	if ctx.IsSet(MonitorJournalDirFlag.Name) {
+		cfg.MonitorJournalDir = ctx.String(MonitorJournalDirFlag.Name)
 	}
 	if ctx.IsSet(NoDiscoverFlag.Name) {
 		cfg.TosDiscoveryURLs, cfg.SnapDiscoveryURLs = []string{}, []string{}

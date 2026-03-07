@@ -89,6 +89,23 @@ func (p *checkpointVotePool) AddVote(env *types.CheckpointVoteEnvelope) (bool, b
 	return true, false
 }
 
+// ExistingVote returns the first previously accepted vote from signer at the
+// given checkpoint number, regardless of target hash. The returned pointer is
+// owned by the pool and must be treated as read-only by callers.
+func (p *checkpointVotePool) ExistingVote(number uint64, signer common.Address) *types.CheckpointVoteEnvelope {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for key, signerMap := range p.votes {
+		if key.Number != number {
+			continue
+		}
+		if env, ok := signerMap[signer]; ok {
+			return env
+		}
+	}
+	return nil
+}
+
 // AddPending queues a vote whose checkpoint pre-state snapshot is not yet available.
 // The caller must call DrainPending and re-verify once the snapshot becomes available.
 func (p *checkpointVotePool) AddPending(env *types.CheckpointVoteEnvelope) {

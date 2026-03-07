@@ -131,10 +131,22 @@ type DPoS struct {
 	chainID         *big.Int                            // local chain ID for vote admission (§9 rule 3)
 
 	finalizedVSHash sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
+	voteMonitorFn   func(VoteMonitorEvent)
 
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
 	fakeFailSet bool   // true when fakeFailAt is active
+}
+
+// VoteMonitorEvent reports a checkpoint-vote anomaly detected by the DPoS
+// engine. It is intended for operator monitoring and journaling only.
+type VoteMonitorEvent struct {
+	Kind         string
+	Source       string
+	Signer       common.Address
+	Number       uint64
+	ExistingHash common.Hash
+	NewHash      common.Hash
 }
 
 type checkpointFinalityResult struct {
@@ -282,6 +294,34 @@ func (d *DPoS) SetVoteCallbacks(
 	}
 }
 
+// SetVoteMonitorCallback wires an operator-monitor callback for vote anomalies.
+// Passing nil disables callback delivery.
+func (d *DPoS) SetVoteMonitorCallback(fn func(VoteMonitorEvent)) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+	d.voteMonitorFn = fn
+}
+
+func (d *DPoS) emitVoteMonitorEvent(source string, previous, current *types.CheckpointVoteEnvelope) {
+	if previous == nil || current == nil {
+		return
+	}
+	d.lock.RLock()
+	fn := d.voteMonitorFn
+	d.lock.RUnlock()
+	if fn == nil {
+		return
+	}
+	fn(VoteMonitorEvent{
+		Kind:         "equivocation",
+		Source:       source,
+		Signer:       current.Signer,
+		Number:       current.Vote.Number,
+		ExistingHash: previous.Vote.Hash,
+		NewHash:      current.Vote.Hash,
+	})
+}
+
 // HandleIncomingVote is the P2P handler callback. Called for each checkpoint vote
 // envelope received from peers. Performs basic admission (chain ID, eligible number)
 // and queues the vote in the pool, or in the pending queue if the snapshot is not yet
@@ -355,7 +395,11 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	if !ed25519.Verify(ed25519.PublicKey(records[idx].SignerPub), signingHash[:], env.Signature[:]) {
 		return
 	}
-	d.votePool.AddVote(env)
+	prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
+	_, equivocation := d.votePool.AddVote(env)
+	if equivocation {
+		d.emitVoteMonitorEvent("p2p", prev, env)
+	}
 	if head := chain.CurrentHeader(); head != nil && head.Number != nil {
 		d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
 	}
@@ -478,7 +522,11 @@ func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber 
 		var sig [64]byte
 		copy(sig[:], rawSig)
 		env := &types.CheckpointVoteEnvelope{Vote: vote, Signer: v, Signature: sig}
-		d.votePool.AddVote(env)
+		prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
+		_, equivocation := d.votePool.AddVote(env)
+		if equivocation {
+			d.emitVoteMonitorEvent("restart-gossip", prev, env)
+		}
 		if bcastFn != nil {
 			bcastFn(env)
 		}
@@ -848,7 +896,11 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		if !ed25519.Verify(pub, signingHash[:], env.Signature[:]) {
 			continue
 		}
-		d.votePool.AddVote(env)
+		prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
+		_, equivocation := d.votePool.AddVote(env)
+		if equivocation {
+			d.emitVoteMonitorEvent("pending", prev, env)
+		}
 	}
 
 	// Collect valid votes — verify each signature before including in the QC (§12 step 5).
@@ -1751,7 +1803,11 @@ func (d *DPoS) maybeProduceCheckpointVote(
 		}
 	}
 
-	d.votePool.AddVote(env)
+	prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
+	_, equivocation := d.votePool.AddVote(env)
+	if equivocation {
+		d.emitVoteMonitorEvent("local", prev, env)
+	}
 
 	// §11 step 8: gossip to peers.
 	d.lock.RLock()

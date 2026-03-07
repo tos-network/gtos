@@ -79,6 +79,7 @@ type TOS struct {
 
 	miner    *miner.Miner
 	coinbase common.Address
+	monitor  *validatorMonitor
 
 	networkID     uint64
 	netRPCService *tosapi.NetAPI
@@ -263,6 +264,19 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 			chainConfig.ChainID,
 		)
 		tosNode.handler.CheckpointVoteHandler = d.HandleIncomingVote
+		if config.MonitorDoubleSign || config.MonitorMaliciousVote {
+			journalDir := config.MonitorJournalDir
+			if journalDir == "" {
+				journalDir = tosconfig.Defaults.MonitorJournalDir
+			}
+			tosNode.monitor = newValidatorMonitor(
+				bc,
+				stack.ResolvePath(journalDir),
+				config.MonitorDoubleSign,
+				config.MonitorMaliciousVote,
+			)
+			d.SetVoteMonitorCallback(tosNode.monitor.HandleVoteEvent)
+		}
 	}
 
 	tosNode.miner = miner.New(tosNode, &config.Miner, chainConfig, tosNode.EventMux(), tosNode.engine, tosNode.isLocalBlock)
@@ -543,6 +557,12 @@ func (s *TOS) Start() error {
 	// Start the bloom bits servicing goroutines
 	s.startBloomHandlers(params.BloomBitsBlocks)
 
+	if s.monitor != nil {
+		if err := s.monitor.Start(); err != nil {
+			return err
+		}
+	}
+
 	// Regularly update shutdown marker
 	s.shutdownTracker.Start()
 
@@ -566,6 +586,9 @@ func (s *TOS) Stop() error {
 	s.tosDialCandidates.Close()
 	s.snapDialCandidates.Close()
 	s.handler.Stop()
+	if s.monitor != nil {
+		s.monitor.Stop()
+	}
 
 	// Then stop everything else.
 	s.bloomIndexer.Close()

@@ -30,15 +30,26 @@ At the time of writing, GTOS already has:
   - [validator_cluster.sh](../scripts/validator_cluster.sh)
 - template-driven validator deployment artifacts:
   - shared `config.toml`
+  - shared `config-rpc.toml`
   - per-node `validator.env`
+  - per-node `rpc.env`
   - `gtos-validator@.service`
+  - `gtos-rpc@.service`
 - protocol-aware validator maintenance:
   - `VALIDATOR_ENTER_MAINTENANCE`
   - `VALIDATOR_EXIT_MAINTENANCE`
+- native validator monitor switches:
+  - `--monitor.doublesign`
+  - `--monitor.maliciousvote`
+  - `--monitor.journal-dir`
 - operator watchdog tooling:
   - [validator_guard.sh](../scripts/validator_guard.sh)
   - [validator_guard_report.sh](../scripts/validator_guard_report.sh)
   - [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
+  - guard alerts can be delivered to:
+    - local journals
+    - webhook endpoints
+    - SMTP email
 
 The current approach is now materially closer to a production-style validator
 deployment model, but operators should still treat these areas as active
@@ -83,6 +94,7 @@ GTOS validator operations should follow these principles:
 4. **Validator and RPC/full nodes should be separate roles**
    - validators sign and mine
    - RPC/full nodes do not unlock validator accounts
+   - RPC/full nodes use `gtos-rpc@.service` and `rpc.env`
 
 5. **Operational safety must be explicit**
    - peer readiness
@@ -126,6 +138,7 @@ Recommended layout under `/data/gtos`:
 /data/gtos/
   genesis.json
   config.toml
+  config-rpc.toml
   pass.txt
   bootnodes.csv
   validators.csv
@@ -143,6 +156,9 @@ Recommended layout under `/data/gtos`:
     validator.env
     validator.address
     keystore/
+    gtos/
+  rpc1/
+    rpc.env
     gtos/
 ```
 
@@ -606,6 +622,9 @@ Current operator tooling:
     maintenance overruns
   - emits an approximate conflict alert if different nodes report different
     latest hashes for the same `miner,height` pair
+  - can fan out alerts to:
+    - `ALERT_WEBHOOK_URL`
+    - `ALERT_EMAIL_TO` via SMTP
   - is installed as `gtos-validator-guard.service` for continuous supervision
 - [validator_guard_report.sh](../scripts/validator_guard_report.sh)
   - renders daily JSON/Markdown summaries from guard journals
@@ -615,6 +634,22 @@ Current operator tooling:
 - [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
   - grouped-turn-aware long-duration soak monitor
   - validates within-group proposer consistency and finalized-lag bounds
+
+Recommended alert configuration in `/data/gtos/ops/validator_guard.env`:
+
+```bash
+ALERT_WEBHOOK_URL=https://hooks.example.internal/gtos-validator
+ALERT_WEBHOOK_TIMEOUT_SEC=5
+
+ALERT_EMAIL_TO=ops@example.com,oncall@example.com
+ALERT_EMAIL_FROM=gtos-validator@example.com
+ALERT_EMAIL_SUBJECT_PREFIX=[GTOS Validator Guard]
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=gtos-validator@example.com
+SMTP_PASSWORD=change-me
+SMTP_TLS=true
+```
 
 ## Recommended Rollout Plan
 

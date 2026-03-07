@@ -54,6 +54,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		RPCGasCap                             uint64
 		RPCEVMTimeout                         time.Duration
 		RPCTxFeeCap                           float64
+		MonitorDoubleSign                     bool                      `toml:",omitempty"`
+		MonitorMaliciousVote                  bool                      `toml:",omitempty"`
+		MonitorJournalDir                     string                    `toml:",omitempty"`
 		Checkpoint                            *params.TrustedCheckpoint `toml:",omitempty"`
 		OverrideTerminalTotalDifficulty       *big.Int                  `toml:",omitempty"`
 		OverrideTerminalTotalDifficultyPassed *bool                     `toml:",omitempty"`
@@ -97,6 +100,9 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.RPCGasCap = c.RPCGasCap
 	enc.RPCEVMTimeout = c.RPCEVMTimeout
 	enc.RPCTxFeeCap = c.RPCTxFeeCap
+	enc.MonitorDoubleSign = c.MonitorDoubleSign
+	enc.MonitorMaliciousVote = c.MonitorMaliciousVote
+	enc.MonitorJournalDir = c.MonitorJournalDir
 	enc.Checkpoint = c.Checkpoint
 	enc.OverrideTerminalTotalDifficulty = c.OverrideTerminalTotalDifficulty
 	enc.OverrideTerminalTotalDifficultyPassed = c.OverrideTerminalTotalDifficultyPassed
@@ -144,6 +150,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		RPCGasCap                             *uint64
 		RPCEVMTimeout                         *time.Duration
 		RPCTxFeeCap                           *float64
+		MonitorDoubleSign                     *bool                     `toml:",omitempty"`
+		MonitorMaliciousVote                  *bool                     `toml:",omitempty"`
+		MonitorJournalDir                     *string                   `toml:",omitempty"`
 		Checkpoint                            *params.TrustedCheckpoint `toml:",omitempty"`
 		OverrideTerminalTotalDifficulty       *big.Int                  `toml:",omitempty"`
 		OverrideTerminalTotalDifficultyPassed *bool                     `toml:",omitempty"`
@@ -265,6 +274,15 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.RPCTxFeeCap != nil {
 		c.RPCTxFeeCap = *dec.RPCTxFeeCap
+	}
+	if dec.MonitorDoubleSign != nil {
+		c.MonitorDoubleSign = *dec.MonitorDoubleSign
+	}
+	if dec.MonitorMaliciousVote != nil {
+		c.MonitorMaliciousVote = *dec.MonitorMaliciousVote
+	}
+	if dec.MonitorJournalDir != nil {
+		c.MonitorJournalDir = *dec.MonitorJournalDir
 	}
 	if dec.Checkpoint != nil {
 		c.Checkpoint = dec.Checkpoint

@@ -36,10 +36,11 @@ var Defaults = Config{
 		GasCeil:  30000000,
 		Recommit: 3 * time.Second,
 	},
-	TxPool:        core.DefaultTxPoolConfig,
-	RPCGasCap:     50000000,
-	RPCEVMTimeout: 5 * time.Second,
-	RPCTxFeeCap:   1, // 1 tos
+	TxPool:            core.DefaultTxPoolConfig,
+	RPCGasCap:         50000000,
+	RPCEVMTimeout:     5 * time.Second,
+	RPCTxFeeCap:       1, // 1 tos
+	MonitorJournalDir: "monitor",
 }
 
 //go:generate go run github.com/fjl/gencodec -type Config -formats toml -out gen_config.go
@@ -121,6 +122,12 @@ type Config struct {
 	// RPCTxFeeCap is the global transaction fee(price * gaslimit) cap for
 	// send-transaction variants. The unit is tos.
 	RPCTxFeeCap float64
+
+	// Native validator monitor settings. These are operator-facing runtime
+	// safeguards and journaling hooks, not consensus parameters.
+	MonitorDoubleSign    bool   `toml:",omitempty"`
+	MonitorMaliciousVote bool   `toml:",omitempty"`
+	MonitorJournalDir    string `toml:",omitempty"`
 
 	// Checkpoint is a hardcoded checkpoint which can be nil.
 	Checkpoint *params.TrustedCheckpoint `toml:",omitempty"`
