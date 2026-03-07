@@ -172,6 +172,14 @@ type ChainConfig struct {
 	// even without having seen the TTD locally (safer long term).
 	TerminalTotalDifficultyPassed bool `json:"terminalTotalDifficultyPassed,omitempty"`
 
+	// ProtocolForks lists the block numbers at which hard-fork protocol upgrades
+	// activate, in ascending order. These are fed into the devp2p fork-ID checksum
+	// (forkid.gatherForks) so that post-fork nodes reject pre-fork peers and vice
+	// versa. Leave nil for the current single-version network (no scheduled forks).
+	// When planning a hard fork, append its activation block number here AND deploy
+	// the new binary before that block is reached.
+	ProtocolForks []uint64 `json:"protocolForks,omitempty"`
+
 	// Various consensus engines
 	DPoS *DPoSConfig `json:"dpos,omitempty"`
 }

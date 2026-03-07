@@ -66,6 +66,14 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 		if statedb != nil && statedb.GetCodeSize(*to) > 0 {
 			as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
 		}
+
+		// SEC-2 (runtime dynamic write-set): an LVM contract can call tos.transfer()
+		// to any arbitrary address at runtime — a dynamic write not captured in static
+		// analysis. To prevent a plain transfer from racing with a concurrent LVM call
+		// that transfers to the same recipient, plain transfers READ LVMSerialAddress.
+		// Since all LVM calls WRITE LVMSerialAddress, conflict detection forces any
+		// plain transfer into a later level than any concurrent LVM call.
+		as.ReadAddrs[params.LVMSerialAddress] = struct{}{}
 	}
 
 	return as

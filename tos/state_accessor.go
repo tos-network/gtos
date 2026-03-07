@@ -162,26 +162,30 @@ func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec u
 	if txIndex == 0 && len(block.Transactions()) == 0 {
 		return nil, statedb, nil
 	}
-	// Recompute transactions up to the target index.
-	//
-	// Use TxAsMessageWithAccountSigner instead of tx.AsMessage to correctly
-	// handle SignerTx / AA transactions whose sender is resolved from state
-	// rather than from a secp256k1 signature.  tx.AsMessage silently returns
-	// a zero-valued message for non-secp256k1 txs, causing incorrect state
-	// replay and misleading trace/debug output (Issue 5).
+	// Resolve all transaction senders upfront from the pre-block (parent) state —
+	// matching state_processor.go semantics exactly. If a tx mid-block changes an
+	// account's signer via ACCOUNT_SET_SIGNER, subsequent txs in the same block
+	// still resolve to the pre-block signer. Resolving lazily from the evolving
+	// statedb would produce a different (wrong) sender for such txs, causing
+	// trace/replay output that diverges from the true consensus execution.
 	signer := types.MakeSigner(tosNode.blockchain.Config(), block.Number())
-	blockCtx := core.NewVMBlockContext(block.Header(), tosNode.blockchain, nil)
-	for idx, tx := range block.Transactions() {
+	txs := block.Transactions()
+	msgs := make([]core.Message, len(txs))
+	for i, tx := range txs {
 		msg, err := core.TxAsMessageWithAccountSigner(tx, signer, block.BaseFee(), statedb)
 		if err != nil {
 			return nil, nil, fmt.Errorf("transaction %#x message decode failed: %v", tx.Hash(), err)
 		}
+		msgs[i] = msg
+	}
+	blockCtx := core.NewVMBlockContext(block.Header(), tosNode.blockchain, nil)
+	for idx, tx := range txs {
 		if idx == txIndex {
-			return msg, statedb, nil
+			return msgs[idx], statedb, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		statedb.Prepare(tx.Hash(), idx)
-		if _, err := core.ApplyMessage(context.Background(), blockCtx, tosNode.blockchain.Config(), msg, new(core.GasPool).AddGas(tx.Gas()), statedb); err != nil {
+		if _, err := core.ApplyMessage(context.Background(), blockCtx, tosNode.blockchain.Config(), msgs[idx], new(core.GasPool).AddGas(tx.Gas()), statedb); err != nil {
 			return nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 		}
 		// Ensure any modifications are committed to the state

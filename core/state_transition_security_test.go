@@ -309,6 +309,71 @@ func TestNonceNotIncrementedOnIntrinsicGasFailureCall(t *testing.T) {
 	}
 }
 
+// Issue 4: End-to-end AA validation success path.
+//
+// A truthy validate() contract must result in:
+//   (a) no error returned from ApplyMessage
+//   (b) result.UsedGas > TxGas — validationGas is included in the reported gas
+//   (c) coinbase received result.UsedGas * txPrice as a fee
+//   (d) sender balance decreased by at least the fee charged
+//
+// The contract code "tos.result(\"uint256\", 1)" returns a 32-byte ABI-encoded
+// uint256(1), which satisfies the non-zero 32-byte requirement in validateAccountContract.
+func TestAAValidateTruthyEndToEnd(t *testing.T) {
+	from := common.HexToAddress("0xA010")
+	contractAddr := common.HexToAddress("0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD10")
+	coinbase := common.HexToAddress("0xC01NBASE")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	txPrice := big.NewInt(1e9)
+	gasLimit := uint64(500_000)
+
+	// Fund sender generously: must cover gas*txPrice + ValidationGasCap*txPrice.
+	bigBalance := new(big.Int).Mul(big.NewInt(1_000_000_000), big.NewInt(1e9))
+	st := newSecState(t, map[common.Address]*big.Int{from: bigBalance})
+
+	// Mark as AA account contract.
+	st.SetState(contractAddr, aaMarkerSlot, common.HexToHash("0x01"))
+
+	// Contract returns truthy 32-byte value: tos.result("uint256", 1).
+	// ABI encoding of uint256(1) = 0x0000...0001 (non-zero last byte).
+	st.SetCode(contractAddr, []byte(`tos.result("uint256", 1)`))
+
+	senderBefore := new(big.Int).Set(st.GetBalance(from))
+	coinbaseBefore := new(big.Int).Set(st.GetBalance(coinbase))
+
+	bctx := secBlockCtx()
+	bctx.Coinbase = coinbase
+
+	// IsFake=false: real tx — coinbase fee must be credited.
+	msg := types.NewMessage(from, &contractAddr, 0, big.NewInt(0), gasLimit, txPrice, big.NewInt(1e9), big.NewInt(0), []byte("sig"), nil, false)
+	gp := new(GasPool).AddGas(gasLimit * 10)
+
+	result, err := ApplyMessage(context.Background(), bctx, cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage: unexpected error: %v — validate() may not have returned a truthy 32-byte value", err)
+	}
+
+	// (b) UsedGas must exceed TxGas: validationGas was charged and included.
+	if result.UsedGas <= params.TxGas {
+		t.Errorf("UsedGas=%d must be > TxGas=%d (validationGas not included)", result.UsedGas, params.TxGas)
+	}
+
+	// (c) Coinbase must have received exactly result.UsedGas * txPrice.
+	coinbaseAfter := st.GetBalance(coinbase)
+	expectedFee := new(big.Int).Mul(new(big.Int).SetUint64(result.UsedGas), txPrice)
+	actualFee := new(big.Int).Sub(coinbaseAfter, coinbaseBefore)
+	if actualFee.Cmp(expectedFee) != 0 {
+		t.Errorf("coinbase fee: got %v, want %v (UsedGas=%d * txPrice=%v)", actualFee, expectedFee, result.UsedGas, txPrice)
+	}
+
+	// (d) Sender balance must have decreased.
+	senderAfter := st.GetBalance(from)
+	if senderAfter.Cmp(senderBefore) >= 0 {
+		t.Error("sender balance must have decreased after a successful AA tx")
+	}
+}
+
 // Issue F: SystemAction with value > balance must return ErrInsufficientFundsForTransfer.
 // Before the fix, the CanTransfer check was missing for the SystemAction path; with
 // gasFeeCap=nil, buyGas did not check value vs balance, so the check was silently skipped.

@@ -320,6 +320,56 @@ func TestCreateLevelsAfterCALL(t *testing.T) {
 	}
 }
 
+// TestPlainTransferConflictsWithLVMCall verifies SEC-2: a plain TOS transfer
+// must conflict with any LVM contract call (which writes LVMSerialAddress),
+// preventing a contract's runtime tos.transfer() from racing with a concurrent
+// plain transfer to the same recipient.
+func TestPlainTransferConflictsWithLVMCall(t *testing.T) {
+	db := newTestStateDB(t)
+	recipient := addr("0xBEEF01")
+	lvmContract := addr("0xCC10")
+	transferSender := addr("0xAA10")
+	callSender := addr("0xAA11")
+
+	// lvmContract has on-chain code → AnalyzeTx writes LVMSerialAddress.
+	db.SetCode(lvmContract, []byte{0x01, 0x02})
+
+	lvmSet := AnalyzeTx(plainMsg(callSender, lvmContract, 0, 0), db)
+	if _, ok := lvmSet.WriteAddrs[params.LVMSerialAddress]; !ok {
+		t.Fatal("LVM call must write LVMSerialAddress")
+	}
+
+	plainSet := AnalyzeTx(plainMsg(transferSender, recipient, 0, 100), db)
+	if _, ok := plainSet.ReadAddrs[params.LVMSerialAddress]; !ok {
+		t.Error("plain transfer must read LVMSerialAddress (SEC-2)")
+	}
+
+	if !plainSet.Conflicts(&lvmSet) {
+		t.Error("plain transfer must conflict with LVM call (SEC-2 runtime dynamic write-set)")
+	}
+}
+
+// TestPlainTransferLVMSerialOnlyRead verifies that a plain transfer to a
+// non-code address does NOT write LVMSerialAddress (only reads it), so two
+// plain transfers to different recipients can still run in parallel.
+func TestPlainTransferLVMSerialOnlyRead(t *testing.T) {
+	s1 := addr("0xAA20")
+	s2 := addr("0xAA21")
+	r1 := addr("0xBB20")
+	r2 := addr("0xBB21")
+
+	set1 := AnalyzeTx(plainMsg(s1, r1, 0, 1), nil)
+	set2 := AnalyzeTx(plainMsg(s2, r2, 0, 1), nil)
+
+	// Both read LVMSerialAddress — read/read is not a conflict.
+	if set1.Conflicts(&set2) {
+		t.Error("two independent plain transfers must not conflict with each other")
+	}
+	if _, ok := set1.WriteAddrs[params.LVMSerialAddress]; ok {
+		t.Error("plain transfer to non-code address must not write LVMSerialAddress")
+	}
+}
+
 // ─── BuildLevels ─────────────────────────────────────────────────────────────
 
 func TestBuildLevelsAllIndependent(t *testing.T) {

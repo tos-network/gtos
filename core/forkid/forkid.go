@@ -209,23 +209,33 @@ func checksumToBytes(hash uint32) [4]byte {
 }
 
 // gatherForks gathers all known hard-fork block numbers from the chain config
-// and returns them sorted for inclusion in the forkid checksum.
+// and returns them sorted (ascending) for inclusion in the forkid checksum.
 //
-// GTOS uses DPoS consensus with epoch-based upgrades rather than Ethereum-style
-// block-number hard forks, so no block-number fork schedule is stored in
-// ChainConfig today.  Returning nil is correct for the current single-version
-// network: all nodes share the same genesis hash and no block-height forks
-// diverge the chain.
+// GTOS uses DPoS consensus with epoch-based upgrades. Hard-fork activation
+// block numbers are stored in ChainConfig.ProtocolForks. For the current
+// single-version network the slice is empty (nil), which is correct: all nodes
+// share the same genesis hash and no block-height forks diverge the chain.
 //
-// IMPORTANT — upgrade risk: once a protocol hard fork is planned, its activation
-// block number MUST be added here before deployment.  Nodes that omit the fork
-// number will compute the same forkid as pre-fork nodes and remain peered during
-// the upgrade window, potentially syncing an invalid chain segment.
-// At that point, add the activation block as:
-//
-//	if config.HardForkBlock != nil {
-//	    forks = append(forks, config.HardForkBlock.Uint64())
-//	}
-func gatherForks(_ *params.ChainConfig) []uint64 {
-	return nil
+// UPGRADE PROCEDURE — when a hard fork is planned:
+//  1. Add the activation block number to ChainConfig.ProtocolForks in genesis.json
+//     (and the shipped default config).
+//  2. Deploy updated binaries to all validators BEFORE the activation block.
+//     Nodes running old binaries will compute a different forkid checksum after
+//     the fork block passes and will be rejected by post-fork peers.
+//  3. Never remove a fork number after it has been included in a released binary —
+//     doing so changes the checksum for all subsequent forks and causes a network split.
+func gatherForks(config *params.ChainConfig) []uint64 {
+	if config == nil || len(config.ProtocolForks) == 0 {
+		return nil
+	}
+	// Return a copy sorted ascending (callers may rely on ordering).
+	forks := make([]uint64, len(config.ProtocolForks))
+	copy(forks, config.ProtocolForks)
+	// Sort without importing sort to keep the dependency minimal.
+	for i := 1; i < len(forks); i++ {
+		for j := i; j > 0 && forks[j] < forks[j-1]; j-- {
+			forks[j], forks[j-1] = forks[j-1], forks[j]
+		}
+	}
+	return forks
 }
