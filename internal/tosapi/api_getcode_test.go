@@ -52,13 +52,17 @@ func TestGetCodeHistoryPrunedByRetentionWindow(t *testing.T) {
 	}
 	addr := common.HexToAddress("0x3ac976f9d2acd22c761751d7ae72a48c1a36bd18af168541c53037965d26e4a8")
 	st.SetCode(addr, []byte{0x60, 0x00})
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
 
+	backend := newBackendMock()
+	backend.current.Number = new(big.Int).SetUint64(head)
 	api := NewBlockChainAPI(&getCodeBackendMock{
-		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		backendMock: backend,
 		st:          st,
-		head:        &types.Header{Number: big.NewInt(900)},
+		head:        &types.Header{Number: new(big.Int).SetUint64(req)},
 	})
-	_, err = api.GetCode(context.Background(), addr, rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(900)))
+	_, err = api.GetCode(context.Background(), addr, rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(req)))
 	if err == nil {
 		t.Fatalf("expected history pruned error")
 	}

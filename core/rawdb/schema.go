@@ -42,6 +42,10 @@ var (
 	// headFinalizedBlockKey tracks the latest known finalized block hash.
 	headFinalizedBlockKey = []byte("LastFinalized")
 
+	// headFinalizedValidatorSetHashKey tracks the validatorSetHash associated with
+	// the latest known finalized checkpoint.
+	headFinalizedValidatorSetHashKey = []byte("LastFinalizedValidatorSetHash")
+
 	// lastPivotKey tracks the last pivot block used by fast sync (to reenable on sethead).
 	lastPivotKey = []byte("LastPivot")
 

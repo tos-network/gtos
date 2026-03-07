@@ -89,13 +89,17 @@ func TestGetAccountHistoryPrunedByRetentionWindow(t *testing.T) {
 		t.Fatalf("failed to create state db: %v", err)
 	}
 	addr := common.HexToAddress("0xe8b0087eec10090b15f4fc4bc96aaa54e2d44c299564da76e1cd3184a2386b8d")
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
 
+	backend := newBackendMock()
+	backend.current.Number = new(big.Int).SetUint64(head)
 	api := NewTOSAPI(&getSignerBackendMock{
-		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		backendMock: backend,
 		st:          st,
-		head:        &types.Header{Number: big.NewInt(900)},
+		head:        &types.Header{Number: new(big.Int).SetUint64(req)},
 	})
-	block := rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(900))
+	block := rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(req))
 	_, err = api.GetAccount(context.Background(), addr, &block)
 	if err == nil {
 		t.Fatalf("expected history pruned error")

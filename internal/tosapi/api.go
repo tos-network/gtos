@@ -2050,7 +2050,7 @@ func toHexSlice(b [][]byte) []string {
 }
 
 const (
-	rpcDefaultRetainBlocks     = uint64(200)
+	rpcDefaultRetainBlocks     = uint64(50000)
 	rpcDefaultSnapshotInterval = uint64(1000)
 
 	rpcErrNotSupported         = -38000

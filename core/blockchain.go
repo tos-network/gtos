@@ -513,6 +513,7 @@ func (bc *BlockChain) SetFinalized(block *types.Block) {
 		headFinalizedBlockGauge.Update(int64(block.NumberU64()))
 	} else {
 		rawdb.WriteFinalizedBlockHash(bc.db, common.Hash{})
+		rawdb.WriteFinalizedValidatorSetHash(bc.db, common.Hash{})
 		headFinalizedBlockGauge.Update(0)
 	}
 }
@@ -1387,6 +1388,9 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 	// Set new head.
 	if status == CanonStatTy {
 		bc.writeHeadBlock(block)
+		if post, ok := bc.engine.(consensus.CanonicalBlockPostProcessor); ok {
+			post.OnCanonicalBlock(block)
+		}
 	}
 	bc.futureBlocks.Remove(block.Hash())
 

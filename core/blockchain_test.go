@@ -208,6 +208,43 @@ func TestLastBlock(t *testing.T) {
 	}
 }
 
+func TestFinalizedCheckpointRejectsLongerReorg(t *testing.T) {
+	_, chain, err := newCanonical(dpos.NewFaker(), 10, true)
+	if err != nil {
+		t.Fatalf("failed to create canonical chain: %v", err)
+	}
+	defer chain.Stop()
+
+	finalized := chain.GetBlockByNumber(6)
+	if finalized == nil {
+		t.Fatal("missing finalized checkpoint candidate")
+	}
+	chain.SetFinalized(finalized)
+
+	parent := chain.GetBlockByNumber(5)
+	if parent == nil {
+		t.Fatal("missing fork parent")
+	}
+	originalHead := chain.CurrentBlock()
+	sideBlocks := makeBlockChain(parent, 8, dpos.NewFaker(), chain.db, forkSeed)
+	if len(sideBlocks) == 0 {
+		t.Fatal("failed to build side chain")
+	}
+	if _, err := chain.InsertChain(sideBlocks); err != nil {
+		t.Fatalf("InsertChain(side): %v", err)
+	}
+
+	if head := chain.CurrentBlock(); head.Hash() != originalHead.Hash() {
+		t.Fatalf("reorg crossed finalized checkpoint: have head %s want %s", head.Hash().Hex(), originalHead.Hash().Hex())
+	}
+	if got := chain.CurrentFinalizedBlock(); got == nil || got.Hash() != finalized.Hash() {
+		t.Fatalf("finalized block changed across rejected reorg: have=%v want=%s", got, finalized.Hash().Hex())
+	}
+	if got := rawdb.ReadCanonicalHash(chain.db, originalHead.NumberU64()+1); got != (common.Hash{}) {
+		t.Fatalf("unexpected canonical block beyond original head after rejected reorg: %s", got.Hex())
+	}
+}
+
 // Test inserts the blocks/headers after the fork choice rule is changed.
 // The chain is reorged to whatever specified.
 func testInsertAfterMerge(t *testing.T, blockchain *BlockChain, i, n int, full bool) {

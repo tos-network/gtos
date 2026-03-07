@@ -131,6 +131,15 @@ type FinalizedStateVerifier interface {
 	VerifyFinalizedState(header *types.Header, state *state.StateDB) error
 }
 
+// CanonicalBlockPostProcessor is an optional extension of Engine for consensus
+// implementations that need to apply side effects only once a block is actually
+// adopted as canonical (e.g. promoting staged finalized state).
+type CanonicalBlockPostProcessor interface {
+	// OnCanonicalBlock is called by the blockchain after a block has been written
+	// and selected as the new canonical head.
+	OnCanonicalBlock(block *types.Block)
+}
+
 // PoW is a consensus engine based on proof-of-work.
 type PoW interface {
 	Engine

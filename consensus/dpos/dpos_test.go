@@ -11,6 +11,7 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
@@ -252,6 +253,77 @@ func TestRecentlySigned(t *testing.T) {
 
 	if err := d.verifySeal(snap, header); err != errRecentlySigned {
 		t.Errorf("want errRecentlySigned, got %v", err)
+	}
+}
+
+func TestFinalizedValidatorSetHashRestoresFromDB(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	want := common.HexToHash("0x1234")
+	rawdb.WriteFinalizedValidatorSetHash(db, want)
+	rawdb.WriteFinalizedBlockHash(db, common.HexToHash("0x1"))
+
+	d, err := New(&params.DPoSConfig{
+		Epoch:          200,
+		MaxValidators:  21,
+		PeriodMs:       3000,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if have := d.FinalizedValidatorSetHash(); have != want {
+		t.Fatalf("FinalizedValidatorSetHash mismatch: have %s want %s", have.Hex(), want.Hex())
+	}
+
+	rawdb.WriteFinalizedBlockHash(db, common.Hash{})
+	if have := d.FinalizedValidatorSetHash(); have != (common.Hash{}) {
+		t.Fatalf("FinalizedValidatorSetHash should clear when finalized head is reset, have %s", have.Hex())
+	}
+}
+
+func TestOnCanonicalBlockCommitsStagedFinality(t *testing.T) {
+	db := rawdb.NewMemoryDatabase()
+	d, err := New(&params.DPoSConfig{
+		Epoch:          200,
+		MaxValidators:  21,
+		PeriodMs:       3000,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}, db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	finalizedHeader := &types.Header{Number: big.NewInt(10), Extra: make([]byte, extraVanity+extraSealEd25519)}
+	rawdb.WriteHeader(db, finalizedHeader)
+
+	carrier := types.NewBlockWithHeader(&types.Header{Number: big.NewInt(11)})
+	other := types.NewBlockWithHeader(&types.Header{Number: big.NewInt(12)})
+	vsHash := common.HexToHash("0xbeef")
+
+	var committed *types.Header
+	d.SetVoteCallbacks(nil, nil, func(h *types.Header) {
+		committed = h
+		rawdb.WriteFinalizedBlockHash(db, h.Hash())
+	}, big.NewInt(1))
+	d.stageFinalityResult(carrier.Hash(), finalizedHeader.Number.Uint64(), finalizedHeader.Hash(), vsHash)
+
+	d.OnCanonicalBlock(other)
+	if committed != nil {
+		t.Fatal("unexpected finality commit for unrelated canonical block")
+	}
+	if got := rawdb.ReadFinalizedBlockHash(db); got != (common.Hash{}) {
+		t.Fatalf("unexpected finalized block hash before carrier commit: %s", got.Hex())
+	}
+
+	d.OnCanonicalBlock(carrier)
+	if committed == nil || committed.Hash() != finalizedHeader.Hash() {
+		t.Fatalf("finalized header mismatch: have=%v want=%s", committed, finalizedHeader.Hash().Hex())
+	}
+	if got := rawdb.ReadFinalizedBlockHash(db); got != finalizedHeader.Hash() {
+		t.Fatalf("finalized block hash mismatch: have %s want %s", got.Hex(), finalizedHeader.Hash().Hex())
+	}
+	if got := rawdb.ReadFinalizedValidatorSetHash(db); got != vsHash {
+		t.Fatalf("finalized validatorSetHash mismatch: have %s want %s", got.Hex(), vsHash.Hex())
 	}
 }
 

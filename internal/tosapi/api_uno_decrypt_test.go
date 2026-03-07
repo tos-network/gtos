@@ -2,6 +2,7 @@ package tosapi
 
 import (
 	"context"
+	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
@@ -61,9 +62,13 @@ func TestUnoDecryptBalanceRejectsNilBackend(t *testing.T) {
 
 // TestUnoDecryptBalanceHistoryPruned verifies that a pruned block number is rejected.
 func TestUnoDecryptBalanceHistoryPruned(t *testing.T) {
-	api := NewTOSAPI(newBackendMock()) // head=1100, retain=200 → oldest available=901
+	backend := newBackendMock()
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
+	backend.current.Number = new(big.Int).SetUint64(head)
+	api := NewTOSAPI(backend)
 	addr := common.HexToAddress("0x5678")
-	reqBlock := rpcBlockPtr(rpc.BlockNumber(900)) // block 900 is pruned (< 901)
+	reqBlock := rpcBlockPtr(rpc.BlockNumber(req))
 	_, err := api.UnoDecryptBalance(context.Background(), addr, make(hexutil.Bytes, 32), nil, reqBlock)
 	if err == nil {
 		t.Fatal("expected history pruned error")

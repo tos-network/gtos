@@ -1,6 +1,7 @@
 package tosapi
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/metrics"
@@ -16,9 +17,12 @@ func TestHistoryPrunedMeterIncrements(t *testing.T) {
 		rpcHistoryPrunedMeter = prev
 	}()
 
-	backend := newBackendMock() // head=1100, retain=200 -> oldest available=901
+	backend := newBackendMock()
+	head := rpcDefaultRetainBlocks + 100
+	oldest := oldestAvailableBlock(head, rpcDefaultRetainBlocks)
+	backend.current.Number = new(big.Int).SetUint64(head)
 	before := m.Count()
-	err := enforceHistoryRetentionByBlockNumber(backend, 900)
+	err := enforceHistoryRetentionByBlockNumber(backend, oldest-1)
 	if err == nil {
 		t.Fatalf("expected history pruned error")
 	}
@@ -29,7 +33,7 @@ func TestHistoryPrunedMeterIncrements(t *testing.T) {
 
 	// In-window request should not increment the pruned meter.
 	before = after
-	if err := enforceHistoryRetentionByBlockNumber(backend, 901); err != nil {
+	if err := enforceHistoryRetentionByBlockNumber(backend, oldest); err != nil {
 		t.Fatalf("unexpected in-window error: %v", err)
 	}
 	after = m.Count()

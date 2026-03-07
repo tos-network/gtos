@@ -10,14 +10,9 @@ import (
 	"sync/atomic"
 
 	"github.com/tos-network/gtos/accounts"
-	_ "github.com/tos-network/gtos/accountsigner"  // registers ACCOUNT_SET_SIGNER handler via init()
-	_ "github.com/tos-network/gtos/agent"          // registers AGENT_* handlers via init()
-	_ "github.com/tos-network/gtos/capability"     // registers CAPABILITY_* handlers via init()
-	_ "github.com/tos-network/gtos/delegation"     // registers DELEGATION_* handlers via init()
-	_ "github.com/tos-network/gtos/reputation"     // registers REPUTATION_* handlers via init()
-	_ "github.com/tos-network/gtos/kyc"            // registers KYC_* handlers via init()
-	_ "github.com/tos-network/gtos/tns"            // registers TNS_* handlers via init()
-	_ "github.com/tos-network/gtos/referral"       // registers REFERRAL_* handlers via init()
+	_ "github.com/tos-network/gtos/accountsigner" // registers ACCOUNT_SET_SIGNER handler via init()
+	_ "github.com/tos-network/gtos/agent"         // registers AGENT_* handlers via init()
+	_ "github.com/tos-network/gtos/capability"    // registers CAPABILITY_* handlers via init()
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
@@ -27,9 +22,11 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state/pruner"
 	"github.com/tos-network/gtos/core/types"
+	_ "github.com/tos-network/gtos/delegation" // registers DELEGATION_* handlers via init()
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/internal/tosapi"
+	_ "github.com/tos-network/gtos/kyc" // registers KYC_* handlers via init()
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
@@ -37,14 +34,17 @@ import (
 	"github.com/tos-network/gtos/p2p/dnsdisc"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"
+	_ "github.com/tos-network/gtos/referral"   // registers REFERRAL_* handlers via init()
+	_ "github.com/tos-network/gtos/reputation" // registers REPUTATION_* handlers via init()
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
+	_ "github.com/tos-network/gtos/task" // registers TASK_SCHEDULE/TASK_CANCEL handlers via init()
+	_ "github.com/tos-network/gtos/tns"  // registers TNS_* handlers via init()
 	"github.com/tos-network/gtos/tos/downloader"
 	"github.com/tos-network/gtos/tos/protocols/snap"
 	"github.com/tos-network/gtos/tos/protocols/tos"
 	"github.com/tos-network/gtos/tos/tosconfig"
 	"github.com/tos-network/gtos/tosdb"
-	_ "github.com/tos-network/gtos/task"      // registers TASK_SCHEDULE/TASK_CANCEL handlers via init()
 	_ "github.com/tos-network/gtos/validator" // registers VALIDATOR_* handlers via init()
 )
 
@@ -90,6 +90,28 @@ type TOS struct {
 	shutdownTracker *shutdowncheck.ShutdownTracker // Tracks if and when the node has shutdown ungracefully
 }
 
+func validateCheckpointRetention(config *tosconfig.Config, chainConfig *params.ChainConfig) error {
+	if config == nil || chainConfig == nil || chainConfig.DPoS == nil {
+		return nil
+	}
+	dposCfg := chainConfig.DPoS
+	if dposCfg.CheckpointFinalityBlock == nil {
+		return nil
+	}
+	interval := dposCfg.CheckpointInterval
+	if interval == 0 {
+		interval = 200
+	}
+	required := 2 * interval
+	if config.NoPruning || required <= core.TriesInMemory {
+		return nil
+	}
+	return fmt.Errorf(
+		"checkpoint finality requires state retention of at least %d blocks, but non-archive nodes retain %d; use --gcmode archive or reduce checkpointInterval",
+		required, core.TriesInMemory,
+	)
+}
+
 // New creates a new TOS object (including the
 // initialisation of the common TOS object)
 func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
@@ -130,6 +152,10 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	}
 	log.Info(strings.Repeat("-", 153))
 	log.Info("")
+
+	if err := validateCheckpointRetention(config, chainConfig); err != nil {
+		return nil, err
+	}
 
 	if err := pruner.RecoverPruning(stack.ResolvePath(""), chainDb, stack.ResolvePath(config.TrieCleanCacheJournal)); err != nil {
 		log.Error("Failed to recover state", "error", err)
@@ -229,6 +255,7 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 	if d, ok := tosNode.engine.(*dpos.DPoS); ok {
 		bc := tosNode.blockchain
 		d.SetVoteCallbacks(
+			bc,
 			tosNode.handler.BroadcastCheckpointVote,
 			func(h *types.Header) {
 				bc.SetFinalized(types.NewBlockWithHeader(h))

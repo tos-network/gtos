@@ -84,13 +84,17 @@ func TestGetUNOCiphertextHistoryPrunedByRetentionWindow(t *testing.T) {
 		t.Fatalf("failed to create state db: %v", err)
 	}
 	addr := common.HexToAddress("0x2f6b99899c179892ff4f8cb72e627cd9f874b70c90d6b530997a81d35f4f241e")
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
 
+	backend := newBackendMock()
+	backend.current.Number = new(big.Int).SetUint64(head)
 	api := NewTOSAPI(&getUNOBackendMock{
-		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		backendMock: backend,
 		st:          st,
-		head:        &types.Header{Number: big.NewInt(900)},
+		head:        &types.Header{Number: new(big.Int).SetUint64(req)},
 	})
-	reqBlock := rpcBlockPtr(rpc.BlockNumber(900))
+	reqBlock := rpcBlockPtr(rpc.BlockNumber(req))
 
 	_, err = api.GetUNOCiphertext(context.Background(), addr, reqBlock)
 	if err == nil {

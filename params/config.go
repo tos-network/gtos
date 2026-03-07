@@ -183,13 +183,13 @@ type ChainConfig struct {
 
 // DPoSConfig is the consensus engine config for delegated proof-of-stake based sealing.
 type DPoSConfig struct {
-	PeriodMs                uint64   `json:"periodMs"`                              // target block interval (milliseconds)
-	Epoch                   uint64   `json:"epoch"`                                 // blocks between validator-set snapshots
-	MaxValidators           uint64   `json:"maxValidators"`                         // maximum active validators
-	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`          // recent-sign window in blocks; 0 => auto (validators/3 + 1)
-	SealSignerType          string   `json:"sealSignerType,omitempty"`              // consensus block-seal signer type: ed25519 only
-	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`          // blocks between checkpoint finality votes (0 => inactive)
-	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"`     // activation block for checkpoint finality (nil => inactive)
+	PeriodMs                uint64   `json:"periodMs"`                          // target block interval (milliseconds)
+	Epoch                   uint64   `json:"epoch"`                             // blocks between validator-set snapshots
+	MaxValidators           uint64   `json:"maxValidators"`                     // maximum active validators
+	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`      // recent-sign window in blocks; 0 => auto (validators/3 + 1)
+	SealSignerType          string   `json:"sealSignerType,omitempty"`          // consensus block-seal signer type: ed25519 only
+	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`      // blocks between checkpoint finality votes (0 => inactive)
+	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"` // activation block for checkpoint finality (nil => inactive)
 }
 
 // TargetBlockPeriodMs returns the configured target block interval in milliseconds.
@@ -275,6 +275,17 @@ func (c *DPoSConfig) ValidateCheckpointConfig() error {
 		c.CheckpointInterval = 200
 	}
 	return nil
+}
+
+func normalizedCheckpointCompatibility(cfg *DPoSConfig) (uint64, *big.Int) {
+	if cfg == nil || cfg.CheckpointFinalityBlock == nil {
+		return 0, nil
+	}
+	interval := cfg.CheckpointInterval
+	if interval == 0 {
+		interval = 200
+	}
+	return interval, new(big.Int).Set(cfg.CheckpointFinalityBlock)
 }
 
 // String implements the fmt.Stringer interface.
@@ -388,8 +399,30 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 				Fatal:        true,
 			}
 		}
-		if c.DPoS.SealSignerType != newcfg.DPoS.SealSignerType {
+		storedSealType, storedErr := NormalizeDPoSSealSignerType(c.DPoS.SealSignerType)
+		newSealType, newErr := NormalizeDPoSSealSignerType(newcfg.DPoS.SealSignerType)
+		if storedErr != nil || newErr != nil || storedSealType != newSealType {
 			return &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true}
+		}
+		storedInterval, storedActivation := normalizedCheckpointCompatibility(c.DPoS)
+		newInterval, newActivation := normalizedCheckpointCompatibility(newcfg.DPoS)
+		if storedInterval != newInterval {
+			return &ConfigCompatError{
+				What:         "DPoS checkpointInterval",
+				StoredConfig: new(big.Int).SetUint64(storedInterval),
+				NewConfig:    new(big.Int).SetUint64(newInterval),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if !configNumEqual(storedActivation, newActivation) {
+			return &ConfigCompatError{
+				What:         "DPoS checkpointFinalityBlock",
+				StoredConfig: storedActivation,
+				NewConfig:    newActivation,
+				RewindTo:     0,
+				Fatal:        true,
+			}
 		}
 	}
 	storedForks := appliedProtocolForks(c.ProtocolForks, head.Uint64())

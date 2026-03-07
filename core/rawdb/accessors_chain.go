@@ -232,6 +232,24 @@ func WriteFinalizedBlockHash(db tosdb.KeyValueWriter, hash common.Hash) {
 	}
 }
 
+// ReadFinalizedValidatorSetHash retrieves the validatorSetHash associated with the latest
+// finalized checkpoint.
+func ReadFinalizedValidatorSetHash(db tosdb.KeyValueReader) common.Hash {
+	data, _ := db.Get(headFinalizedValidatorSetHashKey)
+	if len(data) == 0 {
+		return common.Hash{}
+	}
+	return common.BytesToHash(data)
+}
+
+// WriteFinalizedValidatorSetHash stores the validatorSetHash associated with the latest
+// finalized checkpoint.
+func WriteFinalizedValidatorSetHash(db tosdb.KeyValueWriter, hash common.Hash) {
+	if err := db.Put(headFinalizedValidatorSetHashKey, hash.Bytes()); err != nil {
+		log.Crit("Failed to store last finalized validatorSetHash", "err", err)
+	}
+}
+
 // ReadLastPivotNumber retrieves the number of the last pivot block. If the node
 // full synced, the last pivot will always be nil.
 func ReadLastPivotNumber(db tosdb.KeyValueReader) *uint64 {

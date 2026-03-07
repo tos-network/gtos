@@ -100,6 +100,7 @@ const (
 	extraSealEd25519   = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots  = 128  // recent snapshots to keep in LRU
 	inmemorySignatures = 4096 // recent signatures to cache
+	inmemoryFinality   = 1024 // staged checkpoint finality results keyed by carrier block hash
 	minWiggleTime      = 100 * time.Millisecond
 	maxWiggleTime      = 1 * time.Second
 )
@@ -113,7 +114,10 @@ type DPoS struct {
 	db         tosdb.Database // nil in NewFaker()
 	recents    *lru.ARCCache  // hash → *Snapshot (inmemorySnapshots entries)
 	signatures *lru.ARCCache  // hash → common.Address (inmemorySignatures entries)
+	finality   *lru.ARCCache  // carrier block hash -> *checkpointFinalityResult
 	sealLength int
+
+	chain consensus.ChainHeaderReader
 
 	validator common.Address
 	signFn    SignerFn
@@ -123,14 +127,21 @@ type DPoS struct {
 
 	// Callbacks wired by the network/chain layer at startup (nil = inactive).
 	broadcastVoteFn func(*types.CheckpointVoteEnvelope) // send vote to all peers
-	setFinalizedFn  func(*types.Header)                  // update blockchain finality state
-	chainID         *big.Int                             // local chain ID for vote admission (§9 rule 3)
+	setFinalizedFn  func(*types.Header)                 // update blockchain finality state
+	chainID         *big.Int                            // local chain ID for vote admission (§9 rule 3)
 
 	finalizedVSHash sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
 
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
 	fakeFailSet bool   // true when fakeFailAt is active
+}
+
+type checkpointFinalityResult struct {
+	CarrierHash      common.Hash
+	FinalizedNumber  uint64
+	FinalizedHash    common.Hash
+	ValidatorSetHash common.Hash
 }
 
 type rawChainReader struct {
@@ -183,11 +194,13 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	}
 	recents, _ := lru.NewARC(inmemorySnapshots)
 	signatures, _ := lru.NewARC(inmemorySignatures)
+	finality, _ := lru.NewARC(inmemoryFinality)
 	d := &DPoS{
 		config:     config,
 		db:         db,
 		recents:    recents,
 		signatures: signatures,
+		finality:   finality,
 		sealLength: sealLengthForSignerType(config.SealSignerType),
 	}
 	if config.CheckpointFinalityBlock != nil {
@@ -246,15 +259,18 @@ func (d *DPoS) CanSignVotes() bool {
 // SetVoteCallbacks wires the DPoS engine to the network and blockchain layers.
 // Must be called once after New() and before Seal() is invoked.
 // broadcastFn: called to send a signed vote envelope to all connected peers.
-// setFinalizedFn: called when a QC is cryptographically verified; updates blockchain finality.
+// setFinalizedFn: called when a staged QC is later committed on canonical adoption;
+// updates blockchain finality.
 // chainID: local chain ID stored for vote admission ChainID check (§9 rule 3).
 func (d *DPoS) SetVoteCallbacks(
+	chain consensus.ChainHeaderReader,
 	broadcastFn func(*types.CheckpointVoteEnvelope),
 	setFinalizedFn func(*types.Header),
 	chainID *big.Int,
 ) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
+	d.chain = chain
 	d.broadcastVoteFn = broadcastFn
 	d.setFinalizedFn = setFinalizedFn
 	if chainID != nil {
@@ -271,8 +287,11 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		return
 	}
 	d.lock.RLock()
-	cfg, localChainID := d.config, d.chainID
+	cfg, localChainID, chain := d.config, d.chainID, d.chain
 	d.lock.RUnlock()
+	if chain == nil {
+		return
+	}
 
 	// Basic structural admission (§9 rules 1–3; no state access).
 	if cfg.CheckpointInterval == 0 || cfg.CheckpointFinalityBlock == nil {
@@ -284,23 +303,111 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	}
 	// Rule 1: must be an eligible checkpoint height.
 	firstEligible := firstCheckpointAtOrAfter(cfg.CheckpointFinalityBlock.Uint64(), cfg.CheckpointInterval)
-	if env.Vote.Number < firstEligible {
+	if env.Vote.Number == 0 || env.Vote.Number < firstEligible {
 		return
 	}
 	if env.Vote.Number%cfg.CheckpointInterval != 0 {
 		return
 	}
-	// Queue for later full verification; QC assembly promotes and verifies sigs.
-	d.votePool.AddPending(env)
+	if head := chain.CurrentHeader(); head != nil && head.Number != nil && cfg.CheckpointInterval > 0 {
+		headNumber := head.Number.Uint64()
+		if headNumber > 2*cfg.CheckpointInterval && env.Vote.Number < headNumber-2*cfg.CheckpointInterval {
+			return
+		}
+	}
+
+	cpHeader := chain.GetHeader(env.Vote.Hash, env.Vote.Number)
+	if cpHeader == nil || env.Vote.Number == 0 {
+		d.votePool.AddPending(env)
+		return
+	}
+	preSnap, err := d.snapshot(chain, env.Vote.Number-1, cpHeader.ParentHash, nil)
+	if err != nil {
+		d.votePool.AddPending(env)
+		return
+	}
+	records, err := d.buildSignerSet(preSnap)
+	if err != nil {
+		return
+	}
+	addrIdx := make(map[common.Address]int, len(records))
+	for i, rec := range records {
+		addrIdx[rec.Address] = i
+	}
+	idx, ok := addrIdx[env.Signer]
+	if !ok {
+		return
+	}
+	vsHash := computeValidatorSetHash(records)
+	if env.Vote.ValidatorSetHash != vsHash {
+		return
+	}
+	signingHash := (&types.CheckpointVote{
+		ChainID:          new(big.Int).Set(localChainID),
+		Number:           env.Vote.Number,
+		Hash:             env.Vote.Hash,
+		ValidatorSetHash: vsHash,
+	}).SigningHash()
+	if !ed25519.Verify(ed25519.PublicKey(records[idx].SignerPub), signingHash[:], env.Signature[:]) {
+		return
+	}
+	d.votePool.AddVote(env)
+	if head := chain.CurrentHeader(); head != nil && head.Number != nil {
+		d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
+	}
 }
 
 // FinalizedValidatorSetHash returns the ValidatorSetHash of the most recently
 // finalized checkpoint QC, or zero if no checkpoint has been finalized yet.
 func (d *DPoS) FinalizedValidatorSetHash() common.Hash {
+	if d.db != nil && rawdb.ReadFinalizedBlockHash(d.db) == (common.Hash{}) {
+		d.finalizedVSHash.Delete("vsHash")
+		return common.Hash{}
+	}
 	if v, ok := d.finalizedVSHash.Load("vsHash"); ok {
 		return v.(common.Hash)
 	}
+	if d.db != nil {
+		if hash := rawdb.ReadFinalizedValidatorSetHash(d.db); hash != (common.Hash{}) {
+			d.finalizedVSHash.Store("vsHash", hash)
+			return hash
+		}
+	}
 	return common.Hash{}
+}
+
+func (d *DPoS) runtimeFinalizedBlock() *types.Header {
+	if d.db == nil {
+		return nil
+	}
+	hash := rawdb.ReadFinalizedBlockHash(d.db)
+	if hash == (common.Hash{}) {
+		return nil
+	}
+	number := rawdb.ReadHeaderNumber(d.db, hash)
+	if number == nil {
+		return nil
+	}
+	return rawdb.ReadHeader(d.db, hash, *number)
+}
+
+func (d *DPoS) runtimeFinalizedNumber() uint64 {
+	if header := d.runtimeFinalizedBlock(); header != nil {
+		return header.Number.Uint64()
+	}
+	return 0
+}
+
+func (d *DPoS) stageFinalityResult(carrierHash common.Hash, finalizedNumber uint64, finalizedHash, validatorSetHash common.Hash) {
+	if d.finality == nil {
+		return
+	}
+	d.finality.Add(carrierHash, &checkpointFinalityResult{
+		CarrierHash:      carrierHash,
+		FinalizedNumber:  finalizedNumber,
+		FinalizedHash:    finalizedHash,
+		ValidatorSetHash: validatorSetHash,
+	})
 }
 
 // RestartGossip re-gossips signed checkpoint votes for checkpoints that this node
@@ -628,17 +735,20 @@ func (d *DPoS) verifyCheckpointQCFull(chain consensus.ChainHeaderReader, header 
 		return fmt.Errorf("%w: have %d, need %d (N=%d)", errQCInsufficientSignatures, sigIdx, quorum, N)
 	}
 
-	// Step 8: advance finalized state on snapshot.
-	if snap.UpdateFinalized(qc.Vote.Number, qc.Vote.Hash) {
-		// §14: keep both layers in sync. Store vsHash for RPC.
-		d.finalizedVSHash.Store("vsHash", qc.Vote.ValidatorSetHash)
-		// ancestor header was already retrieved above for the hash check.
-		d.lock.RLock()
-		setFn := d.setFinalizedFn
-		d.lock.RUnlock()
-		if setFn != nil {
-			setFn(ancestor)
+	// Step 8: compare against the currently finalized checkpoint and stage the
+	// validated result for canonical commit. VerifyFinalizedState runs before
+	// fork choice, so it must not mutate runtime finality directly.
+	switch {
+	case snap.FinalizedNumber > qc.Vote.Number:
+		return nil
+	case snap.FinalizedNumber == qc.Vote.Number && snap.FinalizedNumber != 0:
+		if snap.FinalizedHash != qc.Vote.Hash {
+			return fmt.Errorf("%w: checkpoint %d already finalized as %s, got %s",
+				errInvalidCheckpointQC, qc.Vote.Number, snap.FinalizedHash, qc.Vote.Hash)
 		}
+		return nil
+	default:
+		d.stageFinalityResult(header.Hash(), qc.Vote.Number, qc.Vote.Hash, qc.Vote.ValidatorSetHash)
 	}
 	return nil
 }
@@ -1230,6 +1340,10 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	if err != nil {
 		return nil, err
 	}
+	if finalized := d.runtimeFinalizedBlock(); finalized != nil && finalized.Number.Uint64() <= snap.Number {
+		snap.FinalizedNumber = finalized.Number.Uint64()
+		snap.FinalizedHash = finalized.Hash()
+	}
 	d.recents.Add(snap.Hash, snap)
 
 	// Persist epoch snapshots to disk.
@@ -1695,6 +1809,55 @@ func (d *DPoS) outOfTurnWiggleWindow() time.Duration {
 // APIs implements consensus.Engine.
 func (d *DPoS) APIs(chain consensus.ChainHeaderReader) []rpc.API {
 	return []rpc.API{{Namespace: "dpos", Service: &API{chain: chain, dpos: d}}}
+}
+
+// OnCanonicalBlock implements consensus.CanonicalBlockPostProcessor.
+// Any checkpoint finality proven during VerifyFinalizedState is only committed here,
+// once the carrier block is actually adopted as canonical.
+func (d *DPoS) OnCanonicalBlock(block *types.Block) {
+	if d.finality == nil || block == nil {
+		return
+	}
+	entry, ok := d.finality.Get(block.Hash())
+	if !ok {
+		return
+	}
+	d.finality.Remove(block.Hash())
+
+	result := entry.(*checkpointFinalityResult)
+	current := d.runtimeFinalizedBlock()
+	if current != nil {
+		currentNumber := current.Number.Uint64()
+		switch {
+		case result.FinalizedNumber < currentNumber:
+			return
+		case result.FinalizedNumber == currentNumber:
+			if current.Hash() != result.FinalizedHash {
+				log.Error("DPoS checkpoint finality conflict at canonical commit",
+					"stored", current.Hash(), "incoming", result.FinalizedHash, "number", currentNumber)
+			}
+			return
+		}
+	}
+	if d.db != nil {
+		rawdb.WriteFinalizedValidatorSetHash(d.db, result.ValidatorSetHash)
+	}
+	d.finalizedVSHash.Store("vsHash", result.ValidatorSetHash)
+	if d.db == nil {
+		return
+	}
+	finalizedHeader := rawdb.ReadHeader(d.db, result.FinalizedHash, result.FinalizedNumber)
+	if finalizedHeader == nil {
+		log.Error("DPoS finalized checkpoint header missing at canonical commit",
+			"number", result.FinalizedNumber, "hash", result.FinalizedHash)
+		return
+	}
+	d.lock.RLock()
+	setFn := d.setFinalizedFn
+	d.lock.RUnlock()
+	if setFn != nil {
+		setFn(finalizedHeader)
+	}
 }
 
 // Close implements consensus.Engine.

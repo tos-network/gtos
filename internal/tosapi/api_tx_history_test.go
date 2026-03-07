@@ -63,11 +63,15 @@ func newHistoryTestTx() *types.Transaction {
 
 func TestTransactionLookupHistoryPruned(t *testing.T) {
 	tx := newHistoryTestTx()
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
+	base := newBackendMock()
+	base.current.Number = new(big.Int).SetUint64(head)
 	backend := &txHistoryBackendMock{
-		backendMock: newBackendMock(), // head=1100, retain=200 -> oldest available=901
+		backendMock: base,
 		tx:          tx,
 		blockHash:   common.HexToHash("0x1"),
-		blockNumber: 900,
+		blockNumber: req,
 		index:       0,
 	}
 	api := NewTransactionAPI(backend, new(AddrLocker))

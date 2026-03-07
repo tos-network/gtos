@@ -8,31 +8,33 @@ import (
 func TestRetentionWatermarkTracksHead(t *testing.T) {
 	backend := newBackendMock()
 	api := NewTOSAPI(backend)
+	retain := rpcDefaultRetainBlocks
 
 	policy := api.GetRetentionPolicy()
-	if uint64(policy.RetainBlocks) != 200 {
-		t.Fatalf("unexpected retainBlocks: have %d want 200", policy.RetainBlocks)
+	if uint64(policy.RetainBlocks) != retain {
+		t.Fatalf("unexpected retainBlocks: have %d want %d", policy.RetainBlocks, retain)
 	}
 	if uint64(policy.SnapshotInterval) != 1000 {
 		t.Fatalf("unexpected snapshotInterval: have %d want 1000", policy.SnapshotInterval)
 	}
-	if uint64(policy.HeadBlock) != 1100 || uint64(policy.OldestAvailableBlock) != 901 {
+	if uint64(policy.HeadBlock) != 1100 || uint64(policy.OldestAvailableBlock) != oldestAvailableBlock(1100, retain) {
 		t.Fatalf("unexpected policy at head 1100: %+v", policy)
 	}
 
 	watermark := api.GetPruneWatermark()
-	if uint64(watermark.HeadBlock) != 1100 || uint64(watermark.OldestAvailableBlock) != 901 {
+	if uint64(watermark.HeadBlock) != 1100 || uint64(watermark.OldestAvailableBlock) != oldestAvailableBlock(1100, retain) {
 		t.Fatalf("unexpected watermark at head 1100: %+v", watermark)
 	}
 
-	backend.current.Number = big.NewInt(1200)
+	nextHead := retain + 100
+	backend.current.Number = new(big.Int).SetUint64(nextHead)
 	policy = api.GetRetentionPolicy()
-	if uint64(policy.HeadBlock) != 1200 || uint64(policy.OldestAvailableBlock) != 1001 {
-		t.Fatalf("unexpected policy at head 1200: %+v", policy)
+	if uint64(policy.HeadBlock) != nextHead || uint64(policy.OldestAvailableBlock) != oldestAvailableBlock(nextHead, retain) {
+		t.Fatalf("unexpected policy at head %d: %+v", nextHead, policy)
 	}
 	watermark = api.GetPruneWatermark()
-	if uint64(watermark.HeadBlock) != 1200 || uint64(watermark.OldestAvailableBlock) != 1001 {
-		t.Fatalf("unexpected watermark at head 1200: %+v", watermark)
+	if uint64(watermark.HeadBlock) != nextHead || uint64(watermark.OldestAvailableBlock) != oldestAvailableBlock(nextHead, retain) {
+		t.Fatalf("unexpected watermark at head %d: %+v", nextHead, watermark)
 	}
 
 	backend.current.Number = big.NewInt(150)

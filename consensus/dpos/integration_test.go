@@ -22,6 +22,72 @@ import (
 	"github.com/tos-network/gtos/validator"
 )
 
+func buildSignedSingleValidatorChain(t *testing.T, nBlocks int) (*core.BlockChain, *DPoS, []*types.Block, common.Address, ed25519.PublicKey, ed25519.PrivateKey) {
+	t.Helper()
+
+	pub, priv, signer := testIntegrationEd25519Key(0x41)
+	db := rawdb.NewMemoryDatabase()
+
+	genesisExtra := make([]byte, extraVanity+common.AddressLength)
+	copy(genesisExtra[extraVanity:], signer.Bytes())
+
+	dposCfg := &params.DPoSConfig{
+		PeriodMs:       1000,
+		Epoch:          200,
+		MaxValidators:  21,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
+	}
+	chainCfg := *params.AllDPoSProtocolChanges
+	chainCfg.DPoS = dposCfg
+
+	genspec := &core.Genesis{
+		Config:    &chainCfg,
+		ExtraData: genesisExtra,
+		Coinbase:  signer,
+		Alloc: map[common.Address]core.GenesisAccount{
+			signer: {Balance: new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18))},
+		},
+		BaseFee: big.NewInt(params.InitialBaseFee),
+	}
+	genesis := genspec.MustCommit(db)
+
+	engine, err := New(dposCfg, db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	engine.Authorize(signer, func(_ accounts.Account, _ string, hash []byte) ([]byte, error) {
+		sig := ed25519.Sign(priv, hash)
+		out := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+		out = append(out, pub...)
+		out = append(out, sig...)
+		return out, nil
+	})
+
+	chain, err := core.NewBlockChain(db, nil, &chainCfg, engine, nil, nil)
+	if err != nil {
+		t.Fatalf("NewBlockChain: %v", err)
+	}
+
+	blocks, _ := core.GenerateChain(&chainCfg, genesis, engine, db, nBlocks, func(i int, b *core.BlockGen) {
+		b.SetCoinbase(signer)
+		b.SetDifficulty(diffInTurn)
+	})
+	for i, block := range blocks {
+		header := block.Header()
+		if i > 0 {
+			header.ParentHash = blocks[i-1].Hash()
+		}
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
+		if len(header.Extra) >= extraVanity {
+			copy(newExtra, header.Extra[:extraVanity])
+		}
+		header.Extra = newExtra
+		signIntegrationHeader(t, engine, header, pub, priv)
+		blocks[i] = block.WithSeal(header)
+	}
+	return chain, engine, blocks, signer, pub, priv
+}
+
 func testIntegrationEd25519Key(seed byte) (ed25519.PublicKey, ed25519.PrivateKey, common.Address) {
 	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{seed}, ed25519.SeedSize))
 	pub := priv.Public().(ed25519.PublicKey)
@@ -182,6 +248,38 @@ func TestDPoSChainInsert(t *testing.T) {
 	if bal.Cmp(initialBal) <= 0 {
 		t.Errorf("signer balance did not increase after %d blocks: got %v, want > %v",
 			nBlocks, bal, initialBal)
+	}
+}
+
+func TestCheckpointFinalityCommitsOnCanonicalCarrierImport(t *testing.T) {
+	chain, engine, blocks, _, _, _ := buildSignedSingleValidatorChain(t, 2)
+	defer chain.Stop()
+
+	engine.SetVoteCallbacks(
+		chain,
+		nil,
+		func(h *types.Header) { chain.SetFinalized(types.NewBlockWithHeader(h)) },
+		chain.Config().ChainID,
+	)
+
+	finalized := blocks[0]
+	carrier := blocks[1]
+	vsHash := common.HexToHash("0xfeed")
+	engine.stageFinalityResult(carrier.Hash(), finalized.NumberU64(), finalized.Hash(), vsHash)
+
+	if _, err := chain.InsertChain(blocks); err != nil {
+		t.Fatalf("InsertChain: %v", err)
+	}
+	have := chain.CurrentFinalizedBlock()
+	if have == nil {
+		t.Fatal("missing finalized block after canonical carrier import")
+	}
+	if have.Hash() != finalized.Hash() || have.NumberU64() != finalized.NumberU64() {
+		t.Fatalf("finalized mismatch: have(num=%d hash=%s) want(num=%d hash=%s)",
+			have.NumberU64(), have.Hash().Hex(), finalized.NumberU64(), finalized.Hash().Hex())
+	}
+	if got := engine.FinalizedValidatorSetHash(); got != vsHash {
+		t.Fatalf("validatorSetHash mismatch: have %s want %s", got.Hex(), vsHash.Hex())
 	}
 }
 

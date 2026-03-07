@@ -2,6 +2,7 @@ package tosapi
 
 import (
 	"context"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -47,9 +48,13 @@ func TestPersonalUnoBalanceRejectsNilBackend(t *testing.T) {
 }
 
 func TestPersonalUnoBalanceHistoryPruned(t *testing.T) {
-	api := NewPersonalAccountAPI(newBackendMock(), new(AddrLocker)) // head=1100, retain=200 -> oldest available=901
+	backend := newBackendMock()
+	head := rpcDefaultRetainBlocks + 100
+	req := oldestAvailableBlock(head, rpcDefaultRetainBlocks) - 1
+	backend.current.Number = new(big.Int).SetUint64(head)
+	api := NewPersonalAccountAPI(backend, new(AddrLocker))
 	addr := common.HexToAddress("0x5678")
-	reqBlock := rpcBlockPtr(rpc.BlockNumber(900))
+	reqBlock := rpcBlockPtr(rpc.BlockNumber(req))
 	_, err := api.UnoBalance(context.Background(), addr, "pw", nil, reqBlock)
 	if err == nil {
 		t.Fatal("expected history pruned error")
