@@ -1,6 +1,6 @@
 # Checkpoint Finality for GTOS DPoS
 
-**Status**: Draft design (pre-implementation)
+**Status**: Implemented
 **Target**: `consensus/dpos/` + `params/config.go` + `core/types/` + `tos/protocols/tos/`
 **Scope**: deterministic checkpoint finality without BLS
 
@@ -32,6 +32,15 @@ This design deliberately avoids:
 
 The goal is to provide a simple, auditable, deterministic finality point for bridges,
 withdrawals, and external settlement systems.
+
+Compatibility note with grouped DPoS turns:
+
+- GTOS now uses chain-wide grouped turns via `TurnLength`
+- checkpoint finality remains compatible with grouped turns because QC verification
+  is tied to the checkpoint pre-state validator signer set and fork-choice rules,
+  not to a "one proposer per block" rotation assumption
+- grouped turns therefore change proposer ownership timing, but do not change the
+  checkpoint vote type, QC structure, quorum rule, or finalized fork-choice rule
 
 ---
 

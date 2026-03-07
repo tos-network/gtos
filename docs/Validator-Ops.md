@@ -25,6 +25,7 @@ At the time of writing, GTOS already has:
 - validator state stored under `params.ValidatorRegistryAddress`
 - DPoS block production based on the active validator set
 - `ed25519-only` DPoS sealing
+- grouped-turn DPoS proposer ownership via `TurnLength`
 - a local three-node deployment script:
   - [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
 - per-node `systemd` units with validator-specific flags embedded directly in
@@ -37,6 +38,16 @@ limits:
 - validator-specific and network-wide settings are mixed together
 - startup ordering and peering behavior have to be encoded in shell logic
 - there is no protocol-aware maintenance workflow
+
+Current DPoS rotation semantics are no longer "one proposer per block". GTOS
+uses grouped turns:
+
+- `TurnLength` is a consensus parameter
+- one in-turn validator owns `TurnLength` consecutive slots
+- with the current defaults:
+  - `PeriodMs = 360`
+  - `TurnLength = 16`
+  - `TurnGroupDurationMs = 5760`
 
 ## Design Principles
 
@@ -64,6 +75,7 @@ GTOS validator operations should follow these principles:
    - signer correctness
    - checkpoint retention constraints
    - finalized head health
+   - grouped-turn rotation awareness
 
 ## Target Deployment Model
 
@@ -257,6 +269,29 @@ An RPC/full node:
 
 This role split should be reflected in separate deployment templates.
 
+## Grouped-Turn Operations
+
+Operators must interpret validator health in grouped-turn terms, not simple
+per-block round-robin terms.
+
+Normal behavior now includes:
+
+- the same validator producing multiple consecutive blocks inside its owned turn
+  group
+- no proposer switch until the current `TurnLength` slot group is exhausted
+
+This means alerts and dashboards must not treat "same validator produced several
+consecutive blocks" as a fault by itself.
+
+Recommended grouped-turn metrics:
+
+- `turnLength`
+- `turnGroupDurationMs = PeriodMs * TurnLength`
+- current in-turn validator
+- last completed turn group
+- missed turn groups, not only missed individual blocks
+- unexpected out-of-turn production rate
+
 ## Maintenance Mode
 
 GTOS should support a protocol-aware maintenance flow similar in purpose to
@@ -328,6 +363,14 @@ Operationally, that means:
 Maintenance mode is therefore protocol-aware, but not instant. Operators must
 treat maintenance entry and exit as "next epoch effective" actions.
 
+Grouped turns do not change that rule:
+
+- maintenance still becomes effective at the next epoch snapshot
+- before that epoch transition, the validator may still appear to finish normal
+  epoch-scoped proposer eligibility
+- after the next epoch removes it from the active set, it no longer receives
+  future turn groups
+
 ### Maintenance Workflow
 
 Recommended operator workflow:
@@ -375,6 +418,14 @@ Suggested meanings:
     active proposer set, then stop service
 - `resume`
   - start service, wait for sync, then exit maintenance
+
+Status checks for these commands should always be read together with grouped-turn
+context:
+
+- a validator may legitimately produce several consecutive blocks before the next
+  proposer takes over
+- maintenance success should be measured by epoch-based active-set removal, not
+  by an assumption of immediate per-block proposer switching
 
 ## Local Testnet Operations
 
@@ -508,6 +559,8 @@ Validator operations should track at least the following:
   - `Inactive`
 - recent block production
 - missed-turn streaks
+- missed turn groups
+- prolonged absence during owned turn groups
 
 ### Finality health
 
@@ -548,6 +601,8 @@ Status:
 
 - complete in the current local-validator workflow
 - operators must still account for "next epoch effective" timing
+- operators must also account for grouped-turn block bursts when evaluating
+  proposer rotation
 
 ### Phase 4: Monitoring and Runbooks
 
