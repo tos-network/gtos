@@ -30,10 +30,13 @@ type rpcExtTestService struct {
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
 
-	lastSetSignerArgs   SetSignerArgs
-	lastBuildSignerArgs SetSignerArgs
-	lastDPoSQueryAddress common.Address
-	lastDPoSQueryBlock   string
+	lastSetSignerArgs        SetSignerArgs
+	lastBuildSignerArgs      SetSignerArgs
+	lastMaintenanceArgs      ValidatorMaintenanceArgs
+	lastMaintenanceBuildArgs ValidatorMaintenanceArgs
+	lastMaintenanceMethod    string
+	lastDPoSQueryAddress     common.Address
+	lastDPoSQueryBlock       string
 }
 
 func (s *rpcExtTestService) GetChainProfile() interface{} {
@@ -120,6 +123,36 @@ func (s *rpcExtTestService) BuildSetSignerTx(args SetSignerArgs) interface{} {
 	return BuildSetSignerTxResult{
 		Tx:  map[string]interface{}{"from": args.From.Hex()},
 		Raw: hexutil.Bytes{0xaa, 0xbb},
+	}
+}
+
+func (s *rpcExtTestService) EnterMaintenance(args ValidatorMaintenanceArgs) common.Hash {
+	s.lastMaintenanceArgs = args
+	s.lastMaintenanceMethod = "enter"
+	return common.HexToHash("0x2")
+}
+
+func (s *rpcExtTestService) BuildEnterMaintenanceTx(args ValidatorMaintenanceArgs) interface{} {
+	s.lastMaintenanceBuildArgs = args
+	s.lastMaintenanceMethod = "build-enter"
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0xcc, 0xdd},
+	}
+}
+
+func (s *rpcExtTestService) ExitMaintenance(args ValidatorMaintenanceArgs) common.Hash {
+	s.lastMaintenanceArgs = args
+	s.lastMaintenanceMethod = "exit"
+	return common.HexToHash("0x3")
+}
+
+func (s *rpcExtTestService) BuildExitMaintenanceTx(args ValidatorMaintenanceArgs) interface{} {
+	s.lastMaintenanceBuildArgs = args
+	s.lastMaintenanceMethod = "build-exit"
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0xee, 0xff},
 	}
 }
 
@@ -346,6 +379,48 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	}
 	if tx == nil || len(tx.Raw) != 2 || tx.Raw[0] != 0xaa {
 		t.Fatalf("unexpected buildSetSignerTx result: %+v", tx)
+	}
+	if svc.lastBuildSignerArgs.From != from {
+		t.Fatalf("buildSetSigner args were not forwarded")
+	}
+
+	maintenanceArgs := ValidatorMaintenanceArgs{From: from}
+	enterHash, err := client.EnterMaintenance(ctx, maintenanceArgs)
+	if err != nil {
+		t.Fatalf("EnterMaintenance error: %v", err)
+	}
+	if enterHash != common.HexToHash("0x2") || svc.lastMaintenanceMethod != "enter" {
+		t.Fatalf("unexpected enterMaintenance result: hash=%s method=%s", enterHash.Hex(), svc.lastMaintenanceMethod)
+	}
+
+	enterTx, err := client.BuildEnterMaintenanceTx(ctx, maintenanceArgs)
+	if err != nil {
+		t.Fatalf("BuildEnterMaintenanceTx error: %v", err)
+	}
+	if enterTx == nil || len(enterTx.Raw) != 2 || enterTx.Raw[0] != 0xcc {
+		t.Fatalf("unexpected buildEnterMaintenanceTx result: %+v", enterTx)
+	}
+	if svc.lastMaintenanceBuildArgs.From != from || svc.lastMaintenanceMethod != "build-enter" {
+		t.Fatalf("buildEnterMaintenance args were not forwarded")
+	}
+
+	exitHash, err := client.ExitMaintenance(ctx, maintenanceArgs)
+	if err != nil {
+		t.Fatalf("ExitMaintenance error: %v", err)
+	}
+	if exitHash != common.HexToHash("0x3") || svc.lastMaintenanceMethod != "exit" {
+		t.Fatalf("unexpected exitMaintenance result: hash=%s method=%s", exitHash.Hex(), svc.lastMaintenanceMethod)
+	}
+
+	exitTx, err := client.BuildExitMaintenanceTx(ctx, maintenanceArgs)
+	if err != nil {
+		t.Fatalf("BuildExitMaintenanceTx error: %v", err)
+	}
+	if exitTx == nil || len(exitTx.Raw) != 2 || exitTx.Raw[0] != 0xee {
+		t.Fatalf("unexpected buildExitMaintenanceTx result: %+v", exitTx)
+	}
+	if svc.lastMaintenanceBuildArgs.From != from || svc.lastMaintenanceMethod != "build-exit" {
+		t.Fatalf("buildExitMaintenance args were not forwarded")
 	}
 
 	validators, err := client.DPoSGetValidators(ctx, nil)

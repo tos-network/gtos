@@ -76,6 +76,14 @@ type SetSignerArgs struct {
 	Gas         *hexutil.Uint64 `json:"gas,omitempty"`
 }
 
+// ValidatorMaintenanceArgs is the argument object for maintenance-mode
+// validator operations.
+type ValidatorMaintenanceArgs struct {
+	From  common.Address  `json:"from"`
+	Nonce *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas   *hexutil.Uint64 `json:"gas,omitempty"`
+}
+
 // BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
 type BuildSetSignerTxResult struct {
 	Tx  map[string]interface{} `json:"tx"`
@@ -263,6 +271,38 @@ func (ec *Client) SetSigner(ctx context.Context, args SetSignerArgs) (common.Has
 func (ec *Client) BuildSetSignerTx(ctx context.Context, args SetSignerArgs) (*BuildSetSignerTxResult, error) {
 	var out BuildSetSignerTxResult
 	if err := ec.c.CallContext(ctx, &out, "tos_buildSetSignerTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// EnterMaintenance submits a validator maintenance-enter transaction.
+func (ec *Client) EnterMaintenance(ctx context.Context, args ValidatorMaintenanceArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_enterMaintenance", args)
+	return txHash, err
+}
+
+// BuildEnterMaintenanceTx builds an unsigned validator enter-maintenance transaction.
+func (ec *Client) BuildEnterMaintenanceTx(ctx context.Context, args ValidatorMaintenanceArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildEnterMaintenanceTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ExitMaintenance submits a validator maintenance-exit transaction.
+func (ec *Client) ExitMaintenance(ctx context.Context, args ValidatorMaintenanceArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_exitMaintenance", args)
+	return txHash, err
+}
+
+// BuildExitMaintenanceTx builds an unsigned validator exit-maintenance transaction.
+func (ec *Client) BuildExitMaintenanceTx(ctx context.Context, args ValidatorMaintenanceArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildExitMaintenanceTx", args); err != nil {
 		return nil, err
 	}
 	return &out, nil

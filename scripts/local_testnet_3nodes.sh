@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GTOS_BIN="${GTOS_BIN:-${REPO_ROOT}/build/bin/gtos}"
+TOSKEY_BIN="${TOSKEY_BIN:-${REPO_ROOT}/build/bin/toskey}"
 
 BASE_DIR="${BASE_DIR:-/data/gtos}"
 PASSFILE="${PASSFILE:-${BASE_DIR}/pass.txt}"
@@ -13,14 +14,18 @@ EPOCH="${EPOCH:-1667}"
 MAX_VALIDATORS="${MAX_VALIDATORS:-15}"
 CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-50}"
 CHECKPOINT_FINALITY_BLOCK="${CHECKPOINT_FINALITY_BLOCK:-}"
-GC_MODE="${GC_MODE:-archive}"
+GC_MODE="${GC_MODE:-full}"
+GENESIS_START_DELAY_MS="${GENESIS_START_DELAY_MS:-5000}"
 VERIFY_SLEEP_SEC="${VERIFY_SLEEP_SEC:-3}"
 SERVICE_PREFIX="${SERVICE_PREFIX:-gtos-node}"
 
 VANITY_HEX="0000000000000000000000000000000000000000000000000000000000000000"
 FUNDED_BALANCE_HEX="0x33b2e3c9fd0803ce8000000"
+VALIDATOR_REGISTER_VALUE_HEX="0x84595161401484a000000"
+VALIDATOR_REGISTER_PAYLOAD_HEX="0x7b22616374696f6e223a2256414c494441544f525f5245474953544552227d"
 
 action="up"
+TARGET_NODE="${TARGET_NODE:-}"
 ENODE_MAP_FILE="${BASE_DIR}/node_enodes.txt"
 BOOTNODES_FILE="${BASE_DIR}/bootnodes.csv"
 
@@ -35,6 +40,14 @@ Actions:
            start services, collect enodes, write peer artifacts, stop services
   start    start 3 systemd services from prepared datadirs
   restart  restart 3 systemd services
+  enter-maintenance <node>
+           submit VALIDATOR_ENTER_MAINTENANCE for node 1, 2, or 3
+  exit-maintenance <node>
+           submit VALIDATOR_EXIT_MAINTENANCE for node 1, 2, or 3
+  drain <node>
+           enter maintenance, wait until removed from active set, then stop service
+  resume <node>
+           start service, wait for connectivity, then exit maintenance
   verify   check peers, block growth, and miner rotation
   status   print node status summary
   stop     stop 3 systemd services
@@ -52,22 +65,31 @@ Options:
                         checkpoint interval in genesis (default: 50)
   --checkpoint-finality-block <n>
                         activation block for checkpoint finality (default: disabled)
-  --gcmode <mode>       expected service gc mode: archive|full (default: archive)
+  --gcmode <mode>       expected service gc mode: archive|full (default: full)
+  --genesis-start-delay-ms <n>
+                        delay genesis timestamp so nodes can peer before block 1
+                        (default: 5000)
+  --node <1|2|3>        target node for maintenance actions
   --signer <type>       signer type for account creation (default: ed25519)
   -h, --help            show this help
 
 Environment overrides:
   GTOS_BIN, BASE_DIR, PASSFILE, NETWORK_ID, PERIOD_MS, EPOCH, MAX_VALIDATORS,
   CHECKPOINT_INTERVAL, CHECKPOINT_FINALITY_BLOCK, GC_MODE,
+  GENESIS_START_DELAY_MS, TOSKEY_BIN,
   SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX
 EOF_USAGE
 }
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	up | setup | precollect-enode | start | restart | verify | status | stop | down | clean)
+	up | setup | precollect-enode | start | restart | enter-maintenance | exit-maintenance | drain | resume | verify | status | stop | down | clean)
 		action="$1"
 		shift
+		if [[ $# -gt 0 && "$1" != --* ]] && [[ "${action}" == "enter-maintenance" || "${action}" == "exit-maintenance" || "${action}" == "drain" || "${action}" == "resume" ]]; then
+			TARGET_NODE="$1"
+			shift
+		fi
 		;;
 	--base-dir)
 		BASE_DIR="$2"
@@ -105,6 +127,14 @@ while [[ $# -gt 0 ]]; do
 		GC_MODE="$2"
 		shift 2
 		;;
+	--genesis-start-delay-ms)
+		GENESIS_START_DELAY_MS="$2"
+		shift 2
+		;;
+	--node)
+		TARGET_NODE="$2"
+		shift 2
+		;;
 	--signer)
 		SIGNER_TYPE="$2"
 		shift 2
@@ -127,6 +157,19 @@ node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
 node_service() { echo "${SERVICE_PREFIX}$1.service"; }
+require_target_node() {
+	if [[ -z "${TARGET_NODE}" ]]; then
+		echo "this action requires a node index: 1, 2, or 3" >&2
+		exit 1
+	fi
+	case "${TARGET_NODE}" in
+	1 | 2 | 3) ;;
+	*)
+		echo "invalid node index: ${TARGET_NODE} (want 1, 2, or 3)" >&2
+		exit 1
+		;;
+	esac
+}
 
 is_checkpoint_finality_enabled() {
 	[[ -n "${CHECKPOINT_FINALITY_BLOCK}" ]]
@@ -170,7 +213,7 @@ expected_service_gc_flags() {
 		echo "--gcmode archive"
 		;;
 	full)
-		echo "--gcmode full"
+		echo ""
 		;;
 	*)
 		echo ""
@@ -190,6 +233,10 @@ validate_local_checkpoint_config() {
 	# for the checkpoint finality window when 2*K <= 128, i.e. K <= 64.
 	if [[ "${GC_MODE}" != "archive" ]] && (( CHECKPOINT_INTERVAL > 64 )); then
 		echo "checkpoint interval ${CHECKPOINT_INTERVAL} is not full-mode safe; require <= 64 or use --gcmode archive" >&2
+		exit 1
+	fi
+	if (( GENESIS_START_DELAY_MS < 0 )); then
+		echo "genesis start delay must be >= 0" >&2
 		exit 1
 	fi
 }
@@ -213,6 +260,14 @@ ensure_gtos_bin() {
 	fi
 	echo "gtos binary not found at ${GTOS_BIN}, building..."
 	(cd "${REPO_ROOT}" && go run build/ci.go install ./cmd/gtos)
+}
+
+ensure_toskey_bin() {
+	if [[ -x "${TOSKEY_BIN}" ]]; then
+		return
+	fi
+	echo "toskey binary not found at ${TOSKEY_BIN}, building..."
+	(cd "${REPO_ROOT}" && go run build/ci.go install ./cmd/toskey)
 }
 
 ensure_passfile() {
@@ -314,7 +369,7 @@ EOF_VALIDATORS
 write_genesis() {
 	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms tos3_storage checkpoint_json
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
-	ts_ms="$(date +%s%3N)"
+	ts_ms=$(( $(date +%s%3N) + GENESIS_START_DELAY_MS ))
 	v1="$(sed -n '1p' "${BASE_DIR}/validators.sorted")"
 	v2="$(sed -n '2p' "${BASE_DIR}/validators.sorted")"
 	v3="$(sed -n '3p' "${BASE_DIR}/validators.sorted")"
@@ -572,6 +627,10 @@ rpc_hex_result() {
 	echo "${out}" | sed -n 's/.*"result":"\([^"]*\)".*/\1/p'
 }
 
+rpc_json() {
+	rpc_call "$1" "$2" "$3"
+}
+
 hex_to_dec() {
 	local h="${1#0x}"
 	if [[ -z "${h}" ]]; then
@@ -594,6 +653,395 @@ wait_for_block_growth() {
 			return 0
 		fi
 		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+node_validator_address() {
+	local idx="$1" addr
+	addr="$(tr -d '\n\r\t ' <"$(node_addr_file "${idx}")" 2>/dev/null || true)"
+	if ! valid_addr "${addr}"; then
+		echo "node${idx} validator address missing or invalid" >&2
+		exit 1
+	fi
+	normalize_addr "${addr}"
+}
+
+node_keyfile_for_validator() {
+	local idx="$1" addr addrhex keyfile
+	addr="$(node_validator_address "${idx}")"
+	addrhex="${addr#0x}"
+	keyfile="$(find "$(node_dir "${idx}")/keystore" -maxdepth 1 -type f -print | sort | while read -r path; do
+		if grep -q "\"address\":\"${addrhex}\"" "${path}"; then
+			echo "${path}"
+			break
+		fi
+	done)"
+	if [[ -z "${keyfile}" ]]; then
+		echo "failed to locate keyfile for node${idx} validator ${addr}" >&2
+		exit 1
+	fi
+	echo "${keyfile}"
+}
+
+node_signer_value_from_keyfile() {
+	local idx="$1" keyfile out
+	ensure_toskey_bin
+	keyfile="$(node_keyfile_for_validator "${idx}")"
+	out="$("${TOSKEY_BIN}" inspect --json --passwordfile "${PASSFILE}" "${keyfile}")"
+	python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+signer_type = str(body.get("SignerType") or "").strip().lower()
+pub = str(body.get("PublicKey") or "").strip().lower()
+if signer_type != "ed25519":
+    raise SystemExit(f"validator key is {signer_type or 'unknown'}, want ed25519")
+if len(pub) != 64:
+    raise SystemExit("invalid ed25519 public key length from toskey inspect")
+print("0x" + pub)
+' <<<"${out}"
+}
+
+get_signer_profile_json() {
+	local query_idx="$1" validator_addr="$2" port
+	port="$(node_http_port "${query_idx}")"
+	rpc_json "${port}" "tos_getSigner" "[\"${validator_addr}\",\"latest\"]"
+}
+
+validator_status_slot() {
+	local validator_addr="$1"
+	(cd "${REPO_ROOT}" && go run ./scripts/validator_slot/main.go "${validator_addr}" status)
+}
+
+validator_status_on_node() {
+	local query_idx="$1" validator_addr="$2" slot raw
+	slot="$(validator_status_slot "${validator_addr}")"
+	raw="$(rpc_json "$(node_http_port "${query_idx}")" "tos_getStorageAt" "[\"0x0000000000000000000000000000000000000000000000000000000000000003\",\"${slot}\",\"latest\"]")"
+	python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+value = str(body.get("result") or "0x0")
+if not value.startswith("0x"):
+    raise SystemExit("invalid storage result")
+raw = bytes.fromhex(value[2:].rjust(64, "0"))
+print(raw[-1])
+' <<<"${raw}"
+}
+
+get_epoch_info_json() {
+	local query_idx="$1" port
+	port="$(node_http_port "${query_idx}")"
+	rpc_json "${port}" "dpos_getEpochInfo" "[\"latest\"]"
+}
+
+wait_for_tx_receipt() {
+	local idx="$1" txhash="$2" timeout_s="${3:-60}" elapsed=0 port out
+	port="$(node_http_port "${idx}")"
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		out="$(rpc_json "${port}" "tos_getTransactionReceipt" "[\"${txhash}\"]")"
+		if ! echo "${out}" | grep -q '"error"'; then
+			if python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+receipt = body.get("result")
+if not receipt:
+    raise SystemExit(1)
+status = str(receipt.get("status") or "")
+if status in ("0x1", "0x01", "1"):
+    raise SystemExit(0)
+raise SystemExit(2)
+' <<<"${out}"; then
+				return 0
+			else
+				case "$?" in
+				2) return 2 ;;
+				esac
+			fi
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+wait_for_validator_status() {
+	local query_idx="$1" validator_addr="$2" want_status="$3" timeout_s="${4:-60}" elapsed=0 have
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		have="$(validator_status_on_node "${query_idx}" "${validator_addr}")"
+		if [[ "${have}" == "${want_status}" ]]; then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+describe_next_epoch() {
+	local query_idx="$1" info
+	info="$(get_epoch_info_json "${query_idx}")"
+	python3 -c '
+import json, sys
+body = json.load(sys.stdin)
+result = body.get("result") or {}
+def dec(key):
+    value = str(result.get(key) or "0x0")
+    return int(value, 16) if value.startswith("0x") else int(value or "0")
+next_epoch = dec("nextEpochStart")
+blocks = dec("blocksUntilEpoch")
+period_ms = dec("targetBlockPeriodMs")
+print(f"next epoch at block {next_epoch} ({blocks} blocks, period {period_ms}ms)")
+' <<<"${info}"
+}
+
+epoch_transition_timeout_seconds() {
+	local query_idx="$1" info
+	info="$(get_epoch_info_json "${query_idx}")"
+	python3 -c '
+import json, sys, math
+body = json.load(sys.stdin)
+result = body.get("result") or {}
+def dec(key):
+    value = str(result.get(key) or "0x0")
+    return int(value, 16) if value.startswith("0x") else int(value or "0")
+blocks = dec("blocksUntilEpoch")
+period_ms = dec("targetBlockPeriodMs")
+secs = math.ceil((blocks * period_ms) / 1000.0) + 30
+print(max(secs, 60))
+' <<<"${info}"
+}
+
+ensure_validator_signer_registered() {
+	local idx="$1" addr query_idx signer_value profile txresp status=0
+	addr="$(node_validator_address "${idx}")"
+	query_idx="$(first_running_node || true)"
+	if [[ -z "${query_idx}" ]]; then
+		echo "no running node available to inspect signer metadata for ${addr}" >&2
+		exit 1
+	fi
+	signer_value="$(node_signer_value_from_keyfile "${idx}")"
+	profile="$(get_signer_profile_json "${query_idx}" "${addr}")"
+	if python3 -c '
+import json, sys
+addr = sys.argv[1].lower()
+want = sys.argv[2].lower()
+body = json.load(sys.stdin)
+signer = (body.get("result") or {}).get("signer") or {}
+stype = str(signer.get("type") or "").strip().lower()
+svalue = str(signer.get("value") or "").strip().lower()
+defaulted = bool(signer.get("defaulted"))
+if defaulted or stype == "address":
+    raise SystemExit(10)
+if stype != "ed25519":
+    raise SystemExit(f"on-chain signer for {addr} is {stype or 'unknown'}, want ed25519")
+if svalue != want:
+    raise SystemExit(f"on-chain signer value for {addr} does not match local key")
+' "${addr}" "${signer_value}" <<<"${profile}"
+	then
+		status=0
+	else
+		status=$?
+	fi
+	case "${status}" in
+	0)
+		return 0
+		;;
+	10)
+		;;
+	*)
+		echo "signer metadata check failed for node${idx}" >&2
+		exit 1
+		;;
+	esac
+	echo "node${idx} has no on-chain signer metadata; bootstrapping ed25519 signer"
+	txresp="$(rpc_json "$(node_http_port "${idx}")" "tos_setSigner" "[{\"from\":\"${addr}\",\"signerType\":\"ed25519\",\"signerValue\":\"${signer_value}\"}]")"
+	if echo "${txresp}" | grep -q '"error"'; then
+		echo "RPC tos_setSigner failed for node${idx}: ${txresp}" >&2
+		exit 1
+	fi
+	if ! wait_for_signer_state "${query_idx}" "${addr}" "${signer_value}" 60; then
+		echo "signer bootstrap tx submitted for node${idx} but signer metadata did not become visible in time" >&2
+		exit 1
+	fi
+}
+
+submit_validator_register() {
+	local idx="$1" addr port out txhash
+	addr="$(node_validator_address "${idx}")"
+	port="$(node_http_port "${idx}")"
+	out="$(rpc_json "${port}" "tos_sendTransaction" "[{\"from\":\"${addr}\",\"to\":\"0x0000000000000000000000000000000000000000000000000000000000000001\",\"value\":\"${VALIDATOR_REGISTER_VALUE_HEX}\",\"input\":\"${VALIDATOR_REGISTER_PAYLOAD_HEX}\",\"signerType\":\"ed25519\"}]")"
+	if echo "${out}" | grep -q '"error"'; then
+		echo "RPC tos_sendTransaction validator register failed for node${idx}: ${out}" >&2
+		exit 1
+	fi
+	txhash="$(echo "${out}" | sed -n 's/.*"result":"\([^"]*\)".*/\1/p')"
+	if [[ -z "${txhash}" ]]; then
+		echo "validator register returned no transaction hash for node${idx}: ${out}" >&2
+		exit 1
+	fi
+	echo "${txhash}"
+}
+
+ensure_validator_registered() {
+	local idx="$1" addr query_idx status txhash
+	addr="$(node_validator_address "${idx}")"
+	query_idx="$(first_running_node || true)"
+	if [[ -z "${query_idx}" ]]; then
+		echo "no running node available to inspect validator registry state for ${addr}" >&2
+		exit 1
+	fi
+	status="$(validator_status_on_node "${query_idx}" "${addr}")"
+	case "${status}" in
+	1|2)
+		return 0
+		;;
+	0)
+		;;
+	*)
+		echo "unexpected validator status ${status} for ${addr}" >&2
+		exit 1
+		;;
+	esac
+	echo "node${idx} is not registered in validator registry; submitting validator register"
+	txhash="$(submit_validator_register "${idx}")"
+	if wait_for_tx_receipt "${idx}" "${txhash}" 60; then
+		:
+	else
+		case "$?" in
+		2)
+			echo "validator register tx=${txhash} for node${idx} reverted" >&2
+			exit 1
+			;;
+		*)
+			echo "validator register tx=${txhash} for node${idx} not mined within timeout" >&2
+			exit 1
+			;;
+		esac
+	fi
+	if ! wait_for_validator_status "${query_idx}" "${addr}" 1 60; then
+		echo "validator register tx=${txhash} for node${idx} mined but validator status did not become Active" >&2
+		exit 1
+	fi
+}
+
+wait_for_signer_state() {
+	local query_idx="$1" validator_addr="$2" signer_value="$3" timeout_s="${4:-60}" elapsed=0 profile
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		profile="$(get_signer_profile_json "${query_idx}" "${validator_addr}")"
+		if python3 -c '
+import json, sys
+want = sys.argv[1].lower()
+body = json.load(sys.stdin)
+signer = (body.get("result") or {}).get("signer") or {}
+stype = str(signer.get("type") or "").strip().lower()
+svalue = str(signer.get("value") or "").strip().lower()
+defaulted = bool(signer.get("defaulted"))
+sys.exit(0 if (not defaulted and stype == "ed25519" and svalue == want) else 1)
+' "${signer_value}" <<<"${profile}"
+		then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+first_running_node() {
+	local idx
+	for idx in 1 2 3; do
+		if run_systemctl is-active --quiet "$(node_service "${idx}")"; then
+			echo "${idx}"
+			return 0
+		fi
+	done
+	return 1
+}
+
+first_running_node_except() {
+	local skip="$1" idx
+	for idx in 1 2 3; do
+		if [[ "${idx}" == "${skip}" ]]; then
+			continue
+		fi
+		if run_systemctl is-active --quiet "$(node_service "${idx}")"; then
+			echo "${idx}"
+			return 0
+		fi
+	done
+	return 1
+}
+
+validator_active_on_node() {
+	local query_idx="$1" validator_addr="$2"
+	local port out
+	port="$(node_http_port "${query_idx}")"
+	out="$(rpc_json "${port}" "dpos_getValidators" "[\"latest\"]")"
+	python3 -c '
+import json, sys
+validator = sys.argv[1].lower()
+body = json.load(sys.stdin)
+result = body.get("result") or []
+values = [str(v).lower() for v in result]
+sys.exit(0 if validator in values else 1)
+' "${validator_addr}" <<<"${out}"
+}
+
+wait_for_validator_active_state() {
+	local query_idx="$1" validator_addr="$2" want_present="$3" timeout_s="${4:-60}" elapsed=0
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		if validator_active_on_node "${query_idx}" "${validator_addr}"; then
+			if [[ "${want_present}" == "present" ]]; then
+				return 0
+			fi
+		else
+			if [[ "${want_present}" == "absent" ]]; then
+				return 0
+			fi
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	return 1
+}
+
+submit_validator_maintenance_action() {
+	local idx="$1" method="$2" port addr params out txhash
+	if ! run_systemctl is-active --quiet "$(node_service "${idx}")"; then
+		echo "node${idx} service is not running; cannot submit ${method}" >&2
+		exit 1
+	fi
+	ensure_validator_signer_registered "${idx}"
+	addr="$(node_validator_address "${idx}")"
+	port="$(node_http_port "${idx}")"
+	params="[{\"from\":\"${addr}\"}]"
+	out="$(rpc_json "${port}" "${method}" "${params}")"
+	if echo "${out}" | grep -q '"error"'; then
+		echo "RPC ${method} failed for node${idx}: ${out}" >&2
+		exit 1
+	fi
+	txhash="$(echo "${out}" | sed -n 's/.*"result":"\([^"]*\)".*/\1/p')"
+	if [[ -z "${txhash}" ]]; then
+		echo "RPC ${method} returned no transaction hash for node${idx}: ${out}" >&2
+		exit 1
+	fi
+	echo "${txhash}"
+}
+
+wait_for_peer_mesh() {
+	local timeout_s="${1:-30}" elapsed=0
+	local n peer_hex peer_dec
+	while [[ "${elapsed}" -lt "${timeout_s}" ]]; do
+		for n in 1 2 3; do
+			peer_hex="$(rpc_hex_result "$(node_http_port "${n}")" "net_peerCount" "[]" || echo 0x0)"
+			peer_dec="$(hex_to_dec "${peer_hex}")"
+			if (( peer_dec < 2 )); then
+				sleep 1
+				elapsed=$((elapsed + 1))
+				continue 2
+			fi
+		done
+		return 0
 	done
 	return 1
 }
@@ -635,18 +1083,19 @@ start_nodes() {
 	warn_service_defaults
 	# Stop any running nodes before wiping chaindata to avoid undefined behavior.
 	stop_nodes
-	# Write a fresh genesis (timestamp = now) and re-init chaindata so block 1
-	# lands in slot 1 with no startup offset.
+	# Write a fresh genesis with a short start delay so all validators can come
+	# online and peer before slot 1. Starting from "now" lets isolated nodes
+	# each mine their own competing block 1 and deadlock on recents.
 	write_genesis
 	init_datadirs
 	echo "genesis written: ${BASE_DIR}/genesis_testnet_3vals.json"
 	start_service_node 1
-	if ! wait_for_block_growth 1 120 2; then
-		echo "warning: node1 did not show solo block growth within timeout; continuing to start node2" >&2
-	fi
 	start_service_node 2
 	start_service_node 3
 	refresh_mesh_artifacts
+	if ! wait_for_peer_mesh 30; then
+		echo "warning: peer mesh did not converge to 2 peers per node within timeout" >&2
+	fi
 }
 
 restart_nodes() {
@@ -666,6 +1115,113 @@ precollect_enodes() {
 	echo "precollect-enode done:"
 	echo "  ${ENODE_MAP_FILE}"
 	echo "  ${BOOTNODES_FILE}"
+}
+
+enter_maintenance() {
+	local idx="$1" txhash query_idx addr rc=0 status
+	ensure_validator_signer_registered "${idx}"
+	ensure_validator_registered "${idx}"
+	addr="$(node_validator_address "${idx}")"
+	query_idx="$(first_running_node || true)"
+	status="$(validator_status_on_node "${query_idx}" "${addr}")"
+	if [[ "${status}" == "2" ]]; then
+		echo "node${idx} is already in maintenance; proposer-set removal takes effect at the next epoch: $(describe_next_epoch "${query_idx}")"
+		return 0
+	fi
+	txhash="$(submit_validator_maintenance_action "${idx}" "tos_enterMaintenance")"
+	if wait_for_tx_receipt "${idx}" "${txhash}" 60; then
+		:
+	else
+		rc=$?
+		case "${rc}" in
+		2)
+			echo "enter maintenance tx=${txhash} for node${idx} reverted" >&2
+			exit 1
+			;;
+		esac
+		echo "warning: enter maintenance tx=${txhash} for node${idx} not mined within timeout" >&2
+	fi
+	query_idx="$(first_running_node_except "${idx}" || first_running_node || true)"
+	if [[ -z "${query_idx}" ]]; then
+		echo "submitted enter maintenance for node${idx}, tx=${txhash}"
+		return 0
+	fi
+	if validator_active_on_node "${query_idx}" "${addr}"; then
+		echo "node${idx} entered maintenance, tx=${txhash}; removal from proposer set takes effect at the next epoch: $(describe_next_epoch "${query_idx}")"
+	else
+		echo "node${idx} entered maintenance, tx=${txhash}"
+	fi
+}
+
+exit_maintenance() {
+	local idx="$1" txhash query_idx addr rc=0 status
+	ensure_validator_signer_registered "${idx}"
+	addr="$(node_validator_address "${idx}")"
+	query_idx="$(first_running_node || true)"
+	if [[ -z "${query_idx}" ]]; then
+		echo "no running node available to inspect validator status for node${idx}" >&2
+		exit 1
+	fi
+	status="$(validator_status_on_node "${query_idx}" "${addr}")"
+	case "${status}" in
+	2)
+		;;
+	1)
+		echo "node${idx} is already active; no exit-maintenance transaction needed"
+		return 0
+		;;
+	0)
+		echo "node${idx} is not registered in validator registry; cannot exit maintenance" >&2
+		exit 1
+		;;
+	esac
+	txhash="$(submit_validator_maintenance_action "${idx}" "tos_exitMaintenance")"
+	if wait_for_tx_receipt "${idx}" "${txhash}" 60; then
+		:
+	else
+		rc=$?
+		case "${rc}" in
+		2)
+			echo "exit maintenance tx=${txhash} for node${idx} reverted" >&2
+			exit 1
+			;;
+		esac
+		echo "warning: exit maintenance tx=${txhash} for node${idx} not mined within timeout" >&2
+	fi
+	if validator_active_on_node "${query_idx}" "${addr}"; then
+		echo "node${idx} exited maintenance, tx=${txhash}"
+	else
+		echo "node${idx} exited maintenance, tx=${txhash}; proposer-set rejoin takes effect at the next epoch: $(describe_next_epoch "${query_idx}")"
+	fi
+}
+
+drain_node() {
+	local idx="$1" addr query_idx timeout_s
+	enter_maintenance "${idx}"
+	addr="$(node_validator_address "${idx}")"
+	query_idx="$(first_running_node_except "${idx}" || first_running_node || true)"
+	if [[ -n "${query_idx}" ]]; then
+		timeout_s="$(epoch_transition_timeout_seconds "${query_idx}")"
+		if ! wait_for_validator_active_state "${query_idx}" "${addr}" absent "${timeout_s}"; then
+			echo "node${idx} did not leave the active validator set before timeout; next epoch status: $(describe_next_epoch "${query_idx}")" >&2
+			exit 1
+		fi
+	fi
+	stop_service_node "${idx}"
+	echo "node${idx} drained"
+}
+
+resume_node() {
+	local idx="$1"
+	start_service_node "${idx}"
+	if run_systemctl is-active --quiet "$(node_service 1)" && run_systemctl is-active --quiet "$(node_service 2)" && run_systemctl is-active --quiet "$(node_service 3)"; then
+		refresh_mesh_artifacts
+	fi
+	if ! wait_for_peer_mesh 30; then
+		echo "warning: peer mesh did not fully converge before exit maintenance for node${idx}" >&2
+	fi
+	exit_maintenance "${idx}"
+	echo "node${idx} resumed"
 }
 
 verify_nodes() {
@@ -743,14 +1299,19 @@ PY
 stop_nodes() {
 	local idx svc
 	for idx in 1 2 3; do
-		svc="$(node_service "${idx}")"
-		if run_systemctl is-active --quiet "${svc}"; then
-			run_systemctl stop "${svc}"
-			echo "node${idx} stopped via ${svc}"
-		else
-			echo "node${idx} already stopped (${svc})"
-		fi
+		stop_service_node "${idx}"
 	done
+}
+
+stop_service_node() {
+	local idx="$1" svc
+	svc="$(node_service "${idx}")"
+	if run_systemctl is-active --quiet "${svc}"; then
+		run_systemctl stop "${svc}"
+		echo "node${idx} stopped via ${svc}"
+	else
+		echo "node${idx} already stopped (${svc})"
+	fi
 }
 
 status_nodes() {
@@ -797,6 +1358,7 @@ setup_network() {
 	else
 		echo "  checkpoint finality: disabled"
 	fi
+	echo "  genesis start delay (ms): ${GENESIS_START_DELAY_MS}"
 }
 
 clean_network() {
@@ -828,6 +1390,26 @@ restart)
 	validate_local_checkpoint_config
 	assert_accounts_prepared
 	restart_nodes
+	;;
+enter-maintenance)
+	require_target_node
+	assert_accounts_prepared
+	enter_maintenance "${TARGET_NODE}"
+	;;
+exit-maintenance)
+	require_target_node
+	assert_accounts_prepared
+	exit_maintenance "${TARGET_NODE}"
+	;;
+drain)
+	require_target_node
+	assert_accounts_prepared
+	drain_node "${TARGET_NODE}"
+	;;
+resume)
+	require_target_node
+	assert_accounts_prepared
+	resume_node "${TARGET_NODE}"
 	;;
 precollect-enode)
 	ensure_dirs

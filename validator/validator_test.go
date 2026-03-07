@@ -42,8 +42,10 @@ func fund(st *state.StateDB, a common.Address, amount *big.Int) {
 
 // regSA and wdSA are convenience SysAction values.
 var (
-	regSA = &sysaction.SysAction{Action: sysaction.ActionValidatorRegister}
-	wdSA  = &sysaction.SysAction{Action: sysaction.ActionValidatorWithdraw}
+	regSA   = &sysaction.SysAction{Action: sysaction.ActionValidatorRegister}
+	wdSA    = &sysaction.SysAction{Action: sysaction.ActionValidatorWithdraw}
+	enterSA = &sysaction.SysAction{Action: sysaction.ActionValidatorEnterMaintenance}
+	exitSA  = &sysaction.SysAction{Action: sysaction.ActionValidatorExitMaintenance}
 )
 
 // TestRegisterTwice verifies that a second VALIDATOR_REGISTER returns ErrAlreadyRegistered.
@@ -199,5 +201,82 @@ func TestWithdrawNotActive(t *testing.T) {
 	a := tAddr(0x21)
 	if err := h.Handle(newCtx(st, a, big.NewInt(0)), wdSA); err != ErrNotActive {
 		t.Errorf("want ErrNotActive, got %v", err)
+	}
+}
+
+func TestEnterMaintenanceLifecycle(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x22)
+	fund(st, a, params.DPoSMinValidatorStake)
+
+	if err := h.Handle(newCtx(st, a, params.DPoSMinValidatorStake), regSA); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), enterSA); err != nil {
+		t.Fatalf("enter maintenance: %v", err)
+	}
+	if status := ReadValidatorStatus(st, a); status != Maintenance {
+		t.Fatalf("status after enter: have=%d want=%d", status, Maintenance)
+	}
+	if validators := ReadActiveValidators(st, 10); len(validators) != 0 {
+		t.Fatalf("maintenance validator must be excluded from active set, got %v", validators)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), exitSA); err != nil {
+		t.Fatalf("exit maintenance: %v", err)
+	}
+	if status := ReadValidatorStatus(st, a); status != Active {
+		t.Fatalf("status after exit: have=%d want=%d", status, Active)
+	}
+	if validators := ReadActiveValidators(st, 10); len(validators) != 1 || validators[0] != a {
+		t.Fatalf("validator should be active again, got %v", validators)
+	}
+}
+
+func TestEnterMaintenanceRequiresActive(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x23)
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), enterSA); err != ErrNotActive {
+		t.Fatalf("want ErrNotActive, got %v", err)
+	}
+}
+
+func TestEnterMaintenanceTwice(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x24)
+	fund(st, a, params.DPoSMinValidatorStake)
+	if err := h.Handle(newCtx(st, a, params.DPoSMinValidatorStake), regSA); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), enterSA); err != nil {
+		t.Fatalf("first enter maintenance: %v", err)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), enterSA); err != ErrAlreadyInMaintenance {
+		t.Fatalf("want ErrAlreadyInMaintenance, got %v", err)
+	}
+}
+
+func TestExitMaintenanceRequiresMaintenance(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x25)
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), exitSA); err != ErrNotInMaintenance {
+		t.Fatalf("want ErrNotInMaintenance, got %v", err)
+	}
+}
+
+func TestWithdrawWhileInMaintenance(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x26)
+	fund(st, a, params.DPoSMinValidatorStake)
+	if err := h.Handle(newCtx(st, a, params.DPoSMinValidatorStake), regSA); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), enterSA); err != nil {
+		t.Fatalf("enter maintenance: %v", err)
+	}
+	if err := h.Handle(newCtx(st, a, big.NewInt(0)), wdSA); err != nil {
+		t.Fatalf("withdraw from maintenance: %v", err)
+	}
+	if status := ReadValidatorStatus(st, a); status != Inactive {
+		t.Fatalf("status after withdraw: have=%d want=%d", status, Inactive)
 	}
 }

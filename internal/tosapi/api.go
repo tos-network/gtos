@@ -17,9 +17,9 @@ import (
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
+	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
@@ -2162,6 +2162,10 @@ type RPCSetSignerArgs struct {
 	SignerValue string `json:"signerValue"`
 }
 
+type RPCValidatorMaintenanceArgs struct {
+	RPCTxCommonArgs
+}
+
 type RPCBuildTxResult struct {
 	Tx  map[string]interface{} `json:"tx"`
 	Raw hexutil.Bytes          `json:"raw"`
@@ -2506,24 +2510,35 @@ func buildUNOTxArgs(ctx context.Context, s *TOSAPI, from common.Address, nonce *
 	return txArgs, nil
 }
 
+func (s *TOSAPI) currentTxSignerType(ctx context.Context, from common.Address) (*string, error) {
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, nil
+	}
+	currentType, _, configured := accountsigner.Get(state, from)
+	if !configured {
+		return nil, nil
+	}
+	canonicalCurrent, err := accountsigner.CanonicalSignerType(currentType)
+	if err != nil {
+		return nil, newRPCInvalidParamsError("from", "invalid configured signer metadata")
+	}
+	return &canonicalCurrent, nil
+}
+
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
 	normalizedType, _, normalizedValue, err := accountsigner.NormalizeSigner(args.SignerType, args.SignerValue)
 	if err != nil {
 		return nil, newRPCInvalidParamsError("signer", err.Error())
 	}
 	txSignerType := normalizedType
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
-	if err != nil {
+	if currentSignerType, err := s.currentTxSignerType(ctx, args.From); err != nil {
 		return nil, err
-	}
-	if state != nil {
-		if currentType, _, configured := accountsigner.Get(state, args.From); configured {
-			canonicalCurrent, canonErr := accountsigner.CanonicalSignerType(currentType)
-			if canonErr != nil {
-				return nil, newRPCInvalidParamsError("from", "invalid configured signer metadata")
-			}
-			txSignerType = canonicalCurrent
-		}
+	} else if currentSignerType != nil {
+		txSignerType = *currentSignerType
 	}
 	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
 		SignerType:  normalizedType,
@@ -2544,6 +2559,55 @@ func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetS
 		Nonce:      args.Nonce,
 		Input:      &input,
 		SignerType: &txSignerType,
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := estimateSystemActionGas(payload)
+		if gasErr != nil {
+			return nil, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
+func validateValidatorMaintenanceArgs(args RPCValidatorMaintenanceArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	return nil
+}
+
+func (s *TOSAPI) buildValidatorMaintenanceTransactionArgs(
+	ctx context.Context,
+	args RPCValidatorMaintenanceArgs,
+	action sysaction.ActionKind,
+) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(action, nil)
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode validator maintenance payload")
+	}
+	to := params.SystemActionAddress
+	input := hexutil.Bytes(payload)
+	zero := hexutil.Big{}
+	txArgs := &TransactionArgs{
+		From:  &args.From,
+		To:    &to,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
+	}
+	if currentSignerType, err := s.currentTxSignerType(ctx, args.From); err != nil {
+		return nil, err
+	} else if currentSignerType != nil {
+		txArgs.SignerType = currentSignerType
+	} else {
+		defaultSignerType := accountsigner.SignerTypeEd25519
+		txArgs.SignerType = &defaultSignerType
 	}
 	if txArgs.Gas == nil {
 		estimate, gasErr := estimateSystemActionGas(payload)
@@ -2590,6 +2654,110 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 		return nil, newRPCNotImplementedError("tos_buildSetSignerTx")
 	}
 	txArgs, err := s.buildSetSignerTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	tx := txArgs.toTransaction()
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":  args.From,
+			"to":    params.SystemActionAddress,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
+}
+
+func (s *TOSAPI) EnterMaintenance(ctx context.Context, args RPCValidatorMaintenanceArgs) (common.Hash, error) {
+	if err := validateValidatorMaintenanceArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_enterMaintenance")
+	}
+	txArgs, err := s.buildValidatorMaintenanceTransactionArgs(ctx, args, sysaction.ActionValidatorEnterMaintenance)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildEnterMaintenanceTx(ctx context.Context, args RPCValidatorMaintenanceArgs) (*RPCBuildTxResult, error) {
+	if err := validateValidatorMaintenanceArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildEnterMaintenanceTx")
+	}
+	txArgs, err := s.buildValidatorMaintenanceTransactionArgs(ctx, args, sysaction.ActionValidatorEnterMaintenance)
+	if err != nil {
+		return nil, err
+	}
+	tx := txArgs.toTransaction()
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":  args.From,
+			"to":    params.SystemActionAddress,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
+}
+
+func (s *TOSAPI) ExitMaintenance(ctx context.Context, args RPCValidatorMaintenanceArgs) (common.Hash, error) {
+	if err := validateValidatorMaintenanceArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_exitMaintenance")
+	}
+	txArgs, err := s.buildValidatorMaintenanceTransactionArgs(ctx, args, sysaction.ActionValidatorExitMaintenance)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildExitMaintenanceTx(ctx context.Context, args RPCValidatorMaintenanceArgs) (*RPCBuildTxResult, error) {
+	if err := validateValidatorMaintenanceArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildExitMaintenanceTx")
+	}
+	txArgs, err := s.buildValidatorMaintenanceTransactionArgs(ctx, args, sysaction.ActionValidatorExitMaintenance)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,10 @@ type validatorHandler struct{}
 
 func (h *validatorHandler) CanHandle(kind sysaction.ActionKind) bool {
 	switch kind {
-	case sysaction.ActionValidatorRegister, sysaction.ActionValidatorWithdraw:
+	case sysaction.ActionValidatorRegister,
+		sysaction.ActionValidatorWithdraw,
+		sysaction.ActionValidatorEnterMaintenance,
+		sysaction.ActionValidatorExitMaintenance:
 		return true
 	}
 	return false
@@ -28,6 +31,10 @@ func (h *validatorHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysActio
 		return h.handleRegister(ctx, sa)
 	case sysaction.ActionValidatorWithdraw:
 		return h.handleWithdraw(ctx, sa)
+	case sysaction.ActionValidatorEnterMaintenance:
+		return h.handleEnterMaintenance(ctx, sa)
+	case sysaction.ActionValidatorExitMaintenance:
+		return h.handleExitMaintenance(ctx, sa)
 	}
 	return nil
 }
@@ -86,7 +93,8 @@ func (h *validatorHandler) handleRegister(ctx *sysaction.Context, _ *sysaction.S
 func (h *validatorHandler) handleWithdraw(ctx *sysaction.Context, _ *sysaction.SysAction) error {
 	// ── Validation phase ─────────────────────────────────────────────────────
 
-	if ReadValidatorStatus(ctx.StateDB, ctx.From) != Active {
+	status := ReadValidatorStatus(ctx.StateDB, ctx.From)
+	if status != Active && status != Maintenance {
 		return ErrNotActive
 	}
 	selfStake := ReadSelfStake(ctx.StateDB, ctx.From)
@@ -108,5 +116,25 @@ func (h *validatorHandler) handleWithdraw(ctx *sysaction.Context, _ *sysaction.S
 	WriteValidatorStatus(ctx.StateDB, ctx.From, Inactive)
 
 	// MVP: no lockup period. Funds returned immediately.
+	return nil
+}
+
+func (h *validatorHandler) handleEnterMaintenance(ctx *sysaction.Context, _ *sysaction.SysAction) error {
+	switch ReadValidatorStatus(ctx.StateDB, ctx.From) {
+	case Active:
+		WriteValidatorStatus(ctx.StateDB, ctx.From, Maintenance)
+		return nil
+	case Maintenance:
+		return ErrAlreadyInMaintenance
+	default:
+		return ErrNotActive
+	}
+}
+
+func (h *validatorHandler) handleExitMaintenance(ctx *sysaction.Context, _ *sysaction.SysAction) error {
+	if ReadValidatorStatus(ctx.StateDB, ctx.From) != Maintenance {
+		return ErrNotInMaintenance
+	}
+	WriteValidatorStatus(ctx.StateDB, ctx.From, Active)
 	return nil
 }
