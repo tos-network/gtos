@@ -1,0 +1,12 @@
+[Unit]
+Description=GTOS Validator Guard Report
+After=network-online.target gtos-validator-guard.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tomi
+Group=tomi
+WorkingDirectory=/data/gtos
+EnvironmentFile=/data/gtos/ops/validator_report.env
+ExecStart=/bin/bash -lc 'exec "$HOME/gtos/scripts/validator_guard_report.sh"'

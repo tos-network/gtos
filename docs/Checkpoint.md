@@ -105,7 +105,7 @@ that would create unnecessary liveness coupling to a single proposer.
 
 ## 4. Configuration
 
-Add the following fields to `params.DPoSConfig` in [config.go](/home/tomi/gtos/params/config.go):
+Add the following fields to `params.DPoSConfig` in [config.go](../params/config.go):
 
 ```go
 type DPoSConfig struct {
@@ -636,7 +636,7 @@ against current head state.
 
 ## 14. Finality State Update
 
-Extend [snapshot.go](/home/tomi/gtos/consensus/dpos/snapshot.go) with:
+Extend [snapshot.go](../consensus/dpos/snapshot.go) with:
 
 ```go
 type Snapshot struct {

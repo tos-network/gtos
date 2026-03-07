@@ -25,6 +25,12 @@ SYSTEMD_TEMPLATE_DEST="${SYSTEMD_TEMPLATE_DEST:-/etc/systemd/system/gtos-validat
 GUARD_SERVICE_SOURCE="${GUARD_SERVICE_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-validator-guard.service}"
 GUARD_SERVICE_DEST="${GUARD_SERVICE_DEST:-/etc/systemd/system/gtos-validator-guard.service}"
 GUARD_SERVICE_NAME="${GUARD_SERVICE_NAME:-gtos-validator-guard.service}"
+REPORT_SERVICE_SOURCE="${REPORT_SERVICE_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-validator-report.service}"
+REPORT_SERVICE_DEST="${REPORT_SERVICE_DEST:-/etc/systemd/system/gtos-validator-report.service}"
+REPORT_SERVICE_NAME="${REPORT_SERVICE_NAME:-gtos-validator-report.service}"
+REPORT_TIMER_SOURCE="${REPORT_TIMER_SOURCE:-${REPO_ROOT}/scripts/systemd/gtos-validator-report.timer}"
+REPORT_TIMER_DEST="${REPORT_TIMER_DEST:-/etc/systemd/system/gtos-validator-report.timer}"
+REPORT_TIMER_NAME="${REPORT_TIMER_NAME:-gtos-validator-report.timer}"
 SHARED_CONFIG_FILE="${SHARED_CONFIG_FILE:-${BASE_DIR}/config.toml}"
 VERBOSITY="${VERBOSITY:-3}"
 
@@ -57,6 +63,7 @@ Actions:
            enter maintenance, wait until removed from active set, then stop service
   resume <node>
            start service, wait for connectivity, then exit maintenance
+  report   generate a guard report immediately via systemd oneshot service
   verify   check peers, block growth, and miner rotation
   status   print node status summary
   stop     stop 3 systemd services
@@ -93,7 +100,7 @@ EOF_USAGE
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	up | setup | precollect-enode | start | restart | enter-maintenance | exit-maintenance | drain | resume | verify | status | stop | down | clean)
+	up | setup | precollect-enode | start | restart | enter-maintenance | exit-maintenance | drain | resume | report | verify | status | stop | down | clean)
 		action="$1"
 		shift
 		if [[ $# -gt 0 && "$1" != --* ]] && [[ "${action}" == "enter-maintenance" || "${action}" == "exit-maintenance" || "${action}" == "drain" || "${action}" == "resume" ]]; then
@@ -173,6 +180,7 @@ ops_dir() { echo "${BASE_DIR}/ops"; }
 maintenance_state_dir() { echo "$(ops_dir)/maintenance"; }
 maintenance_state_file() { echo "$(maintenance_state_dir)/node$1.env"; }
 guard_env_file() { echo "$(ops_dir)/validator_guard.env"; }
+report_env_file() { echo "$(ops_dir)/validator_report.env"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
 node_service() { echo "${SERVICE_PREFIX}$1.service"; }
@@ -327,6 +335,15 @@ BASE_DIR=${BASE_DIR}
 EOF_ENV
 }
 
+write_validator_report_env() {
+	cat >"$(report_env_file)" <<EOF_ENV
+JOURNAL_DIR=${BASE_DIR}/ops/validator_guard
+REPORT_DIR=${BASE_DIR}/ops/validator_guard/reports
+LOOKBACK_HOURS=24
+REPORT_FORMAT=both
+EOF_ENV
+}
+
 write_shared_config_toml() {
 	local no_pruning
 	case "${GC_MODE}" in
@@ -425,8 +442,10 @@ prepare_runtime_assets() {
 	write_shared_config_toml
 	write_validator_envs
 	write_validator_guard_env
+	write_validator_report_env
 	install_template_service
 	install_guard_service
+	install_report_units
 }
 
 install_guard_service() {
@@ -438,6 +457,25 @@ install_guard_service() {
 		install -m 0644 "${GUARD_SERVICE_SOURCE}" "${GUARD_SERVICE_DEST}"
 	else
 		sudo install -m 0644 "${GUARD_SERVICE_SOURCE}" "${GUARD_SERVICE_DEST}"
+	fi
+	run_systemctl daemon-reload
+}
+
+install_report_units() {
+	if [[ ! -f "${REPORT_SERVICE_SOURCE}" ]]; then
+		echo "missing report service source: ${REPORT_SERVICE_SOURCE}" >&2
+		exit 1
+	fi
+	if [[ ! -f "${REPORT_TIMER_SOURCE}" ]]; then
+		echo "missing report timer source: ${REPORT_TIMER_SOURCE}" >&2
+		exit 1
+	fi
+	if [[ "${EUID}" -eq 0 ]]; then
+		install -m 0644 "${REPORT_SERVICE_SOURCE}" "${REPORT_SERVICE_DEST}"
+		install -m 0644 "${REPORT_TIMER_SOURCE}" "${REPORT_TIMER_DEST}"
+	else
+		sudo install -m 0644 "${REPORT_SERVICE_SOURCE}" "${REPORT_SERVICE_DEST}"
+		sudo install -m 0644 "${REPORT_TIMER_SOURCE}" "${REPORT_TIMER_DEST}"
 	fi
 	run_systemctl daemon-reload
 }
@@ -753,10 +791,28 @@ start_guard_service() {
 	echo "guard started via ${GUARD_SERVICE_NAME}"
 }
 
+start_report_timer() {
+	run_systemctl enable "${REPORT_TIMER_NAME}" >/dev/null 2>&1 || true
+	run_systemctl restart "${REPORT_TIMER_NAME}"
+	if ! wait_for_named_service_active "${REPORT_TIMER_NAME}" 15; then
+		echo "report timer failed to become active: ${REPORT_TIMER_NAME}" >&2
+		run_systemctl status --no-pager "${REPORT_TIMER_NAME}" || true
+		exit 1
+	fi
+	echo "report timer started via ${REPORT_TIMER_NAME}"
+}
+
 stop_guard_service() {
 	if run_systemctl is-active --quiet "${GUARD_SERVICE_NAME}"; then
 		run_systemctl stop "${GUARD_SERVICE_NAME}"
 		echo "guard stopped via ${GUARD_SERVICE_NAME}"
+	fi
+}
+
+stop_report_timer() {
+	if run_systemctl is-active --quiet "${REPORT_TIMER_NAME}"; then
+		run_systemctl stop "${REPORT_TIMER_NAME}"
+		echo "report timer stopped via ${REPORT_TIMER_NAME}"
 	fi
 }
 
@@ -1317,6 +1373,7 @@ start_nodes() {
 		echo "warning: peer mesh did not converge to 2 peers per node within timeout" >&2
 	fi
 	start_guard_service
+	start_report_timer
 }
 
 restart_nodes() {
@@ -1328,6 +1385,12 @@ restart_nodes() {
 	restart_service_node 3
 	refresh_mesh_artifacts
 	start_guard_service
+	start_report_timer
+}
+
+run_report_now() {
+	run_systemctl start "${REPORT_SERVICE_NAME}"
+	run_systemctl --no-pager --lines=20 status "${REPORT_SERVICE_NAME}" || true
 }
 
 precollect_enodes() {
@@ -1587,6 +1650,7 @@ PY
 stop_nodes() {
 	local idx svc
 	stop_guard_service
+	stop_report_timer
 	for idx in 1 2 3; do
 		stop_service_node "${idx}"
 	done
@@ -1633,6 +1697,11 @@ status_nodes() {
 		echo "guard: running(service=${GUARD_SERVICE_NAME})"
 	else
 		echo "guard: stopped(service=${GUARD_SERVICE_NAME})"
+	fi
+	if run_systemctl is-active --quiet "${REPORT_TIMER_NAME}"; then
+		echo "report-timer: running(service=${REPORT_TIMER_NAME})"
+	else
+		echo "report-timer: stopped(service=${REPORT_TIMER_NAME})"
 	fi
 }
 
@@ -1719,6 +1788,11 @@ resume)
 	require_target_node
 	assert_accounts_prepared
 	resume_node "${TARGET_NODE}"
+	;;
+report)
+	ensure_dirs
+	prepare_runtime_assets
+	run_report_now
 	;;
 precollect-enode)
 	ensure_dirs

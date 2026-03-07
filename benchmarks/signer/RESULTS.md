@@ -1,7 +1,7 @@
 # Signer Benchmark Results
 
 Date: 2026-02-24
-Workdir: `/home/tomi/gtos`
+Workdir: `$HOME/gtos`
 Workload: `sign-ops=5000`, `verify-ops=5000`
 
 Source files:

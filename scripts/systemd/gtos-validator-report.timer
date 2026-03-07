@@ -1,0 +1,11 @@
+[Unit]
+Description=GTOS Validator Guard Daily Report Timer
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 UTC
+RandomizedDelaySec=5m
+Persistent=true
+Unit=gtos-validator-report.service
+
+[Install]
+WantedBy=timers.target

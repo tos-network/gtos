@@ -27,7 +27,7 @@ At the time of writing, GTOS already has:
 - `ed25519-only` DPoS sealing
 - grouped-turn DPoS proposer ownership via `TurnLength`
 - a local three-node deployment script:
-  - [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
+  - [validator_cluster.sh](../scripts/validator_cluster.sh)
 - template-driven validator deployment artifacts:
   - shared `config.toml`
   - per-node `validator.env`
@@ -36,8 +36,9 @@ At the time of writing, GTOS already has:
   - `VALIDATOR_ENTER_MAINTENANCE`
   - `VALIDATOR_EXIT_MAINTENANCE`
 - operator watchdog tooling:
-  - [validator_guard.sh](/home/tomi/gtos/scripts/validator_guard.sh)
-  - [dpos_livenet_soak.sh](/home/tomi/gtos/scripts/dpos_livenet_soak.sh)
+  - [validator_guard.sh](../scripts/validator_guard.sh)
+  - [validator_guard_report.sh](../scripts/validator_guard_report.sh)
+  - [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
 
 The current approach is now materially closer to a production-style validator
 deployment model, but operators should still treat these areas as active
@@ -47,6 +48,8 @@ discipline, not solved forever:
   be retired
 - validator guard journals and alerts should be wired into your actual alerting
   stack
+- periodic summaries should be harvested from the validator guard report timer,
+  not only ad hoc shell output
 - maintenance overrun governance still lives at the runbook layer, not in
   protocol slashing
 
@@ -222,6 +225,16 @@ TimeoutStopSec=20
 [Install]
 WantedBy=multi-user.target
 ```
+
+For auxiliary operator services that need to invoke repo-local scripts, do not
+hardcode `/home/<user>`. In system units, prefer:
+
+```ini
+ExecStart=/bin/bash -lc 'exec "$HOME/gtos/scripts/validator_guard.sh"'
+```
+
+This keeps the repository path user-relative without relying on `%h`, which is
+not reliable for system-level units managed by PID 1.
 
 ## Per-Node Environment File
 
@@ -587,14 +600,19 @@ Validator operations should track at least the following:
 
 Current operator tooling:
 
-- [validator_guard.sh](/home/tomi/gtos/scripts/validator_guard.sh)
+- [validator_guard.sh](../scripts/validator_guard.sh)
   - writes `events.jsonl`, `alerts.jsonl`, and `state.json`
   - monitors peer health, head/finalized lag, grouped-turn integrity, and
     maintenance overruns
   - emits an approximate conflict alert if different nodes report different
     latest hashes for the same `miner,height` pair
   - is installed as `gtos-validator-guard.service` for continuous supervision
-- [dpos_livenet_soak.sh](/home/tomi/gtos/scripts/dpos_livenet_soak.sh)
+- [validator_guard_report.sh](../scripts/validator_guard_report.sh)
+  - renders daily JSON/Markdown summaries from guard journals
+  - writes reports under `/data/gtos/ops/validator_guard/reports`
+  - is installed as `gtos-validator-report.service`
+  - is scheduled by `gtos-validator-report.timer`
+- [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
   - grouped-turn-aware long-duration soak monitor
   - validates within-group proposer consistency and finalized-lag bounds
 
@@ -641,6 +659,8 @@ Status:
 
 - validator health, grouped-turn, finality, and maintenance-overrun monitoring
   are implemented with `validator_guard.sh`
+- periodic daily summaries are implemented with `validator_guard_report.sh`
+  plus `gtos-validator-report.timer`
 - long-duration liveness/finality soak is implemented with
   `dpos_livenet_soak.sh`
 

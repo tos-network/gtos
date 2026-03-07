@@ -9,7 +9,7 @@ User=tomi
 Group=tomi
 WorkingDirectory=/data/gtos
 EnvironmentFile=/data/gtos/ops/validator_guard.env
-ExecStart=/bin/bash /home/tomi/gtos/scripts/validator_guard.sh
+ExecStart=/bin/bash -lc 'exec "$HOME/gtos/scripts/validator_guard.sh"'
 Restart=always
 RestartSec=5
 

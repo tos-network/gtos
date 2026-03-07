@@ -4,10 +4,10 @@ This directory vendors the Avatar ed25519 C implementation used by GTOS.
 
 Source of imported materials:
 
-- `/home/tomi/avatar/src/crypto/ed25519/`
-- `/home/tomi/avatar/include/at/crypto/`
-- `/home/tomi/avatar/include/at/infra/`
-- `/home/tomi/avatar/src/crypto/sha512/at_sha512.c`
+- `$HOME/avatar/src/crypto/ed25519/`
+- `$HOME/avatar/include/at/crypto/`
+- `$HOME/avatar/include/at/infra/`
+- `$HOME/avatar/src/crypto/sha512/at_sha512.c`
 
 How GTOS uses it:
 
