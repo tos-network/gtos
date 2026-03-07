@@ -11,6 +11,9 @@ SIGNER_TYPE="${SIGNER_TYPE:-ed25519}"
 PERIOD_MS="${PERIOD_MS:-360}"
 EPOCH="${EPOCH:-1667}"
 MAX_VALIDATORS="${MAX_VALIDATORS:-15}"
+CHECKPOINT_INTERVAL="${CHECKPOINT_INTERVAL:-50}"
+CHECKPOINT_FINALITY_BLOCK="${CHECKPOINT_FINALITY_BLOCK:-}"
+GC_MODE="${GC_MODE:-archive}"
 VERIFY_SLEEP_SEC="${VERIFY_SLEEP_SEC:-3}"
 SERVICE_PREFIX="${SERVICE_PREFIX:-gtos-node}"
 
@@ -45,11 +48,17 @@ Options:
   --period-ms <n>       dpos periodMs in genesis (default: 360)
   --epoch <n>           dpos epoch in genesis (default: 1667)
   --max-validators <n>  dpos maxValidators in genesis (default: 15)
+  --checkpoint-interval <n>
+                        checkpoint interval in genesis (default: 50)
+  --checkpoint-finality-block <n>
+                        activation block for checkpoint finality (default: disabled)
+  --gcmode <mode>       expected service gc mode: archive|full (default: archive)
   --signer <type>       signer type for account creation (default: ed25519)
   -h, --help            show this help
 
 Environment overrides:
   GTOS_BIN, BASE_DIR, PASSFILE, NETWORK_ID, PERIOD_MS, EPOCH, MAX_VALIDATORS,
+  CHECKPOINT_INTERVAL, CHECKPOINT_FINALITY_BLOCK, GC_MODE,
   SIGNER_TYPE, VERIFY_SLEEP_SEC, SERVICE_PREFIX
 EOF_USAGE
 }
@@ -84,6 +93,18 @@ while [[ $# -gt 0 ]]; do
 		MAX_VALIDATORS="$2"
 		shift 2
 		;;
+	--checkpoint-interval)
+		CHECKPOINT_INTERVAL="$2"
+		shift 2
+		;;
+	--checkpoint-finality-block)
+		CHECKPOINT_FINALITY_BLOCK="$2"
+		shift 2
+		;;
+	--gcmode)
+		GC_MODE="$2"
+		shift 2
+		;;
 	--signer)
 		SIGNER_TYPE="$2"
 		shift 2
@@ -106,6 +127,72 @@ node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
 node_service() { echo "${SERVICE_PREFIX}$1.service"; }
+
+is_checkpoint_finality_enabled() {
+	[[ -n "${CHECKPOINT_FINALITY_BLOCK}" ]]
+}
+
+first_checkpoint_at_or_after() {
+	local base="$1" interval="$2" rem
+	(( interval > 0 )) || {
+		echo 0
+		return
+	}
+	rem=$((base % interval))
+	if (( rem == 0 )); then
+		echo "${base}"
+	else
+		echo $((base + interval - rem))
+	fi
+}
+
+checkpoint_first_eligible() {
+	if ! is_checkpoint_finality_enabled; then
+		echo 0
+		return
+	fi
+	first_checkpoint_at_or_after "${CHECKPOINT_FINALITY_BLOCK}" "${CHECKPOINT_INTERVAL}"
+}
+
+checkpoint_config_json() {
+	if ! is_checkpoint_finality_enabled; then
+		return
+	fi
+	cat <<EOF_CHECKPOINT
+      "checkpointInterval": ${CHECKPOINT_INTERVAL},
+      "checkpointFinalityBlock": ${CHECKPOINT_FINALITY_BLOCK},
+EOF_CHECKPOINT
+}
+
+expected_service_gc_flags() {
+	case "${GC_MODE}" in
+	archive)
+		echo "--gcmode archive"
+		;;
+	full)
+		echo "--gcmode full"
+		;;
+	*)
+		echo ""
+		;;
+	esac
+}
+
+validate_local_checkpoint_config() {
+	if ! is_checkpoint_finality_enabled; then
+		return
+	fi
+	if (( CHECKPOINT_INTERVAL <= 0 )); then
+		echo "checkpoint interval must be > 0" >&2
+		exit 1
+	fi
+	# Local full-mode deployment rule: non-archive nodes only retain enough state
+	# for the checkpoint finality window when 2*K <= 128, i.e. K <= 64.
+	if [[ "${GC_MODE}" != "archive" ]] && (( CHECKPOINT_INTERVAL > 64 )); then
+		echo "checkpoint interval ${CHECKPOINT_INTERVAL} is not full-mode safe; require <= 64 or use --gcmode archive" >&2
+		exit 1
+	fi
+}
 
 node_http_port() {
 	case "$1" in
@@ -225,7 +312,7 @@ EOF_VALIDATORS
 }
 
 write_genesis() {
-	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms tos3_storage
+	local v1 v2 v3 h1 h2 h3 extra genesis ts_ms tos3_storage checkpoint_json
 	genesis="${BASE_DIR}/genesis_testnet_3vals.json"
 	ts_ms="$(date +%s%3N)"
 	v1="$(sed -n '1p' "${BASE_DIR}/validators.sorted")"
@@ -244,6 +331,7 @@ write_genesis() {
 
 	# Generate TOS3 (ValidatorRegistryAddress) pre-seeded storage for DPoS epoch boundary.
 	tos3_storage="$(cd "${REPO_ROOT}" && go run ./scripts/gen_genesis_slots/main.go "${v1}" "${v2}" "${v3}")"
+	checkpoint_json="$(checkpoint_config_json)"
 
 	cat >"${genesis}" <<EOF_GENESIS
 {
@@ -253,7 +341,7 @@ write_genesis() {
       "periodMs": ${PERIOD_MS},
       "epoch": ${EPOCH},
       "maxValidators": ${MAX_VALIDATORS},
-      "sealSignerType": "ed25519"
+${checkpoint_json}      "sealSignerType": "ed25519"
     }
   },
   "nonce": "0x676",
@@ -277,6 +365,27 @@ ${tos3_storage}
   "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
 }
 EOF_GENESIS
+}
+
+warn_service_defaults() {
+	local gc_flags svc idx missing=0
+	gc_flags="$(expected_service_gc_flags)"
+	if [[ -z "${gc_flags}" ]]; then
+		return
+	fi
+	for idx in 1 2 3; do
+		svc="$(node_service "${idx}")"
+		if ! service_exists "${idx}"; then
+			continue
+		fi
+		if ! run_systemctl cat "${svc}" 2>/dev/null | grep -q -- "${gc_flags}"; then
+			echo "warning: ${svc} ExecStart does not include expected GC flags: ${gc_flags}" >&2
+			missing=1
+		fi
+	done
+	if (( missing )) && is_checkpoint_finality_enabled && [[ "${GC_MODE}" == "archive" ]]; then
+		echo "warning: checkpoint finality is enabled; validators should run with archive retention" >&2
+	fi
 }
 
 init_datadirs() {
@@ -523,6 +632,7 @@ refresh_mesh_artifacts() {
 start_nodes() {
 	assert_services_prepared
 	assert_accounts_prepared
+	warn_service_defaults
 	# Stop any running nodes before wiping chaindata to avoid undefined behavior.
 	stop_nodes
 	# Write a fresh genesis (timestamp = now) and re-init chaindata so block 1
@@ -541,6 +651,7 @@ start_nodes() {
 
 restart_nodes() {
 	assert_services_prepared
+	warn_service_defaults
 	restart_service_node 1
 	restart_service_node 2
 	restart_service_node 3
@@ -674,9 +785,18 @@ setup_network() {
 	ensure_dirs
 	ensure_gtos_bin
 	ensure_passfile
+	validate_local_checkpoint_config
 	write_validators_files
 	echo "setup done (accounts created; genesis written at start time):"
 	echo "  validators: ${BASE_DIR}/validator_accounts.txt"
+	if is_checkpoint_finality_enabled; then
+		echo "  checkpoint interval: ${CHECKPOINT_INTERVAL}"
+		echo "  checkpoint finality block: ${CHECKPOINT_FINALITY_BLOCK}"
+		echo "  first eligible checkpoint: $(checkpoint_first_eligible)"
+		echo "  expected service flags: $(expected_service_gc_flags)"
+	else
+		echo "  checkpoint finality: disabled"
+	fi
 }
 
 clean_network() {
@@ -699,17 +819,20 @@ start)
 	ensure_dirs
 	ensure_gtos_bin
 	ensure_passfile
+	validate_local_checkpoint_config
 	start_nodes
 	;;
 restart)
 	ensure_dirs
 	ensure_gtos_bin
+	validate_local_checkpoint_config
 	assert_accounts_prepared
 	restart_nodes
 	;;
 precollect-enode)
 	ensure_dirs
 	ensure_gtos_bin
+	validate_local_checkpoint_config
 	assert_accounts_prepared
 	precollect_enodes
 	;;
