@@ -146,6 +146,7 @@ func CreateConsensusEngine(_ *node.Node, chainConfig *params.ChainConfig, db tos
 			PeriodMs:       params.DPoSBlockPeriodMs,
 			Epoch:          params.DPoSEpochLength,
 			MaxValidators:  params.DPoSMaxValidators,
+			TurnLength:     params.DPoSTurnLength,
 			SealSignerType: params.DefaultDPoSSealSignerType,
 		}
 	}

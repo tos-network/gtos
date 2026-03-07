@@ -196,8 +196,8 @@ if [[ -n "${FUNDER_SIGNER}" ]]; then
 	echo "funder_signer_override=${FUNDER_SIGNER}"
 fi
 
-if [[ -x "${ROOT_DIR}/scripts/local_testnet_3nodes.sh" ]]; then
-	"${ROOT_DIR}/scripts/local_testnet_3nodes.sh" status || true
+if [[ -x "${ROOT_DIR}/scripts/validator_cluster.sh" ]]; then
+	"${ROOT_DIR}/scripts/validator_cluster.sh" status || true
 fi
 
 IFS=',' read -r -a profile_workers <<<"${PROFILES}"

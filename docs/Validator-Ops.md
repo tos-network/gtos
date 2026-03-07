@@ -26,7 +26,7 @@ At the time of writing, GTOS already has:
 - DPoS block production based on the active validator set
 - `ed25519-only` DPoS sealing
 - a local three-node deployment script:
-  - [local_testnet_3nodes.sh](/home/tomi/gtos/scripts/local_testnet_3nodes.sh)
+  - [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
 - per-node `systemd` units with validator-specific flags embedded directly in
   `ExecStart`
 

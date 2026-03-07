@@ -172,8 +172,9 @@ func TestSetupGenesisBlockRejectsFatalDPoSCompatMismatch(t *testing.T) {
 		ChainID: big.NewInt(777),
 		DPoS: &params.DPoSConfig{
 			PeriodMs:       360,
-			Epoch:          200,
+			Epoch:          208,
 			MaxValidators:  15,
+			TurnLength:     params.DPoSTurnLength,
 			SealSignerType: params.DPoSSealSignerTypeEd25519,
 		},
 	}
@@ -194,8 +195,9 @@ func TestSetupGenesisBlockRejectsFatalDPoSCompatMismatch(t *testing.T) {
 		ChainID: big.NewInt(777),
 		DPoS: &params.DPoSConfig{
 			PeriodMs:       1000, // period mismatch should be fatal even with RewindTo==0
-			Epoch:          200,
+			Epoch:          208,
 			MaxValidators:  15,
+			TurnLength:     params.DPoSTurnLength,
 			SealSignerType: params.DPoSSealSignerTypeEd25519,
 		},
 	}

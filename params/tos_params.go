@@ -76,8 +76,8 @@ const (
 
 // TNS / KYC / Referral constants.
 const (
-	TNSMinNameLen    = 3
-	TNSMaxNameLen    = 64
+	TNSMinNameLen           = 3
+	TNSMaxNameLen           = 64
 	MaxReferralDepth uint8  = 20
 	ReferralBindGas  uint64 = 500
 	KYCLoadGas       uint64 = 100
@@ -111,7 +111,8 @@ func TxPrice() *big.Int {
 
 // DPoS consensus parameters.
 const (
-	DPoSEpochLength   uint64 = 1667 // ~10 minutes at 360ms block interval
+	DPoSEpochLength   uint64 = 1664 // ~10 minutes at 360ms block interval; divisible by turnLength=16
 	DPoSMaxValidators uint64 = 15
 	DPoSBlockPeriodMs uint64 = 360 // target milliseconds per block
+	DPoSTurnLength    uint64 = 16
 )

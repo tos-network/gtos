@@ -33,8 +33,9 @@ func buildSignedSingleValidatorChain(t *testing.T, nBlocks int) (*core.BlockChai
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
@@ -103,6 +104,26 @@ func signIntegrationHeader(t *testing.T, engine *DPoS, header *types.Header, pub
 	copy(header.Extra[len(header.Extra)-extraSealEd25519:], seal)
 }
 
+func turnSignerForSlot(validators []common.Address, slot, turnLength uint64) common.Address {
+	if len(validators) == 0 || slot == 0 || turnLength == 0 {
+		return common.Address{}
+	}
+	index := ((slot - 1) / turnLength) % uint64(len(validators))
+	return validators[index]
+}
+
+func turnSignerForGeneratedBlock(validators []common.Address, blockNumber, periodMs, turnLength uint64) common.Address {
+	const generatedDPoSTimeStepMs = uint64(10_000)
+	if blockNumber == 0 || periodMs == 0 {
+		return common.Address{}
+	}
+	slot := (blockNumber * generatedDPoSTimeStepMs) / periodMs
+	if slot == 0 {
+		slot = 1
+	}
+	return turnSignerForSlot(validators, slot, turnLength)
+}
+
 func signEd25519SignerTx(t *testing.T, signer types.Signer, from common.Address, priv ed25519.PrivateKey, nonce uint64, to *common.Address, value *big.Int, gas uint64, data []byte) *types.Transaction {
 	t.Helper()
 	unsigned := types.NewTx(&types.SignerTx{
@@ -166,8 +187,9 @@ func TestDPoSChainInsert(t *testing.T) {
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
@@ -307,8 +329,9 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          5000,
+		Epoch:          5008,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
@@ -334,7 +357,7 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 	}
 	blocks, _ := core.GenerateChain(&chainCfg, genesis, buildEngine, buildDB, nBlocks, func(i int, b *core.BlockGen) {
 		number := uint64(i + 1)
-		signer := validators[number%uint64(len(validators))]
+		signer := turnSignerForGeneratedBlock(validators, number, dposCfg.PeriodMs, dposCfg.TurnLength)
 		b.SetCoinbase(signer)
 		b.SetDifficulty(diffInTurn) // signer follows in-turn schedule by construction.
 	})
@@ -345,7 +368,7 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 			header.ParentHash = blocks[i-1].Hash()
 		}
 		number := header.Number.Uint64()
-		signer := validators[number%uint64(len(validators))]
+		signer := turnSignerForGeneratedBlock(validators, number, dposCfg.PeriodMs, dposCfg.TurnLength)
 		entry, ok := keysByAddr[signer]
 		if !ok {
 			t.Fatalf("missing key for signer %s", signer.Hex())
@@ -465,13 +488,14 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 		PeriodMs:       1000,
 		Epoch:          3,
 		MaxValidators:  21,
+		TurnLength:     1,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
 	genesisSigner := validators[0]
-	block4Signer := expectedValidators[4%len(expectedValidators)]
+	block4Signer := turnSignerForGeneratedBlock(expectedValidators, 4, dposCfg.PeriodMs, dposCfg.TurnLength)
 	if block4Signer == genesisSigner {
 		for _, v := range expectedValidators {
 			if v != genesisSigner {
@@ -547,7 +571,7 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 			b.SetDifficulty(diffInTurn)
 		case 3:
 			b.SetCoinbase(block4Signer)
-			if expectedValidators[4%len(expectedValidators)] == block4Signer {
+			if turnSignerForGeneratedBlock(expectedValidators, 4, dposCfg.PeriodMs, dposCfg.TurnLength) == block4Signer {
 				b.SetDifficulty(diffInTurn)
 			} else {
 				b.SetDifficulty(diffNoTurn)
@@ -659,8 +683,9 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          5000,
+		Epoch:          5008,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
@@ -684,12 +709,12 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 		t.Fatalf("New(buildEngine): %v", err)
 	}
 	blocks, _ := core.GenerateChain(&chainCfg, genesis, buildEngine, buildDB, 1, func(i int, b *core.BlockGen) {
-		signer := validators[1%len(validators)] // block 1 in-turn proposer
+		signer := turnSignerForGeneratedBlock(validators, 1, dposCfg.PeriodMs, dposCfg.TurnLength) // block 1 in-turn proposer
 		b.SetCoinbase(signer)
 		b.SetDifficulty(diffInTurn)
 	})
 	base := blocks[0].Header()
-	baseSigner := validators[1%len(validators)]
+	baseSigner := turnSignerForGeneratedBlock(validators, 1, dposCfg.PeriodMs, dposCfg.TurnLength)
 	baseEntry, ok := keysByAddr[baseSigner]
 	if !ok {
 		t.Fatalf("missing key for base signer %s", baseSigner.Hex())
@@ -716,7 +741,7 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 		},
 		{
 			name:        "coinbase-mismatch",
-			coinbase:    validators[2%len(validators)],
+			coinbase:    validators[1],
 			difficulty:  new(big.Int).Set(diffInTurn),
 			signPub:     baseEntry.pub,
 			signPriv:    baseEntry.priv,
@@ -777,6 +802,7 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 		PeriodMs:       1000,
 		Epoch:          3,
 		MaxValidators:  21,
+		TurnLength:     1,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges

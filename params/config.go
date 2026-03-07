@@ -64,6 +64,7 @@ var (
 			PeriodMs:       DPoSBlockPeriodMs,
 			Epoch:          DPoSEpochLength,
 			MaxValidators:  DPoSMaxValidators,
+			TurnLength:     DPoSTurnLength,
 			SealSignerType: DefaultDPoSSealSignerType,
 		},
 	}
@@ -76,6 +77,7 @@ var (
 			PeriodMs:       DPoSBlockPeriodMs,
 			Epoch:          DPoSEpochLength,
 			MaxValidators:  DPoSMaxValidators,
+			TurnLength:     DPoSTurnLength,
 			SealSignerType: DefaultDPoSSealSignerType,
 		},
 	}
@@ -86,6 +88,7 @@ var (
 			PeriodMs:       DPoSBlockPeriodMs,
 			Epoch:          DPoSEpochLength,
 			MaxValidators:  DPoSMaxValidators,
+			TurnLength:     DPoSTurnLength,
 			SealSignerType: DefaultDPoSSealSignerType,
 		},
 	}
@@ -186,7 +189,8 @@ type DPoSConfig struct {
 	PeriodMs                uint64   `json:"periodMs"`                          // target block interval (milliseconds)
 	Epoch                   uint64   `json:"epoch"`                             // blocks between validator-set snapshots
 	MaxValidators           uint64   `json:"maxValidators"`                     // maximum active validators
-	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`      // recent-sign window in blocks; 0 => auto (validators/3 + 1)
+	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`      // recent-sign window in slots; 0 => auto (grouped-turn default)
+	TurnLength              uint64   `json:"turnLength,omitempty"`              // consecutive slots owned by the in-turn proposer; mandatory
 	SealSignerType          string   `json:"sealSignerType,omitempty"`          // consensus block-seal signer type: ed25519 only
 	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`      // blocks between checkpoint finality votes (0 => inactive)
 	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"` // activation block for checkpoint finality (nil => inactive)
@@ -200,20 +204,21 @@ func (c *DPoSConfig) TargetBlockPeriodMs() uint64 {
 	return c.PeriodMs
 }
 
-// RecentSignerWindowSize returns the effective recent-sign window in blocks.
-// If RecentSignerWindow is zero, it defaults to validators/3 + 1.
+// RecentSignerWindowSize returns the effective recent-sign window in slots.
+// If RecentSignerWindow is zero, it defaults to grouped-turn history:
+// (validators/2 + 1) * turnLength - 1.
 func (c *DPoSConfig) RecentSignerWindowSize(validators int) uint64 {
 	if validators <= 0 {
 		return 1
 	}
-	maxWindow := uint64(validators)
 	if c != nil && c.RecentSignerWindow > 0 {
-		if c.RecentSignerWindow > maxWindow {
-			return maxWindow
-		}
 		return c.RecentSignerWindow
 	}
-	return uint64(validators/3 + 1)
+	turnLength := uint64(1)
+	if c != nil && c.TurnLength > 0 {
+		turnLength = c.TurnLength
+	}
+	return (uint64(validators/2)+1)*turnLength - 1
 }
 
 // UnmarshalJSON rejects the removed legacy dpos.period field.
@@ -236,8 +241,8 @@ func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, sealSignerType: %s}",
-		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.SealSignerType)
+	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, turnLength: %d, sealSignerType: %s}",
+		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.TurnLength, c.SealSignerType)
 }
 
 // IsCheckpointFinality reports whether checkpoint finality is active at the given block number.
@@ -273,6 +278,26 @@ func (c *DPoSConfig) ValidateCheckpointConfig() error {
 	}
 	if c.CheckpointInterval == 0 {
 		c.CheckpointInterval = 200
+	}
+	return nil
+}
+
+// ValidateTurnLengthConfig returns an error if grouped-turn DPoS parameters are invalid.
+func (c *DPoSConfig) ValidateTurnLengthConfig() error {
+	if c == nil {
+		return nil
+	}
+	if c.TurnLength == 0 {
+		return fmt.Errorf("dpos: turnLength missing or zero")
+	}
+	if c.Epoch == 0 {
+		return fmt.Errorf("dpos: epoch must be > 0")
+	}
+	if c.TurnLength > c.Epoch {
+		return fmt.Errorf("dpos: turnLength %d exceeds epoch %d", c.TurnLength, c.Epoch)
+	}
+	if c.Epoch%c.TurnLength != 0 {
+		return fmt.Errorf("dpos: epoch %d must be divisible by turnLength %d", c.Epoch, c.TurnLength)
 	}
 	return nil
 }
@@ -395,6 +420,15 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 				What:         "DPoS maxValidators",
 				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaxValidators),
 				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaxValidators),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if c.DPoS.TurnLength != newcfg.DPoS.TurnLength {
+			return &ConfigCompatError{
+				What:         "DPoS turnLength",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.TurnLength),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.TurnLength),
 				RewindTo:     0,
 				Fatal:        true,
 			}

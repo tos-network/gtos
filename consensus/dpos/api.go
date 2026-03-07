@@ -18,11 +18,11 @@ type API struct {
 
 // ValidatorInfo is a validator status view at a snapshot/block.
 type ValidatorInfo struct {
-	Address            common.Address   `json:"address"`
-	Active             bool             `json:"active"`
-	Index              *hexutil.Uint    `json:"index,omitempty"`
-	SnapshotBlock      hexutil.Uint64   `json:"snapshotBlock"`
-	SnapshotHash       common.Hash      `json:"snapshotHash"`
+	Address           common.Address   `json:"address"`
+	Active            bool             `json:"active"`
+	Index             *hexutil.Uint    `json:"index,omitempty"`
+	SnapshotBlock     hexutil.Uint64   `json:"snapshotBlock"`
+	SnapshotHash      common.Hash      `json:"snapshotHash"`
 	RecentSignedSlots []hexutil.Uint64 `json:"recentSignedSlots,omitempty"`
 }
 
@@ -35,6 +35,9 @@ type EpochInfo struct {
 	NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
 	BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
 	TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+	TurnLength          hexutil.Uint64 `json:"turnLength"`
+	TurnGroupDurationMs hexutil.Uint64 `json:"turnGroupDurationMs"`
+	RecentSignerWindow  hexutil.Uint64 `json:"recentSignerWindow"`
 	MaxValidators       hexutil.Uint64 `json:"maxValidators"`
 	ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
 	SnapshotHash        common.Hash    `json:"snapshotHash"`
@@ -136,6 +139,11 @@ func (api *API) GetEpochInfo(number *rpc.BlockNumber) (*EpochInfo, error) {
 	epochIndex := blockNum / epoch
 	epochStart := epochIndex * epoch
 	nextEpochStart := epochStart + epoch
+	turnLength := cfg.TurnLength
+	if turnLength == 0 {
+		turnLength = 1
+	}
+	turnGroupDurationMs := turnLength * cfg.TargetBlockPeriodMs()
 
 	return &EpochInfo{
 		BlockNumber:         hexutil.Uint64(blockNum),
@@ -145,6 +153,9 @@ func (api *API) GetEpochInfo(number *rpc.BlockNumber) (*EpochInfo, error) {
 		NextEpochStart:      hexutil.Uint64(nextEpochStart),
 		BlocksUntilEpoch:    hexutil.Uint64(nextEpochStart - blockNum),
 		TargetBlockPeriodMs: hexutil.Uint64(cfg.TargetBlockPeriodMs()),
+		TurnLength:          hexutil.Uint64(turnLength),
+		TurnGroupDurationMs: hexutil.Uint64(turnGroupDurationMs),
+		RecentSignerWindow:  hexutil.Uint64(cfg.RecentSignerWindowSize(len(snap.Validators))),
 		MaxValidators:       hexutil.Uint64(cfg.MaxValidators),
 		ValidatorCount:      hexutil.Uint64(len(snap.Validators)),
 		SnapshotHash:        snap.Hash,

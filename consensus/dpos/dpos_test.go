@@ -40,9 +40,9 @@ func TestNewInvalidConfig(t *testing.T) {
 		name   string
 		config params.DPoSConfig
 	}{
-		{"epoch=0", params.DPoSConfig{Epoch: 0, PeriodMs: 3000, MaxValidators: 21}},
-		{"periodMs=0", params.DPoSConfig{Epoch: 200, PeriodMs: 0, MaxValidators: 21}},
-		{"maxValidators=0", params.DPoSConfig{Epoch: 200, PeriodMs: 3000, MaxValidators: 0}},
+		{"epoch=0", params.DPoSConfig{Epoch: 0, PeriodMs: 3000, MaxValidators: 21, TurnLength: params.DPoSTurnLength}},
+		{"periodMs=0", params.DPoSConfig{Epoch: 208, PeriodMs: 0, MaxValidators: 21, TurnLength: params.DPoSTurnLength}},
+		{"maxValidators=0", params.DPoSConfig{Epoch: 208, PeriodMs: 3000, MaxValidators: 0, TurnLength: params.DPoSTurnLength}},
 	}
 	for _, tt := range tests {
 		cfg := tt.config
@@ -242,17 +242,12 @@ func TestCoinbaseMismatch(t *testing.T) {
 	}
 }
 
-// TestRecentlySigned verifies that a block is rejected when the validator
-// signed within the slot-based recency window (default: len(Validators)/3+1 slots).
-//
-// With 3 validators, limit = 3/3+1 = 2.
-// If signer last signed at slot 2 and current header is at slot 3:
-//
-//	seenSlot=2, slot=3, limit=2 → seenSlot > slot-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
+// TestRecentlySigned verifies grouped-turn recency:
+// a validator may sign its own full 16-slot turn group, but is blocked from
+// entering the next turn group too early.
 func TestRecentlySigned(t *testing.T) {
 	pub, priv, signer := testEd25519Key(0x04)
 
-	// Three-validator set; recency window = 3/3+1 = 2.
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
 
@@ -260,18 +255,19 @@ func TestRecentlySigned(t *testing.T) {
 	const periodMs = uint64(360)
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
-	// Signer signed at slot 2; current header is at slot 3.
-	// limit=2; seenSlot=2 > slot-limit = 3-2 = 1 → REJECT.
-	snap.Recents[2] = signer
-
 	header := &types.Header{
-		Number:     big.NewInt(3),
-		Difficulty: big.NewInt(1),
+		Number:     big.NewInt(17),
+		Difficulty: big.NewInt(2),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSealEd25519),
-		Time:       genesisTime + 3*periodMs, // slot 3
+		Time:       genesisTime + 17*periodMs, // slot 17
 	}
 	signTestHeader(t, d, header, pub, priv)
+
+	// Allowed: consume the full current turn group.
+	for slot := uint64(1); slot <= d.config.TurnLength; slot++ {
+		snap.Recents[slot] = signer
+	}
 
 	if err := d.verifySeal(snap, header); err != errRecentlySigned {
 		t.Errorf("want errRecentlySigned, got %v", err)
@@ -285,9 +281,10 @@ func TestFinalizedValidatorSetHashRestoresFromDB(t *testing.T) {
 	rawdb.WriteFinalizedBlockHash(db, common.HexToHash("0x1"))
 
 	d, err := New(&params.DPoSConfig{
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
 		PeriodMs:       3000,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, db)
 	if err != nil {
@@ -306,9 +303,10 @@ func TestFinalizedValidatorSetHashRestoresFromDB(t *testing.T) {
 func TestOnCanonicalBlockCommitsStagedFinality(t *testing.T) {
 	db := rawdb.NewMemoryDatabase()
 	d, err := New(&params.DPoSConfig{
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
 		PeriodMs:       3000,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, db)
 	if err != nil {
@@ -464,8 +462,9 @@ func TestOutOfTurnWiggleWindow(t *testing.T) {
 
 	msCfg := &params.DPoSConfig{
 		PeriodMs:       500,
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	dms, err := New(msCfg, nil)
@@ -478,8 +477,9 @@ func TestOutOfTurnWiggleWindow(t *testing.T) {
 
 	tinyCfg := &params.DPoSConfig{
 		PeriodMs:       10,
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	dtiny, err := New(tinyCfg, nil)
@@ -503,8 +503,9 @@ func TestPrepareUsesPeriodMs(t *testing.T) {
 
 	d, err := New(&params.DPoSConfig{
 		PeriodMs:       500,
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
@@ -525,7 +526,7 @@ func TestPrepareUsesPeriodMs(t *testing.T) {
 
 // ── inturnSlot / addressAscending ────────────────────────────────────────────
 
-// TestInturnSlot verifies round-robin assignment of in-turn validators by slot number.
+// TestInturnSlot verifies grouped-turn assignment of in-turn validators by slot number.
 func TestInturnSlot(t *testing.T) {
 	addrs := []common.Address{{0x01}, {0x02}, {0x03}}
 	d := NewFaker()
@@ -533,10 +534,15 @@ func TestInturnSlot(t *testing.T) {
 	const periodMs = uint64(360)
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
-	// Slot 0 → addrs[0], slot 1 → addrs[1], slot 2 → addrs[2], slot 3 → addrs[0] again.
+	// Slots are grouped in 16-slot turns:
+	// 1..16 -> addrs[0], 17..32 -> addrs[1], 33..48 -> addrs[2].
 	cases := map[uint64]common.Address{
-		0: addrs[0], 1: addrs[1], 2: addrs[2],
-		3: addrs[0], 4: addrs[1], 5: addrs[2],
+		1:  addrs[0],
+		16: addrs[0],
+		17: addrs[1],
+		32: addrs[1],
+		33: addrs[2],
+		48: addrs[2],
 	}
 	for slot, want := range cases {
 		if !snap.inturnSlot(slot, want) {
@@ -570,11 +576,9 @@ func TestAddressAscendingSort(t *testing.T) {
 
 // ── SLOT_V3 new tests ─────────────────────────────────────────────────────────
 
-// TestSlotBasedRecentsAfterSkip demonstrates the M3 fix: a validator that signed
-// at slot 5 is NOT blocked when proposing at slot 7 (one slot was skipped).
-//
-// With 3 validators, limit = 3/3+1 = 2.
-// seenSlot=5, slot=7, slot-limit=5 → seenSlot(5) > slot-limit(5) → 5 > 5 → false → ALLOW ✓
+// TestSlotBasedRecentsAfterSkip demonstrates grouped-turn recency: a validator
+// that has signed fewer than TurnLength times inside the active window remains
+// eligible, even when slots are skipped.
 func TestSlotBasedRecentsAfterSkip(t *testing.T) {
 	pub, priv, signer := testEd25519Key(0x07)
 
@@ -584,20 +588,22 @@ func TestSlotBasedRecentsAfterSkip(t *testing.T) {
 	const periodMs = uint64(360)
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
-	// Signer signed at slot 5; slot 6 was skipped; current slot is 7.
-	snap.Recents[5] = signer
+	// Signer has signed 15 times inside the active window; slot 17 is still allowed.
+	for slot := uint64(1); slot < d.config.TurnLength; slot++ {
+		snap.Recents[slot] = signer
+	}
 
 	header := &types.Header{
-		Number:     big.NewInt(7),
-		Difficulty: big.NewInt(1),
+		Number:     big.NewInt(17),
+		Difficulty: big.NewInt(2),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSealEd25519),
-		Time:       genesisTime + 7*periodMs, // slot 7
+		Time:       genesisTime + 17*periodMs, // slot 17
 	}
 	signTestHeader(t, d, header, pub, priv)
 
 	if err := d.verifySeal(snap, header); err == errRecentlySigned {
-		t.Error("M3 fix: validator should NOT be blocked after slot skip, got errRecentlySigned")
+		t.Error("validator should remain allowed until it exhausts all 16 appearances in the active window")
 	}
 }
 
@@ -632,7 +638,8 @@ func TestHeaderSlotHelper(t *testing.T) {
 // parent.Time < snap.GenesisTime (uint64 underflow guard).
 func TestM2Guard(t *testing.T) {
 	d, err := New(&params.DPoSConfig{
-		PeriodMs: 360, Epoch: 200, MaxValidators: 21,
+		PeriodMs: 360, Epoch: 208, MaxValidators: 21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
@@ -667,10 +674,8 @@ func TestM2Guard(t *testing.T) {
 	}
 }
 
-// TestRecentlySignedAllowAtWindowEdge verifies the ALLOW boundary of the recency
-// window: a validator that signed exactly at slot-limit is NOT blocked.
-//
-// With 3 validators, limit=2. seenSlot=1, slot=3: seenSlot(1) > slot-limit(1) → false → ALLOW.
+// TestRecentlySignedAllowAtWindowEdge verifies that a validator becomes eligible
+// again exactly at the grouped-turn window boundary.
 func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
 	pub, priv, signer := testEd25519Key(0x08)
 
@@ -680,21 +685,24 @@ func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
 	const periodMs = uint64(360)
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
-	// Signer signed at slot 1; current header is at slot 3.
-	// limit=2; seenSlot=1, slot-limit=1 → 1 > 1 → false → ALLOW.
-	snap.Recents[1] = signer
+	// For N=3, T=16, recent window = 31.
+	// Put 16 signatures in slots 1..16. At slot 32 the left bound is 1 (exclusive),
+	// so slot 1 drops out of the active window and the validator is allowed again.
+	for slot := uint64(1); slot <= d.config.TurnLength; slot++ {
+		snap.Recents[slot] = signer
+	}
 
 	header := &types.Header{
-		Number:     big.NewInt(3),
-		Difficulty: big.NewInt(1),
+		Number:     big.NewInt(32),
+		Difficulty: big.NewInt(2),
 		Coinbase:   signer,
 		Extra:      make([]byte, extraVanity+extraSealEd25519),
-		Time:       genesisTime + 3*periodMs, // slot 3
+		Time:       genesisTime + 32*periodMs, // slot 32
 	}
 	signTestHeader(t, d, header, pub, priv)
 
 	if err := d.verifySeal(snap, header); err == errRecentlySigned {
-		t.Error("window-edge: validator should be ALLOWED at exactly slot-limit distance, got errRecentlySigned")
+		t.Error("window-edge: validator should be allowed again exactly at the grouped-turn window boundary")
 	}
 }
 
@@ -723,19 +731,19 @@ func TestApplyBulkEviction(t *testing.T) {
 	snap, _ := newSnapshot(d.config, d.signatures, 0, common.Hash{}, addrs, genesisTime, periodMs)
 
 	// Pre-populate Recents with two stale entries at slots 0 and 1.
-	// limit = 3/3+1 = 2.  For an incoming block at slot 10: staleThreshold = 10-2 = 8.
-	// Both slot 0 and slot 1 are <= 8, so both must be evicted.
+	// With N=3 and T=16, limit = 31. For an incoming block at slot 40:
+	// staleThreshold = 40-31 = 9, so both slot 0 and slot 1 must be evicted.
 	snap.Recents[0] = addrs[0]
 	snap.Recents[1] = addrs[1]
 
-	// Apply one header at slot 10 signed by addrs[2].
+	// Apply one header at slot 40 signed by addrs[2].
 	h := &types.Header{
 		Number:     big.NewInt(1),
 		ParentHash: common.Hash{},
 		Difficulty: big.NewInt(1),
 		Coinbase:   addrs[2],
 		Extra:      make([]byte, extraVanity+extraSealEd25519),
-		Time:       genesisTime + 10*periodMs, // slot 10
+		Time:       genesisTime + 40*periodMs, // slot 40
 	}
 	entry := keysByAddr[addrs[2]]
 	signTestHeader(t, d, h, entry.pub, entry.priv)
@@ -744,37 +752,36 @@ func TestApplyBulkEviction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	// Slots 0 and 1 must be gone; only slot 10 (addrs[2]) must remain.
+	// Slots 0 and 1 must be gone; only slot 40 (addrs[2]) must remain.
 	if _, ok := next.Recents[0]; ok {
 		t.Error("slot 0 should have been evicted")
 	}
 	if _, ok := next.Recents[1]; ok {
 		t.Error("slot 1 should have been evicted")
 	}
-	if signer, ok := next.Recents[10]; !ok || signer != addrs[2] {
-		t.Errorf("slot 10 should map to addrs[2]; got %v ok=%v", signer, ok)
+	if signer, ok := next.Recents[40]; !ok || signer != addrs[2] {
+		t.Errorf("slot 40 should map to addrs[2]; got %v ok=%v", signer, ok)
 	}
 }
 
 // TestCalcDifficultyUsesTime verifies that CalcDifficulty uses the caller-supplied
 // time argument rather than parent.Time+periodMs to determine the in-turn validator.
 //
-// With 2 validators (addrs[0] in-turn at even slots, addrs[1] at odd slots) and
-// parent at slot 0:
-//   - parent.Time + periodMs → slot 1 → addrs[1] in-turn  → addrs[0] would be diffNoTurn (old code)
-//   - time argument           → slot 2 → addrs[0] in-turn  → addrs[0] must be diffInTurn  (new code)
+// With 2 validators and TurnLength=16:
+//   - slot 1 is still in the first proposer's turn group
+//   - slot 17 is the second proposer's first in-turn slot
 //
-// The test asserts diffInTurn; it would fail under the old implementation.
+// The test asserts that CalcDifficulty uses the caller-supplied time and grouped-turn
+// slot mapping, not parent.Time+periodMs.
 func TestCalcDifficultyUsesTime(t *testing.T) {
 	const genesisTime = uint64(1_000_000)
 	const periodMs = uint64(360)
 
-	// Two validators, sorted ascending so addrs[0] is in-turn at even slots.
+	// Two validators, sorted ascending so addrs[0] owns slots 1..16.
 	_, _, addr0 := testEd25519Key(0x0c)
 	_, _, addr1 := testEd25519Key(0x0d)
 	addrs := []common.Address{addr0, addr1}
 	sort.Sort(addressAscending(addrs))
-	// addrs[0] is in-turn at slots 0, 2, 4, …; addrs[1] at slots 1, 3, 5, …
 
 	extra := make([]byte, extraVanity)
 	for _, a := range addrs {
@@ -788,7 +795,8 @@ func TestCalcDifficultyUsesTime(t *testing.T) {
 	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: genesis}}
 
 	d, err := New(&params.DPoSConfig{
-		PeriodMs: periodMs, Epoch: 200, MaxValidators: 21,
+		PeriodMs: periodMs, Epoch: 208, MaxValidators: 21,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
@@ -799,24 +807,23 @@ func TestCalcDifficultyUsesTime(t *testing.T) {
 
 	parent := genesis // parent at slot 0 (genesisTime)
 
-	// Passed time = slot 2 → addrs[0] in-turn → must return diffInTurn.
-	// Old code would use parent.Time+periodMs = slot 1 → addrs[1] in-turn → diffNoTurn for addrs[0].
-	diff := d.CalcDifficulty(chain, genesisTime+2*periodMs, parent)
+	// Passed time = slot 17 -> second validator in-turn -> addrs[0] must be out-of-turn.
+	// Old code using parent.Time+periodMs would look at slot 1 instead.
+	diff := d.CalcDifficulty(chain, genesisTime+17*periodMs, parent)
 	if diff == nil {
 		t.Fatal("CalcDifficulty returned nil")
 	}
-	if diff.Cmp(diffInTurn) != 0 {
-		t.Errorf("CalcDifficulty: want diffInTurn for addrs[0] at slot 2, got %v"+
-			" (regression: old code ignoring time arg would return diffNoTurn)", diff)
+	if diff.Cmp(diffNoTurn) != 0 {
+		t.Errorf("CalcDifficulty: want diffNoTurn for addrs[0] at slot 17, got %v", diff)
 	}
 
-	// Cross-check: slot 1 (parent.Time+periodMs) → addrs[1] in-turn → addrs[0] out-of-turn.
+	// Cross-check: slot 1 remains addrs[0]'s in-turn slot.
 	diff2 := d.CalcDifficulty(chain, genesisTime+periodMs, parent)
 	if diff2 == nil {
 		t.Fatal("CalcDifficulty (slot 1) returned nil")
 	}
-	if diff2.Cmp(diffNoTurn) != 0 {
-		t.Errorf("CalcDifficulty: want diffNoTurn for addrs[0] at slot 1, got %v", diff2)
+	if diff2.Cmp(diffInTurn) != 0 {
+		t.Errorf("CalcDifficulty: want diffInTurn for addrs[0] at slot 1, got %v", diff2)
 	}
 }
 

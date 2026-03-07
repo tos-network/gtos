@@ -33,7 +33,7 @@ func stateAccessorTestKey(t *testing.T) *ecdsa.PrivateKey {
 func TestStateAtTransactionUsesPreBlockSignerSnapshot(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	chainSigner := types.LatestSigner(config)
 	fromKey := stateAccessorTestKey(t)

@@ -75,12 +75,12 @@ func TestDPoSConfigRecentSignerWindowSize(t *testing.T) {
 		validators int
 		want       uint64
 	}{
-		{name: "auto default", cfg: &DPoSConfig{}, validators: 15, want: 6},
-		{name: "auto small set", cfg: &DPoSConfig{}, validators: 3, want: 2},
-		{name: "explicit override", cfg: &DPoSConfig{RecentSignerWindow: 9}, validators: 21, want: 9},
-		{name: "override capped by validators", cfg: &DPoSConfig{RecentSignerWindow: 100}, validators: 15, want: 15},
-		{name: "zero validators guard", cfg: &DPoSConfig{}, validators: 0, want: 1},
-		{name: "nil config uses auto", cfg: nil, validators: 21, want: 8},
+		{name: "auto default", cfg: &DPoSConfig{TurnLength: DPoSTurnLength}, validators: 15, want: (15/2+1)*DPoSTurnLength - 1},
+		{name: "auto small set", cfg: &DPoSConfig{TurnLength: DPoSTurnLength}, validators: 3, want: 31},
+		{name: "explicit override", cfg: &DPoSConfig{TurnLength: DPoSTurnLength, RecentSignerWindow: 9}, validators: 21, want: 9},
+		{name: "override no cap", cfg: &DPoSConfig{TurnLength: DPoSTurnLength, RecentSignerWindow: 100}, validators: 15, want: 100},
+		{name: "zero validators guard", cfg: &DPoSConfig{TurnLength: DPoSTurnLength}, validators: 0, want: 1},
+		{name: "nil config uses auto", cfg: nil, validators: 21, want: 10},
 	}
 	for _, tc := range tests {
 		if got := tc.cfg.RecentSignerWindowSize(tc.validators); got != tc.want {
@@ -90,7 +90,7 @@ func TestDPoSConfigRecentSignerWindowSize(t *testing.T) {
 }
 
 func TestChainConfigJSONPeriodMs(t *testing.T) {
-	periodMsJSON := []byte(`{"chainId":1,"dpos":{"periodMs":360,"epoch":1667,"maxValidators":15,"recentSignerWindow":9,"sealSignerType":"ed25519"}}`)
+	periodMsJSON := []byte(`{"chainId":1,"dpos":{"periodMs":360,"epoch":1667,"turnLength":16,"maxValidators":15,"recentSignerWindow":9,"sealSignerType":"ed25519"}}`)
 	var cfg ChainConfig
 	if err := json.Unmarshal(periodMsJSON, &cfg); err != nil {
 		t.Fatalf("unmarshal periodMs config: %v", err)
@@ -104,14 +104,40 @@ func TestChainConfigJSONPeriodMs(t *testing.T) {
 	if cfg.DPoS.RecentSignerWindow != 9 {
 		t.Fatalf("recentSignerWindow parse mismatch: have %d want %d", cfg.DPoS.RecentSignerWindow, 9)
 	}
+	if cfg.DPoS.TurnLength != 16 {
+		t.Fatalf("turnLength parse mismatch: have %d want %d", cfg.DPoS.TurnLength, 16)
+	}
 
 }
 
 func TestChainConfigJSONRejectsLegacyPeriod(t *testing.T) {
-	legacyPeriodJSON := []byte(`{"chainId":1,"dpos":{"period":1,"epoch":1667,"maxValidators":15,"sealSignerType":"ed25519"}}`)
+	legacyPeriodJSON := []byte(`{"chainId":1,"dpos":{"period":1,"epoch":1667,"turnLength":16,"maxValidators":15,"sealSignerType":"ed25519"}}`)
 	var cfg ChainConfig
 	if err := json.Unmarshal(legacyPeriodJSON, &cfg); err == nil {
 		t.Fatalf("expected legacy period config to be rejected")
+	}
+}
+
+func TestValidateTurnLengthConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *DPoSConfig
+		wantErr bool
+	}{
+		{name: "valid", cfg: &DPoSConfig{Epoch: DPoSEpochLength, TurnLength: DPoSTurnLength}, wantErr: false},
+		{name: "missing", cfg: &DPoSConfig{Epoch: DPoSEpochLength}, wantErr: true},
+		{name: "zero", cfg: &DPoSConfig{Epoch: DPoSEpochLength, TurnLength: 0}, wantErr: true},
+		{name: "gt epoch", cfg: &DPoSConfig{Epoch: 16, TurnLength: 32}, wantErr: true},
+		{name: "not divisible", cfg: &DPoSConfig{Epoch: 100, TurnLength: 16}, wantErr: true},
+	}
+	for _, tc := range tests {
+		err := tc.cfg.ValidateTurnLengthConfig()
+		if tc.wantErr && err == nil {
+			t.Fatalf("%s: expected error", tc.name)
+		}
+		if !tc.wantErr && err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
 	}
 }
 
@@ -172,20 +198,20 @@ func TestCheckCompatible(t *testing.T) {
 		},
 		// DPoS param mismatch tests: Fatal=true so startup is blocked even when RewindTo==0.
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 200, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 208, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS epoch",
 				StoredConfig: big.NewInt(100),
-				NewConfig:    big.NewInt(200),
+				NewConfig:    big.NewInt(208),
 				RewindTo:     0,
 				Fatal:        true,
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 1000, MaxValidators: 15, SealSignerType: "ed25519"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 1000, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS periodMs",
@@ -196,8 +222,8 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 21, SealSignerType: "ed25519"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 21, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS maxValidators",
@@ -208,16 +234,29 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
-			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: ""}},
+			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: ""}},
 			head:    10,
 			wantErr: nil,
+		},
+		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 96, PeriodMs: 360, MaxValidators: 15, TurnLength: 16, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 96, PeriodMs: 360, MaxValidators: 15, TurnLength: 8, SealSignerType: "ed25519"}},
+			head:   10,
+			wantErr: &ConfigCompatError{
+				What:         "DPoS turnLength",
+				StoredConfig: big.NewInt(16),
+				NewConfig:    big.NewInt(8),
+				RewindTo:     0,
+				Fatal:        true,
+			},
 		},
 		{
 			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{
 				Epoch:                   100,
 				PeriodMs:                360,
 				MaxValidators:           15,
+				TurnLength:              DPoSTurnLength,
 				SealSignerType:          "ed25519",
 				CheckpointInterval:      50,
 				CheckpointFinalityBlock: big.NewInt(1000),
@@ -226,6 +265,7 @@ func TestCheckCompatible(t *testing.T) {
 				Epoch:                   100,
 				PeriodMs:                360,
 				MaxValidators:           15,
+				TurnLength:              DPoSTurnLength,
 				SealSignerType:          "ed25519",
 				CheckpointInterval:      100,
 				CheckpointFinalityBlock: big.NewInt(1000),
@@ -244,6 +284,7 @@ func TestCheckCompatible(t *testing.T) {
 				Epoch:                   100,
 				PeriodMs:                360,
 				MaxValidators:           15,
+				TurnLength:              DPoSTurnLength,
 				SealSignerType:          "ed25519",
 				CheckpointInterval:      50,
 				CheckpointFinalityBlock: big.NewInt(1000),
@@ -252,6 +293,7 @@ func TestCheckCompatible(t *testing.T) {
 				Epoch:                   100,
 				PeriodMs:                360,
 				MaxValidators:           15,
+				TurnLength:              DPoSTurnLength,
 				SealSignerType:          "ed25519",
 				CheckpointInterval:      50,
 				CheckpointFinalityBlock: big.NewInt(2000),

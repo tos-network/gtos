@@ -502,6 +502,7 @@ func DeveloperGenesisBlockMs(periodMs uint64, gasLimit uint64, faucet common.Add
 		PeriodMs:       periodMs,
 		Epoch:          config.DPoS.Epoch,
 		MaxValidators:  config.DPoS.MaxValidators,
+		TurnLength:     config.DPoS.TurnLength,
 		SealSignerType: config.DPoS.SealSignerType,
 	}
 

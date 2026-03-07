@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	lua "github.com/tos-network/tolang"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
+	lvm "github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
-	lvm "github.com/tos-network/gtos/core/vm"
+	lua "github.com/tos-network/tolang"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
 
@@ -88,7 +88,7 @@ func lvmTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractA
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -121,7 +121,7 @@ func lvmTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -155,7 +155,7 @@ func lvmTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractA
 	t.Helper()
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -1951,7 +1951,7 @@ func TestLvmContractCrossContractRead(t *testing.T) {
 
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -2559,7 +2559,7 @@ func TestLvmContractStaticCall(t *testing.T) {
 
 		config := &params.ChainConfig{
 			ChainID: big.NewInt(1),
-			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 		}
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
@@ -5247,7 +5247,7 @@ func TestLvmContractPausable(t *testing.T) {
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))             // Tx 1: pause
+		runLvmTx(t, bc, addr, big.NewInt(0))                       // Tx 1: pause
 		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: unpause
 
 		state, _ := bc.State()
@@ -5301,7 +5301,7 @@ func TestLvmContractPausable(t *testing.T) {
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))                                       // Tx 1: pause ok
+		runLvmTx(t, bc, addr, big.NewInt(0))                                 // Tx 1: pause ok
 		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: double-pause reverts
 	})
 
@@ -5329,10 +5329,10 @@ func TestLvmContractPausable(t *testing.T) {
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 
-		runLvmTx(t, bc, addr, big.NewInt(0))                                           // Tx 1: pause
+		runLvmTx(t, bc, addr, big.NewInt(0))                                 // Tx 1: pause
 		runLvmTxWithDataExpectFail(t, bc, addr, big.NewInt(0), []byte{0x01}) // Tx 2: guarded fn reverts
-		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x02})              // Tx 3: unpause
-		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})              // Tx 4: guarded fn succeeds
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x02})           // Tx 3: unpause
+		runLvmTxWithData(t, bc, addr, big.NewInt(0), []byte{0x03})           // Tx 4: guarded fn succeeds
 
 		state, _ := bc.State()
 		doneSlot := state.GetState(addr, lvm.StorageSlot("done"))

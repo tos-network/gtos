@@ -52,7 +52,7 @@ func TestStateProcessorErrors(t *testing.T) {
 	var (
 		config = &params.ChainConfig{
 			ChainID: big.NewInt(1),
-			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 		}
 		signer  = types.LatestSigner(config)
 		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -249,7 +249,7 @@ func TestStateProcessorErrors(t *testing.T) {
 func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	chainSigner := types.LatestSigner(config)
 	fromKey, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -407,7 +407,7 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 func TestScheduledTaskGasCountedInGeneratedBlock(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	signer := types.LatestSigner(config)
 	key, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -492,7 +492,7 @@ func TestScheduledTaskGasCountedInGeneratedBlock(t *testing.T) {
 func TestAddTxWithChainAndProcessSharePreBlockSignerSemantics(t *testing.T) {
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	chainSigner := types.LatestSigner(config)
 	fromKey, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")

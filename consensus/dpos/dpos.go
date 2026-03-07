@@ -184,6 +184,9 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if config.MaxValidators == 0 {
 		return nil, errors.New("dpos: maxValidators must be > 0")
 	}
+	if err := config.ValidateTurnLengthConfig(); err != nil {
+		return nil, err
+	}
 	sealSignerType, err := params.NormalizeDPoSSealSignerType(config.SealSignerType)
 	if err != nil {
 		return nil, err
@@ -213,9 +216,10 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 // checks and uses nil db (no disk persistence). Panics on invalid config.
 func NewFaker() *DPoS {
 	d, err := New(&params.DPoSConfig{
-		Epoch:          200,
+		Epoch:          208,
 		MaxValidators:  params.DPoSMaxValidators,
 		PeriodMs:       3000,
+		TurnLength:     params.DPoSTurnLength,
 		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
@@ -1237,14 +1241,9 @@ func (d *DPoS) verifySeal(snap *Snapshot, header *types.Header) error {
 	if !ok {
 		return errInvalidTimestamp
 	}
-	// Check recency: reject if signer signed within the slot-based recency window.
-	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
-	for seenSlot, recent := range snap.Recents {
-		if recent == signer {
-			if slot < limit || seenSlot > slot-limit {
-				return errRecentlySigned
-			}
-		}
+	// Check grouped-turn recency via the snapshot helper.
+	if snap.recentlySignedAt(slot, signer) {
+		return errRecentlySigned
 	}
 	if !d.fakeDiff {
 		inturn := snap.inturnSlot(slot, signer)
@@ -1599,13 +1598,8 @@ func (d *DPoS) Seal(chain consensus.ChainHeaderReader, block *types.Block,
 	if !ok {
 		return errInvalidTimestamp
 	}
-	limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
-	for seenSlot, recent := range snap.Recents {
-		if recent == v {
-			if sealSlot < limit || seenSlot > sealSlot-limit {
-				return errors.New("dpos: signed recently, must wait")
-			}
-		}
+	if snap.recentlySignedAt(sealSlot, v) {
+		return errors.New("dpos: signed recently, must wait")
 	}
 
 	// Compute delay. In-turn: honour header.Time. Out-of-turn: add random wiggle.

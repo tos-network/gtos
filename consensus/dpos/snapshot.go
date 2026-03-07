@@ -31,11 +31,11 @@ type Snapshot struct {
 
 	Number          uint64                      `json:"number"`
 	Hash            common.Hash                 `json:"hash"`
-	Validators      []common.Address            `json:"validators"`              // sorted ascending by address
-	ValidatorsMap   map[common.Address]struct{} `json:"validatorsMap"`           // O(1) lookup
-	Recents         map[uint64]common.Address   `json:"recents"`                 // slot → signer
-	GenesisTime     uint64                      `json:"genesisTime"`             // unix ms
-	PeriodMs        uint64                      `json:"periodMs"`                // target block period ms
+	Validators      []common.Address            `json:"validators"`                // sorted ascending by address
+	ValidatorsMap   map[common.Address]struct{} `json:"validatorsMap"`             // O(1) lookup
+	Recents         map[uint64]common.Address   `json:"recents"`                   // slot → signer
+	GenesisTime     uint64                      `json:"genesisTime"`               // unix ms
+	PeriodMs        uint64                      `json:"periodMs"`                  // target block period ms
 	FinalizedNumber uint64                      `json:"finalizedNumber,omitempty"` // highest finalized checkpoint number
 	FinalizedHash   common.Hash                 `json:"finalizedHash,omitempty"`   // hash of the highest finalized checkpoint
 }
@@ -98,25 +98,58 @@ func (s *Snapshot) copy() *Snapshot {
 
 // inturnSlot returns true if validator is the expected proposer for the given slot.
 func (s *Snapshot) inturnSlot(slot uint64, validator common.Address) bool {
-	if len(s.Validators) == 0 {
+	if len(s.Validators) == 0 || slot == 0 {
 		return false
 	}
-	for i, v := range s.Validators {
-		if v == validator {
-			return slot%uint64(len(s.Validators)) == uint64(i)
-		}
+	index := s.proposerIndexForSlot(slot)
+	if index < 0 {
+		return false
 	}
-	return false
+	return s.Validators[index] == validator
 }
 
-// recentlySigned returns true if validator signed within the active recency window.
-func (s *Snapshot) recentlySigned(validator common.Address) bool {
-	for _, recent := range s.Recents {
-		if recent == validator {
-			return true
+func (s *Snapshot) proposerIndexForSlot(slot uint64) int {
+	if len(s.Validators) == 0 || slot == 0 {
+		return -1
+	}
+	turnLength := uint64(1)
+	if s.config != nil && s.config.TurnLength > 0 {
+		turnLength = s.config.TurnLength
+	}
+	return int(((slot - 1) / turnLength) % uint64(len(s.Validators)))
+}
+
+func (s *Snapshot) recentSignerWindowSize() uint64 {
+	if s.config == nil {
+		return 1
+	}
+	return s.config.RecentSignerWindowSize(len(s.Validators))
+}
+
+// recentlySignedAt returns true if validator already consumed its allowed turn-length
+// appearances inside the active grouped-turn recency window for slot.
+func (s *Snapshot) recentlySignedAt(slot uint64, validator common.Address) bool {
+	if len(s.Validators) <= 1 {
+		return false
+	}
+	if s.config == nil || s.config.TurnLength == 0 {
+		return false
+	}
+	left := uint64(0)
+	window := s.recentSignerWindowSize()
+	if slot > window {
+		left = slot - window
+	}
+	seen := uint64(0)
+	for seenSlot, signer := range s.Recents {
+		if seenSlot <= left {
+			continue
+		}
+		if signer == validator {
+			seen++
 		}
 	}
-	return false
+	return seen >= s.config.TurnLength
 }
 
 // apply creates a new snapshot by sequentially applying the given headers to the base.
@@ -147,7 +180,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		}
 
 		// Bulk-evict all stale slots (prevents unbounded growth on slot jumps).
-		limit := snap.config.RecentSignerWindowSize(len(snap.Validators))
+		limit := snap.recentSignerWindowSize()
 		if slot >= limit {
 			staleThreshold := slot - limit
 			for seenSlot := range snap.Recents {
@@ -165,7 +198,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		if _, ok := snap.ValidatorsMap[signer]; !ok {
 			return nil, errUnauthorizedValidator
 		}
-		if snap.recentlySigned(signer) {
+		if snap.recentlySignedAt(slot, signer) {
 			return nil, errRecentlySigned
 		}
 		snap.Recents[slot] = signer // record at slot, not block number
@@ -188,7 +221,7 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 				snap.ValidatorsMap[v] = struct{}{}
 			}
 			// Epoch re-trim: use new limit and current slot.
-			newLimit := snap.config.RecentSignerWindowSize(len(validators))
+			newLimit := snap.recentSignerWindowSize()
 			if slot >= newLimit {
 				staleThreshold := slot - newLimit
 				for seenSlot := range snap.Recents {

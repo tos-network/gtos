@@ -17,7 +17,6 @@ import (
 	"math/big"
 	"testing"
 
-	lua "github.com/tos-network/tolang"
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
@@ -26,6 +25,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	lua "github.com/tos-network/tolang"
 )
 
 // trc20TolSource is a minimal TRC20 token in TOL.
@@ -220,7 +220,7 @@ func TestTolTRC20EndToEnd(t *testing.T) {
 
 	config := &params.ChainConfig{
 		ChainID: big.NewInt(1),
-		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 200, MaxValidators: 21},
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{

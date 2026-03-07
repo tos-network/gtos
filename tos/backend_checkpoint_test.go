@@ -22,8 +22,9 @@ func TestValidateCheckpointRetention(t *testing.T) {
 			cfg:  &tosconfig.Config{},
 			chainCfg: &params.ChainConfig{ChainID: big.NewInt(1), DPoS: &params.DPoSConfig{
 				PeriodMs:       360,
-				Epoch:          200,
+				Epoch:          208,
 				MaxValidators:  21,
+				TurnLength:     params.DPoSTurnLength,
 				SealSignerType: params.DPoSSealSignerTypeEd25519,
 			}},
 		},
@@ -32,8 +33,9 @@ func TestValidateCheckpointRetention(t *testing.T) {
 			cfg:  &tosconfig.Config{NoPruning: true},
 			chainCfg: &params.ChainConfig{ChainID: big.NewInt(1), DPoS: &params.DPoSConfig{
 				PeriodMs:                360,
-				Epoch:                   200,
+				Epoch:                   208,
 				MaxValidators:           21,
+				TurnLength:              params.DPoSTurnLength,
 				SealSignerType:          params.DPoSSealSignerTypeEd25519,
 				CheckpointInterval:      200,
 				CheckpointFinalityBlock: big.NewInt(1000),
@@ -44,8 +46,9 @@ func TestValidateCheckpointRetention(t *testing.T) {
 			cfg:  &tosconfig.Config{},
 			chainCfg: &params.ChainConfig{ChainID: big.NewInt(1), DPoS: &params.DPoSConfig{
 				PeriodMs:                360,
-				Epoch:                   200,
+				Epoch:                   208,
 				MaxValidators:           21,
+				TurnLength:              params.DPoSTurnLength,
 				SealSignerType:          params.DPoSSealSignerTypeEd25519,
 				CheckpointInterval:      core.TriesInMemory / 2,
 				CheckpointFinalityBlock: big.NewInt(1000),
@@ -56,8 +59,9 @@ func TestValidateCheckpointRetention(t *testing.T) {
 			cfg:  &tosconfig.Config{},
 			chainCfg: &params.ChainConfig{ChainID: big.NewInt(1), DPoS: &params.DPoSConfig{
 				PeriodMs:                360,
-				Epoch:                   200,
+				Epoch:                   208,
 				MaxValidators:           21,
+				TurnLength:              params.DPoSTurnLength,
 				SealSignerType:          params.DPoSSealSignerTypeEd25519,
 				CheckpointFinalityBlock: big.NewInt(1000),
 			}},
