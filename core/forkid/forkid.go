@@ -208,7 +208,24 @@ func checksumToBytes(hash uint32) [4]byte {
 	return blob
 }
 
-// gatherForks gathers all the known forks and creates a sorted list out of them.
+// gatherForks gathers all known hard-fork block numbers from the chain config
+// and returns them sorted for inclusion in the forkid checksum.
+//
+// GTOS uses DPoS consensus with epoch-based upgrades rather than Ethereum-style
+// block-number hard forks, so no block-number fork schedule is stored in
+// ChainConfig today.  Returning nil is correct for the current single-version
+// network: all nodes share the same genesis hash and no block-height forks
+// diverge the chain.
+//
+// IMPORTANT — upgrade risk: once a protocol hard fork is planned, its activation
+// block number MUST be added here before deployment.  Nodes that omit the fork
+// number will compute the same forkid as pre-fork nodes and remain peered during
+// the upgrade window, potentially syncing an invalid chain segment.
+// At that point, add the activation block as:
+//
+//	if config.HardForkBlock != nil {
+//	    forks = append(forks, config.HardForkBlock.Uint64())
+//	}
 func gatherForks(_ *params.ChainConfig) []uint64 {
 	return nil
 }

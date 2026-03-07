@@ -163,10 +163,19 @@ func (tosNode *TOS) stateAtTransaction(block *types.Block, txIndex int, reexec u
 		return nil, statedb, nil
 	}
 	// Recompute transactions up to the target index.
+	//
+	// Use TxAsMessageWithAccountSigner instead of tx.AsMessage to correctly
+	// handle SignerTx / AA transactions whose sender is resolved from state
+	// rather than from a secp256k1 signature.  tx.AsMessage silently returns
+	// a zero-valued message for non-secp256k1 txs, causing incorrect state
+	// replay and misleading trace/debug output (Issue 5).
 	signer := types.MakeSigner(tosNode.blockchain.Config(), block.Number())
 	blockCtx := core.NewVMBlockContext(block.Header(), tosNode.blockchain, nil)
 	for idx, tx := range block.Transactions() {
-		msg, _ := tx.AsMessage(signer, block.BaseFee())
+		msg, err := core.TxAsMessageWithAccountSigner(tx, signer, block.BaseFee(), statedb)
+		if err != nil {
+			return nil, nil, fmt.Errorf("transaction %#x message decode failed: %v", tx.Hash(), err)
+		}
 		if idx == txIndex {
 			return msg, statedb, nil
 		}

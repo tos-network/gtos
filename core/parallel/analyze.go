@@ -3,6 +3,7 @@ package parallel
 import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -31,7 +32,16 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 
 	to := msg.To()
 	if to == nil {
-		// SetCode: writes sender code and slots only.
+		// CREATE: derive the deterministic contract address (sender, nonce) so that
+		// a subsequent CALL to that address is detected as a write-set conflict and
+		// placed in a later execution level — never parallelised with this CREATE.
+		// Also inject LVMSerialAddress to serialise with other LVM contract calls,
+		// since the constructor executes arbitrary code with unknown cross-contract
+		// storage effects.
+		contractAddr := crypto.CreateAddress(sender, msg.Nonce())
+		as.WriteAddrs[contractAddr] = struct{}{}
+		as.ReadAddrs[contractAddr] = struct{}{}
+		as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
 		return as
 	}
 

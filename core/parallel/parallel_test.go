@@ -142,6 +142,12 @@ func TestAccessSetSlotConflict(t *testing.T) {
 	}
 }
 
+func createMsg(sender common.Address, nonce uint64) types.Message {
+	return types.NewMessage(sender, nil, nonce, big.NewInt(0),
+		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+		[]byte("deploy"), nil, true)
+}
+
 // ─── AnalyzeTx ───────────────────────────────────────────────────────────────
 
 func TestAnalyzeTxPlainTransfer(t *testing.T) {
@@ -221,6 +227,96 @@ func TestAnalyzeTxUNOSerializedAcrossSenders(t *testing.T) {
 	b := AnalyzeTx(unoMsg(addr("0x7202"), 0), nil)
 	if !a.Conflicts(&b) {
 		t.Error("UNO txs should conflict via shared PrivacyRouterAddress")
+	}
+}
+
+// Issue 1: CREATE write-set must include the deterministic contract address so
+// a subsequent CALL to that address is detected as a conflict in the DAG.
+
+// TestAnalyzeTxCreateIncludesContractAddr verifies that a CREATE tx analysis
+// includes the computed contract address and LVMSerialAddress in its write set.
+func TestAnalyzeTxCreateIncludesContractAddr(t *testing.T) {
+	sender := addr("0xCE01")
+	nonce := uint64(5)
+	msg := createMsg(sender, nonce)
+	as := AnalyzeTx(msg, nil)
+
+	if _, ok := as.WriteAddrs[sender]; !ok {
+		t.Error("sender must be in WriteAddrs for CREATE")
+	}
+	contractAddr := crypto.CreateAddress(sender, nonce)
+	if _, ok := as.WriteAddrs[contractAddr]; !ok {
+		t.Errorf("computed contractAddr %v must be in WriteAddrs", contractAddr)
+	}
+	if _, ok := as.ReadAddrs[contractAddr]; !ok {
+		t.Errorf("computed contractAddr %v must be in ReadAddrs", contractAddr)
+	}
+	if _, ok := as.WriteAddrs[params.LVMSerialAddress]; !ok {
+		t.Error("LVMSerialAddress must be in WriteAddrs for CREATE (serialises with other LVM calls)")
+	}
+}
+
+// TestCreateThenCallConflict is the regression test for the Critical bug:
+// before the fix, CREATE and CALL(to=createdAddr) had disjoint write sets and
+// would be placed in the same DAG level, allowing parallel execution that could
+// diverge from the serial state root.
+func TestCreateThenCallConflict(t *testing.T) {
+	createSender := addr("0xCE02")
+	callSender := addr("0xCE03")
+	nonce := uint64(3)
+
+	contractAddr := crypto.CreateAddress(createSender, nonce)
+
+	createSet := AnalyzeTx(createMsg(createSender, nonce), nil)
+	callSet := AnalyzeTx(plainMsg(callSender, contractAddr, 0, 0), nil)
+
+	if !createSet.Conflicts(&callSet) {
+		t.Errorf("CREATE(sender=%v, nonce=%d) must conflict with CALL(to=%v): "+
+			"they would otherwise be parallelised, producing a state-root fork",
+			createSender, nonce, contractAddr)
+	}
+}
+
+// TestCreateSerialisedWithLVMCalls verifies that a CREATE tx conflicts with an
+// existing LVM contract call via the shared LVMSerialAddress sentinel.
+func TestCreateSerialisedWithLVMCalls(t *testing.T) {
+	createSender := addr("0xCE04")
+	callSender := addr("0xCE05")
+	existingContract := addr("0xCC01")
+
+	db := newTestStateDB(t)
+	db.SetCode(existingContract, []byte("contract code"))
+
+	createSet := AnalyzeTx(createMsg(createSender, 0), nil)
+	callSet := AnalyzeTx(plainMsg(callSender, existingContract, 0, 0), db)
+
+	if !createSet.Conflicts(&callSet) {
+		t.Error("CREATE must conflict with LVM contract CALL via LVMSerialAddress")
+	}
+}
+
+// TestCreateLevelsAfterCALL verifies the full DAG scheduling: a CREATE tx and a
+// subsequent CALL to the created address end up in different levels (CREATE first).
+func TestCreateLevelsAfterCALL(t *testing.T) {
+	createSender := addr("0xCE06")
+	callSender := addr("0xCE07")
+	nonce := uint64(0)
+	contractAddr := crypto.CreateAddress(createSender, nonce)
+
+	// tx0 = CREATE, tx1 = CALL(to=createdAddr) — ordered so CREATE comes first.
+	sets := []AccessSet{
+		AnalyzeTx(createMsg(createSender, nonce), nil),
+		AnalyzeTx(plainMsg(callSender, contractAddr, 0, 0), nil),
+	}
+	levels := BuildLevels(sets)
+	if len(levels) != 2 {
+		t.Fatalf("expected 2 levels (CREATE then CALL), got %d: %v", len(levels), levels)
+	}
+	if len(levels[0]) != 1 || levels[0][0] != 0 {
+		t.Errorf("CREATE must be in level 0, got %v", levels[0])
+	}
+	if len(levels[1]) != 1 || levels[1][0] != 1 {
+		t.Errorf("CALL(createdAddr) must be in level 1, got %v", levels[1])
 	}
 }
 

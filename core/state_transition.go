@@ -39,20 +39,21 @@ var emptyCodeHash = crypto.Keccak256Hash(nil)
 // Smart contract execution is not supported; only plain TOS transfers and
 // system actions are allowed.
 type StateTransition struct {
-	gp          *GasPool
-	msg         Message
-	gas         uint64
-	txPrice     *big.Int
-	gasFeeCap   *big.Int
-	gasTipCap   *big.Int
-	initialGas  uint64
-	value       *big.Int
-	data        []byte
-	state       vm.StateDB
-	blockCtx    vm.BlockContext
-	chainConfig *params.ChainConfig
-	lvm         *vm.LVM
-	goCtx       context.Context // RPC timeout context; nil for block-processing
+	gp             *GasPool
+	msg            Message
+	gas            uint64
+	txPrice        *big.Int
+	gasFeeCap      *big.Int
+	gasTipCap      *big.Int
+	initialGas     uint64
+	validationGas  uint64 // gas consumed by AA validate() — tracked separately from st.gas
+	value          *big.Int
+	data           []byte
+	state          vm.StateDB
+	blockCtx       vm.BlockContext
+	chainConfig    *params.ChainConfig
+	lvm            *vm.LVM
+	goCtx          context.Context // RPC timeout context; nil for block-processing
 }
 
 // Message represents a message sent to a contract.
@@ -490,13 +491,17 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		GoCtx:    st.goCtx,
 	}
 	code := st.state.GetCode(toAddr)
-	// Reserve worst-case validation gas from block gas pool before execution.
-	if err := st.gp.SubGas(params.ValidationGasCap); err != nil {
-		return ErrAAValidationFailed
-	}
+	// Execute validate() against a standalone gas cap (ValidationGasCap).
+	//
+	// We intentionally do NOT touch st.gp (the per-tx gas pool) here.
+	// In the block-processing path, st.gp is a per-tx pool pre-funded with
+	// msg.Gas() and already drained by buyGas(), so SubGas(ValidationGasCap)
+	// would always fail → ErrAAValidationFailed for every AA tx (Issue 2).
+	//
+	// Block-level gas accounting for the validation cost is handled by
+	// st.validationGas: it is added to st.gasUsed(), which feeds UsedGas in
+	// the result, the coinbase fee, and ExecuteParallel's gp.SubGas (Issue 3).
 	gasUsed, retData, _, execErr := vm.Execute(st.state, st.blockCtx, st.chainConfig, ctx, code, params.ValidationGasCap)
-	// Always refund unused validation gas back to the block pool.
-	st.gp.AddGas(params.ValidationGasCap - gasUsed)
 
 	if execErr != nil {
 		return ErrAAValidationFailed
@@ -517,12 +522,14 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		return ErrAAValidationFailed
 	}
 
-	// Phase 3: deduct actual validation gas cost from sender balance.
+	// Phase 3: deduct actual validation gas cost from sender balance and record
+	// it so gasUsed() / coinbase-fee / block-gas-pool accounting include it.
 	// gasUsed is bounded by ValidationGasCap so this cannot underflow given phase 1.
 	actualCost := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), st.txPrice)
 	if actualCost.Sign() > 0 {
 		st.state.SubBalance(st.msg.From(), actualCost)
 	}
+	st.validationGas = gasUsed // included in st.gasUsed() for consistent accounting
 
 	return nil
 }
@@ -709,7 +716,11 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	st.gp.AddGas(st.gas)
 }
 
-// gasUsed returns the amount of gas used up by the state transition.
+// gasUsed returns the amount of gas used up by the state transition, including
+// any gas consumed by an AA validate() call.  AA validation gas is tracked
+// separately (st.validationGas) because it is drawn from a standalone gas cap
+// rather than from st.gas (which is bounded by msg.Gas()).  Including it here
+// ensures UsedGas, coinbase fee, and block gas accounting are all consistent.
 func (st *StateTransition) gasUsed() uint64 {
-	return st.initialGas - st.gas
+	return st.initialGas - st.gas + st.validationGas
 }

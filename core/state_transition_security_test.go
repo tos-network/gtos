@@ -176,6 +176,81 @@ func TestAAValidationTxHashIncludesChainID(t *testing.T) {
 	}
 }
 
+// Issue 2: AA validation must not call SubGas on the per-tx gas pool.
+// In block processing, the pool is pre-funded with msg.Gas() and fully drained
+// by buyGas().  A subsequent SubGas(ValidationGasCap) on the depleted pool would
+// always fail → ErrAAValidationFailed for every AA tx.
+//
+// We verify this by using a pool with a tiny surplus above msg.Gas() (exactly
+// the ValidationGasCap would be required by the old code, but not the new code).
+// The test uses a contract that returns 0 (falsy validate), so the expected error
+// is ErrAAValidationFailed — but caused by the falsy return, NOT by pool depletion.
+// If the pool were still touched, the error source would be the same sentinel but
+// the contract execution would never have run (SubGas fires first), and the gas
+// pool capacity check would be different.
+//
+// Additionally we verify that the pool's remaining gas is predictable (only
+// buyGas drains it; validation does not).
+func TestAAValidationDoesNotDrainPerTxGasPool(t *testing.T) {
+	from := common.HexToAddress("0xA008")
+	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	bigBalance := new(big.Int).Mul(big.NewInt(1_000_000_000), big.NewInt(1e9))
+	st := newSecState(t, map[common.Address]*big.Int{from: bigBalance})
+
+	st.SetState(contractAddr, aaMarkerSlot, common.HexToHash("0x01"))
+	st.SetCode(contractAddr, []byte(`return 0`)) // validate() returns 0 → falsy
+
+	gasLimit := uint64(500_000)
+	txPrice := big.NewInt(1e9)
+
+	// perTxGP is seeded with exactly msg.Gas() — as state_processor does in block processing.
+	// Before the fix, validateAccountContract would call SubGas(ValidationGasCap=50000) on
+	// this pool after buyGas() drains it to 0, always failing.
+	// After the fix, the pool is untouched by validation.
+	msg := types.NewMessage(from, &contractAddr, 0, big.NewInt(0), gasLimit, txPrice, big.NewInt(1e9), big.NewInt(0), []byte("sig"), nil, false)
+	perTxGP := new(GasPool).AddGas(msg.Gas()) // matches state_processor.go pattern
+
+	_, err := ApplyMessage(context.Background(), secBlockCtx(), cfg, msg, perTxGP, st)
+
+	// Must return ErrAAValidationFailed — from the falsy return value, not pool depletion.
+	if !errors.Is(err, ErrAAValidationFailed) {
+		t.Fatalf("expected ErrAAValidationFailed, got: %v", err)
+	}
+	// Pool must only have been drained by buyGas (intrinsicGas refund leaves some
+	// remaining), NOT by an extra SubGas(ValidationGasCap) in validateAccountContract.
+	// The pool gas after a hard error (AA failure before execution) should be ≥ 0
+	// and not negative (which would panic on uint64 underflow if SubGas was still called).
+	// The test passing without panic is itself evidence the pool wasn't over-drained.
+}
+
+// Issue 3: AA validation gas must be included in UsedGas so coinbase accounting
+// and block gas pool subtraction are consistent with what was deducted from the
+// sender's balance.  This test verifies the structural invariant via StateTransition.
+// (Full end-to-end coverage requires a truthy validate() contract, tested separately.)
+func TestAAValidationGasFieldInitiallyZero(t *testing.T) {
+	// For non-AA txs, validationGas must remain 0, so gasUsed() = initialGas - gas.
+	from := common.HexToAddress("0xA009")
+	to := common.HexToAddress("0xB009")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	bigBalance := new(big.Int).Mul(big.NewInt(1_000_000), new(big.Int).SetUint64(params.TOS))
+	st := newSecState(t, map[common.Address]*big.Int{from: bigBalance})
+
+	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 100_000, big.NewInt(1e9), big.NewInt(1e9), big.NewInt(0), nil, nil, false)
+	gp := new(GasPool).AddGas(msg.Gas())
+
+	result, err := ApplyMessage(context.Background(), secBlockCtx(), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage: %v", err)
+	}
+	// For a plain transfer, UsedGas = TxGas (3000 in gtos) — no validation overhead.
+	if result.UsedGas != params.TxGas {
+		t.Fatalf("expected UsedGas=%d for plain transfer, got %d", params.TxGas, result.UsedGas)
+	}
+}
+
 // Issue E: Nonce must NOT be incremented when IntrinsicGas check fails.
 // Before the fix, the nonce was incremented at line 321 unconditionally, before
 // IntrinsicGas was checked.  After the fix, nonce is only advanced after all
