@@ -33,7 +33,7 @@ import (
 	"github.com/tos-network/gtos/sysaction"
 )
 
-var emptyCodeHash = common.HexToHash("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
+var emptyCodeHash = crypto.Keccak256Hash(nil)
 
 // StateTransition handles GTOS state transitions.
 // Smart contract execution is not supported; only plain TOS transfers and
@@ -285,9 +285,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// is rejected without consuming gas from the caller.
 	if !contractCreation && msg.To() != nil && st.isAccountContract(*msg.To()) {
 		// Compute tx hash from the raw signed transaction data.
-		// We use the hash of (from || to || nonce || value || data) as a simple
-		// transaction identity for MVP; the full typed-hash is a future extension.
-		txHashInput := append(msg.From().Bytes(), msg.To().Bytes()...)
+		// chainID is prepended to prevent cross-fork replay: after a fork both
+		// chains share the same chainID in the outer signer but the AA contract
+		// sees the raw hash; including chainID makes the hash fork-unique.
+		var chainIDBuf [32]byte
+		if st.chainConfig.ChainID != nil {
+			st.chainConfig.ChainID.FillBytes(chainIDBuf[:])
+		}
+		txHashInput := append(chainIDBuf[:], msg.From().Bytes()...)
+		txHashInput = append(txHashInput, msg.To().Bytes()...)
 		var nonceBuf [8]byte
 		binary.BigEndian.PutUint64(nonceBuf[:], msg.Nonce())
 		txHashInput = append(txHashInput, nonceBuf[:]...)
@@ -300,19 +306,23 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// Use the tx signature bytes embedded in msg.Data() as the sig argument.
 		// TOL account contracts that implement validate() extract the real sig
 		// from calldata themselves; we pass the full calldata as sig here.
+		//
+		// Snapshot before validate() so any state mutations from a failing
+		// validate() call are rolled back. Passing validate() keeps its changes
+		// (e.g. replay-prevention counter updates).
+		validationSnap := st.state.Snapshot()
 		if err := st.validateAccountContract(txHash, msg.Data()); err != nil {
+			st.state.RevertToSnapshot(validationSnap)
 			return nil, err
 		}
 	}
-
-	// Increment nonce for all real transactions.
-	st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
 
 	// Warm sender, recipient, and any explicit access-list entries for this transaction.
 	// GTOS has no precompiles, so the precompile slice is nil.
 	st.state.PrepareAccessList(msg.From(), msg.To(), nil, msg.AccessList())
 
-	// Subtract intrinsic gas
+	// Subtract intrinsic gas (clause 4-5).
+	// Nonce is NOT incremented yet — only after all consensus checks pass (mirrors geth).
 	gas, err := IntrinsicGas(st.data, st.msg.AccessList(), contractCreation, true, true)
 	if err != nil {
 		return nil, err
@@ -322,9 +332,22 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.gas -= gas
 
+	// Clause 6 — unified CanTransfer check covering all transaction types (CREATE,
+	// CALL, SystemAction, PrivacyRouter).  Mirrors geth's single check before the
+	// CREATE/CALL branch.  applyUNO also rejects non-zero value internally, but
+	// the check here ensures consistent ErrInsufficientFundsForTransfer semantics
+	// regardless of destination.
+	if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
+		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+	}
+
 	var vmerr error
 
 	if contractCreation {
+		// For CREATE the sender nonce is incremented inside lvm.Create() — this
+		// mirrors geth where evm.Create() calls StateDB.SetNonce(caller, nonce+1).
+		// TransitionDb must not touch the nonce here so it is only advanced once
+		// and only after all consensus checks above have passed.
 		deployPkgBytes, ctorArgs, splitErr := vm.SplitDeployDataAndConstructorArgs(st.data)
 		if splitErr != nil {
 			// Not a valid .tor package — let Create() produce the proper error.
@@ -336,6 +359,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			vmerr = ErrIntrinsicGas
 		}
 	} else {
+		// Increment sender nonce for all CALL-type transactions (mirrors geth's
+		// explicit SetNonce inside the else branch, after all pre-checks pass).
+		st.state.SetNonce(msg.From(), st.state.GetNonce(msg.From())+1)
+
 		toAddr := st.to()
 
 		if toAddr == params.SystemActionAddress {
@@ -357,11 +384,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				vmerr = st.applyUNO(msg)
 			}
 		} else {
-			// Check sender has enough balance for value transfer
-			if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
-				return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
-			}
-
 			toCode := st.state.GetCode(toAddr)
 
 			if len(toCode) > 0 {
@@ -382,11 +404,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Refund gas — apply strict cap (gasUsed/5).
 	st.refundGas(params.RefundQuotientStrict)
 
-	// Pay miner fee by fixed txPrice
-	effectiveTip := st.txPrice
-	fee := new(big.Int).SetUint64(st.gasUsed())
-	fee.Mul(fee, effectiveTip)
-	st.state.AddBalance(st.blockCtx.Coinbase, fee)
+	// Pay miner fee by fixed txPrice — skip for simulated calls (DoCall/DoEstimateGas).
+	// IsFake() is true for all simulated messages; avoiding the credit prevents
+	// spurious coinbase balance changes that break trace/diff outputs.
+	if !st.msg.IsFake() {
+		effectiveTip := st.txPrice
+		fee := new(big.Int).SetUint64(st.gasUsed())
+		fee.Mul(fee, effectiveTip)
+		st.state.AddBalance(st.blockCtx.Coinbase, fee)
+	}
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
