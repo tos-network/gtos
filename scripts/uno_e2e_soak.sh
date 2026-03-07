@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TOSKEY_BIN="${TOSKEY_BIN:-${REPO_ROOT}/build/bin/toskey}"
-GTOS_BIN="${GTOS_BIN:-${REPO_ROOT}/build/bin/gtos}"
+GTOS_BIN="${GTOS_BIN:-/usr/local/bin/gtos}"
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 UNLOCK_IPC="${UNLOCK_IPC:-/data/gtos/node1/gtos.ipc}"
 

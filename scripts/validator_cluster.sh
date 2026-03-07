@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GTOS_BIN="${GTOS_BIN:-${REPO_ROOT}/build/bin/gtos}"
+GTOS_BIN="${GTOS_BIN:-/usr/local/bin/gtos}"
 TOSKEY_BIN="${TOSKEY_BIN:-${REPO_ROOT}/build/bin/toskey}"
 
 BASE_DIR="${BASE_DIR:-/data/gtos}"

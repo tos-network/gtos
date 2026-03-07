@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GTOS_BIN="${GTOS_BIN:-${REPO_ROOT}/build/bin/gtos}"
+GTOS_BIN="${GTOS_BIN:-/usr/local/bin/gtos}"
 
 DURATION="${DURATION:-4h}"
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"

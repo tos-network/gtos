@@ -186,7 +186,7 @@ User=tomi
 Group=tomi
 WorkingDirectory=/home/tomi/gtos
 EnvironmentFile=/data/gtos/node%i/validator.env
-ExecStart=/home/tomi/gtos/build/bin/gtos \
+ExecStart=/usr/local/bin/gtos \
   --config ${GTOS_CONFIG} \
   --datadir ${GTOS_DATADIR} \
   --networkid ${GTOS_NETWORK_ID} \

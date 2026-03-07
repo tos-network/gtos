@@ -5,7 +5,7 @@ set -euo pipefail
 # It starts a local private dev chain, generates transfer load, then reports tx/s per block.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GTOS_BIN="${GTOS_BIN:-$ROOT_DIR/build/bin/gtos}"
+GTOS_BIN="${GTOS_BIN:-/usr/local/bin/gtos}"
 
 DURATION=30
 WORKERS=4
@@ -40,7 +40,7 @@ Options:
   --cooldown <sec>       Extra wait after load (default: 5)
   --http-port <port>     JSON-RPC HTTP port (default: 18545)
   --datadir <path>       Datadir for the benchmark node (default: temp dir)
-  --gtos-bin <path>      Path to gtos binary (default: build/bin/gtos)
+  --gtos-bin <path>      Path to gtos binary (default: /usr/local/bin/gtos)
   --keep-data            Keep datadir and logs after run
   -h, --help             Show this help message
 EOF

@@ -1,6 +1,6 @@
 # Turn Length for GTOS DPoS
 
-**Status**: ~95% implemented — code complete; 2 doc items pending (`Validator-Ops.md`, `Checkpoint.md`)
+**Status**: 100% implemented
 **Target**: `params/config.go`, `consensus/dpos/snapshot.go`, `consensus/dpos/dpos.go`, local ops/docs
 **Scope**: introduce grouped proposer turns with initial `turnLength = 16`
 
@@ -774,57 +774,68 @@ loops, GTOS can halt instead of merely degrading.
 
 ## 17. File-by-File Implementation Checklist
 
-### [config.go](/home/tomi/gtos/params/config.go)
+### ✅ [config.go](/home/tomi/gtos/params/config.go)
 
-- add `TurnLength`
-- add validation rules
-- add compatibility comparison for `TurnLength` as a mandatory safety check
-- update string/debug rendering
-- emit a clear validation error that distinguishes `turnLength` missing/zero from other
+- ✅ add `TurnLength`
+- ✅ add validation rules (`ValidateTurnLengthConfig`: zero, >Epoch, Epoch%TurnLength!=0)
+- ✅ add compatibility comparison for `TurnLength` as a mandatory safety check (`checkCompatible`)
+- ✅ update string/debug rendering
+- ✅ emit a clear validation error that distinguishes `turnLength` missing/zero from other
   invalid values
 
-### [snapshot.go](/home/tomi/gtos/consensus/dpos/snapshot.go)
+### ✅ [snapshot.go](/home/tomi/gtos/consensus/dpos/snapshot.go)
 
-- add grouped proposer helpers
-- rewrite `inturnSlot`
-- delete `recentlySigned(validator)`
-- add `recentlySignedAt(slot, validator)`
-- update `apply()` to pass `slot` into `recentlySignedAt(...)`
-- rewrite recents trimming
+- ✅ add grouped proposer helpers (`proposerIndexForSlot`)
+- ✅ rewrite `inturnSlot` (uses `((slot-1)/T)%N` with slot=0 guard)
+- ✅ delete `recentlySigned(validator)`
+- ✅ add `recentlySignedAt(slot, validator)` (count-based, N=1 short-circuit, TurnLength guard)
+- ✅ update `apply()` to pass `slot` into `recentlySignedAt(...)`
+- ✅ rewrite recents trimming
 
-### [dpos.go](/home/tomi/gtos/consensus/dpos/dpos.go)
+### ✅ [dpos.go](/home/tomi/gtos/consensus/dpos/dpos.go)
 
-- update `Seal`
-- update `verifySeal`
-- update `CalcDifficulty`
-- ensure all grouped-turn decisions use the same helper logic
-- replace the inline recency loop in [dpos.go:1241](/home/tomi/gtos/consensus/dpos/dpos.go:1241) with `snap.recentlySignedAt(slot, signer)`
-- replace the inline recency loop in [dpos.go:1602](/home/tomi/gtos/consensus/dpos/dpos.go:1602) with `snap.recentlySignedAt(sealSlot, v)`
+- ✅ update `Seal` (inline distance loop replaced with `snap.recentlySignedAt(sealSlot, v)`)
+- ✅ update `verifySeal` (inline distance loop replaced with `snap.recentlySignedAt(slot, signer)`)
+- ✅ update `CalcDifficulty` (uses `snap.inturnSlot(slot, v)` via `calcDifficultySlot`)
+- ✅ ensure all grouped-turn decisions use the same helper logic
+- ✅ replace the inline recency loop in [dpos.go:1241](/home/tomi/gtos/consensus/dpos/dpos.go:1241) with `snap.recentlySignedAt(slot, signer)`
+- ✅ replace the inline recency loop in [dpos.go:1602](/home/tomi/gtos/consensus/dpos/dpos.go:1602) with `snap.recentlySignedAt(sealSlot, v)`
 
-### [api.go](/home/tomi/gtos/consensus/dpos/api.go)
+### ✅ [api.go](/home/tomi/gtos/consensus/dpos/api.go)
 
-- expose `TurnLength`
-- expose `TurnGroupDurationMs`
-- expose effective recent-signer window
+- ✅ expose `TurnLength`
+- ✅ expose `TurnGroupDurationMs`
+- ✅ expose effective recent-signer window (`RecentSignerWindow`)
 
-### [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
+### ✅ [validator_cluster.sh](/home/tomi/gtos/scripts/validator_cluster.sh)
 
-- add `TURN_LENGTH`
-- validate `TURN_LENGTH > 0`
-- validate `TURN_LENGTH <= EPOCH`
-- validate `EPOCH % TURN_LENGTH == 0`
-- emit `turnLength` into genesis
-- show grouped-turn operator hints
+- ✅ add `TURN_LENGTH` (default 16, `--turn-length` flag)
+- ✅ validate `TURN_LENGTH > 0`
+- ✅ validate `TURN_LENGTH <= EPOCH`
+- ✅ validate `EPOCH % TURN_LENGTH == 0`
+- ✅ emit `turnLength` into genesis JSON
+- ✅ show grouped-turn operator hints (duration, status output)
 
-### [Validator-Ops.md](/home/tomi/gtos/docs/Validator-Ops.md)
+### ✅ [Validator-Ops.md](/home/tomi/gtos/docs/Validator-Ops.md)
 
-- document grouped-turn interpretation for operators
-- update maintenance expectations
+- ✅ document grouped-turn interpretation for operators (§ "Grouped-Turn Operations", lines 272-293)
+- ✅ update maintenance expectations (lines 366-372, 422-428)
 
-### [Checkpoint.md](/home/tomi/gtos/docs/Checkpoint.md)
+### ✅ [Checkpoint.md](/home/tomi/gtos/docs/Checkpoint.md)
 
-- no protocol rewrite required
-- add a brief note that grouped turns do not change checkpoint QC semantics
+- ✅ no protocol rewrite required
+- ✅ add a brief note that grouped turns do not change checkpoint QC semantics (lines 36-43)
+
+### ✅ Tests ([config_test.go](/home/tomi/gtos/params/config_test.go), [dpos_test.go](/home/tomi/gtos/consensus/dpos/dpos_test.go), [integration_test.go](/home/tomi/gtos/consensus/dpos/integration_test.go))
+
+- ✅ `ValidateTurnLengthConfig` rejection cases (zero, >Epoch, not-divisible)
+- ✅ `RecentSignerWindowSize` formula tests
+- ✅ `checkCompatible` TurnLength mismatch test
+- ✅ grouped proposer selection (same validator in turn for slots 1..T)
+- ✅ recent-signer window semantics (count-based; allowed T seals before block)
+- ✅ N=1 never self-blocks
+- ✅ multi-validator integration chain with TurnLength=16
+- ✅ epoch boundary validator-set updates under grouped turns
 
 ---
 
