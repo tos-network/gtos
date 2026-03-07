@@ -118,7 +118,7 @@ var ErrGasLimitExceeded = errors.New("lvm: gas limit exceeded")
 // callCreateDepth is the maximum nesting depth for Create calls, matching EVM semantics.
 const callCreateDepth = 1024
 
-// LVM is the Lua Virtual Machine. Analogous to go-ethereum's EVM.
+// LVM is the Lua Virtual Machine for executing GTOS smart contracts.
 type LVM struct {
 	Context     BlockContext
 	TxContext
@@ -135,7 +135,7 @@ func NewLVM(blockCtx BlockContext, txCtx TxContext, stateDB StateDB, chainConfig
 
 // SetGoCtx stores the caller's Go context so that LVM.Call and LVM.Create
 // propagate it into Execute, enabling RPC timeout interrupts.
-// Analogous to the goroutine + evm.Cancel() pattern in go-ethereum.
+// This enables RPC timeout interrupts during contract execution.
 func (l *LVM) SetGoCtx(goCtx context.Context) { l.goCtx = goCtx }
 
 // ChainConfig returns the chain configuration.
