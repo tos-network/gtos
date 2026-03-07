@@ -64,6 +64,7 @@ func (h *tosHandler) Handle(peer *tos.Peer, packet tos.Packet) error {
 		if h.CheckpointVoteHandler != nil {
 			env := packet.CheckpointVoteEnvelope
 			h.CheckpointVoteHandler(&env)
+			(*handler)(h).RelayCheckpointVote(peer.ID(), &env)
 		}
 		return nil
 

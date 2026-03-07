@@ -570,6 +570,19 @@ func (h *handler) BroadcastCheckpointVote(env *types.CheckpointVoteEnvelope) {
 	}
 }
 
+// RelayCheckpointVote forwards a CheckpointVoteEnvelope to all connected peers
+// except excludeID (the source peer), preventing a relay loop back to the sender.
+func (h *handler) RelayCheckpointVote(excludeID string, env *types.CheckpointVoteEnvelope) {
+	for _, p := range h.peers.allPeers() {
+		if p.ID() == excludeID {
+			continue
+		}
+		if err := p.SendCheckpointVote(env); err != nil {
+			p.Log().Debug("Failed to relay checkpoint vote", "err", err)
+		}
+	}
+}
+
 // BroadcastBlock will either propagate a block to a subset of its peers, or
 // will only announce its availability (depending what's requested).
 func (h *handler) BroadcastBlock(block *types.Block, propagate bool) {

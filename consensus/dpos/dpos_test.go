@@ -64,6 +64,28 @@ func TestEmptyValidatorSet(t *testing.T) {
 	}
 }
 
+// TestApplyEmptyHeadersReturnsCopy verifies CF-1: apply(nil) returns a fresh copy,
+// not the original pointer, so callers cannot mutate a shared LRU-cached snapshot.
+func TestApplyEmptyHeadersReturnsCopy(t *testing.T) {
+	d := NewFaker()
+	addrs := []common.Address{{0x01}, {0x02}}
+	snap, err := newSnapshot(d.config, d.signatures, 0, common.Hash{1}, addrs, 0, d.config.TargetBlockPeriodMs())
+	if err != nil {
+		t.Fatalf("newSnapshot: %v", err)
+	}
+	result, err := snap.apply(nil)
+	if err != nil {
+		t.Fatalf("apply(nil): %v", err)
+	}
+	if result == snap {
+		t.Fatal("apply(nil) returned the original pointer; expected a copy")
+	}
+	result.FinalizedNumber = 999
+	if snap.FinalizedNumber != 0 {
+		t.Errorf("mutating result affected original: FinalizedNumber = %d", snap.FinalizedNumber)
+	}
+}
+
 // TestSnapshotDeepCopy verifies that mutating an applied snapshot does not
 // corrupt the original cached snapshot (data-race guard).
 func TestSnapshotDeepCopy(t *testing.T) {

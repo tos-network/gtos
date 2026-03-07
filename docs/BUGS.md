@@ -10,7 +10,7 @@ Status values: `CONFIRMED` · `FALSE_POSITIVE` · `BY_DESIGN` · `FIXED`
 
 ### C-1 uint64 overflow in LVM gas accounting
 **File**: `core/vm/lvm.go:630`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 if vmUsed+totalChildGas+primGasCharged+cost > gasLimit {
@@ -32,7 +32,7 @@ if cost > remaining {
 
 ### C-2 Consensus layer missing `GasUsed ≤ GasLimit` header check
 **File**: `consensus/dpos/dpos.go:431–469` — `verifyCascadingFields`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 `verifyCascadingFields` only validates the timestamp, slot advancement, and seal.
 It does **not** check `header.GasUsed <= header.GasLimit`. The reference Clique
@@ -53,7 +53,7 @@ if header.GasUsed > header.GasLimit {
 
 ### C-3 Incomplete `GasLimit` lower-bound validation
 **File**: `consensus/dpos/dpos.go:398–403` — `verifyHeader`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 if header.GasLimit == 0 { return errors.New("invalid gasLimit: zero") }
@@ -75,7 +75,7 @@ if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
 
 ### C-4 `Receipt.EncodeIndex` silently writes nothing for non-SignerTxType
 **File**: `core/types/receipt.go:365–373`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
@@ -99,7 +99,7 @@ unexpected types surface immediately in tests.
 
 ### C-5 `ContractAddress` never set in parallel executor receipts
 **File**: `core/parallel/executor.go:206–223`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 The receipt struct constructed in the parallel executor has no `ContractAddress`
 field assignment. geth's `state_processor.go:127` sets it for every contract
@@ -158,7 +158,7 @@ The source comment at `lvm.go:138` explicitly notes: *"Analogous to the goroutin
 
 ### H-3 UNO proof shape validation in txpool critical path
 **File**: `core/tx_pool.go:603, 675, 690`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 Every UNO transaction admission calls:
 ```go
@@ -182,7 +182,7 @@ the `DecodeEnvelope` format check.
 
 ### H-4 `CumulativeGasUsed` two-phase assignment in parallel executor
 **File**: `core/parallel/executor.go:208, 226–234`
-**Status**: CONFIRMED (reclassified Medium)
+**Status**: CLOSED
 
 ```go
 receipt := &types.Receipt{
@@ -218,7 +218,7 @@ diverging blocks at the fork.
 
 ### M-1 Signature malleability — high-s values accepted for secp256k1
 **File**: `core/types/transaction.go:188`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 if !crypto.ValidateSignatureValues(plainV, r, s, false) { // strict=false
@@ -246,7 +246,7 @@ given this total-size cap. No OOM risk.
 
 ### M-3 `DoCall` `StateOverride` has no account or storage-slot count limit
 **File**: `internal/tosapi/api.go:917–949`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 `StateOverride.Apply()` iterates all provided accounts and storage slots without
 any count validation. A caller can supply thousands of accounts with millions of
@@ -273,7 +273,7 @@ causing a brief reorg window.
 
 ### M-5 `ResolveSender` called twice per transaction in txpool
 **File**: `core/tx_pool.go:599, 741`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 `validateTx()` (line 599) and `add()` (line 741) each call `ResolveSender`
 independently. Each call includes signature recovery plus at least one SLOAD
@@ -285,7 +285,7 @@ independently. Each call includes signature recovery plus at least one SLOAD
 
 ### M-6 ABI revert reason not decoded in RPC responses
 **File**: `internal/tosapi/api.go:1046–1050`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 func newRevertError(result *core.ExecutionResult) *revertError {
@@ -305,7 +305,7 @@ for API consumers.
 
 ### L-1 `ChainID = 0` transactions are not rejected in `SignatureValues`
 **File**: `core/types/transaction_signing.go:502`
-**Status**: CONFIRMED
+**Status**: CLOSED
 
 ```go
 if txdata.ChainID.Sign() != 0 && txdata.ChainID.Cmp(s.chainId) != 0 {
@@ -320,7 +320,7 @@ ID, but this gap exists at the signer layer.)
 
 ### L-2 `Hash()` silently returns zero hash for empty `signerType`
 **File**: `core/types/transaction_signing.go:522–524`
-**Status**: CONFIRMED (code smell)
+**Status**: CLOSED
 
 ```go
 signerType, ok := tx.SignerType()
@@ -336,7 +336,7 @@ value. Upstream `sanityCheckSignerTxSignature` will reject it, but returning
 
 ### L-3 `LastElement()` panic risk on empty pending list
 **File**: `core/tx_pool.go:1260`
-**Status**: CONFIRMED (currently safe, latent risk)
+**Status**: CLOSED
 
 ```go
 for addr, list := range pool.pending {
@@ -366,30 +366,133 @@ enforcement is needed.
 
 ---
 
+---
+
+## Checkpoint Finality Implementation Gaps
+
+Identified during review of `docs/Checkpoint.md` implementation (2026-03-07).
+
+---
+
+### CF-1 `snapshot()` mutates LRU-cached snapshot in-place on cache-hit path
+**File**: `consensus/dpos/dpos.go:1336–1346`
+**Status**: CLOSED
+
+`snapshot.apply(headers)` returns the original object unchanged when `headers` is
+empty (line 136 of `snapshot.go`: `if len(headers) == 0 { return s, nil }`).
+On an LRU cache hit, `headers` is always empty, so `snap.apply([])` returns the
+same pointer as the cached object. The code then writes directly to it:
+
+```go
+snap.FinalizedNumber = finalized.Number.Uint64()
+snap.FinalizedHash   = finalized.Hash()
+```
+
+This violates the "LRU-cached snapshots are shared across goroutines; in-place
+mutation causes data races" invariant documented at `snapshot.go:73–74`.
+
+**Fix**: Before mutating `FinalizedNumber`/`FinalizedHash`, copy the snapshot:
+```go
+snap = snap.copy()
+snap.FinalizedNumber = finalized.Number.Uint64()
+snap.FinalizedHash   = finalized.Hash()
+```
+
+---
+
+### CF-2 `Snapshot.UpdateFinalized()` is dead code — snapshot finality propagation gap
+**File**: `consensus/dpos/snapshot.go:99–108`
+**Status**: CLOSED
+
+`UpdateFinalized(qcNumber, qcHash)` is exported but never called anywhere in the
+codebase. The snapshot's `FinalizedNumber`/`FinalizedHash` fields are only updated
+via the `runtimeFinalizedBlock()` rawdb sync inside `snapshot()`. As a result:
+
+- `snapshot.apply()` never inline-updates `FinalizedNumber` when it processes a
+  block whose Extra contains a valid QC.
+- A snapshot derived from such a block will carry a stale `FinalizedNumber` until
+  the next `snapshot()` call re-syncs from rawdb.
+- §14 of `Checkpoint.md` describes snapshot finality fields as consensus metadata
+  updated in lockstep with runtime state; the current implementation breaks this
+  contract during the window between QC commit and the next snapshot load.
+
+**Fix**: Either call `UpdateFinalized` inside `snapshot.apply()` when a block's
+Extra contains a QC (requires parsing Extra in apply), or remove the method and
+document clearly that snapshot finality is always sourced from rawdb via
+`runtimeFinalizedBlock()`.
+
+---
+
+### CF-3 No startup check: state-pruning horizon vs. `2 * CheckpointInterval`
+**File**: `tos/backend.go:93–113`
+**Status**: CLOSED
+
+`validateCheckpointRetention()` exists at `tos/backend.go:93–113` and is called
+at line 156. It checks `config.NoPruning || 2*CheckpointInterval <= core.TriesInMemory`
+and returns an error on violation, aborting `New()`. This satisfies §21 of
+`Checkpoint.md`. No code change was needed — pre-existing implementation confirmed.
+
+---
+
+### CF-4 Incoming checkpoint votes not relayed to other peers (gossip single-hop only)
+**File**: `tos/handler_tos.go:63–68`
+**Status**: CLOSED
+
+When a `NewCheckpointVotePacket` is received from peer A, the handler calls
+`HandleIncomingVote` (which adds it to the vote pool) but does not forward the
+envelope to other connected peers:
+
+```go
+case *tos.NewCheckpointVotePacket:
+    if h.CheckpointVoteHandler != nil {
+        env := packet.CheckpointVoteEnvelope
+        h.CheckpointVoteHandler(&env)  // added to pool only; not relayed
+    }
+    return nil
+```
+
+`BroadcastCheckpointVote` is only invoked when a validator locally produces a vote
+(`maybeProduceCheckpointVote`, `dpos.go:1763`). In a multi-hop network topology
+where validator A is only directly connected to B, and B is directly connected to C
+(A–C not directly connected), C will never receive A's vote, preventing quorum
+formation.
+
+**Fix**: After `HandleIncomingVote` returns `added=true`, call
+`h.BroadcastCheckpointVote(env)` to relay to all other connected peers, excluding
+the source peer to prevent loops. This is the standard P2P gossip relay pattern
+already used for transactions.
+
+---
+
 ## Verification Summary
 
 | ID | Finding | Result | Priority |
 |----|---------|--------|----------|
-| C-1 | LVM gas uint64 overflow | **CONFIRMED** | Immediate |
-| C-2 | GasUsed ≤ GasLimit missing from header | **CONFIRMED** | Immediate |
-| C-3 | GasLimit lower bound incomplete | **CONFIRMED** | Immediate |
-| C-4 | EncodeIndex silent empty write | **CONFIRMED** | Immediate |
-| C-5 | ContractAddress never set | **CONFIRMED** | Immediate |
+| C-1 | LVM gas uint64 overflow | **CLOSED** | — |
+| C-2 | GasUsed ≤ GasLimit missing from header | **CLOSED** | — |
+| C-3 | GasLimit lower bound incomplete | **CLOSED** | — |
+| C-4 | EncodeIndex silent empty write | **CLOSED** | — |
+| C-5 | ContractAddress never set | **CLOSED** | — |
 | H-1 | Non-secp256k1 sender unverified | **FALSE_POSITIVE** | — |
 | H-2 | DoCall missing cancellation goroutine | **FALSE_POSITIVE** | — |
-| H-3 | UNO proof validation in txpool path | **CONFIRMED** | This sprint |
-| H-4 | CumulativeGasUsed two-phase | **CONFIRMED** (→ Medium) | This sprint |
+| H-3 | UNO proof validation in txpool path | **CLOSED** | — |
+| H-4 | CumulativeGasUsed two-phase | **CLOSED** | — |
 | H-5 | BaseFee validation missing | **BY_DESIGN** (future risk) | Planned |
-| M-1 | secp256k1 signature malleability | **CONFIRMED** | Next sprint |
+| M-1 | secp256k1 signature malleability | **CLOSED** | — |
 | M-2 | No per-field tx size limits | **FALSE_POSITIVE** | — |
-| M-3 | StateOverride no count limit | **CONFIRMED** | Next sprint |
+| M-3 | StateOverride no count limit | **CLOSED** | — |
 | M-4 | EpochExtra timing window | **CONFIRMED** | Next sprint |
-| M-5 | ResolveSender called twice | **CONFIRMED** | Next sprint |
-| M-6 | Revert reason not decoded | **CONFIRMED** | Next sprint |
-| L-1 | ChainID=0 not rejected | **CONFIRMED** | Next sprint |
-| L-2 | Hash silently returns zero | **CONFIRMED** | Next sprint |
-| L-3 | LastElement empty-list panic | **CONFIRMED** (safe now) | Next sprint |
+| M-5 | ResolveSender called twice | **CLOSED** | — |
+| M-6 | Revert reason not decoded | **CLOSED** | — |
+| L-1 | ChainID=0 not rejected | **CLOSED** | — |
+| L-2 | Hash silently returns zero | **CLOSED** | — |
+| L-3 | LastElement empty-list panic | **CLOSED** | — |
 | L-4 | VerifyForkHashes not called | **FALSE_POSITIVE** | — |
+| CF-1 | snapshot() LRU in-place mutation (data race) | **CLOSED** | — |
+| CF-2 | UpdateFinalized() dead code / finality propagation gap | **CLOSED** | — |
+| CF-3 | No startup state-pruning horizon check | **CLOSED** | — |
+| CF-4 | Incoming votes not relayed to other peers | **CLOSED** | — |
 
-**Confirmed bugs**: 14 (5 Critical · 2 High · 4 Medium · 3 Low)
+**Open bugs**: 1 (M-4 only)
+**Closed**: 17 (5 Critical · 2 High · 4 Medium · 2 Low · 4 Checkpoint)
 **False positives / By design**: 6 (H-1, H-2, M-2, L-4 = false positive; H-5 = by design)

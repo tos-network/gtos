@@ -96,18 +96,6 @@ func (s *Snapshot) copy() *Snapshot {
 	return cpy
 }
 
-// UpdateFinalized advances the finalized checkpoint state if qcNumber is strictly
-// greater than the current FinalizedNumber. Returns true if the state advanced.
-// Finality is monotonic: this method never moves FinalizedNumber backward.
-func (s *Snapshot) UpdateFinalized(qcNumber uint64, qcHash common.Hash) bool {
-	if qcNumber <= s.FinalizedNumber {
-		return false
-	}
-	s.FinalizedNumber = qcNumber
-	s.FinalizedHash = qcHash
-	return true
-}
-
 // inturnSlot returns true if validator is the expected proposer for the given slot.
 func (s *Snapshot) inturnSlot(slot uint64, validator common.Address) bool {
 	if len(s.Validators) == 0 {
@@ -134,7 +122,7 @@ func (s *Snapshot) recentlySigned(validator common.Address) bool {
 // apply creates a new snapshot by sequentially applying the given headers to the base.
 func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 	if len(headers) == 0 {
-		return s, nil
+		return s.copy(), nil // always return a fresh copy; LRU-cached snapshots are shared
 	}
 	// Sanity: contiguous range immediately following s.
 	for i := 0; i < len(headers)-1; i++ {

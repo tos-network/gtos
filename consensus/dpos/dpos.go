@@ -1340,6 +1340,10 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 	if err != nil {
 		return nil, err
 	}
+	// Snapshot.FinalizedNumber is authoritative only after rawdb sync via
+	// runtimeFinalizedBlock(). It is NOT updated inline when apply() processes a
+	// QC-bearing block — apply() does not parse Extra or QC fields. This is
+	// intentional. UpdateFinalized() was removed as dead code.
 	if finalized := d.runtimeFinalizedBlock(); finalized != nil && finalized.Number.Uint64() <= snap.Number {
 		snap.FinalizedNumber = finalized.Number.Uint64()
 		snap.FinalizedHash = finalized.Hash()
