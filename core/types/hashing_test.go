@@ -151,8 +151,13 @@ func genTxs(num uint64) (types.Transactions, error) {
 	}
 	var addr = crypto.PubkeyToAddress(key.PublicKey)
 	newTx := func(i uint64) (*types.Transaction, error) {
-		signer := types.NewReplayProtectedSigner(big.NewInt(18))
-		utx := types.NewTransaction(i, addr, new(big.Int), 0, new(big.Int).SetUint64(10000000), nil)
+		chainId := big.NewInt(18)
+		signer := types.NewReplayProtectedSigner(chainId)
+		utx := types.NewTx(&types.SignerTx{
+			ChainID: chainId, Nonce: i, To: &addr, Value: new(big.Int), Gas: 0,
+			Data: nil, From: common.Address{}, SignerType: "secp256k1",
+			V: new(big.Int), R: new(big.Int), S: new(big.Int),
+		})
 		tx, err := types.SignTx(utx, signer, key)
 		return tx, err
 	}

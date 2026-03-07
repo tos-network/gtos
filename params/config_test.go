@@ -31,7 +31,7 @@ func TestNormalizeDPoSSealSignerType(t *testing.T) {
 	}{
 		{in: "", want: DPoSSealSignerTypeEd25519},
 		{in: "ed25519", want: DPoSSealSignerTypeEd25519},
-		{in: "secp256k1", want: DPoSSealSignerTypeSecp256k1},
+		{in: "secp256k1", wantErr: true},
 		{in: "ethereum_secp256k1", wantErr: true},
 		{in: "bls12-381", wantErr: true},
 	}
@@ -172,8 +172,8 @@ func TestCheckCompatible(t *testing.T) {
 		},
 		// DPoS param mismatch tests: Fatal=true so startup is blocked even when RewindTo==0.
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 200, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 200, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS epoch",
@@ -184,8 +184,8 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 1000, MaxValidators: 15, SealSignerType: "secp256k1"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 1000, MaxValidators: 15, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS periodMs",
@@ -196,8 +196,8 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
-			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 21, SealSignerType: "secp256k1"}},
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 21, SealSignerType: "ed25519"}},
 			head:   10,
 			wantErr: &ConfigCompatError{
 				What:         "DPoS maxValidators",
@@ -208,8 +208,8 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
-			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "secp256k1"}},
-			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: "ed25519"}},
+			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, SealSignerType: ""}},
 			head:    10,
 			wantErr: &ConfigCompatError{What: "DPoS sealSignerType", RewindTo: 0, Fatal: true},
 		},

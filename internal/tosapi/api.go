@@ -13,6 +13,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
@@ -918,6 +919,22 @@ func (diff *StateOverride) Apply(state *state.StateDB) error {
 	if diff == nil {
 		return nil
 	}
+	const maxOverrideAccounts = 100
+	const maxStorageSlots = 1000
+
+	if len(*diff) > maxOverrideAccounts {
+		return fmt.Errorf("state override: too many accounts (%d > %d)", len(*diff), maxOverrideAccounts)
+	}
+	for addr, account := range *diff {
+		if account.State != nil && len(*account.State) > maxStorageSlots {
+			return fmt.Errorf("state override: account %s has too many storage slots (%d > %d)",
+				addr.Hex(), len(*account.State), maxStorageSlots)
+		}
+		if account.StateDiff != nil && len(*account.StateDiff) > maxStorageSlots {
+			return fmt.Errorf("state override: account %s has too many stateDiff slots (%d > %d)",
+				addr.Hex(), len(*account.StateDiff), maxStorageSlots)
+		}
+	}
 	for addr, account := range *diff {
 		// Override account nonce.
 		if account.Nonce != nil {
@@ -1044,9 +1061,13 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {
+	reason := hexutil.Encode(result.Revert())
+	if decoded, err := abi.UnpackRevert(result.Revert()); err == nil {
+		reason = decoded
+	}
 	return &revertError{
 		error:  errors.New("execution reverted"),
-		reason: hexutil.Encode(result.Revert()),
+		reason: reason,
 	}
 }
 

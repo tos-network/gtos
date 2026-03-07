@@ -10,9 +10,8 @@
 //	Normal block:        [32B vanity][seal]
 //	Epoch block (N>0):   [32B vanity][N×AddressLength addrs][seal]
 //
-// Seal encoding depends on dpos.sealSignerType:
-//   - secp256k1: [65B secp256k1 signature]
-//   - ed25519:   [32B pubkey || 64B signature]
+// Seal encoding is fixed to ed25519:
+//   - [32B pubkey || 64B signature]
 package dpos
 
 import (
@@ -84,8 +83,6 @@ func headerSlot(headerTime, genesisTime, periodMs uint64) (uint64, bool) {
 
 const (
 	extraVanity        = 32   // bytes of vanity prefix in Extra
-	extraSeal          = 65   // legacy/test helper: secp256k1 seal length
-	extraSealSecp256k1 = 65   // bytes of secp256k1 seal in Extra (crypto.SignatureLength)
 	extraSealEd25519   = 96   // bytes of ed25519 seal in Extra: [pub(32) || sig(64)]
 	inmemorySnapshots  = 128  // recent snapshots to keep in LRU
 	inmemorySignatures = 4096 // recent signatures to cache
@@ -176,7 +173,7 @@ func NewFaker() *DPoS {
 		Epoch:          200,
 		MaxValidators:  params.DPoSMaxValidators,
 		PeriodMs:       3000,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
 		panic(err)
@@ -243,9 +240,9 @@ func (d *DPoS) SealHash(header *types.Header) common.Hash {
 }
 
 // SealHash (package function) returns the hash of a block prior to sealing.
-// This package-level helper uses legacy secp256k1 seal length for compatibility.
+// This package-level helper uses the chain-wide default ed25519 seal length.
 func SealHash(header *types.Header) (hash common.Hash) {
-	return sealHashWithSealLength(header, extraSealSecp256k1)
+	return sealHashWithSealLength(header, extraSealEd25519)
 }
 
 func sealHashWithSealLength(header *types.Header, sealLen int) (hash common.Hash) {
@@ -273,60 +270,38 @@ func encodeSigHeader(w io.Writer, header *types.Header, sealLen int) {
 }
 
 func sealLengthForSignerType(signerType string) int {
-	if signerType == params.DPoSSealSignerTypeEd25519 {
-		return extraSealEd25519
-	}
-	return extraSealSecp256k1
+	return extraSealEd25519
 }
 
 func (d *DPoS) normalizeSealPayload(payload []byte) ([]byte, error) {
-	switch d.config.SealSignerType {
-	case params.DPoSSealSignerTypeEd25519:
-		if len(payload) != extraSealEd25519 {
-			return nil, fmt.Errorf("dpos: invalid ed25519 seal length: have %d want %d", len(payload), extraSealEd25519)
-		}
-		return append([]byte(nil), payload...), nil
-	default:
-		if len(payload) != extraSealSecp256k1 {
-			return nil, fmt.Errorf("dpos: invalid secp256k1 seal length: have %d want %d", len(payload), extraSealSecp256k1)
-		}
-		return append([]byte(nil), payload...), nil
+	if len(payload) != extraSealEd25519 {
+		return nil, fmt.Errorf("dpos: invalid ed25519 seal length: have %d want %d", len(payload), extraSealEd25519)
 	}
+	return append([]byte(nil), payload...), nil
 }
 
-// recoverHeaderSigner extracts the validator address from a signed header; caches in sigcache.
 func recoverHeaderSigner(config *params.DPoSConfig, header *types.Header, sigcache *lru.ARCCache) (common.Address, error) {
 	hash := header.Hash()
 	if addr, ok := sigcache.Get(hash); ok {
 		return addr.(common.Address), nil
 	}
-	sealSignerType := params.DefaultDPoSSealSignerType
-	if config != nil {
-		sealSignerType = config.SealSignerType
+	sealLen := sealLengthForSignerType(params.DefaultDPoSSealSignerType)
+	if config != nil && config.SealSignerType != "" {
+		sealLen = sealLengthForSignerType(config.SealSignerType)
 	}
-	sealLen := sealLengthForSignerType(sealSignerType)
 	if len(header.Extra) < sealLen {
 		return common.Address{}, errMissingSignature
 	}
 	sig := header.Extra[len(header.Extra)-sealLen:]
 	digest := sealHashWithSealLength(header, sealLen).Bytes()
 
-	var signer common.Address
-	switch sealSignerType {
-	case params.DPoSSealSignerTypeEd25519:
-		pub := sig[:ed25519.PublicKeySize]
-		signature := sig[ed25519.PublicKeySize:]
-		if !ed25519.Verify(ed25519.PublicKey(pub), digest, signature) {
-			return common.Address{}, errInvalidSignature
-		}
-		copy(signer[:], crypto.Keccak256(pub))
-	default:
-		pub, err := crypto.Ecrecover(digest, sig)
-		if err != nil {
-			return common.Address{}, err
-		}
-		copy(signer[:], crypto.Keccak256(pub[1:]))
+	pub := sig[:ed25519.PublicKeySize]
+	signature := sig[ed25519.PublicKeySize:]
+	if !ed25519.Verify(ed25519.PublicKey(pub), digest, signature) {
+		return common.Address{}, errInvalidSignature
 	}
+	var signer common.Address
+	copy(signer[:], crypto.Keccak256(pub))
 	sigcache.Add(hash, signer)
 	return signer, nil
 }

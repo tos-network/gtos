@@ -185,7 +185,7 @@ func sanityCheckSignature(v *big.Int, r *big.Int, s *big.Int, _ bool) error {
 		return ErrInvalidSig
 	}
 	plainV := byte(v.Uint64())
-	if !crypto.ValidateSignatureValues(plainV, r, s, false) {
+	if !crypto.ValidateSignatureValues(plainV, r, s, true) {
 		return ErrInvalidSig
 	}
 	return nil

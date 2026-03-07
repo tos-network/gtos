@@ -298,7 +298,12 @@ func TestTransactionTimeSort(t *testing.T) {
 	for start, key := range keys {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
 
-		tx, _ := SignTx(NewTransaction(0, common.Address{}, big.NewInt(100), 100, big.NewInt(1), nil), signer, key)
+		to := common.Address{}
+		tx, _ := SignTx(NewTx(&SignerTx{
+			ChainID: common.Big1, Nonce: 0, To: &to, Value: big.NewInt(100), Gas: 100,
+			Data: nil, From: common.Address{}, SignerType: "secp256k1",
+			V: new(big.Int), R: new(big.Int), S: new(big.Int),
+		}), signer, key)
 		tx.time = time.Unix(0, int64(len(keys)-start))
 
 		groups[addr] = append(groups[addr], tx)

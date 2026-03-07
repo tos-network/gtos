@@ -27,6 +27,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 )
@@ -365,7 +366,7 @@ func (rs Receipts) Len() int { return len(rs) }
 func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	r := rs[i]
 	if r.Type != SignerTxType {
-		return
+		log.Crit("receipt.EncodeIndex: unexpected tx type", "type", r.Type)
 	}
 	data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}
 	w.WriteByte(SignerTxType)

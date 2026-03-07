@@ -304,11 +304,6 @@ func signDPoSHashWithKeyMaterial(key *Key, hash []byte) ([]byte, error) {
 		return nil, ErrUnsupportedSigningKey
 	}
 	switch canonicalSignerTypeOrDefault(key.SignerType) {
-	case accountsigner.SignerTypeSecp256k1:
-		if key.PrivateKey == nil {
-			return nil, ErrUnsupportedSigningKey
-		}
-		return crypto.Sign(hash, key.PrivateKey)
 	case accountsigner.SignerTypeEd25519:
 		if len(key.Ed25519PrivateKey) != ed25519.PrivateKeySize {
 			return nil, ErrUnsupportedSigningKey
@@ -329,8 +324,7 @@ func signDPoSHashWithKeyMaterial(key *Key, hash []byte) ([]byte, error) {
 
 // SignDPoSHash signs the given DPoS header digest with the account's configured signer type.
 // Return format:
-//   - secp256k1: [R || S || V] (65 bytes)
-//   - ed25519:   [pub(32) || sig(64)] (96 bytes)
+//   - ed25519: [pub(32) || sig(64)] (96 bytes)
 func (ks *KeyStore) SignDPoSHash(a accounts.Account, hash []byte) ([]byte, error) {
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()

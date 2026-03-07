@@ -564,7 +564,7 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
-func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
 	switch tx.Type() {
 	case types.SignerTxType:
 		// SignerTx is the only accepted tx envelope in GTOS.
@@ -594,11 +594,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Ensure gasFeeCap is greater than or equal to gasTipCap.
 	if tx.GasFeeCapIntCmp(tx.GasTipCap()) < 0 {
 		return ErrTipAboveFeeCap
-	}
-	// Make sure the transaction is signed properly.
-	from, err := ResolveSender(tx, pool.signer, pool.currentState)
-	if err != nil {
-		return ErrInvalidSender
 	}
 	extraGas, err := validateUNOTxPrecheck(tx, from, pool.currentState)
 	if err != nil {
@@ -672,9 +667,6 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return 0, uno.ErrInvalidPayload
 		}
-		if err := uno.ValidateShieldProofBundleShape(payload.ProofBundle); err != nil {
-			return 0, err
-		}
 		return params.UNOBaseGas + params.UNOShieldGas, nil
 	case uno.ActionTransfer:
 		payload, err := uno.DecodeTransferPayload(env.Body)
@@ -686,9 +678,6 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return 0, uno.ErrInvalidPayload
-		}
-		if err := uno.ValidateTransferProofBundleShape(payload.ProofBundle); err != nil {
-			return 0, err
 		}
 		if _, err := uno.RequireElgamalSigner(statedb, payload.To); err != nil {
 			return 0, err
@@ -706,9 +695,6 @@ func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *
 		}
 		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return 0, uno.ErrInvalidPayload
-		}
-		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
-			return 0, err
 		}
 		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
 			return 0, uno.ErrVersionOverflow
@@ -734,17 +720,19 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
 	}
+	// Resolve sender once; used for locals check and full validation.
+	from, fromErr := ResolveSender(tx, pool.signer, pool.currentState)
+	if fromErr != nil {
+		log.Trace("Discarding transaction with invalid sender", "hash", hash, "err", fromErr)
+		invalidTxMeter.Mark(1)
+		return false, ErrInvalidSender
+	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.
-	isLocal := local
-	if !isLocal {
-		if from, fromErr := ResolveSender(tx, pool.signer, pool.currentState); fromErr == nil && pool.locals.contains(from) {
-			isLocal = true
-		}
-	}
+	isLocal := local || pool.locals.contains(from)
 
 	// If the transaction fails basic validation, discard it
-	if err := pool.validateTx(tx, isLocal); err != nil {
+	if err := pool.validateTx(tx, from, isLocal); err != nil {
 		log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
 		invalidTxMeter.Mark(1)
 		return false, err
@@ -787,7 +775,6 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		}
 	}
 	// Try to replace an existing transaction in the pending pool
-	from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
 	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.config.PriceBump)
@@ -1257,6 +1244,9 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 		// Update all accounts to the latest known pending nonce
 		nonces := make(map[common.Address]uint64, len(pool.pending))
 		for addr, list := range pool.pending {
+			if list.Len() == 0 {
+				continue
+			}
 			highestPending := list.LastElement()
 			nonces[addr] = highestPending.Nonce() + 1
 		}

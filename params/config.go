@@ -93,19 +93,16 @@ var (
 )
 
 const (
-	DPoSSealSignerTypeSecp256k1 = "secp256k1"
-	DPoSSealSignerTypeEd25519   = "ed25519"
-	DefaultDPoSSealSignerType   = DPoSSealSignerTypeEd25519
+	DPoSSealSignerTypeEd25519 = "ed25519"
+	DefaultDPoSSealSignerType = DPoSSealSignerTypeEd25519
 )
 
 func NormalizeDPoSSealSignerType(signerType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(signerType)) {
 	case "", DPoSSealSignerTypeEd25519:
 		return DPoSSealSignerTypeEd25519, nil
-	case DPoSSealSignerTypeSecp256k1:
-		return DPoSSealSignerTypeSecp256k1, nil
 	default:
-		return "", fmt.Errorf("unsupported dpos seal signer type: %s", strings.TrimSpace(signerType))
+		return "", fmt.Errorf("unsupported dpos seal signer type %q: only ed25519 is allowed", strings.TrimSpace(signerType))
 	}
 }
 
@@ -190,7 +187,7 @@ type DPoSConfig struct {
 	Epoch              uint64 `json:"epoch"`                        // blocks between validator-set snapshots
 	MaxValidators      uint64 `json:"maxValidators"`                // maximum active validators
 	RecentSignerWindow uint64 `json:"recentSignerWindow,omitempty"` // recent-sign window in blocks; 0 => auto (validators/3 + 1)
-	SealSignerType     string `json:"sealSignerType,omitempty"`     // consensus block-seal signer type: ed25519 (default) or secp256k1
+	SealSignerType     string `json:"sealSignerType,omitempty"`     // consensus block-seal signer type: ed25519 only
 }
 
 // TargetBlockPeriodMs returns the configured target block interval in milliseconds.

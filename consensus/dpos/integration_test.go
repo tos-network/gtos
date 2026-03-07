@@ -2,7 +2,6 @@ package dpos
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"crypto/ed25519"
 	"errors"
 	"math/big"
@@ -11,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
@@ -20,6 +21,63 @@ import (
 	"github.com/tos-network/gtos/sysaction"
 	"github.com/tos-network/gtos/validator"
 )
+
+func testIntegrationEd25519Key(seed byte) (ed25519.PublicKey, ed25519.PrivateKey, common.Address) {
+	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{seed}, ed25519.SeedSize))
+	pub := priv.Public().(ed25519.PublicKey)
+	return pub, priv, common.BytesToAddress(crypto.Keccak256(pub))
+}
+
+func signIntegrationHeader(t *testing.T, engine *DPoS, header *types.Header, pub ed25519.PublicKey, priv ed25519.PrivateKey) {
+	t.Helper()
+	sig := ed25519.Sign(priv, engine.SealHash(header).Bytes())
+	seal := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+	seal = append(seal, pub...)
+	seal = append(seal, sig...)
+	copy(header.Extra[len(header.Extra)-extraSealEd25519:], seal)
+}
+
+func signEd25519SignerTx(t *testing.T, signer types.Signer, from common.Address, priv ed25519.PrivateKey, nonce uint64, to *common.Address, value *big.Int, gas uint64, data []byte) *types.Transaction {
+	t.Helper()
+	unsigned := types.NewTx(&types.SignerTx{
+		ChainID:    signer.ChainID(),
+		Nonce:      nonce,
+		To:         to,
+		Value:      value,
+		Gas:        gas,
+		Data:       data,
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+	})
+	hash := signer.Hash(unsigned)
+	sig := ed25519.Sign(priv, hash[:])
+	return types.NewTx(&types.SignerTx{
+		ChainID:    signer.ChainID(),
+		Nonce:      nonce,
+		To:         to,
+		Value:      value,
+		Gas:        gas,
+		Data:       data,
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(sig[:32]),
+		S:          new(big.Int).SetBytes(sig[32:]),
+	})
+}
+
+func makeAccountSetSignerTx(t *testing.T, signer types.Signer, nonce uint64, from common.Address, pub ed25519.PublicKey, priv ed25519.PrivateKey) *types.Transaction {
+	t.Helper()
+	payload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
+		SignerType:  accountsigner.SignerTypeEd25519,
+		SignerValue: hexutil.Encode(pub),
+	})
+	if err != nil {
+		t.Fatalf("make account_set_signer payload: %v", err)
+	}
+	sysTo := params.SystemActionAddress
+	return signEd25519SignerTx(t, signer, from, priv, nonce, &sysTo, big.NewInt(0), 500_000, payload)
+}
 
 // TestDPoSChainInsert builds a small DPoS chain (genesis + 5 blocks) and
 // inserts them into a real BlockChain, verifying that:
@@ -32,8 +90,7 @@ import (
 // signer so that the coinbase propagates to all generated blocks, ensuring
 // the state root computed during generation matches the one during insertion.
 func TestDPoSChainInsert(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, signer := testIntegrationEd25519Key(0x11)
 
 	db := rawdb.NewMemoryDatabase()
 
@@ -45,7 +102,7 @@ func TestDPoSChainInsert(t *testing.T) {
 		PeriodMs:       1000,
 		Epoch:          200,
 		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
@@ -66,7 +123,11 @@ func TestDPoSChainInsert(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	engine.Authorize(signer, func(_ accounts.Account, _ string, hash []byte) ([]byte, error) {
-		return crypto.Sign(hash, key)
+		sig := ed25519.Sign(priv, hash)
+		out := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+		out = append(out, pub...)
+		out = append(out, sig...)
+		return out, nil
 	})
 
 	chain, err := core.NewBlockChain(db, nil, &chainCfg, engine, nil, nil)
@@ -93,111 +154,16 @@ func TestDPoSChainInsert(t *testing.T) {
 			// Update ParentHash to point to the signed (hash-changed) previous block.
 			header.ParentHash = blocks[i-1].Hash()
 		}
-		// Build a proper Extra: [extraVanity bytes][extraSeal bytes].
-		// This MUST be set before calling SealHash (encodeSigHeader strips Extra[:-65]).
+		// Build a proper Extra: [extraVanity bytes][extraSealEd25519 bytes].
+		// This MUST be set before calling SealHash.
 		// GenerateChain does not call engine.Prepare(), so Extra may be nil/short.
-		newExtra := make([]byte, extraVanity+extraSeal)
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
 		if len(header.Extra) >= extraVanity {
 			copy(newExtra, header.Extra[:extraVanity]) // preserve any existing vanity
 		}
 		header.Extra = newExtra // set before SealHash strips it
 
-		sig, err := crypto.Sign(SealHash(header).Bytes(), key)
-		if err != nil {
-			t.Fatalf("sign block %d: %v", i+1, err)
-		}
-		copy(header.Extra[extraVanity:], sig)
-
-		blocks[i] = block.WithSeal(header)
-	}
-
-	if n, err := chain.InsertChain(blocks); err != nil {
-		t.Fatalf("InsertChain failed at block %d: %v", n+1, err)
-	}
-	if head := chain.CurrentBlock().NumberU64(); head != nBlocks {
-		t.Errorf("chain head: want %d, got %d", nBlocks, head)
-	}
-
-	// Verify block rewards accrued: signer balance > initial allocation.
-	st, _ := chain.State()
-	initialBal := new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18))
-	bal := st.GetBalance(signer)
-	if bal.Cmp(initialBal) <= 0 {
-		t.Errorf("signer balance did not increase after %d blocks: got %v, want > %v",
-			nBlocks, bal, initialBal)
-	}
-}
-
-func TestDPoSChainInsertEd25519Seal(t *testing.T) {
-	seed := bytes.Repeat([]byte{0x42}, ed25519.SeedSize)
-	priv := ed25519.NewKeyFromSeed(seed)
-	pub, ok := priv.Public().(ed25519.PublicKey)
-	if !ok {
-		t.Fatal("failed to derive ed25519 public key")
-	}
-	var signer common.Address
-	copy(signer[:], crypto.Keccak256(pub))
-
-	db := rawdb.NewMemoryDatabase()
-
-	// Genesis Extra: 32-byte vanity + signer address (no seal on block 0).
-	genesisExtra := make([]byte, extraVanity+common.AddressLength)
-	copy(genesisExtra[extraVanity:], signer.Bytes())
-
-	dposCfg := &params.DPoSConfig{
-		PeriodMs:       1000,
-		Epoch:          200,
-		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeEd25519,
-	}
-	chainCfg := *params.AllDPoSProtocolChanges
-	chainCfg.DPoS = dposCfg
-
-	genspec := &core.Genesis{
-		Config:    &chainCfg,
-		ExtraData: genesisExtra,
-		Coinbase:  signer,
-		Alloc: map[common.Address]core.GenesisAccount{
-			signer: {Balance: new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18))},
-		},
-		BaseFee: big.NewInt(params.InitialBaseFee),
-	}
-	genesis := genspec.MustCommit(db)
-
-	engine, err := New(dposCfg, db)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	chain, err := core.NewBlockChain(db, nil, &chainCfg, engine, nil, nil)
-	if err != nil {
-		t.Fatalf("NewBlockChain: %v", err)
-	}
-	defer chain.Stop()
-
-	const nBlocks = 5
-	blocks, _ := core.GenerateChain(&chainCfg, genesis, engine, db, nBlocks,
-		func(i int, b *core.BlockGen) {
-			b.SetDifficulty(diffInTurn)
-		})
-
-	for i, block := range blocks {
-		header := block.Header()
-		if i > 0 {
-			header.ParentHash = blocks[i-1].Hash()
-		}
-		newExtra := make([]byte, extraVanity+extraSealEd25519)
-		if len(header.Extra) >= extraVanity {
-			copy(newExtra, header.Extra[:extraVanity])
-		}
-		header.Extra = newExtra
-
-		digest := engine.SealHash(header).Bytes()
-		sig := ed25519.Sign(priv, digest)
-		seal := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
-		seal = append(seal, pub...)
-		seal = append(seal, sig...)
-		copy(header.Extra[extraVanity:], seal)
+		signIntegrationHeader(t, engine, header, pub, priv)
 
 		blocks[i] = block.WithSeal(header)
 	}
@@ -226,20 +192,15 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 	)
 
 	// Deterministic 3-validator fixture.
-	keyHexes := []string{
-		"b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291",
-		"49a7b37aa6f664591f6f7d8dc908dc7ea0b89f2de0b5261f7fa693596e5361d0",
-		"8a1f9a8f3c5e0a8f94c47df7fdc5fb8a0d4e7f3d7d2c24f6f9a16ddbc5c94939",
+	type validatorKey struct {
+		pub  ed25519.PublicKey
+		priv ed25519.PrivateKey
 	}
-	keysByAddr := make(map[common.Address]*ecdsa.PrivateKey, len(keyHexes))
-	validators := make([]common.Address, 0, len(keyHexes))
-	for _, hexKey := range keyHexes {
-		key, err := crypto.HexToECDSA(hexKey)
-		if err != nil {
-			t.Fatalf("invalid fixture private key: %v", err)
-		}
-		addr := crypto.PubkeyToAddress(key.PublicKey)
-		keysByAddr[addr] = key
+	keysByAddr := make(map[common.Address]validatorKey, 3)
+	validators := make([]common.Address, 0, 3)
+	for _, seed := range []byte{0x21, 0x22, 0x23} {
+		pub, priv, addr := testIntegrationEd25519Key(seed)
+		keysByAddr[addr] = validatorKey{pub: pub, priv: priv}
 		validators = append(validators, addr)
 	}
 	sort.Slice(validators, func(i, j int) bool {
@@ -250,7 +211,7 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 		PeriodMs:       1000,
 		Epoch:          5000,
 		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
@@ -287,21 +248,17 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 		}
 		number := header.Number.Uint64()
 		signer := validators[number%uint64(len(validators))]
-		key := keysByAddr[signer]
-		if key == nil {
+		entry, ok := keysByAddr[signer]
+		if !ok {
 			t.Fatalf("missing key for signer %s", signer.Hex())
 		}
 		header.Coinbase = signer
-		newExtra := make([]byte, extraVanity+extraSeal)
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
 		if len(header.Extra) >= extraVanity {
 			copy(newExtra, header.Extra[:extraVanity])
 		}
 		header.Extra = newExtra
-		sig, signErr := crypto.Sign(SealHash(header).Bytes(), key)
-		if signErr != nil {
-			t.Fatalf("sign block %d: %v", number, signErr)
-		}
-		copy(header.Extra[extraVanity:], sig)
+		signIntegrationHeader(t, buildEngine, header, entry.pub, entry.priv)
 		blocks[i] = block.WithSeal(header)
 	}
 
@@ -390,27 +347,17 @@ func TestDPoSThreeValidatorStabilityGate(t *testing.T) {
 }
 
 func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
-	keyHexes := []string{
-		"b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291",
-		"49a7b37aa6f664591f6f7d8dc908dc7ea0b89f2de0b5261f7fa693596e5361d0",
-		"8a1f9a8f3c5e0a8f94c47df7fdc5fb8a0d4e7f3d7d2c24f6f9a16ddbc5c94939",
+	type validatorKey struct {
+		pub  ed25519.PublicKey
+		priv ed25519.PrivateKey
 	}
-	var (
-		keys       []*ecdsa.PrivateKey
-		validators []common.Address
-	)
-	keysByAddr := make(map[common.Address]*ecdsa.PrivateKey, len(keyHexes))
-	for _, hexKey := range keyHexes {
-		key, err := crypto.HexToECDSA(hexKey)
-		if err != nil {
-			t.Fatalf("invalid fixture private key: %v", err)
-		}
-		addr := crypto.PubkeyToAddress(key.PublicKey)
-		keys = append(keys, key)
+	keysByAddr := make(map[common.Address]validatorKey, 3)
+	validators := make([]common.Address, 0, 3)
+	for _, seed := range []byte{0x31, 0x32, 0x33} {
+		pub, priv, addr := testIntegrationEd25519Key(seed)
+		keysByAddr[addr] = validatorKey{pub: pub, priv: priv}
 		validators = append(validators, addr)
-		keysByAddr[addr] = key
 	}
-	// Keep expected validator order deterministic (address ascending), matching validator.ReadActiveValidators.
 	expectedValidators := append([]common.Address(nil), validators...)
 	sort.Slice(expectedValidators, func(i, j int) bool {
 		return bytes.Compare(expectedValidators[i][:], expectedValidators[j][:]) < 0
@@ -418,25 +365,25 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          2,
+		Epoch:          3,
 		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
 
 	genesisSigner := validators[0]
-	block3Signer := expectedValidators[0]
-	if block3Signer == genesisSigner {
+	block4Signer := expectedValidators[4%len(expectedValidators)]
+	if block4Signer == genesisSigner {
 		for _, v := range expectedValidators {
 			if v != genesisSigner {
-				block3Signer = v
+				block4Signer = v
 				break
 			}
 		}
 	}
-	if block3Signer == genesisSigner {
-		t.Fatalf("failed to pick non-recent signer for block3")
+	if block4Signer == genesisSigner {
+		t.Fatalf("failed to pick non-recent signer for block4")
 	}
 	stake := new(big.Int).Set(params.DPoSMinValidatorStake)
 	genesisExtra := make([]byte, extraVanity+common.AddressLength)
@@ -459,56 +406,50 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 		t.Fatalf("make register payload: %v", err)
 	}
 	txSigner := types.LatestSignerForChainID(chainCfg.ChainID)
-	mkRegisterTx := func(key *ecdsa.PrivateKey) *types.Transaction {
-		from := crypto.PubkeyToAddress(key.PublicKey)
+	mkRegisterTx := func(from common.Address, priv ed25519.PrivateKey) *types.Transaction {
 		to := params.SystemActionAddress
-		unsigned := types.NewTx(&types.SignerTx{
-			ChainID:    txSigner.ChainID(),
-			Nonce:      0,
-			To:         &to,
-			Value:      new(big.Int).Set(stake),
-			Gas:        500_000,
-			Data:       registerPayload,
-			From:       from,
-			SignerType: "secp256k1",
-		})
-		signed, signErr := types.SignTx(unsigned, txSigner, key)
-		if signErr != nil {
-			t.Fatalf("sign register tx: %v", signErr)
-		}
-		return signed
+		return signEd25519SignerTx(t, txSigner, from, priv, 1, &to, new(big.Int).Set(stake), 500_000, registerPayload)
 	}
-	txRegister := []*types.Transaction{
-		mkRegisterTx(keys[0]),
-		mkRegisterTx(keys[1]),
-		mkRegisterTx(keys[2]),
+	txBootstrap := make([]*types.Transaction, 0, len(validators))
+	txRegister := make([]*types.Transaction, 0, len(validators))
+	for _, addr := range validators {
+		entry := keysByAddr[addr]
+		txBootstrap = append(txBootstrap, makeAccountSetSignerTx(t, txSigner, 0, addr, entry.pub, entry.priv))
+		txRegister = append(txRegister, mkRegisterTx(addr, entry.priv))
 	}
 
-	// Build 3 blocks:
-	// block1: register A/B/C (under genesis validator A).
-	// block2 (epoch): signed by old set (A), embeds new validator set from registry.
-	// block3: must be signed by in-turn proposer from the new 3-validator set.
+	// Build 4 blocks:
+	// block1: bootstrap ed25519 signer metadata for A/B/C.
+	// block2: register A/B/C under those signer bindings.
+	// block3 (epoch): signed by old set (A), embeds new validator set from parent state.
+	// block4: must be signed by a proposer from the new 3-validator set.
 	generateDB := rawdb.NewMemoryDatabase()
 	generateGenesis := genspec.MustCommit(generateDB)
 	buildEngine, err := New(dposCfg, generateDB)
 	if err != nil {
 		t.Fatalf("New(buildEngine): %v", err)
 	}
-	blocks, _ := core.GenerateChain(&chainCfg, generateGenesis, buildEngine, generateDB, 3, func(i int, b *core.BlockGen) {
+	blocks, _ := core.GenerateChain(&chainCfg, generateGenesis, buildEngine, generateDB, 4, func(i int, b *core.BlockGen) {
 		b.SetExtra(make([]byte, extraVanity))
 		switch i {
 		case 0:
 			b.SetCoinbase(genesisSigner)
 			b.SetDifficulty(diffInTurn)
-			for _, tx := range txRegister {
+			for _, tx := range txBootstrap {
 				b.AddTx(tx)
 			}
 		case 1:
 			b.SetCoinbase(genesisSigner)
 			b.SetDifficulty(diffInTurn)
+			for _, tx := range txRegister {
+				b.AddTx(tx)
+			}
 		case 2:
-			b.SetCoinbase(block3Signer)
-			if expectedValidators[3%len(expectedValidators)] == block3Signer {
+			b.SetCoinbase(genesisSigner)
+			b.SetDifficulty(diffInTurn)
+		case 3:
+			b.SetCoinbase(block4Signer)
+			if expectedValidators[4%len(expectedValidators)] == block4Signer {
 				b.SetDifficulty(diffInTurn)
 			} else {
 				b.SetDifficulty(diffNoTurn)
@@ -522,39 +463,33 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 			header.ParentHash = blocks[i-1].Hash()
 		}
 		number := header.Number.Uint64()
-		var signer common.Address
-		if number <= 2 {
-			signer = genesisSigner
-		} else {
-			signer = block3Signer
+		signer := genesisSigner
+		if number == 4 {
+			signer = block4Signer
 		}
-		key := keysByAddr[signer]
-		if key == nil {
+		entry, ok := keysByAddr[signer]
+		if !ok {
 			t.Fatalf("missing key for signer %s", signer.Hex())
 		}
 		header.Coinbase = signer
 
-		newExtra := make([]byte, extraVanity+extraSeal)
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
 		copy(newExtra[:extraVanity], header.Extra[:extraVanity])
 		if number%dposCfg.Epoch == 0 {
-			validatorPayloadLen := len(header.Extra) - extraVanity - extraSeal
+			validatorPayloadLen := len(header.Extra) - extraVanity - extraSealEd25519
 			if validatorPayloadLen < 0 {
 				t.Fatalf("invalid epoch extra length for block %d", number)
 			}
-			withPayload := make([]byte, extraVanity+validatorPayloadLen+extraSeal)
+			withPayload := make([]byte, extraVanity+validatorPayloadLen+extraSealEd25519)
 			copy(withPayload[:extraVanity], header.Extra[:extraVanity])
 			if validatorPayloadLen > 0 {
-				copy(withPayload[extraVanity:extraVanity+validatorPayloadLen], header.Extra[extraVanity:len(header.Extra)-extraSeal])
+				copy(withPayload[extraVanity:extraVanity+validatorPayloadLen], header.Extra[extraVanity:len(header.Extra)-extraSealEd25519])
 			}
 			newExtra = withPayload
 		}
 		header.Extra = newExtra
 
-		sig, signErr := crypto.Sign(SealHash(header).Bytes(), key)
-		if signErr != nil {
-			t.Fatalf("sign block %d: %v", number, signErr)
-		}
-		copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+		signIntegrationHeader(t, buildEngine, header, entry.pub, entry.priv)
 		blocks[i] = block.WithSeal(header)
 	}
 
@@ -573,11 +508,11 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 	if n, insErr := chain.InsertChain(blocks); insErr != nil {
 		t.Fatalf("InsertChain failed at block %d: %v", n+1, insErr)
 	}
-	if have, want := chain.CurrentBlock().NumberU64(), uint64(3); have != want {
+	if have, want := chain.CurrentBlock().NumberU64(), uint64(4); have != want {
 		t.Fatalf("unexpected head number: have %d want %d", have, want)
 	}
 
-	epochValidators, err := parseEpochValidators(blocks[1].Header().Extra, dposCfg)
+	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg)
 	if err != nil {
 		t.Fatalf("parse epoch validators: %v", err)
 	}
@@ -609,20 +544,15 @@ func TestDPoSEpochRotationUsesValidatorRegistrySet(t *testing.T) {
 }
 
 func TestDPoSProposalSafetyChecks(t *testing.T) {
-	keyHexes := []string{
-		"b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291",
-		"49a7b37aa6f664591f6f7d8dc908dc7ea0b89f2de0b5261f7fa693596e5361d0",
-		"8a1f9a8f3c5e0a8f94c47df7fdc5fb8a0d4e7f3d7d2c24f6f9a16ddbc5c94939",
+	type validatorKey struct {
+		pub  ed25519.PublicKey
+		priv ed25519.PrivateKey
 	}
-	keysByAddr := make(map[common.Address]*ecdsa.PrivateKey, len(keyHexes))
-	validators := make([]common.Address, 0, len(keyHexes))
-	for _, hexKey := range keyHexes {
-		key, err := crypto.HexToECDSA(hexKey)
-		if err != nil {
-			t.Fatalf("invalid fixture private key: %v", err)
-		}
-		addr := crypto.PubkeyToAddress(key.PublicKey)
-		keysByAddr[addr] = key
+	keysByAddr := make(map[common.Address]validatorKey, 3)
+	validators := make([]common.Address, 0, 3)
+	for _, seed := range []byte{0x41, 0x42, 0x43} {
+		pub, priv, addr := testIntegrationEd25519Key(seed)
+		keysByAddr[addr] = validatorKey{pub: pub, priv: priv}
 		validators = append(validators, addr)
 	}
 	sort.Slice(validators, func(i, j int) bool {
@@ -633,7 +563,7 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 		PeriodMs:       1000,
 		Epoch:          5000,
 		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
@@ -662,22 +592,19 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 	})
 	base := blocks[0].Header()
 	baseSigner := validators[1%len(validators)]
-	baseKey := keysByAddr[baseSigner]
-	if baseKey == nil {
+	baseEntry, ok := keysByAddr[baseSigner]
+	if !ok {
 		t.Fatalf("missing key for base signer %s", baseSigner.Hex())
 	}
 
-	outsiderKey, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatalf("generate outsider key: %v", err)
-	}
-	outsider := crypto.PubkeyToAddress(outsiderKey.PublicKey)
+	outsiderPub, outsiderPriv, outsider := testIntegrationEd25519Key(0x44)
 
 	type tc struct {
 		name        string
 		coinbase    common.Address
 		difficulty  *big.Int
-		signKey     *ecdsa.PrivateKey
+		signPub     ed25519.PublicKey
+		signPriv    ed25519.PrivateKey
 		expectedErr error
 	}
 	tests := []tc{
@@ -685,21 +612,24 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 			name:        "wrong-difficulty",
 			coinbase:    baseSigner,
 			difficulty:  new(big.Int).Set(diffNoTurn),
-			signKey:     baseKey,
+			signPub:     baseEntry.pub,
+			signPriv:    baseEntry.priv,
 			expectedErr: errWrongDifficulty,
 		},
 		{
 			name:        "coinbase-mismatch",
 			coinbase:    validators[2%len(validators)],
 			difficulty:  new(big.Int).Set(diffInTurn),
-			signKey:     baseKey,
+			signPub:     baseEntry.pub,
+			signPriv:    baseEntry.priv,
 			expectedErr: errInvalidCoinbase,
 		},
 		{
 			name:        "unauthorized-validator",
 			coinbase:    outsider,
 			difficulty:  new(big.Int).Set(diffNoTurn),
-			signKey:     outsiderKey,
+			signPub:     outsiderPub,
+			signPriv:    outsiderPriv,
 			expectedErr: errUnauthorizedValidator,
 		},
 	}
@@ -710,17 +640,13 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 			header.Coinbase = tt.coinbase
 			header.Difficulty = tt.difficulty
 
-			newExtra := make([]byte, extraVanity+extraSeal)
+			newExtra := make([]byte, extraVanity+extraSealEd25519)
 			if len(header.Extra) >= extraVanity {
 				copy(newExtra, header.Extra[:extraVanity])
 			}
 			header.Extra = newExtra
 
-			sig, signErr := crypto.Sign(SealHash(header).Bytes(), tt.signKey)
-			if signErr != nil {
-				t.Fatalf("sign header: %v", signErr)
-			}
-			copy(header.Extra[extraVanity:], sig)
+			signIntegrationHeader(t, buildEngine, header, tt.signPub, tt.signPriv)
 			badBlock := blocks[0].WithSeal(header)
 
 			runDB := rawdb.NewMemoryDatabase()
@@ -745,23 +671,15 @@ func TestDPoSProposalSafetyChecks(t *testing.T) {
 }
 
 func TestDPoSEpochExtraUsesParentState(t *testing.T) {
-	genesisKey, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatalf("generate genesis key: %v", err)
-	}
-	registrantKey, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatalf("generate registrant key: %v", err)
-	}
-	genesisSigner := crypto.PubkeyToAddress(genesisKey.PublicKey)
-	registrant := crypto.PubkeyToAddress(registrantKey.PublicKey)
+	genesisPub, genesisPriv, genesisSigner := testIntegrationEd25519Key(0x51)
+	registrantPub, registrantPriv, registrant := testIntegrationEd25519Key(0x52)
 	stake := new(big.Int).Set(params.DPoSMinValidatorStake)
 
 	dposCfg := &params.DPoSConfig{
 		PeriodMs:       1000,
-		Epoch:          2,
+		Epoch:          3,
 		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}
 	chainCfg := *params.AllDPoSProtocolChanges
 	chainCfg.DPoS = dposCfg
@@ -784,20 +702,9 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 		t.Fatalf("make register payload: %v", err)
 	}
 	txSigner := types.LatestSignerForChainID(chainCfg.ChainID)
-	sysTo := params.SystemActionAddress
-	registerTx, err := types.SignTx(types.NewTx(&types.SignerTx{
-		ChainID:    txSigner.ChainID(),
-		Nonce:      0,
-		To:         &sysTo,
-		Value:      new(big.Int).Set(stake),
-		Gas:        500_000,
-		Data:       registerPayload,
-		From:       registrant,
-		SignerType: "secp256k1",
-	}), txSigner, registrantKey)
-	if err != nil {
-		t.Fatalf("sign register tx: %v", err)
-	}
+	registerTo := params.SystemActionAddress
+	bootstrapTx := makeAccountSetSignerTx(t, txSigner, 0, registrant, registrantPub, registrantPriv)
+	registerTx := signEd25519SignerTx(t, txSigner, registrant, registrantPriv, 1, &registerTo, new(big.Int).Set(stake), 500_000, registerPayload)
 
 	buildDB := rawdb.NewMemoryDatabase()
 	genesis := genspec.MustCommit(buildDB)
@@ -805,11 +712,14 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(buildEngine): %v", err)
 	}
-	blocks, _ := core.GenerateChain(&chainCfg, genesis, buildEngine, buildDB, 2, func(i int, b *core.BlockGen) {
+	blocks, _ := core.GenerateChain(&chainCfg, genesis, buildEngine, buildDB, 3, func(i int, b *core.BlockGen) {
 		b.SetExtra(make([]byte, extraVanity))
 		b.SetCoinbase(genesisSigner)
 		b.SetDifficulty(diffInTurn)
-		if i == 1 {
+		if i == 0 {
+			b.AddTx(bootstrapTx)
+		}
+		if i == 2 {
 			b.AddTx(registerTx)
 		}
 	})
@@ -818,25 +728,21 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 		if i > 0 {
 			header.ParentHash = blocks[i-1].Hash()
 		}
-		newExtra := make([]byte, extraVanity+extraSeal)
+		newExtra := make([]byte, extraVanity+extraSealEd25519)
 		copy(newExtra[:extraVanity], header.Extra[:extraVanity])
 		if header.Number.Uint64()%dposCfg.Epoch == 0 {
-			validatorPayloadLen := len(header.Extra) - extraVanity - extraSeal
-			withPayload := make([]byte, extraVanity+validatorPayloadLen+extraSeal)
+			validatorPayloadLen := len(header.Extra) - extraVanity - extraSealEd25519
+			withPayload := make([]byte, extraVanity+validatorPayloadLen+extraSealEd25519)
 			copy(withPayload[:extraVanity], header.Extra[:extraVanity])
-			copy(withPayload[extraVanity:extraVanity+validatorPayloadLen], header.Extra[extraVanity:len(header.Extra)-extraSeal])
+			copy(withPayload[extraVanity:extraVanity+validatorPayloadLen], header.Extra[extraVanity:len(header.Extra)-extraSealEd25519])
 			newExtra = withPayload
 		}
 		header.Extra = newExtra
-		sig, signErr := crypto.Sign(SealHash(header).Bytes(), genesisKey)
-		if signErr != nil {
-			t.Fatalf("sign block %d: %v", header.Number.Uint64(), signErr)
-		}
-		copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+		signIntegrationHeader(t, buildEngine, header, genesisPub, genesisPriv)
 		blocks[i] = block.WithSeal(header)
 	}
 
-	epochValidators, err := parseEpochValidators(blocks[1].Header().Extra, dposCfg)
+	epochValidators, err := parseEpochValidators(blocks[2].Header().Extra, dposCfg)
 	if err != nil {
 		t.Fatalf("parse epoch validators: %v", err)
 	}
@@ -855,27 +761,23 @@ func TestDPoSEpochExtraUsesParentState(t *testing.T) {
 		t.Fatalf("NewBlockChain: %v", err)
 	}
 	defer chain.Stop()
-	if _, err := chain.InsertChain(blocks[:1]); err != nil {
-		t.Fatalf("InsertChain(block1): %v", err)
+	if _, err := chain.InsertChain(blocks[:2]); err != nil {
+		t.Fatalf("InsertChain(prefix): %v", err)
 	}
-	if err := runEngine.VerifyHeader(chain, blocks[1].Header(), true); err != nil {
+	if err := runEngine.VerifyHeader(chain, blocks[2].Header(), true); err != nil {
 		t.Fatalf("VerifyHeader(valid epoch block): %v", err)
 	}
 
-	tampered := types.CopyHeader(blocks[1].Header())
+	tampered := types.CopyHeader(blocks[2].Header())
 	payloadValidators := []common.Address{genesisSigner, registrant}
 	sort.Sort(addressAscending(payloadValidators))
-	tampered.Extra = make([]byte, extraVanity+len(payloadValidators)*common.AddressLength+extraSeal)
-	copy(tampered.Extra[:extraVanity], blocks[1].Header().Extra[:extraVanity])
+	tampered.Extra = make([]byte, extraVanity+len(payloadValidators)*common.AddressLength+extraSealEd25519)
+	copy(tampered.Extra[:extraVanity], blocks[2].Header().Extra[:extraVanity])
 	for i, addr := range payloadValidators {
 		copy(tampered.Extra[extraVanity+i*common.AddressLength:], addr.Bytes())
 	}
-	sig, err := crypto.Sign(SealHash(tampered).Bytes(), genesisKey)
-	if err != nil {
-		t.Fatalf("sign tampered epoch block: %v", err)
-	}
-	copy(tampered.Extra[len(tampered.Extra)-extraSeal:], sig)
-	tamperedBlock := blocks[1].WithSeal(tampered)
+	signIntegrationHeader(t, buildEngine, tampered, genesisPub, genesisPriv)
+	tamperedBlock := blocks[2].WithSeal(tampered)
 
 	if _, err := chain.InsertChain([]*types.Block{tamperedBlock}); err == nil {
 		t.Fatal("expected insert failure for epoch extra derived from in-block state")

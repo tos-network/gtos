@@ -204,17 +204,14 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 // Format: [32B vanity][N×AddressLength addresses][seal]
 // Enforces: count ≤ MaxValidators, no duplicates, strict ascending address order.
 func parseEpochValidators(extra []byte, cfg *params.DPoSConfig) ([]common.Address, error) {
-	sealSignerType := params.DefaultDPoSSealSignerType
 	maxValidators := 0
 	if cfg != nil {
-		sealSignerType = cfg.SealSignerType
 		maxValidators = int(cfg.MaxValidators)
 	}
-	sealLen := sealLengthForSignerType(sealSignerType)
-	if len(extra) < extraVanity+sealLen {
+	if len(extra) < extraVanity+extraSealEd25519 {
 		return nil, errMissingSignature
 	}
-	payload := extra[extraVanity : len(extra)-sealLen]
+	payload := extra[extraVanity : len(extra)-extraSealEd25519]
 	if len(payload)%common.AddressLength != 0 {
 		return nil, errInvalidCheckpointValidators
 	}

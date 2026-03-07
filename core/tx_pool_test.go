@@ -957,6 +957,7 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 	defer pool.Stop()
 
 	// Shield requires fixed-size proof (96 bytes); use malformed 95-byte proof.
+	// After H-3: proof-shape validation moved to block execution — txpool accepts these.
 	payload, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
 		Amount:      1,
 		NewSender:   testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
@@ -970,13 +971,12 @@ func TestTxPoolUNORejectsInvalidProofShape(t *testing.T) {
 		t.Fatalf("EncodeEnvelope: %v", err)
 	}
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, wire)
-	// Balance must exceed gas-cost + shield-amount (1 TOS) so the balance guard
-	// does not fire before the proof-shape check; use 2 TOS raw wei.
 	testSetBalanceExact(pool, from, big.NewInt(2_000_000_000_000_000_000)) // 2 TOS raw wei
 	testSetElgamalSigner(pool, from, pub)
 
-	if err := pool.AddRemote(tx); !errors.Is(err, coreuno.ErrInvalidPayload) {
-		t.Fatalf("expected %v, got %v", coreuno.ErrInvalidPayload, err)
+	// Txpool no longer rejects invalid proof shape; shape check is at block execution.
+	if err := pool.AddRemote(tx); err != nil {
+		t.Fatalf("txpool should accept tx with invalid proof shape (shape checked at execution): %v", err)
 	}
 }
 
@@ -1450,14 +1450,13 @@ func TestUNOTxPoolExecutionRejectParityShieldInvalidProofShape(t *testing.T) {
 
 	tx, from, pub := testUNOElgamalTx(t, 0, 1_000_000, testUNOShieldWireMalformedProof(t, 1))
 	testSetElgamalSigner(pool, from, pub)
-	// Ensure proof-shape rejection is hit before balance guard.
 	minBalance := new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS))
 	minBalance.Add(minBalance, big.NewInt(1))
 	testSetBalanceExact(pool, from, minBalance)
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts this tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)
@@ -1503,9 +1502,9 @@ func TestUNOTxPoolExecutionRejectParityTransferInvalidProofShape(t *testing.T) {
 	testSetElgamalSigner(pool, receiver, receiverPub)
 	testAddBalance(pool, from, big.NewInt(1_000_000))
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts this tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)
@@ -1539,9 +1538,9 @@ func TestUNOTxPoolExecutionRejectParityUnshieldInvalidProofShape(t *testing.T) {
 	testSetElgamalSigner(pool, from, pub)
 	testAddBalance(pool, from, big.NewInt(1_000_000))
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts this tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)
@@ -2169,9 +2168,9 @@ func TestUNOTxPoolExecutionRejectParityShieldEmptyProof(t *testing.T) {
 	testSetElgamalSigner(pool, from, pub)
 	testSetBalanceExact(pool, from, new(big.Int).Add(tx.Cost(), new(big.Int).SetUint64(params.TOS)))
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts empty-proof tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept empty-proof tx (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)
@@ -2217,9 +2216,9 @@ func TestUNOTxPoolExecutionRejectParityTransferEmptyProof(t *testing.T) {
 	testSetElgamalSigner(pool, receiver, receiverPub)
 	testSetBalanceExact(pool, from, new(big.Int).Set(tx.Cost()))
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts empty-proof tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept empty-proof tx (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)
@@ -2253,9 +2252,9 @@ func TestUNOTxPoolExecutionRejectParityUnshieldEmptyProof(t *testing.T) {
 	testSetElgamalSigner(pool, from, pub)
 	testSetBalanceExact(pool, from, new(big.Int).Set(tx.Cost()))
 
-	txpoolErr := pool.AddRemote(tx)
-	if !errors.Is(txpoolErr, coreuno.ErrInvalidPayload) {
-		t.Fatalf("txpool expected %v, got %v", coreuno.ErrInvalidPayload, txpoolErr)
+	// After H-3: proof-shape validation moved to block execution; txpool accepts empty-proof tx.
+	if txpoolErr := pool.AddRemote(tx); txpoolErr != nil {
+		t.Fatalf("txpool should accept empty-proof tx (shape checked at execution): %v", txpoolErr)
 	}
 
 	execState := newTTLDeterminismState(t)

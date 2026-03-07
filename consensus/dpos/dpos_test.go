@@ -1,9 +1,8 @@
 package dpos
 
 import (
-	gocrypto "crypto/ecdsa"
+	"bytes"
 	"crypto/ed25519"
-	"crypto/rand"
 	"math/big"
 	"sort"
 	"testing"
@@ -16,6 +15,21 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 )
+
+func testEd25519Key(seed byte) (ed25519.PublicKey, ed25519.PrivateKey, common.Address) {
+	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{seed}, ed25519.SeedSize))
+	pub := priv.Public().(ed25519.PublicKey)
+	return pub, priv, common.BytesToAddress(crypto.Keccak256(pub))
+}
+
+func signTestHeader(t *testing.T, d *DPoS, header *types.Header, pub ed25519.PublicKey, priv ed25519.PrivateKey) {
+	t.Helper()
+	sig := ed25519.Sign(priv, d.SealHash(header).Bytes())
+	seal := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+	seal = append(seal, pub...)
+	seal = append(seal, sig...)
+	copy(header.Extra[len(header.Extra)-extraSealEd25519:], seal)
+}
 
 // ── New / Config validation ──────────────────────────────────────────────────
 
@@ -127,7 +141,7 @@ func TestGenesisExtraParse(t *testing.T) {
 // TestEpochExtraParse tests parseEpochValidators for various inputs.
 func TestEpochExtraParse(t *testing.T) {
 	vanity := make([]byte, extraVanity)
-	seal := make([]byte, extraSeal)
+	seal := make([]byte, extraSealEd25519)
 
 	// N=1.
 	a1 := common.Address{0x01}
@@ -157,61 +171,18 @@ func TestEpochExtraParse(t *testing.T) {
 
 // TestSealHashRoundTrip verifies that recoverHeaderSigner(sign(SealHash(h))) == signer.
 func TestSealHashRoundTrip(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, signer := testEd25519Key(0x01)
 
 	header := &types.Header{
 		Number:     big.NewInt(1),
 		Difficulty: big.NewInt(2),
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
+		Coinbase:   signer,
 		Time:       uint64(time.Now().UnixMilli()),
 	}
 
 	d := NewFaker()
-	sig, err := crypto.Sign(d.SealHash(header).Bytes(), key)
-	if err != nil {
-		t.Fatalf("sign: %v", err)
-	}
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
-
-	recovered, err := recoverHeaderSigner(d.config, header, d.signatures)
-	if err != nil {
-		t.Fatalf("ecrecover: %v", err)
-	}
-	if recovered != signer {
-		t.Errorf("ecrecover: want %v, got %v", signer, recovered)
-	}
-}
-
-func TestSealHashRoundTripEd25519(t *testing.T) {
-	d, err := New(&params.DPoSConfig{
-		PeriodMs:       3000,
-		Epoch:          200,
-		MaxValidators:  21,
-		SealSignerType: params.DPoSSealSignerTypeEd25519,
-	}, nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate ed25519 key: %v", err)
-	}
-	signer := common.BytesToAddress(crypto.Keccak256(pub))
-
-	header := &types.Header{
-		Number:     big.NewInt(1),
-		Difficulty: big.NewInt(2),
-		Extra:      make([]byte, extraVanity+d.sealLength),
-		Coinbase:   signer,
-		Time:       uint64(time.Now().UnixMilli()),
-	}
-	digest := d.SealHash(header).Bytes()
-	sig := ed25519.Sign(priv, digest)
-	seal := make([]byte, 0, len(pub)+len(sig))
-	seal = append(seal, pub...)
-	seal = append(seal, sig...)
-	copy(header.Extra[len(header.Extra)-d.sealLength:], seal)
+	signTestHeader(t, d, header, pub, priv)
 
 	recovered, err := recoverHeaderSigner(d.config, header, d.signatures)
 	if err != nil {
@@ -227,10 +198,8 @@ func TestSealHashRoundTripEd25519(t *testing.T) {
 // TestCoinbaseMismatch verifies that verifySeal rejects a header where
 // the recovered signer differs from header.Coinbase.
 func TestCoinbaseMismatch(t *testing.T) {
-	key1, _ := crypto.GenerateKey()
-	key2, _ := crypto.GenerateKey()
-	signer1 := crypto.PubkeyToAddress(key1.PublicKey)
-	signer2 := crypto.PubkeyToAddress(key2.PublicKey)
+	pub1, priv1, signer1 := testEd25519Key(0x02)
+	_, _, signer2 := testEd25519Key(0x03)
 
 	addrs := []common.Address{signer1, signer2}
 	d := NewFaker()
@@ -240,11 +209,10 @@ func TestCoinbaseMismatch(t *testing.T) {
 		Number:     big.NewInt(1),
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer2, // deliberately wrong: will sign with key1
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		Time:       uint64(time.Now().UnixMilli()),
 	}
-	sig, _ := crypto.Sign(SealHash(header).Bytes(), key1)
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	signTestHeader(t, d, header, pub1, priv1)
 
 	if err := d.verifySeal(snap, header); err != errInvalidCoinbase {
 		t.Errorf("want errInvalidCoinbase, got %v", err)
@@ -259,8 +227,7 @@ func TestCoinbaseMismatch(t *testing.T) {
 //
 //	seenSlot=2, slot=3, limit=2 → seenSlot > slot-limit ↔ 2 > 3-2 ↔ 2 > 1 → REJECT ✓
 func TestRecentlySigned(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, signer := testEd25519Key(0x04)
 
 	// Three-validator set; recency window = 3/3+1 = 2.
 	addrs := []common.Address{signer, {0x02}, {0x03}}
@@ -278,11 +245,10 @@ func TestRecentlySigned(t *testing.T) {
 		Number:     big.NewInt(3),
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		Time:       genesisTime + 3*periodMs, // slot 3
 	}
-	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	signTestHeader(t, d, header, pub, priv)
 
 	if err := d.verifySeal(snap, header); err != errRecentlySigned {
 		t.Errorf("want errRecentlySigned, got %v", err)
@@ -295,8 +261,7 @@ func TestRecentlySigned(t *testing.T) {
 // when db is nil (R2-C3: all store() calls guarded with "if d.db != nil").
 func TestNilDbFaker(t *testing.T) {
 	d := NewFaker()
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	_, _, signer := testEd25519Key(0x05)
 
 	// Build a minimal chain reader that returns a genesis with one validator.
 	genesis := &types.Header{
@@ -329,7 +294,7 @@ func TestAllowedFutureBlock(t *testing.T) {
 		Number:     big.NewInt(1),
 		Time:       now + grace - 100,
 		Difficulty: diffInTurn,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		UncleHash:  types.EmptyUncleHash,
 	}
 	if err := d.verifyHeader(chain, hAllowed, nil); err == consensus.ErrFutureBlock {
@@ -341,7 +306,7 @@ func TestAllowedFutureBlock(t *testing.T) {
 		Number:     big.NewInt(1),
 		Time:       now + grace + 100,
 		Difficulty: diffInTurn,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		UncleHash:  types.EmptyUncleHash,
 	}
 	if err := d.verifyHeader(chain, hRejected, nil); err != consensus.ErrFutureBlock {
@@ -362,16 +327,16 @@ func TestVoteSigningLifecycle(t *testing.T) {
 		t.Fatal("expected SignVote to fail when signer is not configured")
 	}
 
-	key, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	addr := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, addr := testEd25519Key(0x06)
 	var gotMime string
 
 	d.Authorize(addr, func(_ accounts.Account, mime string, hash []byte) ([]byte, error) {
 		gotMime = mime
-		return crypto.Sign(hash, key)
+		sig := ed25519.Sign(priv, hash)
+		out := make([]byte, 0, ed25519.PublicKeySize+ed25519.SignatureSize)
+		out = append(out, pub...)
+		out = append(out, sig...)
+		return out, nil
 	})
 
 	if !d.CanSignVotes() {
@@ -386,11 +351,13 @@ func TestVoteSigningLifecycle(t *testing.T) {
 		t.Fatalf("unexpected MIME type: have %q want %q", gotMime, accounts.MimetypeDPoS)
 	}
 
-	pub, err := crypto.SigToPub(digest.Bytes(), sig)
-	if err != nil {
-		t.Fatalf("SigToPub: %v", err)
+	if len(sig) != ed25519.PublicKeySize+ed25519.SignatureSize {
+		t.Fatalf("unexpected DPoS vote signature length: have %d want %d", len(sig), ed25519.PublicKeySize+ed25519.SignatureSize)
 	}
-	if recovered := crypto.PubkeyToAddress(*pub); recovered != addr {
+	if !ed25519.Verify(ed25519.PublicKey(sig[:ed25519.PublicKeySize]), digest.Bytes(), sig[ed25519.PublicKeySize:]) {
+		t.Fatal("ed25519 vote signature verification failed")
+	}
+	if recovered := common.BytesToAddress(crypto.Keccak256(sig[:ed25519.PublicKeySize])); recovered != addr {
 		t.Fatalf("vote signature signer mismatch: have %s want %s", recovered.Hex(), addr.Hex())
 	}
 }
@@ -515,8 +482,7 @@ func TestAddressAscendingSort(t *testing.T) {
 // With 3 validators, limit = 3/3+1 = 2.
 // seenSlot=5, slot=7, slot-limit=5 → seenSlot(5) > slot-limit(5) → 5 > 5 → false → ALLOW ✓
 func TestSlotBasedRecentsAfterSkip(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, signer := testEd25519Key(0x07)
 
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
@@ -531,11 +497,10 @@ func TestSlotBasedRecentsAfterSkip(t *testing.T) {
 		Number:     big.NewInt(7),
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		Time:       genesisTime + 7*periodMs, // slot 7
 	}
-	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	signTestHeader(t, d, header, pub, priv)
 
 	if err := d.verifySeal(snap, header); err == errRecentlySigned {
 		t.Error("M3 fix: validator should NOT be blocked after slot skip, got errRecentlySigned")
@@ -574,7 +539,7 @@ func TestHeaderSlotHelper(t *testing.T) {
 func TestM2Guard(t *testing.T) {
 	d, err := New(&params.DPoSConfig{
 		PeriodMs: 360, Epoch: 200, MaxValidators: 21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -599,7 +564,7 @@ func TestM2Guard(t *testing.T) {
 		ParentHash: parent.Hash(),
 		Time:       360, // passes period check (0+360), but < GenesisTime(1000)
 		Difficulty: diffNoTurn,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 	}
 	chain := &fakeChainReader{headers: map[uint64]*types.Header{0: parent}}
 
@@ -613,8 +578,7 @@ func TestM2Guard(t *testing.T) {
 //
 // With 3 validators, limit=2. seenSlot=1, slot=3: seenSlot(1) > slot-limit(1) → false → ALLOW.
 func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
-	key, _ := crypto.GenerateKey()
-	signer := crypto.PubkeyToAddress(key.PublicKey)
+	pub, priv, signer := testEd25519Key(0x08)
 
 	addrs := []common.Address{signer, {0x02}, {0x03}}
 	d := NewFaker()
@@ -630,11 +594,10 @@ func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
 		Number:     big.NewInt(3),
 		Difficulty: big.NewInt(1),
 		Coinbase:   signer,
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		Time:       genesisTime + 3*periodMs, // slot 3
 	}
-	sig, _ := crypto.Sign(SealHash(header).Bytes(), key)
-	copy(header.Extra[len(header.Extra)-extraSeal:], sig)
+	signTestHeader(t, d, header, pub, priv)
 
 	if err := d.verifySeal(snap, header); err == errRecentlySigned {
 		t.Error("window-edge: validator should be ALLOWED at exactly slot-limit distance, got errRecentlySigned")
@@ -644,12 +607,17 @@ func TestRecentlySignedAllowAtWindowEdge(t *testing.T) {
 // TestApplyBulkEviction verifies that apply() evicts all stale Recents entries
 // in a single step (not just one) when slot numbers jump.
 func TestApplyBulkEviction(t *testing.T) {
-	key1, _ := crypto.GenerateKey()
-	key2, _ := crypto.GenerateKey()
-	key3, _ := crypto.GenerateKey()
-	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
-	addr2 := crypto.PubkeyToAddress(key2.PublicKey)
-	addr3 := crypto.PubkeyToAddress(key3.PublicKey)
+	pub1, priv1, addr1 := testEd25519Key(0x09)
+	pub2, priv2, addr2 := testEd25519Key(0x0a)
+	pub3, priv3, addr3 := testEd25519Key(0x0b)
+	keysByAddr := map[common.Address]struct {
+		pub  ed25519.PublicKey
+		priv ed25519.PrivateKey
+	}{
+		addr1: {pub: pub1, priv: priv1},
+		addr2: {pub: pub2, priv: priv2},
+		addr3: {pub: pub3, priv: priv3},
+	}
 
 	// Sort ascending so newSnapshot accepts them.
 	addrs := []common.Address{addr1, addr2, addr3}
@@ -667,24 +635,16 @@ func TestApplyBulkEviction(t *testing.T) {
 	snap.Recents[1] = addrs[1]
 
 	// Apply one header at slot 10 signed by addrs[2].
-	// Build a minimal signed header for addrs[2].
-	var signerKey *gocrypto.PrivateKey
-	for _, k := range []*gocrypto.PrivateKey{key1, key2, key3} {
-		if crypto.PubkeyToAddress(k.PublicKey) == addrs[2] {
-			signerKey = k
-			break
-		}
-	}
 	h := &types.Header{
 		Number:     big.NewInt(1),
 		ParentHash: common.Hash{},
 		Difficulty: big.NewInt(1),
 		Coinbase:   addrs[2],
-		Extra:      make([]byte, extraVanity+extraSeal),
+		Extra:      make([]byte, extraVanity+extraSealEd25519),
 		Time:       genesisTime + 10*periodMs, // slot 10
 	}
-	sig, _ := crypto.Sign(SealHash(h).Bytes(), signerKey)
-	copy(h.Extra[len(h.Extra)-extraSeal:], sig)
+	entry := keysByAddr[addrs[2]]
+	signTestHeader(t, d, h, entry.pub, entry.priv)
 
 	next, err := snap.apply([]*types.Header{h})
 	if err != nil {
@@ -716,10 +676,8 @@ func TestCalcDifficultyUsesTime(t *testing.T) {
 	const periodMs = uint64(360)
 
 	// Two validators, sorted ascending so addrs[0] is in-turn at even slots.
-	key0, _ := crypto.GenerateKey()
-	key1, _ := crypto.GenerateKey()
-	addr0 := crypto.PubkeyToAddress(key0.PublicKey)
-	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
+	_, _, addr0 := testEd25519Key(0x0c)
+	_, _, addr1 := testEd25519Key(0x0d)
 	addrs := []common.Address{addr0, addr1}
 	sort.Sort(addressAscending(addrs))
 	// addrs[0] is in-turn at slots 0, 2, 4, …; addrs[1] at slots 1, 3, 5, …
@@ -737,7 +695,7 @@ func TestCalcDifficultyUsesTime(t *testing.T) {
 
 	d, err := New(&params.DPoSConfig{
 		PeriodMs: periodMs, Epoch: 200, MaxValidators: 21,
-		SealSignerType: params.DPoSSealSignerTypeSecp256k1,
+		SealSignerType: params.DPoSSealSignerTypeEd25519,
 	}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)

@@ -627,7 +627,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	// Invariant maintained: L.GasLimit() == gasLimit - totalChildGas - primGasCharged
 	chargePrimGas := func(cost uint64) {
 		vmUsed := L.GasUsed()
-		if vmUsed+totalChildGas+primGasCharged+cost > gasLimit {
+		remaining := gasLimit - vmUsed - totalChildGas - primGasCharged
+		if cost > remaining {
 			L.RaiseError("lua: gas limit exceeded")
 			return
 		}
