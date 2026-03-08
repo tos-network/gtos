@@ -299,8 +299,13 @@ Modify:
 
 - `params/tos_params.go`
 - `sysaction/types.go`
-- `tos/backend.go`
+- side-effect import location for `oracle` package
 - `core/vm/lvm.go`
+
+Import note:
+
+- the implementation only requires that the `oracle` package be imported for side effects so its `init()` registration runs
+- this can be done in `tos/backend.go` or any equivalent native-module import location already used by GTOS
 
 ## 9. Fixed Address and Constants
 
@@ -319,7 +324,7 @@ Recommended constants:
 
 ```go
 var (
-    OracleMinSelfStake = new(big.Int).Set(params.AgentMinStake)
+    OracleMinSelfStake = new(big.Int).Mul(new(big.Int).Set(params.AgentMinStake), big.NewInt(2))
 )
 
 const (
@@ -339,6 +344,8 @@ Implementation note:
 
 - system actions still use the existing fixed `params.SysActionGas`
 - only `OracleResultLoadGas` needs a new dedicated LVM gas constant in v1
+- `msg.Value()` routed through `SystemActionAddress` is not implicitly escrowed into `OracleHubAddress`
+- oracle handlers must explicitly transfer stake and reward escrow with `SubBalance` / `AddBalance`
 
 ## 10. Operator Model
 
@@ -355,6 +362,15 @@ The agent stake and the oracle bond are distinct:
 
 - agent stake proves agent presence in GTOS
 - oracle bond is slashable by the oracle module
+
+Layer A Sybil note:
+
+- Layer A uses count-weighted `M-of-N` consensus and is therefore intentionally Sybil-sensitive
+- the v1 mitigations are:
+  - active GTOS agent prerequisite
+  - separate oracle bond via `OracleMinSelfStake`
+  - per-query operator cap
+  - later migration to query-scoped committee roots and stronger verification in Layer B
 
 ### 10.2 Operator state
 
@@ -498,6 +514,26 @@ ActionOracleReveal           ActionKind = "ORACLE_REVEAL"
 ActionOracleFinalize         ActionKind = "ORACLE_FINALIZE"
 ```
 
+### 12.0 Escrow semantics for `SystemActionAddress`
+
+For oracle actions executed through `SystemActionAddress`, `tx.Value` is an input amount, not an automatically escrowed balance transfer.
+
+Therefore:
+
+- `ORACLE_REGISTER_OPERATOR` and `ORACLE_STAKE` must explicitly move stake into `params.OracleHubAddress`
+- `ORACLE_CREATE_QUERY` must explicitly move the reward pool into `params.OracleHubAddress`
+- refunds and payouts must explicitly move balances out of `params.OracleHubAddress`
+
+Required mutation pattern:
+
+```text
+validate preconditions
+  -> ctx.StateDB.SubBalance(ctx.From, amount)
+  -> ctx.StateDB.AddBalance(params.OracleHubAddress, amount)
+```
+
+This explicit escrow rule is what makes the `OracleHubAddress` balance invariant meaningful in the current GTOS execution model.
+
 ### 12.1 Operator actions
 
 `ORACLE_REGISTER_OPERATOR`
@@ -513,6 +549,7 @@ Rules:
 - sender must be an active, unsuspended registered agent
 - `tx.Value >= OracleMinSelfStake`
 - sender must not already be an active oracle operator
+- on success, handler explicitly escrows `tx.Value` into `OracleHubAddress`
 
 `ORACLE_UPDATE_OPERATOR`
 
@@ -526,6 +563,7 @@ Rules:
 
 - no payload
 - additional stake comes from `tx.Value`
+- on success, handler explicitly escrows `tx.Value` into `OracleHubAddress`
 
 `ORACLE_UNSTAKE_REQUEST`
 
@@ -549,6 +587,7 @@ Rules:
 
 - payload defined above
 - reward pool comes from `tx.Value`
+- on success, handler explicitly escrows `tx.Value` into `OracleHubAddress`
 
 `ORACLE_CANCEL_QUERY`
 
@@ -567,6 +606,7 @@ Allowed only if:
 Refund:
 
 - full reward pool back to creator
+- refund is paid explicitly from `OracleHubAddress`
 
 ### 12.3 Reporting actions
 
@@ -823,6 +863,8 @@ After failed finalize:
 Implementation note:
 
 - call `reputation.RecordScore(ctx.StateDB, addr, delta)` directly from `oracle/handler.go`
+- this is an intentional trusted native-module path
+- OracleHub bypasses `ActionReputationRecordScore` authorization because OracleHub itself is part of the trusted protocol surface
 
 ## 15. Storage Layout
 
@@ -852,6 +894,8 @@ Prefixes:
 ```text
 "oracle\x00p\x00operator\x00"
 "oracle\x00p\x00query\x00"
+"oracle\x00e\x00qopcount\x00"
+"oracle\x00e\x00qoplist\x00"
 "oracle\x00e\x00commit\x00"
 "oracle\x00e\x00reveal\x00"
 "oracle\x00p\x00final\x00"
@@ -948,7 +992,34 @@ Rationale:
 - `committed` is derivable from `commitmentHash != 0`
 - `countedMiss` is unnecessary if finalize performs a single terminal cleanup pass and then deletes the ephemeral record
 
-### 15.5 Ephemeral reveal state
+Participant indexing rule:
+
+- on the first successful commit for `(query_id, operator)`, append `operator` to the query's ephemeral participant list
+- duplicate commits are rejected, so the participant list stays unique
+
+### 15.5 Ephemeral query participant index
+
+Keyed by `query_id`.
+
+Fields:
+
+- `participantCount`
+- `participant[i]`
+
+Recommended slot families:
+
+```text
+oracle\x00e\x00qopcount\x00(query_id)
+oracle\x00e\x00qoplist\x00(query_id, i)
+```
+
+Rationale:
+
+- terminal cleanup must iterate only over operators that actually participated in the query
+- this avoids scanning the global operator set
+- with Layer A's small `max_operators`, this stays cheap and simple
+
+### 15.6 Ephemeral reveal state
 
 Keyed by `(query_id, operator)`.
 
@@ -974,7 +1045,7 @@ Rationale:
 - `modelSetId` is Layer A audit metadata and should remain in tx payload / history rather than persistent or ephemeral state
 - `slashClass` is derivable from `faultCode`
 
-### 15.6 Persistent finalized result state
+### 15.7 Persistent finalized result state
 
 Keyed by `query_id`.
 
@@ -1003,24 +1074,27 @@ Rationale:
 
 - this is the only per-query result object that on-chain consumers should need after terminalization
 
-### 15.7 Ephemeral cleanup rule
+### 15.8 Ephemeral cleanup rule
 
 When a query reaches `FINALIZED`, `FAILED`, or `CANCELLED`, the handler must clear all ephemeral state for that query:
 
+- all `oracle\x00e\x00qopcount\x00(query_id, *)` slots
+- all `oracle\x00e\x00qoplist\x00(query_id, *)` slots
 - all `oracle\x00e\x00commit\x00(query_id, operator, *)` slots
 - all `oracle\x00e\x00reveal\x00(query_id, operator, *)` slots
 
 Cleanup procedure:
 
-1. iterate over operators that committed or revealed for the query
+1. read the query's ephemeral participant list
 2. finalize rewards, refunds, and slashes
 3. decrement any remaining `activeCommitments`
-4. zero the ephemeral commit/reveal slots
-5. leave only persistent query/operator/final state behind
+4. zero the ephemeral participant-index slots
+5. zero the ephemeral commit/reveal slots
+6. leave only persistent query/operator/final state behind
 
 Because `max_operators` is capped at a small number in Layer A, this terminal cleanup pass is acceptable.
 
-### 15.8 Auditing model
+### 15.9 Auditing model
 
 After cleanup, auditability comes from:
 
@@ -1053,6 +1127,7 @@ Important invariants:
 - `active_commitments` must return to zero once a query reaches a terminal state
 - no query may finalize twice
 - only one commit and one reveal per operator per query
+- query cleanup must be driven by the query's ephemeral participant index, not by a scan of the global operator set
 - ephemeral commit/reveal state must be zeroed when the query becomes terminal
 
 ## 17. LVM Read API
@@ -1096,6 +1171,7 @@ Create `oracle/oracle_test.go` covering at least:
 - create query happy path
 - create query rejects unsupported proof modes
 - commit then reveal happy path
+- first commit appends operator to the query participant index
 - reveal rejects bad commitment
 - reveal rejects policy mismatch
 - malformed JSON reveal is hard-rejected with no oracle state mutation
@@ -1107,7 +1183,9 @@ Create `oracle/oracle_test.go` covering at least:
 - reward payout to winners
 - refund on failed query
 - operator `active_commitments` accounting
+- escrow balances are explicitly moved into and out of `OracleHubAddress`
 - terminal finalize clears ephemeral commit/reveal state
+- terminal finalize clears the ephemeral participant index
 - LVM `tos.oracleresult()` reads finalized values correctly
 
 Use `go test -p 96 ./oracle ./core/vm -count=1`.
