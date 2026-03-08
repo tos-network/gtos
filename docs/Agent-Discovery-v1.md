@@ -450,3 +450,184 @@ Agent Discovery v1 should be treated as:
 - reusable across multiple agent applications
 
 It should not be treated as a replacement for GTOS node discovery itself.
+
+## 23. Example: OpenFox Testnet Faucet Flow
+
+This section shows how an agent application such as OpenFox can use Agent
+Discovery v1 without changing the protocol itself.
+
+### 23.1 Local Preconditions
+
+OpenFox already maintains:
+
+- a local wallet in `~/.openfox/wallet.json`
+- a derived TOS address
+- TOS RPC connectivity for balance checks and receipt tracking
+- HTTPS and `x402` request capability for paid services
+
+In other words, OpenFox already has the minimum local identity and payment
+surface needed to act as a requester.
+
+### 23.2 User Intent
+
+The creator asks OpenFox for a faucet-style bootstrap top-up.
+
+Example user-facing intents:
+
+- `Get me a small testnet faucet top-up`
+- `Find a faucet agent and top up my TOS wallet`
+
+An application MAY expose this through a shortcut such as `/faucet`, but the
+discovery protocol does not depend on any specific command syntax.
+
+### 23.3 Intent to Capability Mapping
+
+OpenFox translates the user intent into a capability query.
+
+Recommended capability for this flow:
+
+```text
+sponsor.topup.testnet
+```
+
+This is intentionally narrower than a generic "airdrop" concept. The provider is
+not advertising arbitrary free transfers. It is advertising a constrained sponsor
+capability with explicit policy and quota.
+
+### 23.4 Discovery Step
+
+OpenFox runs the Agent Discovery flow:
+
+1. join the discovery network through known bootnodes
+2. iterate candidate ENRs via discv5
+3. keep nodes where `agv=1`
+4. test the candidate capability against `agb`
+5. fetch the Agent Card using `GET_CARD`
+6. verify signature, expiry, identity fields, and endpoint metadata
+
+At this stage, OpenFox has a shortlist of faucet-capable provider agents.
+
+### 23.5 Provider Selection
+
+OpenFox then filters candidate providers using local policy.
+
+Typical selection criteria:
+
+- capability list contains `sponsor.topup.testnet`
+- endpoint kind is `https`
+- policy advertises a reasonable quota and cooldown
+- provider identity matches expected settlement network
+- provider reputation or allowlist passes local policy
+
+For example, OpenFox may prefer:
+
+- a provider with a short cooldown
+- a provider with higher reputation
+- a provider whose max amount is sufficient for bootstrap use
+
+### 23.6 Invocation Request
+
+After choosing `AgentA`, OpenFox sends an invocation request to the provider
+endpoint.
+
+Suggested request shape:
+
+```json
+{
+  "capability": "sponsor.topup.testnet",
+  "requester": {
+    "agent_id": "0xRequesterAgent",
+    "identity": {
+      "kind": "tos",
+      "value": "0xRequesterTOSAddress"
+    }
+  },
+  "request_nonce": "7a6f1d4b4a3d4d58b0b1d3e5f0123456",
+  "requested_amount": "10000000000000000",
+  "reason": "bootstrap openfox wallet"
+}
+```
+
+The requester identity should match the local OpenFox wallet and derived TOS
+address already present on the machine.
+
+### 23.7 Provider Response
+
+`AgentA` evaluates its sponsor policy and returns one of:
+
+- `approved`
+- `rejected`
+- `challenge_required`
+- `paid_upgrade_required`
+
+Suggested approval response:
+
+```json
+{
+  "status": "approved",
+  "transfer_network": "tos:1666",
+  "tx_hash": "0x...",
+  "amount": "10000000000000000",
+  "cooldown_until": 1770007200
+}
+```
+
+Suggested rejection response:
+
+```json
+{
+  "status": "rejected",
+  "reason": "quota exceeded"
+}
+```
+
+### 23.8 Hybrid and Paid Cases
+
+Some providers may advertise the faucet capability in `hybrid` mode rather than
+pure `sponsored` mode.
+
+For example:
+
+- first bootstrap request is sponsored
+- larger top-ups require payment
+- requests above a free quota return `402 Payment Required`
+
+In an OpenFox deployment, this fits naturally with the existing HTTPS and
+`x402` request path. If the chosen provider requires payment, OpenFox can route
+the invocation through its existing payment-aware fetch logic instead of using a
+separate discovery-specific settlement path.
+
+### 23.9 Local Completion in OpenFox
+
+After receiving an approval:
+
+1. OpenFox records the provider identity and request nonce in local state
+2. OpenFox polls TOS RPC for the returned `tx_hash`
+3. OpenFox confirms the wallet balance increase
+4. OpenFox stores the result as a completed faucet/top-up event
+
+This is important for:
+
+- replay protection
+- cooldown tracking
+- operator auditability
+- future provider scoring
+
+### 23.10 End-to-End View
+
+The complete requester flow in an OpenFox-like agent is:
+
+```text
+user intent
+-> capability mapping
+-> discv5 candidate discovery
+-> Agent Card fetch and verification
+-> local provider selection
+-> HTTPS invocation
+-> optional x402 payment
+-> TOS receipt tracking
+-> local state update
+```
+
+This example is intentionally application-specific at the edge, but protocol-
+generic in the middle. OpenFox is only one possible requester implementation.
