@@ -499,13 +499,16 @@ func (s *TxByPriceAndTime) Pop() interface{} {
 }
 
 // txSenderHint returns the signer-derived sender when available and falls back
-// to explicit SignerTx.from for non-secp256k1 signer types.
+// to the sender cache populated by ResolveSender for non-secp256k1 signer types.
 func txSenderHint(signer Signer, tx *Transaction) common.Address {
 	if from, err := Sender(signer, tx); err == nil {
 		return from
 	}
-	if explicitFrom, ok := tx.SignerFrom(); ok {
-		return explicitFrom
+	// Check sender cache populated by ResolveSender for non-secp256k1 types.
+	if sc := tx.from.Load(); sc != nil {
+		if sigCache, ok := sc.(sigCache); ok {
+			return sigCache.from
+		}
 	}
 	return common.Address{}
 }

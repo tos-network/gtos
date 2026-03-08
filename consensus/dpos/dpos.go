@@ -351,37 +351,37 @@ func (d *DPoS) emitVoteMonitorEvent(source string, previous, current *types.Chec
 // envelope received from peers. Performs basic admission (chain ID, eligible number)
 // and queues the vote in the pool, or in the pending queue if the snapshot is not yet
 // available.
-func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
+func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) bool {
 	if d.votePool == nil || env == nil {
-		return
+		return false
 	}
 	d.lock.RLock()
 	cfg, localChainID, chain := d.config, d.chainID, d.chain
 	d.lock.RUnlock()
 	if chain == nil {
-		return
+		return false
 	}
 
 	// Basic structural admission (§9 rules 1–3; no state access).
 	if cfg.CheckpointInterval == 0 || cfg.CheckpointFinalityBlock == nil {
-		return
+		return false
 	}
 	// Rule 3: ChainID must match local chain config.
 	if env.Vote.ChainID == nil || localChainID == nil || env.Vote.ChainID.Cmp(localChainID) != 0 {
-		return
+		return false
 	}
 	// Rule 1: must be an eligible checkpoint height.
 	firstEligible := firstCheckpointAtOrAfter(cfg.CheckpointFinalityBlock.Uint64(), cfg.CheckpointInterval)
 	if env.Vote.Number == 0 || env.Vote.Number < firstEligible {
-		return
+		return false
 	}
 	if env.Vote.Number%cfg.CheckpointInterval != 0 {
-		return
+		return false
 	}
 	if head := chain.CurrentHeader(); head != nil && head.Number != nil && cfg.CheckpointInterval > 0 {
 		headNumber := head.Number.Uint64()
 		if headNumber > 2*cfg.CheckpointInterval && env.Vote.Number < headNumber-2*cfg.CheckpointInterval {
-			return
+			return false
 		}
 	}
 
@@ -392,7 +392,7 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		journal := d.voteJournal
 		d.lock.RUnlock()
 		journal.RecordReceived("p2p", "pending", env, nil)
-		return
+		return false
 	}
 	preSnap, err := d.snapshot(chain, env.Vote.Number-1, cpHeader.ParentHash, nil)
 	if err != nil {
@@ -401,11 +401,11 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		journal := d.voteJournal
 		d.lock.RUnlock()
 		journal.RecordReceived("p2p", "pending", env, nil)
-		return
+		return false
 	}
 	records, err := d.buildSignerSet(preSnap)
 	if err != nil {
-		return
+		return false
 	}
 	addrIdx := make(map[common.Address]int, len(records))
 	for i, rec := range records {
@@ -413,11 +413,11 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	}
 	idx, ok := addrIdx[env.Signer]
 	if !ok {
-		return
+		return false
 	}
 	vsHash := computeValidatorSetHash(records)
 	if env.Vote.ValidatorSetHash != vsHash {
-		return
+		return false
 	}
 	signingHash := (&types.CheckpointVote{
 		ChainID:          new(big.Int).Set(localChainID),
@@ -426,7 +426,7 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		ValidatorSetHash: vsHash,
 	}).SigningHash()
 	if !ed25519.Verify(ed25519.PublicKey(records[idx].SignerPub), signingHash[:], env.Signature[:]) {
-		return
+		return false
 	}
 	prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
 	_, equivocation := d.votePool.AddVote(env)
@@ -441,6 +441,7 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	if head := chain.CurrentHeader(); head != nil && head.Number != nil {
 		d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
 	}
+	return true
 }
 
 // FinalizedValidatorSetHash returns the ValidatorSetHash of the most recently

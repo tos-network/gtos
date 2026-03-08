@@ -8,11 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/forkid"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
@@ -103,9 +105,14 @@ type handler struct {
 	blockValidator func(*types.Block) error
 
 	// CheckpointVoteHandler is called when a checkpoint vote envelope is received
-	// from a peer. It should deliver the vote to the consensus engine's vote pool.
+	// from a peer. It should deliver the vote to the consensus engine's vote pool
+	// and return true if the vote is valid and should be relayed.
 	// If nil, checkpoint vote messages are silently discarded.
-	CheckpointVoteHandler func(*types.CheckpointVoteEnvelope)
+	CheckpointVoteHandler func(*types.CheckpointVoteEnvelope) bool
+
+	// seenVotes is an LRU cache of recently seen checkpoint vote hashes,
+	// used to prevent gossip amplification.
+	seenVotes *lru.Cache
 
 	// channels for fetcher, syncer, txsyncLoop
 	quitSync chan struct{}
@@ -121,6 +128,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 	if config.EventMux == nil {
 		config.EventMux = new(event.TypeMux) // Nicety initialization for tests
 	}
+	seenVotes, _ := lru.New(1024)
 	h := &handler{
 		networkID:      config.Network,
 		forkFilter:     forkid.NewFilter(config.Chain),
@@ -132,6 +140,7 @@ func newHandler(config *handlerConfig) (*handler, error) {
 		merger:         config.Merger,
 		blockValidator: config.BlockValidator,
 		requiredBlocks: config.RequiredBlocks,
+		seenVotes:      seenVotes,
 		quitSync:       make(chan struct{}),
 	}
 	if config.Sync == downloader.FullSync {
@@ -561,8 +570,16 @@ func (h *handler) Stop() {
 	log.Info("TOS protocol stopped")
 }
 
+// checkpointVoteKey returns a unique dedup key for a checkpoint vote envelope.
+func checkpointVoteKey(env *types.CheckpointVoteEnvelope) common.Hash {
+	return crypto.Keccak256Hash(env.Vote.Hash.Bytes(), env.Signer.Bytes())
+}
+
 // BroadcastCheckpointVote sends a CheckpointVoteEnvelope to all connected peers.
+// This is used for locally-generated votes; it marks the vote as seen to prevent
+// re-relay when the same vote is received back from peers.
 func (h *handler) BroadcastCheckpointVote(env *types.CheckpointVoteEnvelope) {
+	h.seenVotes.Add(checkpointVoteKey(env), struct{}{})
 	for _, p := range h.peers.allPeers() {
 		if err := p.SendCheckpointVote(env); err != nil {
 			p.Log().Debug("Failed to send checkpoint vote", "err", err)
@@ -572,7 +589,13 @@ func (h *handler) BroadcastCheckpointVote(env *types.CheckpointVoteEnvelope) {
 
 // RelayCheckpointVote forwards a CheckpointVoteEnvelope to all connected peers
 // except excludeID (the source peer), preventing a relay loop back to the sender.
+// It deduplicates using an LRU seen-set to avoid gossip amplification.
 func (h *handler) RelayCheckpointVote(excludeID string, env *types.CheckpointVoteEnvelope) {
+	key := checkpointVoteKey(env)
+	if _, ok := h.seenVotes.Get(key); ok {
+		return
+	}
+	h.seenVotes.Add(key, struct{}{})
 	for _, p := range h.peers.allPeers() {
 		if p.ID() == excludeID {
 			continue

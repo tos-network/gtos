@@ -298,6 +298,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		var nonceBuf [8]byte
 		binary.BigEndian.PutUint64(nonceBuf[:], msg.Nonce())
 		txHashInput = append(txHashInput, nonceBuf[:]...)
+		var gasBuf [8]byte
+		binary.BigEndian.PutUint64(gasBuf[:], msg.Gas())
+		txHashInput = append(txHashInput, gasBuf[:]...)
 		var valueBuf [32]byte
 		msg.Value().FillBytes(valueBuf[:])
 		txHashInput = append(txHashInput, valueBuf[:]...)
@@ -356,9 +359,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			ctorArgs = nil
 		}
 		_, st.gas, vmerr = st.lvm.Create(vm.ContractAccount(msg.From()), deployPkgBytes, ctorArgs, st.gas, msg.Value(), st.msg.Nonce())
-		if errors.Is(vmerr, vm.ErrGasLimitExceeded) {
-			vmerr = ErrIntrinsicGas
-		}
 	} else {
 		// Increment sender nonce for all CALL-type transactions (mirrors geth's
 		// explicit SetNonce inside the else branch, after all pre-checks pass).
@@ -390,9 +390,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			if len(toCode) > 0 {
 				// Destination has LVM contract code: execute it.
 				ret, st.gas, vmerr = st.lvm.Call(vm.ContractAccount(msg.From()), toAddr, msg.Data(), st.gas, msg.Value())
-				if errors.Is(vmerr, vm.ErrGasLimitExceeded) {
-					vmerr = ErrIntrinsicGas
-				}
 			} else {
 				// Plain TOS transfer
 				if msg.Value().Sign() > 0 {

@@ -217,11 +217,11 @@ func (b *WriteBufStateDB) Empty(addr common.Address) bool {
 
 // ─── Unused / delegated methods ──────────────────────────────────────────────
 
-func (b *WriteBufStateDB) Suicide(_ common.Address) bool        { return false }
-func (b *WriteBufStateDB) HasSuicided(_ common.Address) bool    { return false }
-func (b *WriteBufStateDB) AddRefund(_ uint64)                   {}
-func (b *WriteBufStateDB) SubRefund(_ uint64)                   {}
-func (b *WriteBufStateDB) GetRefund() uint64                    { return 0 }
+func (b *WriteBufStateDB) Suicide(_ common.Address) bool     { panic("WriteBufStateDB: Suicide not supported") }
+func (b *WriteBufStateDB) HasSuicided(_ common.Address) bool { panic("WriteBufStateDB: HasSuicided not supported") }
+func (b *WriteBufStateDB) AddRefund(_ uint64)                {} // no-op: GTOS LVM has no SSTORE gas refund model
+func (b *WriteBufStateDB) SubRefund(_ uint64)                {} // no-op: GTOS LVM has no SSTORE gas refund model
+func (b *WriteBufStateDB) GetRefund() uint64                 { return 0 } // no-op: GTOS LVM has no SSTORE gas refund model
 func (b *WriteBufStateDB) AddPreimage(_ common.Hash, _ []byte)  {}
 // Snapshot captures a deep copy of the current overlay state and returns an
 // opaque ID that can be passed to RevertToSnapshot. Used by lvm.Call to undo

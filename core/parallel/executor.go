@@ -212,7 +212,7 @@ func ExecuteParallel(
 			} else {
 				receipt.status = types.ReceiptStatusSuccessful
 			}
-			if tx.To() == nil && !result.Failed() {
+			if tx.To() == nil {
 				receipt.contractAddress = crypto.CreateAddress(msgs[txIdx].From(), tx.Nonce())
 			}
 			receiptDataByTx[txIdx] = receipt
