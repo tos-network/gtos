@@ -2553,22 +2553,7 @@ func buildUNOTxArgs(ctx context.Context, s *TOSAPI, from common.Address, nonce *
 }
 
 func (s *TOSAPI) currentTxSignerType(ctx context.Context, from common.Address) (*string, error) {
-	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
-	if err != nil {
-		return nil, err
-	}
-	if state == nil {
-		return nil, nil
-	}
-	currentType, _, configured := accountsigner.Get(state, from)
-	if !configured {
-		return nil, nil
-	}
-	canonicalCurrent, err := accountsigner.CanonicalSignerType(currentType)
-	if err != nil {
-		return nil, newRPCInvalidParamsError("from", "invalid configured signer metadata")
-	}
-	return &canonicalCurrent, nil
+	return lookupCurrentTxSignerType(ctx, s.b, from)
 }
 
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {

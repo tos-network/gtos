@@ -12,13 +12,15 @@ import (
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accounts/keystore"
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
-	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/bloombits"
+	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
@@ -204,6 +206,54 @@ func TestSetDefaultsUsesDoEstimateGasForContractCalldata(t *testing.T) {
 	}
 }
 
+func TestSetDefaultsUsesOnChainSignerMetadata(t *testing.T) {
+	b := newBackendMock()
+	from := common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	to := common.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	statedb := mustNewStateDB(t)
+	accountsigner.Set(statedb, from, accountsigner.SignerTypeEd25519, testAPIEd25519PubHex)
+	b.state = statedb
+
+	args := &TransactionArgs{
+		From: &from,
+		To:   &to,
+	}
+	if err := args.setDefaults(context.Background(), b); err != nil {
+		t.Fatalf("setDefaults failed: %v", err)
+	}
+	if args.SignerType == nil || *args.SignerType != accountsigner.SignerTypeEd25519 {
+		t.Fatalf("unexpected signerType: %v", args.SignerType)
+	}
+}
+
+func TestSetDefaultsUsesUnlockedLocalSignerTypeWithoutOnChainMetadata(t *testing.T) {
+	b := newBackendMock()
+	ks := keystore.NewKeyStore(t.TempDir(), keystore.LightScryptN, keystore.LightScryptP)
+	account, err := ks.NewEd25519Account("test-password")
+	if err != nil {
+		t.Fatalf("new ed25519 account: %v", err)
+	}
+	if err := ks.Unlock(account, "test-password"); err != nil {
+		t.Fatalf("unlock account: %v", err)
+	}
+	am := accounts.NewManager(&accounts.Config{}, ks)
+	defer am.Close()
+	b.accountManager = am
+
+	to := common.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+	args := &TransactionArgs{
+		From: &account.Address,
+		To:   &to,
+	}
+	if err := args.setDefaults(context.Background(), b); err != nil {
+		t.Fatalf("setDefaults failed: %v", err)
+	}
+	if args.SignerType == nil || *args.SignerType != accountsigner.SignerTypeEd25519 {
+		t.Fatalf("unexpected signerType: %v", args.SignerType)
+	}
+}
+
 func TestDoEstimateGasCapsByFundsBeforeBinarySearch(t *testing.T) {
 	b := newBackendMock()
 	from := common.HexToAddress("0x3333333333333333333333333333333333333333")
@@ -244,8 +294,9 @@ type backendMock struct {
 	config  *params.ChainConfig
 	engine  consensus.Engine
 
-	block *types.Block
-	state *state.StateDB
+	block          *types.Block
+	state          *state.StateDB
+	accountManager *accounts.Manager
 
 	blockByNumberOrHashErr          error
 	stateAndHeaderByNumberOrHashErr error
@@ -289,7 +340,7 @@ func (b *backendMock) FeeHistory(ctx context.Context, blockCount int, lastBlock 
 	return nil, nil, nil, nil, nil
 }
 func (b *backendMock) ChainDb() tosdb.Database           { return nil }
-func (b *backendMock) AccountManager() *accounts.Manager { return nil }
+func (b *backendMock) AccountManager() *accounts.Manager { return b.accountManager }
 func (b *backendMock) ExtRPCEnabled() bool               { return false }
 func (b *backendMock) RPCGasCap() uint64                 { return 0 }
 func (b *backendMock) RPCEVMTimeout() time.Duration      { return time.Second }
@@ -383,8 +434,8 @@ func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent)
 	return nil
 }
 
-func (b *backendMock) Engine() consensus.Engine                    { return b.engine }
-func (b *backendMock) FinalizedValidatorSetHash() common.Hash      { return common.Hash{} }
+func (b *backendMock) Engine() consensus.Engine               { return b.engine }
+func (b *backendMock) FinalizedValidatorSetHash() common.Hash { return common.Hash{} }
 
 func mustNewStateDB(t *testing.T) *state.StateDB {
 	t.Helper()

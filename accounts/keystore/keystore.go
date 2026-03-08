@@ -234,6 +234,19 @@ func (ks *KeyStore) HasAddress(addr common.Address) bool {
 	return ks.cache.hasAddress(addr)
 }
 
+// UnlockedSignerType returns the canonical signer type for an unlocked account.
+// It only reports signer metadata for keys currently resident in memory.
+func (ks *KeyStore) UnlockedSignerType(addr common.Address) (string, bool) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+
+	key, ok := ks.unlocked[addr]
+	if !ok || key == nil || key.Key == nil {
+		return "", false
+	}
+	return canonicalSignerTypeOrDefault(key.SignerType), true
+}
+
 // Accounts returns all key files present in the directory.
 func (ks *KeyStore) Accounts() []accounts.Account {
 	return ks.cache.accounts()

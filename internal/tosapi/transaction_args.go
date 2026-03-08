@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/accounts/keystore"
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
@@ -58,6 +60,58 @@ func (args *TransactionArgs) data() []byte {
 		return *args.Data
 	}
 	return nil
+}
+
+func lookupCurrentTxSignerType(ctx context.Context, b Backend, from common.Address) (*string, error) {
+	if from == (common.Address{}) {
+		return nil, nil
+	}
+	state, _, err := b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, nil
+	}
+	currentType, _, configured := accountsigner.Get(state, from)
+	if !configured {
+		return nil, nil
+	}
+	canonicalCurrent, err := accountsigner.CanonicalSignerType(currentType)
+	if err != nil {
+		return nil, newRPCInvalidParamsError("from", "invalid configured signer metadata")
+	}
+	return &canonicalCurrent, nil
+}
+
+func lookupUnlockedLocalSignerType(am *accounts.Manager, from common.Address) *string {
+	if am == nil || from == (common.Address{}) {
+		return nil
+	}
+	for _, backend := range am.Backends(keystore.KeyStoreType) {
+		ks, ok := backend.(*keystore.KeyStore)
+		if !ok {
+			continue
+		}
+		signerType, ok := ks.UnlockedSignerType(from)
+		if !ok {
+			continue
+		}
+		return &signerType
+	}
+	return nil
+}
+
+func resolveDefaultSignerType(ctx context.Context, b Backend, from common.Address) (string, error) {
+	if signerType, err := lookupCurrentTxSignerType(ctx, b, from); err != nil {
+		return "", err
+	} else if signerType != nil {
+		return *signerType, nil
+	}
+	if signerType := lookupUnlockedLocalSignerType(b.AccountManager(), from); signerType != nil {
+		return *signerType, nil
+	}
+	return accountsigner.SignerTypeSecp256k1, nil
 }
 
 // setDefaults fills in default values for unspecified tx fields.
@@ -132,7 +186,10 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		}
 		args.SignerType = &normalized
 	} else {
-		defaultSignerType := accountsigner.SignerTypeSecp256k1
+		defaultSignerType, err := resolveDefaultSignerType(ctx, b, args.from())
+		if err != nil {
+			return err
+		}
 		args.SignerType = &defaultSignerType
 	}
 	return nil
