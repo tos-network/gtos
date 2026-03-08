@@ -68,6 +68,9 @@ func (h *capabilityHandler) handleGrant(ctx *sysaction.Context, sa *sysaction.Sy
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
 	}
+	if p.Bit >= readBitCount(ctx.StateDB) {
+		return ErrCapabilityBitUnregistered
+	}
 	target := common.HexToAddress(p.Target)
 	GrantCapability(ctx.StateDB, target, p.Bit)
 	return nil
@@ -80,6 +83,9 @@ func (h *capabilityHandler) handleRevoke(ctx *sysaction.Context, sa *sysaction.S
 	var p grantRevokePayload
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
+	}
+	if p.Bit >= readBitCount(ctx.StateDB) {
+		return ErrCapabilityBitUnregistered
 	}
 	target := common.HexToAddress(p.Target)
 	RevokeCapability(ctx.StateDB, target, p.Bit)

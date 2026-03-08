@@ -73,7 +73,7 @@ func (h *reputationHandler) handleRecordScore(ctx *sysaction.Context, sa *sysact
 
 	delta, ok := new(big.Int).SetString(p.Delta, 10)
 	if !ok {
-		return ErrNotAuthorizedScorer // reuse as parse error sentinel
+		return ErrInvalidDelta
 	}
 
 	who := common.HexToAddress(p.Who)

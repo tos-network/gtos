@@ -73,7 +73,14 @@ func ProcessDueTasks(
 		totalGasUsed += gasUsed
 		if len(db.Logs()) != preLogCount {
 			db.RevertToSnapshot(snap)
-			return processed, totalGasUsed, ErrTaskLogsNotAllowed
+			// Treat log emission as a per-task failure: expire this task
+			// and continue processing remaining tasks instead of aborting
+			// the entire block.
+			rec.Status = TaskExpired
+			WriteTask(db, taskId, rec)
+			AdjustActiveCount(db, rec.Scheduler, -1)
+			processed++
+			continue
 		}
 		if res.Err != nil {
 			db.RevertToSnapshot(snap)
@@ -109,6 +116,14 @@ func ProcessDueTasks(
 		} else {
 			// Repeat: re-schedule at the next interval and re-deposit gas.
 			nextBlock := blockNum + rec.IntervalBlocks
+			if nextBlock < blockNum {
+				// uint64 overflow — expire rather than wrap around.
+				rec.Status = TaskExpired
+				WriteTask(db, taskId, rec)
+				AdjustActiveCount(db, rec.Scheduler, -1)
+				processed++
+				continue
+			}
 			rec.TargetBlock = nextBlock
 
 			// Re-deposit gas for the next run (charged from scheduler balance).
@@ -139,8 +154,8 @@ func ProcessDueTasks(
 		if rec, ok := ReadTask(db, tid); ok && rec.Status == TaskPending {
 			rec.TargetBlock = blockNum + 1
 			WriteTask(db, tid, rec)
+			EnqueueTask(db, blockNum+1, tid)
 		}
-		EnqueueTask(db, blockNum+1, tid)
 	}
 
 	return processed, totalGasUsed, nil

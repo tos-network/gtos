@@ -335,6 +335,11 @@ func encodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {
 	if r.BitLen() > 256 || s.BitLen() > 256 {
 		return nil, ErrInvalidSignerPrivateKey
 	}
+	// Normalize S to low-S form (BIP-62 / EIP-2).
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) > 0 {
+		s = new(big.Int).Sub(elliptic.P256().Params().N, s)
+	}
 	out := make([]byte, crypto.SignatureLength)
 	rb := r.Bytes()
 	sb := s.Bytes()

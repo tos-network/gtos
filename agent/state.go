@@ -37,10 +37,19 @@ func agentListSlot(i uint64) common.Hash {
 		crypto.Keccak256(append([]byte("agent\x00list\x00"), idx[:]...)))
 }
 
-// metadataSlot returns the slot for a metadata URI hash for an agent.
-// Stores keccak256 of the URI; the raw string is emitted as an event by the caller.
+// MaxURILength is the maximum allowed length for a metadata URI (256 bytes).
+const MaxURILength = 256
+
+// metadataSlot returns the base slot for a metadata URI for an agent.
+// The URI is stored across ceil(len/32) consecutive slots starting from the base.
 func metadataSlot(addr common.Address) common.Hash {
 	key := append([]byte("agent\x00meta\x00"), addr.Bytes()...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
+// metadataLenSlot returns the slot that stores the URI length for an agent.
+func metadataLenSlot(addr common.Address) common.Hash {
+	key := append([]byte("agent\x00metalen\x00"), addr.Bytes()...)
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
@@ -125,22 +134,53 @@ func WriteStatus(db stateDB, addr common.Address, s AgentStatus) {
 }
 
 // MetadataOf returns the metadata URI stored for addr.
-// The URI is stored as-is in the slot (truncated to 32 bytes for short URIs,
-// or as a hash for longer ones — callers are expected to store short CID/URL strings).
+// The URI is reconstructed from multiple 32-byte storage slots.
 func MetadataOf(db stateDB, addr common.Address) string {
-	raw := db.GetState(params.AgentRegistryAddress, metadataSlot(addr))
-	// Trim trailing zero bytes.
-	b := raw[:]
-	end := len(b)
-	for end > 0 && b[end-1] == 0 {
-		end--
+	// Read length.
+	lenRaw := db.GetState(params.AgentRegistryAddress, metadataLenSlot(addr))
+	uriLen := int(binary.BigEndian.Uint64(lenRaw[24:]))
+	if uriLen == 0 {
+		return ""
 	}
-	return string(b[:end])
+	if uriLen > MaxURILength {
+		uriLen = MaxURILength
+	}
+
+	// Read data from consecutive slots.
+	baseSlot := metadataSlot(addr).Big()
+	buf := make([]byte, 0, uriLen)
+	for i := 0; len(buf) < uriLen; i++ {
+		slot := common.BigToHash(new(big.Int).Add(baseSlot, big.NewInt(int64(i))))
+		raw := db.GetState(params.AgentRegistryAddress, slot)
+		remaining := uriLen - len(buf)
+		if remaining >= 32 {
+			buf = append(buf, raw[:]...)
+		} else {
+			buf = append(buf, raw[:remaining]...)
+		}
+	}
+	return string(buf)
 }
 
-// WriteMetadata stores a metadata URI for addr (first 32 bytes only).
+// WriteMetadata stores a metadata URI for addr across multiple 32-byte slots.
 func WriteMetadata(db stateDB, addr common.Address, uri string) {
-	var val common.Hash
-	copy(val[:], []byte(uri))
-	db.SetState(params.AgentRegistryAddress, metadataSlot(addr), val)
+	data := []byte(uri)
+
+	// Store length.
+	var lenVal common.Hash
+	binary.BigEndian.PutUint64(lenVal[24:], uint64(len(data)))
+	db.SetState(params.AgentRegistryAddress, metadataLenSlot(addr), lenVal)
+
+	// Store data across consecutive slots.
+	baseSlot := metadataSlot(addr).Big()
+	for i := 0; i < len(data); i += 32 {
+		var val common.Hash
+		end := i + 32
+		if end > len(data) {
+			end = len(data)
+		}
+		copy(val[:], data[i:end])
+		slot := common.BigToHash(new(big.Int).Add(baseSlot, big.NewInt(int64(i/32))))
+		db.SetState(params.AgentRegistryAddress, slot, val)
+	}
 }

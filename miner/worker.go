@@ -470,12 +470,12 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 		select {
 		case <-w.startCh:
 			clearPending(w.chain.CurrentBlock().NumberU64())
-			timestamp = time.Now().Unix()
+			timestamp = time.Now().UnixMilli()
 			commit(false, commitInterruptNewHead)
 
 		case head := <-w.chainHeadCh:
 			clearPending(head.Block.NumberU64())
-			timestamp = time.Now().Unix()
+			timestamp = time.Now().UnixMilli()
 			commit(false, commitInterruptNewHead)
 
 		case <-timer.C:
@@ -1144,13 +1144,8 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 	if err != nil {
 		return
 	}
-	// Create an empty block based on temporary copied state for
-	// sealing in advance without waiting block execution finished.
-	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
-		w.commit(work.copy(), nil, false, start)
-	}
-
 	// Run scheduled tasks before user transactions so the state root matches validators.
+	// This must happen before the empty-block pre-seal so that the state root is correct.
 	blockCtx := core.NewVMBlockContext(work.header, w.chain, &work.coinbase)
 	if work.gasPool == nil {
 		work.gasPool = new(core.GasPool).AddGas(work.header.GasLimit)
@@ -1162,6 +1157,12 @@ func (w *worker) commitWork(interrupt *int32, noempty bool, timestamp int64) {
 		return
 	}
 	work.header.GasUsed += taskGas
+
+	// Create an empty block based on temporary copied state for
+	// sealing in advance without waiting block execution finished.
+	if !noempty && atomic.LoadUint32(&w.noempty) == 0 {
+		w.commit(work.copy(), nil, false, start)
+	}
 
 	// Fill pending transactions from the txpool
 	err = w.fillTransactions(interrupt, work)

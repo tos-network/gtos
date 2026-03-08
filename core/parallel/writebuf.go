@@ -79,6 +79,11 @@ func (b *WriteBufStateDB) Logs() []*types.Log {
 // multiple WriteBufs (each backed by the same parent) can be merged serially
 // without overwriting each other.
 func (b *WriteBufStateDB) Merge(dst *state.StateDB) {
+	// Propagate newly created accounts first, so subsequent balance/nonce/code
+	// writes target an account that exists in dst.
+	for addr := range b.created {
+		dst.CreateAccount(addr)
+	}
 	// Apply balance deltas: overlay stores absolute values; compute delta vs parent.
 	for addr, bal := range b.balances {
 		parentBal := b.parent.GetBalance(addr)
@@ -337,7 +342,7 @@ func (b *WriteBufStateDB) AddSlotToAccessList(addr common.Address, slot common.H
 }
 
 func (b *WriteBufStateDB) ForEachStorage(_ common.Address, _ func(common.Hash, common.Hash) bool) error {
-	return nil
+	panic("WriteBufStateDB: ForEachStorage not supported in parallel execution")
 }
 
 // Compile-time check that WriteBufStateDB implements vm.StateDB.

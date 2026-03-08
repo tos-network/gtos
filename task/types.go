@@ -41,6 +41,7 @@ var (
 	ErrTaskNotPending          = errors.New("task: task is not in Pending state")
 	ErrTaskNotScheduler        = errors.New("task: caller is not the task scheduler")
 	ErrTaskLogsNotAllowed      = errors.New("task: callback emitted logs")
+	ErrTaskIntervalTooFar      = errors.New("task: interval_blocks exceeds horizon")
 )
 
 type ExecResult struct {

@@ -577,6 +577,12 @@ func (st *StateTransition) applyUNO(msg Message) error {
 
 	switch env.Action {
 	case uno.ActionShield:
+		chargeGas := params.UNOBaseGas + params.UNOShieldGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
 		payload, err := uno.DecodeShieldPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return uno.ErrInvalidPayload
@@ -584,11 +590,6 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err := uno.ValidateShieldProofBundleShape(payload.ProofBundle); err != nil {
 			return err
 		}
-		chargeGas := params.UNOBaseGas + params.UNOShieldGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
 
 		senderState := uno.GetAccountState(st.state, msg.From())
 		if senderState.Version == math.MaxUint64 {
@@ -632,6 +633,12 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		uno.SetAccountState(st.state, msg.From(), senderState)
 		return nil
 	case uno.ActionTransfer:
+		chargeGas := params.UNOBaseGas + params.UNOTransferGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
 		payload, err := uno.DecodeTransferPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return uno.ErrInvalidPayload
@@ -646,11 +653,6 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err != nil {
 			return err
 		}
-		chargeGas := params.UNOBaseGas + params.UNOTransferGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
 
 		senderState := uno.GetAccountState(st.state, msg.From())
 		receiverState := uno.GetAccountState(st.state, payload.To)
@@ -690,6 +692,12 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		uno.SetAccountState(st.state, payload.To, receiverState)
 		return nil
 	case uno.ActionUnshield:
+		chargeGas := params.UNOBaseGas + params.UNOUnshieldGas
+		if st.gas < chargeGas {
+			return ErrIntrinsicGas
+		}
+		st.gas -= chargeGas
+
 		payload, err := uno.DecodeUnshieldPayload(env.Body)
 		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
 			return uno.ErrInvalidPayload
@@ -697,11 +705,6 @@ func (st *StateTransition) applyUNO(msg Message) error {
 		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
 			return err
 		}
-		chargeGas := params.UNOBaseGas + params.UNOUnshieldGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
 
 		senderState := uno.GetAccountState(st.state, msg.From())
 		if senderState.Version == math.MaxUint64 {

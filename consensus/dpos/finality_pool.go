@@ -106,13 +106,32 @@ func (p *checkpointVotePool) ExistingVote(number uint64, signer common.Address) 
 	return nil
 }
 
+// maxPendingPerCheckpoint is the hard cap on pending votes per checkpoint number
+// to prevent memory exhaustion from unsolicited vote spam.
+const maxPendingPerCheckpoint = 50
+
 // AddPending queues a vote whose checkpoint pre-state snapshot is not yet available.
 // The caller must call DrainPending and re-verify once the snapshot becomes available.
+// Per-signer dedup and a per-number cap are enforced to bound memory usage.
 func (p *checkpointVotePool) AddPending(env *types.CheckpointVoteEnvelope) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	number := env.Vote.Number
-	p.pending[number] = append(p.pending[number], env)
+	existing := p.pending[number]
+
+	// Per-signer dedup: reject if this signer already has a pending vote at this number.
+	for _, e := range existing {
+		if e.Signer == env.Signer {
+			return
+		}
+	}
+
+	// Per-number cap: reject if already at capacity.
+	if len(existing) >= maxPendingPerCheckpoint {
+		return
+	}
+
+	p.pending[number] = append(existing, env)
 }
 
 // DrainPending removes and returns all pending votes for the given checkpoint number.

@@ -141,6 +141,10 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 		if !accountsigner.VerifyRawSignature(normType, normPub, hash, r, s) {
 			return common.Address{}, ErrInvalidAccountSignerSignature
 		}
+		addrFromSigner, err := accountsigner.AddressFromSigner(normType, normPub)
+		if err != nil || addrFromSigner != from {
+			return common.Address{}, ErrAccountSignerMismatch
+		}
 		return from, nil
 	}
 }

@@ -24,4 +24,6 @@ var (
 	ErrAgentNotActive           = errors.New("agent: not active")
 	ErrDecreaseExceedsStake     = errors.New("agent: decrease amount exceeds current stake")
 	ErrRegistryBalanceBroken    = errors.New("agent: registry balance invariant violated")
+	ErrInvalidTarget            = errors.New("agent: invalid target address")
+	ErrURITooLong               = errors.New("agent: URI exceeds maximum length")
 )

@@ -100,6 +100,9 @@ func (h *agentHandler) handleUpdateProfile(ctx *sysaction.Context, sa *sysaction
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
 	}
+	if len(p.URI) > MaxURILength {
+		return ErrURITooLong
+	}
 	WriteMetadata(ctx.StateDB, ctx.From, p.URI)
 	return nil
 }
@@ -184,6 +187,9 @@ func (h *agentHandler) handleSuspend(ctx *sysaction.Context, sa *sysaction.SysAc
 		return err
 	}
 	target := common.HexToAddress(p.Target)
+	if target == (common.Address{}) {
+		return ErrInvalidTarget
+	}
 	if !IsRegistered(ctx.StateDB, target) {
 		return ErrAgentNotRegistered
 	}
@@ -200,6 +206,9 @@ func (h *agentHandler) handleUnsuspend(ctx *sysaction.Context, sa *sysaction.Sys
 		return err
 	}
 	target := common.HexToAddress(p.Target)
+	if target == (common.Address{}) {
+		return ErrInvalidTarget
+	}
 	if !IsRegistered(ctx.StateDB, target) {
 		return ErrAgentNotRegistered
 	}

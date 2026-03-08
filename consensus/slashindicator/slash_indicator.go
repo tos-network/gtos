@@ -13,6 +13,7 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
+	"github.com/tos-network/gtos/validator"
 )
 
 type slashIndicatorVoteData struct {
@@ -198,6 +199,11 @@ func Execute(msg sysaction.Msg, db vmtypes.StateDB, blockNumber *big.Int, chainC
 	offenseKey := MaliciousVoteOffenseKey(evidence.Signer, evidence.Number)
 	if HasRecordedMaliciousVoteOffense(db, offenseKey) {
 		return params.SysActionGas, fmt.Errorf("dpos: malicious vote offense already submitted: %s", offenseKey.Hex())
+	}
+	// Reject evidence targeting non-validators: the signer must have a
+	// non-Inactive status in the validator registry.
+	if validator.ReadValidatorStatus(db, evidence.Signer) == validator.Inactive {
+		return params.SysActionGas, fmt.Errorf("dpos: evidence signer %s is not a registered validator", evidence.Signer.Hex())
 	}
 	height := uint64(0)
 	if blockNumber != nil {

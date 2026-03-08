@@ -9,4 +9,5 @@ var (
 	ErrCapabilityBitFull    = errors.New("capability: all 256 bits allocated")
 	ErrCapabilityRegistrar  = errors.New("capability: Registrar capability required")
 	ErrCapabilityNotFound   = errors.New("capability: name not registered")
+	ErrCapabilityBitUnregistered = errors.New("capability: bit index not registered")
 )

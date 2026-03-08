@@ -381,11 +381,18 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) bool {
 		if headNumber > 2*cfg.CheckpointInterval && env.Vote.Number < headNumber-2*cfg.CheckpointInterval {
 			return false
 		}
+		// Upper-bound: reject votes too far in the future.
+		if env.Vote.Number > headNumber+2*cfg.CheckpointInterval {
+			return false
+		}
 	}
 
 	cpHeader := chain.GetHeader(env.Vote.Hash, env.Vote.Number)
 	if cpHeader == nil || env.Vote.Number == 0 {
 		d.votePool.AddPending(env)
+		if head := chain.CurrentHeader(); head != nil && head.Number != nil {
+			d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
+		}
 		d.lock.RLock()
 		journal := d.voteJournal
 		d.lock.RUnlock()
@@ -395,6 +402,9 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) bool {
 	preSnap, err := d.snapshot(chain, env.Vote.Number-1, cpHeader.ParentHash, nil)
 	if err != nil {
 		d.votePool.AddPending(env)
+		if head := chain.CurrentHeader(); head != nil && head.Number != nil {
+			d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
+		}
 		d.lock.RLock()
 		journal := d.voteJournal
 		d.lock.RUnlock()
@@ -890,8 +900,17 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		return nil, nil // already finalized
 	}
 
-	// Load the checkpoint block header to get its hash.
-	cpHeader := chain.GetHeaderByNumber(candidate)
+	// Walk ancestors from the current header to find the checkpoint block,
+	// instead of using canonical chain lookup which may disagree with the
+	// branch being sealed.
+	var cpHeader *types.Header
+	h := header
+	for h != nil && h.Number.Uint64() > candidate {
+		h = chain.GetHeader(h.ParentHash, h.Number.Uint64()-1)
+	}
+	if h != nil && h.Number.Uint64() == candidate {
+		cpHeader = h
+	}
 	if cpHeader == nil {
 		return nil, nil
 	}
@@ -931,6 +950,9 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 	// Now that we have the signer set, run admission checks 4–6 and move valid ones
 	// into the main vote cache so they contribute to the QC.
 	for _, env := range d.votePool.DrainPending(candidate) {
+		if env.Vote.ValidatorSetHash != vsHash {
+			continue
+		}
 		idx, ok := addrIdx[env.Signer]
 		if !ok {
 			continue
@@ -1984,14 +2006,11 @@ func (d *DPoS) OnCanonicalBlock(block *types.Block) {
 			return
 		}
 	}
-	if d.db != nil {
-		rawdb.WriteFinalizedValidatorSetHash(d.db, result.ValidatorSetHash)
-	}
-	d.finalizedVSHash.Store("vsHash", result.ValidatorSetHash)
 	d.lock.RLock()
 	journal := d.voteJournal
 	d.lock.RUnlock()
 	if d.db == nil {
+		d.finalizedVSHash.Store("vsHash", result.ValidatorSetHash)
 		journal.RecordFinalized(types.CheckpointVote{
 			ChainID:          d.chainID,
 			Number:           result.FinalizedNumber,
@@ -2006,12 +2025,18 @@ func (d *DPoS) OnCanonicalBlock(block *types.Block) {
 			"number", result.FinalizedNumber, "hash", result.FinalizedHash)
 		return
 	}
+	// Write FinalizedBlockHash first (via setFn) — it is authoritative.
+	// ValidatorSetHash is secondary and must not be persisted before the block hash.
 	d.lock.RLock()
 	setFn := d.setFinalizedFn
 	d.lock.RUnlock()
 	if setFn != nil {
 		setFn(finalizedHeader)
 	}
+	if d.db != nil {
+		rawdb.WriteFinalizedValidatorSetHash(d.db, result.ValidatorSetHash)
+	}
+	d.finalizedVSHash.Store("vsHash", result.ValidatorSetHash)
 	journal.RecordFinalized(types.CheckpointVote{
 		ChainID:          d.chainID,
 		Number:           result.FinalizedNumber,

@@ -76,6 +76,9 @@ func (h *taskHandler) handleSchedule(ctx *sysaction.Context, sa *sysaction.SysAc
 	if p.IntervalBlocks != 0 && p.IntervalBlocks < params.TaskMinIntervalBlocks {
 		return ErrTaskIntervalTooShort
 	}
+	if p.IntervalBlocks > params.TaskMaxHorizonBlocks {
+		return ErrTaskIntervalTooFar
+	}
 
 	// 4. Per-contract active limit.
 	if ReadActiveCount(ctx.StateDB, ctx.From) >= params.TaskMaxPerContract {

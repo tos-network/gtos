@@ -573,6 +573,11 @@ func EncodeSecp256r1Signature(r, s *big.Int) ([]byte, error) {
 	if r.BitLen() > 256 || s.BitLen() > 256 {
 		return nil, ErrInvalidSignerValue
 	}
+	// Normalize S to low-S form (BIP-62 / EIP-2).
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) > 0 {
+		s = new(big.Int).Sub(elliptic.P256().Params().N, s)
+	}
 	out := make([]byte, crypto.SignatureLength)
 	rb := r.Bytes()
 	sb := s.Bytes()
@@ -711,7 +716,7 @@ func signatureTypeToMetaAlg(signerType string) (byte, error) {
 
 // EncodeSignatureMeta encodes signer metadata for tx V field.
 func EncodeSignatureMeta(signerType string, signerPub []byte) (*big.Int, error) {
-	normalizedType, _, _, err := NormalizeSigner(signerType, hexutil.Encode(signerPub))
+	normalizedType, normalizedPub, _, err := NormalizeSigner(signerType, hexutil.Encode(signerPub))
 	if err != nil {
 		return nil, err
 	}
@@ -719,10 +724,10 @@ func EncodeSignatureMeta(signerType string, signerPub []byte) (*big.Int, error) 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(signatureMetaPrefix)+1+len(signerPub))
+	out := make([]byte, 0, len(signatureMetaPrefix)+1+len(normalizedPub))
 	out = append(out, signatureMetaPrefix...)
 	out = append(out, alg)
-	out = append(out, signerPub...)
+	out = append(out, normalizedPub...)
 	return new(big.Int).SetBytes(out), nil
 }
 

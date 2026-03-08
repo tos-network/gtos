@@ -7,4 +7,5 @@ import "errors"
 var (
 	ErrNotAuthorizedScorer  = errors.New("reputation: caller is not an authorized scorer")
 	ErrRegistrarRequired    = errors.New("reputation: Registrar capability required")
+	ErrInvalidDelta         = errors.New("reputation: invalid delta value")
 )

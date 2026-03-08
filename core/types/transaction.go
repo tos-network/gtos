@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"container/heap"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"strings"
@@ -162,7 +163,16 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case SignerTxType:
 		var inner SignerTx
 		err := rlp.DecodeBytes(b[1:], &inner)
-		return &inner, err
+		if err != nil {
+			return nil, err
+		}
+		if len(inner.SignerType) > 64 { // accountsigner.MaxSignerTypeLen
+			return nil, fmt.Errorf("signer type too long: %d > 64", len(inner.SignerType))
+		}
+		if _, err := canonicalSignerType(inner.SignerType); err != nil {
+			return nil, err
+		}
+		return &inner, nil
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
