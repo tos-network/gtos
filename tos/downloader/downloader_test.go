@@ -52,8 +52,10 @@ func newTesterWithNotification(t *testing.T, success func()) *downloadTester {
 		db.Close()
 	})
 	gspec := core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
-		BaseFee: big.NewInt(params.InitialBaseFee),
+		Config:    params.TestChainConfig,
+		Alloc:     core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
+		BaseFee:   big.NewInt(params.InitialBaseFee),
+		ExtraData: testDPoSGenesisExtra(testAddress),
 	}
 	gspec.MustCommit(db)
 

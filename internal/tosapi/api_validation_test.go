@@ -209,7 +209,7 @@ func TestUNOTransferValidation(t *testing.T) {
 	from := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
 	to := common.HexToAddress("0x62251343c13f20572df0356edfb4fe5de578cf17243e5fb56aa8f5ce898ca2a4")
 	ct32 := make(hexutil.Bytes, coreuno.CiphertextSize)
-	proof := make(hexutil.Bytes, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize)
+	proof := make(hexutil.Bytes, coreuno.TransferProofRequiredSize)
 
 	_, err := api.UnoTransfer(context.Background(), RPCUNOTransferArgs{
 		RPCTxCommonArgs:         RPCTxCommonArgs{From: from},
@@ -235,7 +235,7 @@ func TestUNOTransferValidation(t *testing.T) {
 		NewSenderHandle:         ct32,
 		ReceiverDeltaCommitment: ct32,
 		ReceiverDeltaHandle:     ct32,
-		ProofBundle:             make(hexutil.Bytes, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize-1),
+		ProofBundle:             make(hexutil.Bytes, coreuno.TransferProofRequiredSize-1),
 	})
 	if err == nil {
 		t.Fatalf("expected invalid params error for malformed proof shape")

@@ -24,12 +24,22 @@ var (
 	testKey, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	testAddress = crypto.PubkeyToAddress(testKey.PublicKey)
 	gspec       = core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
-		BaseFee: big.NewInt(params.InitialBaseFee),
+		Config:    params.TestChainConfig,
+		Alloc:     core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
+		BaseFee:   big.NewInt(params.InitialBaseFee),
+		ExtraData: testDPoSGenesisExtra(testAddress),
 	}
 	genesis      = gspec.MustCommit(testdb)
 	unknownBlock = types.NewBlock(&types.Header{GasLimit: params.GenesisGasLimit, BaseFee: big.NewInt(params.InitialBaseFee)}, nil, nil, nil, trie.NewStackTrie(nil))
 )
+
+// testDPoSGenesisExtra builds a minimal DPoS genesis ExtraData: 32-byte vanity
+// followed by one 32-byte validator address.
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
 
 // makeChain creates a chain of n blocks starting at and including parent.
 // the returned hash chain is ordered head->parent. In addition, every 3rd block

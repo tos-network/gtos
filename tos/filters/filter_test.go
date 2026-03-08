@@ -14,6 +14,14 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
+// testDPoSGenesisExtra builds a minimal DPoS genesis ExtraData: 32-byte vanity
+// followed by one 32-byte validator address.
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
+
 func makeReceipt(addr common.Address) *types.Receipt {
 	receipt := types.NewReceipt(nil, false, 0)
 	receipt.Logs = []*types.Log{
@@ -36,8 +44,10 @@ func BenchmarkFilters(b *testing.B) {
 		addr4   = common.BytesToAddress([]byte("random addresses please"))
 
 		gspec = core.Genesis{
-			Alloc:   core.GenesisAlloc{addr1: {Balance: big.NewInt(1000000)}},
-			BaseFee: big.NewInt(params.InitialBaseFee),
+			Config:    params.TestChainConfig,
+			Alloc:     core.GenesisAlloc{addr1: {Balance: big.NewInt(1000000)}},
+			BaseFee:   big.NewInt(params.InitialBaseFee),
+			ExtraData: testDPoSGenesisExtra(addr1),
 		}
 		genesis = gspec.ToBlock()
 	)
@@ -98,8 +108,10 @@ func TestFilters(t *testing.T) {
 		hash4 = common.BytesToHash([]byte("topic4"))
 
 		gspec = core.Genesis{
-			Alloc:   core.GenesisAlloc{addr: {Balance: big.NewInt(1000000)}},
-			BaseFee: big.NewInt(params.InitialBaseFee),
+			Config:    params.TestChainConfig,
+			Alloc:     core.GenesisAlloc{addr: {Balance: big.NewInt(1000000)}},
+			BaseFee:   big.NewInt(params.InitialBaseFee),
+			ExtraData: testDPoSGenesisExtra(addr),
 		}
 		genesis = gspec.ToBlock()
 	)

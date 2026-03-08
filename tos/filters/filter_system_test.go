@@ -149,7 +149,7 @@ func TestBlockSubscription(t *testing.T) {
 		db           = rawdb.NewMemoryDatabase()
 		backend, sys = newTestFilterSystem(t, db, Config{})
 		api          = NewFilterAPI(sys, false)
-		genesis      = (&core.Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+		genesis      = (&core.Genesis{Config: params.TestChainConfig, BaseFee: big.NewInt(params.InitialBaseFee), ExtraData: testDPoSGenesisExtra(common.Address{1})}).MustCommit(db)
 		chain, _     = core.GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), db, 10, func(i int, gen *core.BlockGen) {})
 		chainEvents  = []core.ChainEvent{}
 	)

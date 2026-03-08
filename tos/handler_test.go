@@ -26,6 +26,14 @@ var (
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 )
 
+// testDPoSGenesisExtra builds a minimal DPoS genesis ExtraData: 32-byte vanity
+// followed by one 32-byte validator address.
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
+
 // testTxPool is a mock transaction pool that blindly accepts all transactions.
 // Its goal is to get around setting up a valid statedb for the balance and nonce
 // checks.
@@ -118,8 +126,9 @@ func newTestHandlerWithBlocks(blocks int) *testHandler {
 	// Create a database pre-initialize with a genesis block
 	db := rawdb.NewMemoryDatabase()
 	(&core.Genesis{
-		Config: params.TestChainConfig,
-		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(1000000)}},
+		Config:    params.TestChainConfig,
+		Alloc:     core.GenesisAlloc{testAddr: {Balance: big.NewInt(1000000)}},
+		ExtraData: testDPoSGenesisExtra(testAddr),
 	}).MustCommit(db)
 
 	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, dpos.NewFaker(), nil, nil)

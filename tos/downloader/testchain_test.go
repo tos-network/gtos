@@ -23,8 +23,10 @@ var (
 	testDB      = rawdb.NewMemoryDatabase()
 
 	testGspec = core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
-		BaseFee: big.NewInt(params.InitialBaseFee),
+		Config:    params.TestChainConfig,
+		Alloc:     core.GenesisAlloc{testAddress: {Balance: big.NewInt(1_000_000_000_000_000_000)}}, // 10^18: covers test chains at 10 gwei/tx
+		BaseFee:   big.NewInt(params.InitialBaseFee),
+		ExtraData: testDPoSGenesisExtra(testAddress),
 	}
 	testGenesis = testGspec.MustCommit(testDB)
 )
@@ -36,6 +38,14 @@ var testChainBase *testChain
 var testChainForkLightA, testChainForkLightB, testChainForkHeavy *testChain
 
 var pregenerated bool
+
+// testDPoSGenesisExtra builds a minimal DPoS genesis ExtraData: 32-byte vanity
+// followed by one 32-byte validator address.
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
 
 func init() {
 	// Reduce some of the parameters to make the tester faster

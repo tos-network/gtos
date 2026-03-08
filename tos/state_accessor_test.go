@@ -100,6 +100,7 @@ func TestStateAtTransactionUsesPreBlockSignerSnapshot(t *testing.T) {
 			from: {Balance: big.NewInt(10_000_000_000_000_000)},
 			to:   {Balance: big.NewInt(0)},
 		},
+		ExtraData: testDPoSGenesisExtra(from),
 	}
 	genesis := gspec.MustCommit(db)
 	blockchain, err := core.NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)

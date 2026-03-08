@@ -13,6 +13,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/validator"
 )
 
 func testMaliciousVoteEvidence(t *testing.T) *types.MaliciousVoteEvidence {
@@ -83,6 +84,9 @@ func TestGetAndListMaliciousVoteEvidence(t *testing.T) {
 	backend.state = st
 	api := NewTOSAPI(backend)
 	evidence := testMaliciousVoteEvidence(t)
+	// Register the evidence signer as an active validator so
+	// ExecuteSlashIndicator does not reject it.
+	validator.WriteValidatorStatus(st, evidence.Signer, validator.Active)
 	input, err := dpos.PackSubmitFinalityViolationEvidence(evidence)
 	if err != nil {
 		t.Fatalf("PackSubmitFinalityViolationEvidence: %v", err)

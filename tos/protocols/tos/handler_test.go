@@ -28,6 +28,14 @@ var (
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 )
 
+// testDPoSGenesisExtra builds a minimal DPoS genesis ExtraData: 32-byte vanity
+// followed by one 32-byte validator address.
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
+
 func newSignedTransferTx(signer types.Signer, key *ecdsa.PrivateKey, from common.Address, nonce uint64, to common.Address, value, _ *big.Int) *types.Transaction {
 	tx := types.NewTx(&types.SignerTx{
 		ChainID:    params.TestChainConfig.ChainID,
@@ -65,8 +73,9 @@ func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)
 	// Create a database pre-initialize with a genesis block
 	db := rawdb.NewMemoryDatabase()
 	(&core.Genesis{
-		Config: params.TestChainConfig,
-		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
+		Config:    params.TestChainConfig,
+		Alloc:     core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
+		ExtraData: testDPoSGenesisExtra(testAddr),
 	}).MustCommit(db)
 
 	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, dpos.NewFaker(), nil, nil)
