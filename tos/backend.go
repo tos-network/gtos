@@ -11,9 +11,9 @@ import (
 
 	"github.com/tos-network/gtos/accounts"
 	_ "github.com/tos-network/gtos/accountsigner" // registers ACCOUNT_SET_SIGNER handler via init()
-	_ "github.com/tos-network/gtos/agent"         // registers AGENT_* handlers via init()
+	"github.com/tos-network/gtos/agent"
 	"github.com/tos-network/gtos/agentdiscovery"
-	_ "github.com/tos-network/gtos/capability" // registers CAPABILITY_* handlers via init()
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
@@ -35,8 +35,8 @@ import (
 	"github.com/tos-network/gtos/p2p/dnsdisc"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"
-	_ "github.com/tos-network/gtos/referral"   // registers REFERRAL_* handlers via init()
-	_ "github.com/tos-network/gtos/reputation" // registers REPUTATION_* handlers via init()
+	_ "github.com/tos-network/gtos/referral" // registers REFERRAL_* handlers via init()
+	"github.com/tos-network/gtos/reputation"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"
 	_ "github.com/tos-network/gtos/task" // registers TASK_SCHEDULE/TASK_CANCEL handlers via init()
@@ -545,6 +545,7 @@ func (s *TOS) Merger() *consensus.Merger          { return s.merger }
 func (s *TOS) AgentDiscovery() *agentdiscovery.Service {
 	s.lock.RLock()
 	if s.agentDiscovery != nil {
+		s.agentDiscovery.SetSummaryProvider(s.agentDiscoveryTrustSummary)
 		defer s.lock.RUnlock()
 		return s.agentDiscovery
 	}
@@ -561,10 +562,40 @@ func (s *TOS) AgentDiscovery() *agentdiscovery.Service {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.agentDiscovery == nil {
+		svc.SetSummaryProvider(s.agentDiscoveryTrustSummary)
 		s.agentDiscovery = svc
 	}
 	return s.agentDiscovery
 }
+
+func (s *TOS) agentDiscoveryTrustSummary(identity common.Address, capabilityName string) *agentdiscovery.ProviderTrustSummary {
+	if identity == (common.Address{}) || s.blockchain == nil {
+		return nil
+	}
+	head := s.blockchain.CurrentBlock()
+	if head == nil {
+		return nil
+	}
+	stateDB, err := s.blockchain.StateAt(head.Root())
+	if err != nil || stateDB == nil {
+		return nil
+	}
+
+	summary := &agentdiscovery.ProviderTrustSummary{
+		Registered:  agent.IsRegistered(stateDB, identity),
+		Suspended:   agent.IsSuspended(stateDB, identity),
+		Stake:       agent.ReadStake(stateDB, identity).String(),
+		Reputation:  reputation.TotalScoreOf(stateDB, identity).String(),
+		RatingCount: reputation.RatingCountOf(stateDB, identity).String(),
+	}
+	if bit, ok := capability.CapabilityBit(stateDB, capabilityName); ok {
+		summary.CapabilityRegistered = true
+		summary.CapabilityBit = &bit
+		summary.HasOnchainCapability = capability.HasCapability(stateDB, identity, bit)
+	}
+	return summary
+}
+
 func (s *TOS) SyncMode() downloader.SyncMode {
 	mode, _ := s.handler.chainSync.modeAndLocalHead()
 	return mode

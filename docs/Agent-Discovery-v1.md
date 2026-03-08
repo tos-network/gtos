@@ -439,6 +439,297 @@ base networking protocol.
 - add registry and reputation hooks
 - add richer capability indexing and policy references
 
+### Phase C.1
+
+- treat the current V1 implementation as the discovery and invocation baseline
+- keep the transport unchanged:
+  - discv5
+  - ENR
+  - TALKREQ metadata exchange
+  - signed Agent Card
+- focus all post-V1 work on provider selection quality rather than replacing the
+  discovery transport
+
+## 21A. GTOS Primitive Status
+
+The next implementation steps do not require GTOS to invent a new agent identity
+stack. GTOS already provides the core primitives needed for post-V1 trust hooks:
+
+- `AgentRegistry`
+  - registration status
+  - suspended status
+  - locked stake
+- `CapabilityRegistry`
+  - capability name to bit mapping
+  - per-agent capability bitmap
+- `ReputationHub`
+  - cumulative score
+  - rating count
+- LVM and native read paths for these values
+
+This means the post-V1 roadmap is primarily about integrating existing GTOS
+primitives into:
+
+- requester-side filtering
+- requester-side ranking
+- directory agent ranking and curation
+
+rather than building a brand new registry layer from scratch.
+
+## 21B. Post-V1 Implementation Roadmap
+
+The most practical next steps are listed below in the recommended order.
+
+### Phase D. Registry-Aware Filtering
+
+Goal:
+
+- exclude providers that should not be treated as eligible candidates at all
+
+Mechanics:
+
+- before accepting a provider candidate, the requester or directory checks:
+  - provider is a registered agent
+  - provider is not suspended
+  - provider stake is above a configured minimum
+
+Recommended GTOS data sources:
+
+- `tos.agentload(addr, "is_registered")`
+- `tos.agentload(addr, "suspended")`
+- `tos.agentload(addr, "stake")`
+
+Implementation guidance:
+
+- start with requester-side filtering in OpenFox or another runtime
+- then add the same checks to directory agent ranking
+- make these checks configurable per capability class
+
+Recommended defaults:
+
+- `sponsor.*`:
+  - registered
+  - not suspended
+  - non-zero minimum stake
+- `observation.*`:
+  - registered
+  - not suspended
+  - stronger minimum stake than sponsor
+- `oracle.*`:
+  - registered
+  - not suspended
+  - highest minimum stake of the three
+
+Expected outcome:
+
+- unregistered or suspended providers no longer surface as normal candidates
+- basic Sybil resistance improves without changing the transport
+
+### Phase E. Capability Registry Hook
+
+Goal:
+
+- verify that a provider not only claims a capability in its Agent Card, but
+  also holds the corresponding on-chain capability bit
+
+Mechanics:
+
+1. resolve the capability name to a capability bit
+2. check the provider capability bitmap
+3. require both:
+   - card claim
+   - on-chain capability membership
+
+Recommended GTOS data sources:
+
+- `tos.capabilitybit(name)`
+- `tos.agentload(addr, "capabilities")`
+- optional native helper methods returning the full bitmap
+
+Implementation guidance:
+
+- start with a soft mode:
+  - if the capability is registered on-chain, prefer providers that hold the bit
+- move to strict mode for higher-value capability families:
+  - `oracle.*`
+  - `kyc.*`
+  - sponsored distribution capabilities with spending risk
+
+Recommended policy modes:
+
+- `off`
+  - trust only the Agent Card
+- `prefer_onchain`
+  - rank on-chain-capable providers higher
+- `require_onchain`
+  - reject candidates without the on-chain capability bit
+
+Expected outcome:
+
+- capability spoofing becomes materially harder
+- capability assignment can be governed separately from discovery
+
+### Phase F. Reputation-Aware Ranking
+
+Goal:
+
+- improve provider selection quality using service history instead of only live
+  availability
+
+Mechanics:
+
+- pull:
+  - total reputation score
+  - rating count
+- compute a local ranking score
+- prefer providers with:
+  - higher score
+  - higher rating count
+  - lower failure rate or timeout rate if available locally
+
+Recommended GTOS data sources:
+
+- `tos.agentload(addr, "reputation")`
+- `tos.agentload(addr, "rating_count")`
+
+Implementation guidance:
+
+- requester and directory agents should both support local ranking formulas
+- the formula does not need to be consensus-critical
+- start simple:
+
+```text
+rank_score = weighted(service_mode, max_amount, onchain_registration, reputation, rating_count)
+```
+
+Suggested guardrails:
+
+- do not over-trust a high raw score with low sample count
+- use rating count as a confidence term
+- prefer coarse thresholding first, sophisticated ranking second
+
+Expected outcome:
+
+- search results become more useful in practice
+- stable providers are selected more often than noisy providers
+
+### Phase G. Stake and Bond Policy by Capability Class
+
+Goal:
+
+- give higher-risk capabilities stronger economic requirements
+
+Mechanics:
+
+- define per-capability-family minimum stake or bond thresholds
+- apply them during candidate filtering
+- optionally expose them in directory metadata or policy references
+
+Recommended policy examples:
+
+- `sponsor.topup.testnet`
+  - low but non-zero minimum stake
+- `observation.once`
+  - medium minimum stake
+- `oracle.resolve`
+  - higher minimum stake or a dedicated bond
+
+Important distinction:
+
+- GTOS already has a base `AgentMinStake`
+- post-V1 discovery should add capability-specific thresholds on top of that
+
+Expected outcome:
+
+- sponsor and oracle providers become more expensive to fake at scale
+- the same agent registry can support different trust levels by capability class
+
+### Phase H. Directory Ranking and Summary Output
+
+Goal:
+
+- make directory agents useful without turning them into a source of truth
+
+Mechanics:
+
+- directory agents collect recent provider cards and GTOS trust signals
+- directory `RESULTS` should return:
+  - provider identity summary
+  - capability match
+  - optional ranking explanation
+  - optional freshness indicators
+
+Recommended summary fields:
+
+- node id
+- primary identity
+- advertised capability
+- card sequence
+- registration status
+- suspended flag
+- stake bucket
+- reputation bucket
+- local rank reason
+
+Implementation guidance:
+
+- requester must still fetch the provider card directly
+- directory output remains advisory
+- directory ranking policies can differ across operators
+
+Expected outcome:
+
+- better search UX
+- lower requester cost
+- faster provider selection
+
+### Phase I. Policy References and Provider Scoring Feedback
+
+Goal:
+
+- connect invocation outcomes back into discovery quality
+
+Mechanics:
+
+- requester records:
+  - success
+  - failure
+  - timeout
+  - malformed response
+  - sponsor abuse
+- requester or operator may:
+  - update local provider scores
+  - submit reputation updates through GTOS-native reputation flows
+
+Recommended first step:
+
+- maintain local runtime scoring before making scoring globally visible
+
+Recommended second step:
+
+- authorize specific scorers for capability families
+- submit signed or policy-controlled reputation updates on-chain
+
+Expected outcome:
+
+- discovery ranking improves over time
+- reputation becomes tied to real service behavior, not just self-asserted claims
+
+## 21C. Concrete Post-V1 Deliverables
+
+The first concrete deliverables after V1 should be:
+
+1. requester-side registry and suspension filtering
+2. requester-side capability-bit verification
+3. requester-side reputation-aware ranking
+4. directory result summaries that expose registration, stake, and reputation buckets
+5. one capability-family policy profile for each of:
+   - `sponsor.*`
+   - `observation.*`
+   - `oracle.*`
+
+This keeps the work grounded in GTOS features that already exist today.
+
 ## 22. Final Position
 
 Agent Discovery v1 should be treated as:
