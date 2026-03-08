@@ -134,9 +134,14 @@ func BuildTransferPayloadProof(args TransferBuildArgs) (TransferPayload, []byte,
 	if err != nil {
 		return TransferPayload{}, nil, ErrInvalidPayload
 	}
-	proofBundle := make([]byte, 0, len(ctProof)+len(balanceProof))
+	rangeProof, err := cryptouno.ProveRangeProof(commitment, args.Amount, opening)
+	if err != nil {
+		return TransferPayload{}, nil, ErrInvalidPayload
+	}
+	proofBundle := make([]byte, 0, len(ctProof)+len(balanceProof)+len(rangeProof))
 	proofBundle = append(proofBundle, ctProof...)
 	proofBundle = append(proofBundle, balanceProof...)
+	proofBundle = append(proofBundle, rangeProof...)
 	return TransferPayload{
 		To:            args.To,
 		NewSender:     newSender,

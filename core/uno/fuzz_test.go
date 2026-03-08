@@ -33,7 +33,7 @@ func FuzzUNOEnvelopeAndPayloadDecoderNoPanic(f *testing.F) {
 		To:            common.HexToAddress("0x1234"),
 		NewSender:     fuzzCiphertext(0x21),
 		ReceiverDelta: fuzzCiphertext(0x31),
-		ProofBundle:   make([]byte, transferProofMinSize),
+		ProofBundle:   make([]byte, TransferProofRequiredSize),
 	})
 	unshieldBody, _ := EncodeUnshieldPayload(UnshieldPayload{
 		To:          common.HexToAddress("0x5678"),
@@ -81,8 +81,7 @@ func FuzzUNOEnvelopeAndPayloadDecoderNoPanic(f *testing.F) {
 func FuzzUNOProofBundleParserNoPanic(f *testing.F) {
 	f.Add(uint8(0), []byte{})
 	f.Add(uint8(0), make([]byte, ShieldProofSize))
-	f.Add(uint8(1), make([]byte, transferProofMinSize))
-	f.Add(uint8(1), make([]byte, transferProofMinSize+RangeProofSingle64))
+	f.Add(uint8(1), make([]byte, TransferProofRequiredSize))
 	f.Add(uint8(2), make([]byte, BalanceProofSize))
 	f.Add(uint8(3), make([]byte, CTValidityProofSizeT0))
 	f.Add(uint8(4), make([]byte, CTValidityProofSizeT1))
@@ -98,7 +97,7 @@ func FuzzUNOProofBundleParserNoPanic(f *testing.F) {
 			}
 		case 1:
 			err := ValidateTransferProofBundleShape(blob)
-			if err == nil && len(blob) != transferProofMinSize && len(blob) != transferProofMinSize+RangeProofSingle64 {
+			if err == nil && len(blob) != TransferProofRequiredSize {
 				t.Fatalf("transfer accepted unexpected size %d", len(blob))
 			}
 		case 2:

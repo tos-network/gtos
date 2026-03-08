@@ -47,3 +47,21 @@ func TestProveAndVerifyShieldCTAndBalanceWithContext(t *testing.T) {
 		t.Fatalf("VerifyBalanceProofWithContext: %v", err)
 	}
 }
+
+func TestProveAndVerifyRangeProof(t *testing.T) {
+	amount := uint64(42)
+	commitment, opening, err := CommitmentNew(amount)
+	if err != nil {
+		t.Fatalf("CommitmentNew: %v", err)
+	}
+	proof, err := ProveRangeProof(commitment, amount, opening)
+	if err != nil {
+		t.Fatalf("ProveRangeProof: %v", err)
+	}
+	if len(proof) != 672 {
+		t.Fatalf("unexpected proof size: %d", len(proof))
+	}
+	if err := VerifyRangeProof(proof, commitment, []byte{64}, 1); err != nil {
+		t.Fatalf("VerifyRangeProof: %v", err)
+	}
+}

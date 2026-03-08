@@ -69,15 +69,17 @@ func TestDecodeCommitmentEqAndBalanceBundleLength(t *testing.T) {
 }
 
 func TestDecodeTransferProofBundleLength(t *testing.T) {
-	min := make([]byte, CTValidityProofSizeT1+BalanceProofSize)
-	if _, err := decodeTransferProofBundle(min); err != nil {
+	// Range proof is mandatory; only TransferProofRequiredSize (1032) is accepted.
+	full := make([]byte, TransferProofRequiredSize)
+	if _, err := decodeTransferProofBundle(full); err != nil {
 		t.Fatalf("unexpected transfer bundle decode error: %v", err)
 	}
-	withRange := make([]byte, CTValidityProofSizeT1+BalanceProofSize+RangeProofSingle64)
-	if _, err := decodeTransferProofBundle(withRange); err != nil {
-		t.Fatalf("unexpected transfer bundle with range decode error: %v", err)
+	// Without range proof (360 bytes) must be rejected.
+	noRange := make([]byte, CTValidityProofSizeT1+BalanceProofSize)
+	if _, err := decodeTransferProofBundle(noRange); err == nil {
+		t.Fatal("expected transfer bundle without range proof to be rejected")
 	}
-	if _, err := decodeTransferProofBundle(make([]byte, CTValidityProofSizeT1+BalanceProofSize+1)); err == nil {
+	if _, err := decodeTransferProofBundle(make([]byte, TransferProofRequiredSize+1)); err == nil {
 		t.Fatal("expected transfer bundle size error")
 	}
 }
@@ -108,7 +110,7 @@ func TestVerifyTransferProofBundleRejectsMismatchedCommitment(t *testing.T) {
 	var receiverDelta Ciphertext
 	senderDelta.Commitment[0] = 0x01
 	receiverDelta.Commitment[0] = 0x02
-	bundle := make([]byte, CTValidityProofSizeT1+BalanceProofSize)
+	bundle := make([]byte, TransferProofRequiredSize)
 	if err := VerifyTransferProofBundle(bundle, senderDelta, receiverDelta, make([]byte, 32), make([]byte, 32)); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatalf("expected ErrInvalidPayload, got %v", err)
 	}
@@ -119,7 +121,7 @@ func TestVerifyTransferProofBundleWithContextRejectsMismatchedCommitment(t *test
 	var receiverDelta Ciphertext
 	senderDelta.Commitment[0] = 0x01
 	receiverDelta.Commitment[0] = 0x02
-	bundle := make([]byte, CTValidityProofSizeT1+BalanceProofSize)
+	bundle := make([]byte, TransferProofRequiredSize)
 	if err := VerifyTransferProofBundleWithContext(bundle, senderDelta, receiverDelta, make([]byte, 32), make([]byte, 32), make([]byte, 83)); !errors.Is(err, ErrInvalidPayload) {
 		t.Fatalf("expected ErrInvalidPayload, got %v", err)
 	}

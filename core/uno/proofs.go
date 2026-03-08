@@ -12,7 +12,10 @@ const (
 	// RangeProofSingle64 is the expected proof size for one 64-bit commitment.
 	RangeProofSingle64 = 672
 
-	transferProofMinSize = CTValidityProofSizeT1 + BalanceProofSize
+	// TransferProofRequiredSize is the exact size for a transfer proof bundle:
+	// CT validity (160) + balance (200) + range proof (672).
+	// Range proofs are mandatory per XELIS-convergent design.
+	TransferProofRequiredSize = CTValidityProofSizeT1 + BalanceProofSize + RangeProofSingle64
 )
 
 type transferProofBundleParts struct {
@@ -72,30 +75,28 @@ func decodeRangeProofBundle(bundle []byte) ([]byte, error) {
 }
 
 func decodeTransferProofBundle(bundle []byte) (transferProofBundleParts, error) {
-	if len(bundle) < transferProofMinSize {
+	if len(bundle) != TransferProofRequiredSize {
 		return transferProofBundleParts{}, ErrInvalidPayload
 	}
-	ctValidity, err := decodeCTValidityProofBundle(bundle[:CTValidityProofSizeT1], true)
+	ctOff := CTValidityProofSizeT1
+	balOff := ctOff + BalanceProofSize
+	ctValidity, err := decodeCTValidityProofBundle(bundle[:ctOff], true)
 	if err != nil {
 		return transferProofBundleParts{}, err
 	}
-	balance, err := decodeBalanceProofBundle(bundle[CTValidityProofSizeT1:transferProofMinSize])
+	balance, err := decodeBalanceProofBundle(bundle[ctOff:balOff])
 	if err != nil {
 		return transferProofBundleParts{}, err
 	}
-	parts := transferProofBundleParts{
+	rangeProof, err := decodeRangeProofBundle(bundle[balOff:])
+	if err != nil {
+		return transferProofBundleParts{}, err
+	}
+	return transferProofBundleParts{
 		ctValidity: ctValidity,
 		balance:    balance,
-	}
-	if len(bundle) == transferProofMinSize {
-		return parts, nil
-	}
-	rangeProof, err := decodeRangeProofBundle(bundle[transferProofMinSize:])
-	if err != nil {
-		return transferProofBundleParts{}, err
-	}
-	parts.rangeProof = rangeProof
-	return parts, nil
+		rangeProof: rangeProof,
+	}, nil
 }
 
 func decodeUnshieldProofBundle(bundle []byte) (unshieldProofBundleParts, error) {

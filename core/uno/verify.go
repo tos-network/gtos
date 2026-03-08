@@ -106,9 +106,6 @@ func VerifyTransferProofBundleWithContext(bundle []byte, senderDelta, receiverDe
 	)); err != nil {
 		return err
 	}
-	if len(parts.rangeProof) == 0 {
-		return nil
-	}
 	// Range proofs are self-contained; no chain context injection needed.
 	return mapCryptoVerifyError(cryptouno.VerifyRangeProof(
 		parts.rangeProof,
@@ -165,9 +162,6 @@ func VerifyTransferProofBundle(bundle []byte, senderDelta, receiverDelta Ciphert
 		ciphertextToBytes(senderDelta),
 	)); err != nil {
 		return err
-	}
-	if len(parts.rangeProof) == 0 {
-		return nil
 	}
 	return mapCryptoVerifyError(cryptouno.VerifyRangeProof(
 		parts.rangeProof,

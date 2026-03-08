@@ -450,6 +450,14 @@ static int gtos_uno_verify_rangeproof(const unsigned char *proof,
   return at_rangeproofs_verify(&range_proof, &ipp_proof, commitments, bit_lengths, batch_len, &transcript);
 }
 
+static int gtos_uno_prove_rangeproof(unsigned char *proof_out,
+                                     size_t proof_out_sz,
+                                     const unsigned char *commitment32,
+                                     unsigned long value,
+                                     const unsigned char *blinding32) {
+  return at_rangeproofs_prove_single64(proof_out, proof_out_sz, commitment32, value, blinding32);
+}
+
 static void gtos_uno_u64_to_le_scalar(unsigned char out32[32], unsigned long amount) {
   at_memset(out32, 0, 32);
   for (int i = 0; i < 8; i++) {
@@ -1205,6 +1213,25 @@ func VerifyUNORangeProof(proof []byte, commitments []byte, bitLengths []byte, ba
 		return ErrUNOInvalidProof
 	}
 	return nil
+}
+
+// ProveUNORangeProof generates a 672-byte Bulletproofs range proof for a
+// single 64-bit value, proving that the committed value is in [0, 2^64).
+func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
+	if len(commitment32) != 32 || len(blinding32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	proof := make([]byte, 672)
+	if C.gtos_uno_prove_rangeproof(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		C.size_t(672),
+		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
+		C.ulong(value),
+		(*C.uchar)(unsafe.Pointer(&blinding32[0])),
+	) != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return proof, nil
 }
 
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {

@@ -48,3 +48,13 @@ func VerifyBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, 
 func VerifyRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	return mapBackendError(ed25519.VerifyUNORangeProof(proof, commitments, bitLengths, batchLen))
 }
+
+// ProveRangeProof generates a 672-byte Bulletproofs range proof proving that
+// the value committed in commitment32 (with blinding factor blinding32) is in [0, 2^64).
+func ProveRangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
+	out, err := ed25519.ProveUNORangeProof(commitment32, value, blinding32)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return out, nil
+}

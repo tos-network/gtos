@@ -175,6 +175,13 @@ func VerifyUNORangeProof(proof []byte, commitments []byte, bitLengths []byte, ba
 	return ErrUNOBackendUnavailable
 }
 
+func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
+	_ = commitment32
+	_ = value
+	_ = blinding32
+	return nil, ErrUNOBackendUnavailable
+}
+
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {
 	_ = priv32
 	return nil, ErrUNOBackendUnavailable
