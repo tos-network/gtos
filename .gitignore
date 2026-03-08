@@ -6,6 +6,7 @@
 
 /tmp
 */**/*un~
+*.test
 */**/*.test
 *un~
 .DS_Store

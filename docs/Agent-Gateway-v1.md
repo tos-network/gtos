@@ -1,66 +1,71 @@
 # Agent Gateway v1
 
-Status: Draft  
-Audience: GTOS networking, agent runtime authors, gateway operators, service providers
+Status: Draft
+Audience: GTOS networking, agent runtime authors, gateway agent operators, service providers
 
 ## 1. Summary
 
-Agent Gateway v1 is a public reachability layer for agent services.
+Agent Gateway v1 is a reachability layer for agent services. It solves a practical
+problem: many agent providers run behind NAT and cannot accept inbound connections
+from the public internet.
 
-It exists to solve a practical problem:
+The key design decision in this version is that **gateway relay is itself an agent
+capability**. A gateway is not a special infrastructure component outside the agent
+model. It is an agent that advertises the `gateway.relay` capability, is discoverable
+through Agent Discovery v1, and participates in the same trust, reputation, and
+payment mechanisms as any other agent.
 
-- many agent providers run behind NAT
-- many providers do not have a public IP
-- Agent Discovery can locate such providers, but requesters still cannot invoke them
-  directly over the public internet
+How it works:
 
-Agent Gateway v1 provides a simple answer:
+- a gateway agent has a public IP and advertises `gateway.relay` in its Agent Card
+- a NAT'd provider discovers a gateway agent through Agent Discovery
+- the provider opens an outbound session to the gateway agent
+- the gateway agent allocates a public invocation endpoint for the provider
+- the provider advertises that public endpoint in its own Agent Card
+- requesters invoke the provider through the gateway endpoint
+- the gateway agent forwards traffic over the existing outbound session
 
-- the provider opens an outbound connection to a public gateway
-- the gateway allocates a public invocation endpoint
-- the provider advertises that public endpoint in its Agent Card
-- requesters call the gateway endpoint
-- the gateway forwards traffic to the provider over the existing outbound session
-
-This is conceptually similar to a reverse tunnel or agent-specific proxy. It is not a
-replacement for Agent Discovery. It is the invocation companion for discovered agents
-that are not directly reachable from the public internet.
+This is conceptually a reverse tunnel, but modeled as a first-class agent capability
+rather than out-of-band infrastructure.
 
 ## 2. Goals
 
 - Let agents without a public IP provide services to external requesters
-- Preserve the layering of Agent Discovery v1
-- Keep the provider-side networking model simple
-- Support both sponsored and paid agent capabilities
-- Allow OpenFox and other runtimes to act as either requester or provider
+- Model gateway relay as a standard agent capability within Agent Discovery v1
+- Enable multiple competing gateway agents without central coordination
+- Support paid, sponsored, and hybrid relay pricing
+- Allow OpenFox and other runtimes to act as requester, provider, or gateway
+- Reuse existing trust mechanisms: stake, reputation, capability registry
 
 ## 3. Non-Goals
 
 - Replacing discv5 or ENR
-- Building a fully decentralized relay market in v1
-- Performing full NAT hole punching across arbitrary environments
-- Hiding all gateway trust assumptions
-- Providing end-to-end payload confidentiality in the gateway by default
+- Full NAT hole punching across arbitrary environments
+- End-to-end payload confidentiality by default in v1
+- Fully decentralized relay selection without any bootstrap hints
 
 ## 4. Relationship to Agent Discovery
 
-Agent Discovery v1 and Agent Gateway v1 solve different layers:
+Agent Discovery v1 and Agent Gateway v1 are not separate systems. Gateway is a
+capability within the Discovery framework:
 
 - Agent Discovery v1:
-  - find providers
-  - fetch Agent Cards
-  - verify basic identity and policy metadata
-- Agent Gateway v1:
-  - make the provider invokable
-  - bridge public requesters to private providers
+  - find agents by capability
+  - fetch and verify Agent Cards
+  - verify identity and policy metadata
+- `gateway.relay` capability:
+  - a specific capability that gateway agents advertise
+  - discovered using the same ENR bloom filter, TALKREQ, and Agent Card flow
+  - subject to the same trust, reputation, and payment rules
 
-The recommended integration is:
+The integration flow:
 
-1. provider joins discovery and publishes an Agent Card
-2. provider also establishes a gateway session
-3. provider publishes the gateway-backed public endpoint in its Agent Card
-4. requester discovers provider using Agent Discovery v1
-5. requester invokes the published endpoint through the gateway
+1. gateway agent joins discovery and publishes an Agent Card with `gateway.relay`
+2. NAT'd provider discovers gateway agents through Agent Discovery
+3. provider selects a gateway agent and establishes an outbound relay session
+4. provider publishes the gateway-backed endpoint in its own Agent Card
+5. requester discovers the provider through Agent Discovery
+6. requester invokes the provider through the published gateway endpoint
 
 ## 5. Problem Statement
 
@@ -80,115 +85,235 @@ metadata through a reachable peer, but direct invocation of:
 
 will not work for general internet requesters.
 
-The missing component is a public edge that:
+The missing component is a publicly reachable agent that can:
 
-- is reachable by requesters
-- can authenticate a provider
-- can forward requests to that provider
+- accept outbound sessions from NAT'd providers
+- allocate public invocation endpoints
+- forward requests to providers over the existing session
 
 ## 6. Design Principles
 
-### 6.1 Outbound-Only Provider Connectivity
+### 6.1 Gateway Is an Agent, Not Infrastructure
 
-The provider must not be required to accept inbound internet traffic.
+A gateway is a normal agent that happens to have a public IP and offers relay as a
+service. It registers with Agent Discovery, publishes an Agent Card, and is subject
+to the same trust evaluation as any other agent.
 
-V1 assumes the provider can make outbound connections to the gateway over:
+This means:
 
-- HTTPS
-- WebSocket
-- QUIC or another future transport
+- multiple gateway agents can compete on price, quality, and reputation
+- providers can switch gateway agents without protocol changes
+- gateway agents can be staked, rated, and slashed like any other agent
 
-### 6.2 Public Endpoint, Private Runtime
+### 6.2 Outbound-Only Provider Connectivity
 
-The provider runtime may remain local or private. Only the gateway endpoint needs to
-be public.
+The provider must not be required to accept inbound internet traffic. The provider
+makes outbound connections to the gateway agent over:
 
-### 6.3 Discovery Remains Separate
+- WebSocket over TLS
+- HTTP/2 streams (future)
+- QUIC streams (future)
 
-The gateway does not replace Agent Discovery. A requester should still discover the
-provider via ENR and Agent Card, not by querying a centralized gateway catalog.
+### 6.3 Public Endpoint, Private Runtime
 
-### 6.4 Capability Routing Must Be Explicit
+The provider runtime may remain local or private. Only the gateway agent's endpoint
+needs to be public.
 
-The gateway should not guess what the provider supports. The provider advertises the
-gateway endpoint in its signed Agent Card, and the requester invokes only what the
-card declares.
+### 6.4 Discovery-Native Gateway Selection
 
-### 6.5 V1 Prefers Operational Simplicity Over Perfect Decentralization
+Providers find gateway agents using the same Agent Discovery flow they would use to
+find any other capability. No hardcoded gateway URLs are required beyond initial
+bootstrap hints.
 
-The first version should be easy to deploy:
+### 6.5 Capability Routing Must Be Explicit
 
-- one public gateway process
-- many provider sessions
-- signed cards
-- optional x402 or sponsor policy on the public endpoint
+The gateway agent does not guess what the provider supports. The provider registers
+its routes explicitly on session setup. The provider advertises the gateway-backed
+endpoint in its signed Agent Card.
 
 ## 7. Roles
 
 - Requester:
-  - the agent or user-facing runtime invoking a capability
+  - the agent invoking a capability on a provider
 - Provider:
   - the agent offering a capability, potentially behind NAT
-- Gateway:
-  - a public edge service forwarding requests from requesters to providers
-- Optional Directory:
-  - an indexer or cache that helps requesters find provider candidates
+- Gateway Agent:
+  - an agent with a public IP that advertises `gateway.relay` and forwards traffic
+    between requesters and NAT'd providers
+- Directory Agent:
+  - an optional agent that indexes capability claims and returns candidate providers
 
-## 8. High-Level Architecture
+## 8. Gateway Relay Capability
+
+The gateway relay capability follows the standard Agent Discovery capability model.
+
+Capability name:
 
 ```text
-+-------------------+        +-------------------+        +-------------------+
-| Requester Agent   | -----> | Public Gateway    | <----- | Provider Agent    |
-| (public internet) |  HTTPS | reverse routing   |  WS    | (private network) |
-+-------------------+        +-------------------+        +-------------------+
-          |                           ^
-          |                           |
-          +---- Agent Discovery ------+
+gateway.relay
 ```
 
-The provider:
-
-- connects out to the gateway
-- authenticates
-- registers supported routes or capability bindings
-- keeps the session alive
-
-The requester:
-
-- discovers the provider through Agent Discovery
-- receives a public endpoint from the provider's Agent Card
-- invokes that endpoint
-
-## 9. Provider-Gateway Session Model
-
-### 9.1 Session Establishment
-
-The provider opens an outbound session to the gateway.
-
-Recommended V1 transport:
-
-- WebSocket over TLS
-
-Alternative future transports:
-
-- HTTP/2 streams
-- QUIC streams
-
-### 9.2 Provider Authentication
-
-The provider authenticates using a signed session envelope.
-
-Suggested fields:
+A gateway agent advertises this capability in its Agent Card:
 
 ```json
 {
   "version": 1,
-  "agent_id": "0x...",
+  "agent_id": "0xGatewayAgent...",
   "primary_identity": {
     "kind": "tos",
-    "value": "0x..."
+    "value": "0xGatewayTOSAddress..."
   },
-  "gateway_session_nonce": "0x...",
+  "capabilities": [
+    {
+      "name": "gateway.relay",
+      "mode": "paid",
+      "price_model": "x402-metered",
+      "policy": {
+        "max_sessions": 200,
+        "max_bandwidth_kbps": 10000,
+        "max_routes_per_session": 20,
+        "supported_transports": ["wss", "h2"],
+        "session_ttl_seconds": 86400
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "kind": "wss",
+      "url": "wss://gw1.example.com/relay"
+    }
+  ],
+  "signature": "0x..."
+}
+```
+
+Gateway relay capability modes:
+
+- `paid`: provider pays for relay service (per-session, per-request, or metered)
+- `sponsored`: gateway operator subsidizes relay (e.g. for testnet or ecosystem growth)
+- `hybrid`: free tier with paid overflow
+
+## 9. Bootstrapping and Gateway Discovery
+
+### 9.1 The Bootstrap Problem
+
+A NAT'd provider needs to find a gateway agent before it can be invokable. But it
+needs to join the discovery network first, and the discovery network can help it find
+gateway agents. This is the same bootstrapping pattern as discv5 bootnodes.
+
+### 9.2 Gateway Bootnodes
+
+V1 uses a gateway bootnode list, analogous to discv5 bootnodes:
+
+- a small curated list of well-known gateway agent addresses
+- shipped with the agent runtime (e.g. OpenFox) or configured by the operator
+- used only for initial gateway selection
+
+Format:
+
+```text
+gateway-bootnode://0xGatewayAgentId@gw1.example.com:443
+gateway-bootnode://0xGatewayAgentId@gw2.example.com:443
+```
+
+Or as a configuration array:
+
+```json
+{
+  "gateway_bootnodes": [
+    {
+      "agent_id": "0x...",
+      "url": "wss://gw1.example.com/relay"
+    },
+    {
+      "agent_id": "0x...",
+      "url": "wss://gw2.example.com/relay"
+    }
+  ]
+}
+```
+
+### 9.3 Bootstrap Flow
+
+1. provider starts and loads the gateway bootnode list
+2. provider joins the discv5 network using standard bootnodes
+3. provider connects to a bootnode gateway agent for immediate reachability
+4. provider concurrently searches Agent Discovery for `gateway.relay` capability
+5. provider evaluates discovered gateway agents by reputation, price, and latency
+6. provider may migrate to a better gateway agent if one is found
+7. provider may maintain sessions to multiple gateway agents for redundancy
+
+### 9.4 Gateway Migration
+
+A provider can switch gateway agents without disrupting its identity:
+
+1. establish session with new gateway agent
+2. receive new public endpoint
+3. update Agent Card with new endpoint and increment `card_seq`
+4. close old gateway session
+
+Requesters that cache the old endpoint will get a connection error and should
+re-fetch the provider's Agent Card to get the updated endpoint.
+
+## 10. High-Level Architecture
+
+```text
++-------------------+        +-------------------+        +-------------------+
+| Requester Agent   | -----> | Gateway Agent     | <===== | Provider Agent    |
+| (public internet) |  HTTPS | (gateway.relay)   |  WSS   | (behind NAT)      |
++-------------------+        +-------------------+        +-------------------+
+                                     ^
+                                     |
+                              Agent Discovery
+                              (same network)
+```
+
+The gateway agent:
+
+- joins Agent Discovery and advertises `gateway.relay`
+- accepts outbound sessions from NAT'd providers
+- allocates public endpoints per provider session
+- forwards requests from requesters to providers
+
+The provider:
+
+- discovers gateway agents through Agent Discovery
+- establishes an outbound relay session
+- registers routes on the session
+- advertises the gateway-backed endpoint in its Agent Card
+
+The requester:
+
+- discovers the provider through Agent Discovery (not the gateway)
+- invokes the provider's published endpoint, which happens to route through a gateway
+
+## 11. Provider-Gateway Session Model
+
+### 11.1 Session Establishment
+
+The provider opens an outbound session to the gateway agent.
+
+V1 transport:
+
+- WebSocket over TLS
+
+The provider sends a `session_open` message containing authentication and route
+registration.
+
+### 11.2 Provider Authentication
+
+The provider authenticates using a signed session envelope:
+
+```json
+{
+  "version": 1,
+  "agent_id": "0xProviderAgent...",
+  "primary_identity": {
+    "kind": "tos",
+    "value": "0xProviderTOS..."
+  },
+  "gateway_agent_id": "0xGatewayAgent...",
+  "session_nonce": "0x...",
   "issued_at": 1770000000,
   "expires_at": 1770000600,
   "signature": "0x..."
@@ -197,78 +322,89 @@ Suggested fields:
 
 Requirements:
 
-- signature key SHOULD match the Agent Card signing identity or be explicitly linked
-- gateway MUST verify freshness and expiry
-- gateway MUST bind the live session to the authenticated provider identity
+- signature key MUST match the Agent Card signing identity
+- `gateway_agent_id` MUST match the gateway being connected to (prevents replay
+  across gateways)
+- gateway agent MUST verify freshness and expiry
+- gateway agent MUST bind the session to the authenticated provider identity
 
-### 9.3 Session Keepalive
+### 11.3 Session Keepalive
 
-The gateway and provider maintain liveness using:
+Liveness is maintained using:
 
 - WebSocket ping/pong
 - or protocol-level keepalive frames
 
 If the session is lost:
 
-- gateway marks the provider unavailable
-- new requests fail fast until reconnection
+- gateway agent marks the provider's routes as unavailable
+- new requests fail fast with a clear error
+- provider should reconnect or migrate to another gateway agent
 
-## 10. Public Endpoint Model
+## 12. Public Endpoint Model
 
-Gateway v1 allocates a public endpoint per provider session.
+The gateway agent allocates a public endpoint per provider session.
 
 Examples:
 
-- `https://gw.example.com/a/4f2b.../invoke`
-- `https://gw.example.com/a/4f2b.../faucet`
-- `https://gw.example.com/a/4f2b.../oracle/resolve`
+- `https://gw1.example.com/a/4f2b.../invoke`
+- `https://gw1.example.com/a/4f2b.../faucet`
+- `https://gw1.example.com/a/4f2b.../oracle/resolve`
 
-The provider includes this endpoint in its Agent Card.
-
-Recommended rule:
-
-- the Agent Card should advertise the gateway endpoint, not the provider's private
-  local address
-
-## 11. Invocation Flow
-
-### 11.1 Requester Flow
-
-1. discover provider using Agent Discovery v1
-2. fetch and verify Agent Card
-3. select a declared endpoint
-4. invoke the gateway URL
-5. receive response or streaming session
-
-### 11.2 Gateway Flow
-
-1. receive public request
-2. identify target provider session from path or session mapping
-3. enforce gateway-level policy
-4. forward request to provider over the outbound session
-5. relay provider response back to requester
-
-### 11.3 Provider Flow
-
-1. receive forwarded request from gateway
-2. validate capability-specific inputs
-3. optionally enforce payment or sponsor rules
-4. perform work
-5. return a response or error
-
-## 12. Capability Binding
-
-Gateway routing must bind requests to declared capabilities.
-
-V1 recommendation:
-
-- each public route maps to one named capability
-- the provider registers the route-to-capability mapping on session setup
-
-Example:
+The provider includes this endpoint in its Agent Card:
 
 ```json
 {
+  "endpoints": [
+    {
+      "kind": "https",
+      "url": "https://gw1.example.com/a/4f2b.../invoke",
+      "via_gateway": "0xGatewayAgent..."
+    }
+  ]
+}
+```
+
+The `via_gateway` field is optional but recommended. It lets requesters know the
+endpoint is relayed and identify which gateway agent is involved.
+
+## 13. Invocation Flow
+
+### 13.1 Requester Flow
+
+1. discover provider using Agent Discovery v1
+2. fetch and verify provider's Agent Card
+3. select a declared endpoint (may be a gateway URL)
+4. invoke the endpoint over HTTPS
+5. receive response or streaming session
+
+The requester does not need to know or care that the endpoint is gateway-backed.
+The provider's Agent Card is the source of truth.
+
+### 13.2 Gateway Agent Flow
+
+1. receive public HTTPS request
+2. identify target provider session from path or session mapping
+3. enforce gateway-level policy (rate limits, payment)
+4. forward request to provider over the outbound WebSocket session
+5. relay provider response back to requester
+
+### 13.3 Provider Flow
+
+1. receive forwarded request from gateway agent
+2. validate capability-specific inputs
+3. optionally enforce payment or sponsor rules
+4. perform work
+5. return response or error through the gateway session
+
+## 14. Capability Binding and Route Registration
+
+When a provider opens a session, it registers the routes it wants exposed:
+
+```json
+{
+  "type": "session_open",
+  "auth": { "..." },
   "routes": [
     {
       "path": "/faucet",
@@ -284,192 +420,218 @@ Example:
 }
 ```
 
-The gateway should reject requests to routes that were not registered by the
-provider's live session.
+The gateway agent:
 
-## 13. Payment and Sponsor Modes
+- MUST reject requests to routes not registered by the provider's live session
+- MUST NOT infer or auto-generate routes
+- MAY enforce per-route rate limits
 
-Gateway v1 must support two broad service modes:
+## 15. Gateway Agent Trust Model
 
-- sponsored
-- paid
+Because the gateway agent is a participant in Agent Discovery, it is subject to the
+same trust mechanisms as any other agent.
 
-### 13.1 Sponsored
+### 15.1 What the Gateway Agent Can Do
 
-Typical example:
+Unless payloads are end-to-end encrypted, the gateway agent can:
 
-- `sponsor.topup.testnet`
-
-Requirements:
-
-- provider declares quota and rate limits in Agent Card policy
-- provider remains free to reject
-- gateway may additionally enforce coarse abuse controls
-
-### 13.2 Paid
-
-Typical examples:
-
-- `oracle.resolve`
-- `observation.once`
-
-Recommended V1 payment model:
-
-- x402 over HTTPS
-
-The gateway may operate in either of these modes:
-
-- pass-through:
-  - the requester pays the provider endpoint through gateway forwarding
-- edge-enforced:
-  - the gateway verifies payment before forwarding
-
-V1 recommendation:
-
-- edge-enforced x402 for simple HTTP request/response routes
-
-## 14. Security Model
-
-Gateway v1 introduces a public intermediary. This has consequences.
-
-### 14.1 What the Gateway Can Do
-
-Unless application payloads are end-to-end protected, the gateway can:
-
-- observe request metadata
-- observe request and response bodies
+- observe request and response metadata and bodies
 - deny service
 - misroute traffic
 
-### 14.2 What Signed Agent Cards Still Protect
+### 15.2 Trust Mitigations via Agent Discovery
 
-The gateway does not control:
+Unlike an out-of-band infrastructure gateway, a gateway agent can be evaluated using:
 
-- provider identity claims in the signed Agent Card
-- capability declarations in the signed Agent Card
-- provider-selected settlement identity
+- on-chain registration status and stake
+- reputation score and rating count
+- capability registry membership for `gateway.relay`
+- provider-side local scoring based on past relay quality
 
-### 14.3 Minimum V1 Controls
+### 15.3 Provider-Side Gateway Selection
 
-Gateway operators SHOULD implement:
+Providers SHOULD evaluate gateway agents before establishing sessions:
 
-- TLS on public endpoints
-- per-provider authentication
-- rate limits
+- prefer gateway agents with higher stake
+- prefer gateway agents with higher reputation
+- prefer gateway agents with on-chain `gateway.relay` capability bit
+- avoid gateway agents that have been suspended
+- consider geographic proximity for latency
+
+### 15.4 Minimum V1 Controls
+
+Gateway agents MUST implement:
+
+- TLS on all public endpoints
+- per-provider session authentication
+- rate limits per session and per endpoint
 - request size limits
-- idle timeout
-- replay protection on gateway session auth
+- idle timeout and session expiry
+- replay protection on session auth (nonce + `gateway_agent_id` binding)
 - logging and audit correlation IDs
 
-## 15. Privacy Considerations
+## 16. Payment Model for Gateway Relay
 
-Providers using a gateway reduce public exposure of their private network location,
-but they increase dependence on gateway visibility.
+Gateway relay is a service with real costs (bandwidth, public IP, compute). The
+payment model uses the same mechanisms as any other agent capability.
 
-V1 guidance:
+### 16.1 Paid Relay
 
-- do not publish private LAN addresses in Agent Cards
-- publish only gateway URLs or other requester-reachable endpoints
-- keep sensitive private metadata out of ENR
-- place only public invocation metadata in the Agent Card
+The gateway agent charges the provider for relay service.
 
-## 16. OpenFox Integration Model
+Pricing options:
 
-OpenFox is one example of a runtime that can use Gateway v1 in both roles.
+- per-session flat fee
+- per-request fee
+- metered by bandwidth or duration
+- x402 settlement
 
-### 16.1 OpenFox as Provider
+### 16.2 Sponsored Relay
 
-OpenFox may:
+The gateway operator subsidizes relay for ecosystem growth.
 
-- run on a laptop or home machine
-- create a local wallet
-- start a local faucet or oracle HTTP handler
-- open an outbound session to a public gateway
+Use cases:
+
+- testnet gateway agents
+- foundation-operated gateways for early network bootstrap
+- community-funded relay pools
+
+### 16.3 Hybrid Relay
+
+Free tier for low-volume providers, paid for higher usage.
+
+The pricing model is declared in the gateway agent's Agent Card `policy` field,
+allowing providers to compare before connecting.
+
+## 17. Multi-Gateway and Failover
+
+### 17.1 Multiple Gateway Sessions
+
+A provider MAY maintain sessions to multiple gateway agents simultaneously:
+
+- publish multiple endpoints in its Agent Card
+- achieve redundancy against single-gateway failure
+- load-balance across gateways
+
+### 17.2 Failover
+
+If a gateway agent becomes unreachable:
+
+1. provider detects session loss
+2. provider connects to another gateway agent (from discovery or bootnode list)
+3. provider updates its Agent Card with the new endpoint
+4. stale endpoint requests fail; requesters re-fetch the Agent Card
+
+### 17.3 Gateway Agent Liveness
+
+Gateway agents that go offline will:
+
+- lose their discv5 presence over time
+- accumulate negative provider-side scoring
+- lose reputation if providers submit feedback
+
+This is a natural consequence of being a normal agent in the discovery network.
+
+## 18. Security Considerations
+
+### 18.1 Gateway Agent Selection Attack
+
+A malicious gateway agent could intercept or modify traffic. Mitigations:
+
+- providers evaluate gateway agents using stake and reputation
+- providers can require minimum stake thresholds for gateway selection
+- providers can maintain multiple gateway sessions for cross-verification
+- future: end-to-end encrypted payloads between requester and provider
+
+### 18.2 Sybil Gateway Agents
+
+An attacker could run many low-quality gateway agents. Mitigations:
+
+- require on-chain registration and non-trivial stake for `gateway.relay`
+- reputation-weighted selection
+- provider-side local scoring
+
+### 18.3 Session Replay
+
+Prevented by:
+
+- `gateway_agent_id` binding in session auth (prevents replay across gateways)
+- nonce + expiry in session envelope
+- TLS on transport
+
+### 18.4 Privacy
+
+- providers MUST NOT publish private LAN addresses in Agent Cards
+- providers SHOULD publish only gateway-backed or directly reachable endpoints
+- gateway agents can observe traffic unless end-to-end encryption is used
+
+## 19. OpenFox Integration Model
+
+OpenFox is one example of a runtime that can use Gateway v1 in three roles.
+
+### 19.1 OpenFox as Gateway Agent
+
+An OpenFox instance with a public IP may:
+
+- advertise `gateway.relay` capability
+- accept provider relay sessions
+- forward traffic and charge for relay service
+
+### 19.2 OpenFox as Provider (Behind NAT)
+
+An OpenFox instance behind NAT may:
+
+- discover gateway agents through Agent Discovery
+- fall back to gateway bootnodes if no gateway agents are discovered yet
+- establish a relay session
 - publish the gateway-backed endpoint in its Agent Card
+- serve capabilities like `sponsor.topup.testnet` through the relay
 
-This lets a non-public OpenFox instance provide services externally.
+### 19.3 OpenFox as Requester
 
-### 16.2 OpenFox as Requester
-
-OpenFox may:
+An OpenFox instance may:
 
 - discover a provider with Agent Discovery
 - verify the provider's Agent Card
-- invoke the provider through the published gateway endpoint
+- invoke the provider through the published endpoint (gateway-backed or direct)
 - pay through x402 if required
 
-### 16.3 OpenFox Testnet Faucet Example
+The requester does not need special handling for gateway-backed endpoints.
 
-A provider OpenFox instance may advertise:
+### 19.4 Testnet Faucet Example
 
-- capability: `sponsor.topup.testnet`
-- public endpoint: `https://gw.example.com/a/4f2b.../faucet`
+Provider OpenFox (behind NAT):
 
-A requester OpenFox instance may:
+1. loads gateway bootnode list
+2. connects to a gateway agent, registers `/faucet` route
+3. publishes Agent Card with `sponsor.topup.testnet` and gateway endpoint
 
-1. map `/faucet` or a natural-language request into `sponsor.topup.testnet`
-2. search discovery for matching providers
-3. verify the chosen Agent Card
-4. call the gateway URL
-5. receive sponsored top-up approval or rejection
-6. track the resulting TOS transfer receipt
+Requester OpenFox:
 
-## 17. Recommended V1 Deployment Modes
+1. searches Agent Discovery for `sponsor.topup.testnet`
+2. finds the provider, fetches and verifies Agent Card
+3. calls `https://gw1.example.com/a/4f2b.../faucet`
+4. receives sponsored top-up approval
+5. tracks the resulting TOS transfer receipt
 
-### 17.1 Public Gateway Mode
-
-Use when:
-
-- providers are behind NAT
-- requesters come from the public internet
-
-Properties:
-
-- easiest public usability
-- operationally centralized at the gateway layer
-- best fit for early OpenFox service networks
-
-### 17.2 Private Overlay Mode
-
-Use when:
-
-- all agents are inside the same private mesh
-- public internet access is not required
-
-Examples:
-
-- WireGuard mesh
-- Tailscale network
-
-In this mode, the overlay itself may make the provider directly reachable and the
-gateway may be unnecessary.
-
-### 17.3 Hybrid Mode
-
-Use when:
-
-- some agents are directly reachable
-- some agents require gateway traversal
-
-The Agent Card simply advertises the reachable endpoint that applies to the provider.
-
-## 18. Minimal V1 Wire Sketch
+## 20. Wire Sketch
 
 This section is illustrative rather than normative.
 
-### 18.1 Provider Session Open
+### 20.1 Provider Session Open
 
 ```json
 {
   "type": "session_open",
   "auth": {
     "version": 1,
-    "agent_id": "0x...",
+    "agent_id": "0xProviderAgent...",
     "primary_identity": {
       "kind": "tos",
-      "value": "0x..."
+      "value": "0xProviderTOS..."
     },
-    "gateway_session_nonce": "0x...",
+    "gateway_agent_id": "0xGatewayAgent...",
+    "session_nonce": "0x...",
     "issued_at": 1770000000,
     "expires_at": 1770000600,
     "signature": "0x..."
@@ -484,7 +646,26 @@ This section is illustrative rather than normative.
 }
 ```
 
-### 18.2 Forwarded Request
+### 20.2 Session Open Response
+
+```json
+{
+  "type": "session_open_ack",
+  "session_id": "s-9a3f...",
+  "allocated_endpoints": [
+    {
+      "path": "/faucet",
+      "public_url": "https://gw1.example.com/a/4f2b.../faucet"
+    }
+  ],
+  "relay_pricing": {
+    "mode": "sponsored",
+    "note": "testnet relay, no charge"
+  }
+}
+```
+
+### 20.3 Forwarded Request
 
 ```json
 {
@@ -506,7 +687,7 @@ This section is illustrative rather than normative.
 }
 ```
 
-### 18.3 Forwarded Response
+### 20.4 Forwarded Response
 
 ```json
 {
@@ -524,61 +705,87 @@ This section is illustrative rather than normative.
 }
 ```
 
-## 19. Rollout Plan
+## 21. Deployment Modes
+
+### 21.1 Discoverable Gateway Mode (Recommended)
+
+Provider discovers gateway agents through Agent Discovery and selects based on
+trust signals. This is the primary mode.
+
+### 21.2 Bootnode-Only Mode
+
+Provider connects only to gateway bootnodes without performing discovery-based
+selection. Suitable for initial bootstrap or when the discovery network is small.
+
+### 21.3 Direct Mode (No Gateway)
+
+Provider has a public IP and advertises its own endpoint directly. No gateway
+agent is needed. The Agent Card simply contains the provider's own URL.
+
+### 21.4 Multi-Gateway Mode
+
+Provider maintains sessions to multiple gateway agents for redundancy and
+load distribution. Agent Card lists multiple endpoints.
+
+## 22. Rollout Plan
 
 ### Phase 1
 
-- provider outbound WebSocket session
-- signed session auth
-- static public gateway routes
-- HTTPS request/response forwarding
-- OpenFox faucet capability over gateway
+- `gateway.relay` capability definition
+- gateway bootnode list format and distribution
+- provider outbound WebSocket session to gateway agents
+- signed session auth with `gateway_agent_id` binding
+- public endpoint allocation and HTTPS request/response forwarding
+- OpenFox faucet capability over gateway relay
 
 ### Phase 2
 
-- streaming support
-- provider multiplexing improvements
-- stronger payment enforcement hooks
-- provider session resumption
+- discovery-based gateway selection with reputation and stake filtering
+- gateway migration without session interruption
+- streaming support over relay sessions
+- multi-gateway redundancy
+- relay payment enforcement (x402)
 
 ### Phase 3
 
-- optional gateway federation
-- optional relay markets
+- on-chain `gateway.relay` capability registry
+- gateway agent reputation feedback from providers
 - optional end-to-end encrypted invocation payloads
+- relay quality metrics and SLA declarations in Agent Card
 
-## 20. Implementation Guidance for GTOS
+## 23. Implementation Guidance for GTOS
 
 GTOS does not need a hard fork for Gateway v1.
 
-The most natural split is:
+The capability `gateway.relay` fits naturally into the existing Agent Discovery
+framework:
 
-- GTOS:
-  - provide Agent Discovery transport and optional payment primitives
-- agent runtimes such as OpenFox:
-  - implement provider logic
-  - implement requester logic
-  - optionally implement or operate a gateway service
+- `agb` bloom filter already supports arbitrary capability names
+- Agent Card already supports capability declarations with policy
+- trust primitives (stake, reputation, capability registry) already exist
 
-Possible GTOS-side support that may be useful later:
+GTOS-side support:
 
-- standard capability-route descriptors
-- x402 helper middleware
-- optional gateway attestation or audit helpers
+- register `gateway.relay` as a standard capability name
+- include gateway bootnode list in default agent runtime configuration
+- optional: gateway agent attestation helpers
 
-## 21. Conclusion
+Runtime-side implementation (OpenFox or similar):
 
-Agent Gateway v1 is the missing reachability layer for practical agent services.
+- gateway agent: accept relay sessions, allocate endpoints, forward traffic
+- provider: gateway discovery, session management, Agent Card endpoint updates
+- requester: no changes needed (gateway endpoints are transparent)
 
-Agent Discovery alone can answer:
+## 24. Conclusion
 
-- who is online
-- who claims a capability
+Agent Gateway v1 models relay as a first-class agent capability rather than
+out-of-band infrastructure.
 
-Gateway v1 answers the next question:
+Agent Discovery answers: who is online and what can they do.
 
-- how can a requester actually reach a private provider and use the service
+`gateway.relay` answers: how can a NAT'd provider become reachable, using the
+same discovery, trust, and payment mechanisms as every other capability.
 
-For OpenFox-style agent networks, the recommended first implementation is not a full
-peer-to-peer relay protocol. It is a public gateway with outbound provider sessions,
-signed Agent Cards, and optional x402 or sponsor enforcement at the invocation edge.
+Gateway agents compete on the same terms as any other agent: stake, reputation,
+price, and quality of service. Providers discover and select gateway agents through
+Agent Discovery, with gateway bootnodes providing the initial bootstrap path.
