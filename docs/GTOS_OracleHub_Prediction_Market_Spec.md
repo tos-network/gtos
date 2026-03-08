@@ -19,6 +19,8 @@ This design is anchored on two representative market classes:
 
 OracleHub is designed as an **AI-native oracle**. Off-chain AI systems may retrieve evidence, summarize sources, classify outcomes, normalize noisy real-world data, and produce candidate verdicts. On-chain logic accepts only bounded, canonical, slashable outputs.
 
+OracleHub therefore treats AI as an interpreter, not as the root source of truth. The trust root is the combination of authenticated evidence, fixed interpretation policy, canonical result encoding, accountable operators, and optional proof-backed aggregation. A target Phase III shape is an `M-of-N` oracle committee that consumes authenticated evidence such as zkTLS or TLSNotary proofs, reduces it to a canonical result under a committed policy, and optionally attaches succinct proofs that aggregation and result binding were executed correctly.
+
 The chain settles:
 
 - who submitted
@@ -52,6 +54,7 @@ OracleHub does not aim to:
 - run full LLM inference on-chain
 - store raw webpages, PDFs, or full model transcripts on-chain
 - resolve free-form text disputes directly on-chain
+- treat unconstrained LLM output as self-authenticating truth
 - support unbounded reporter sets
 - force zkML on every market
 
@@ -100,17 +103,21 @@ GTOS already reserves fixed protocol-level addresses for native infrastructure s
 ### 4.1 Proposed addresses
 
 ```go
-OracleHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000109")
-OracleMarketAddress   = common.HexToAddress("0x0000000000000000000000000000000000000110") // optional
-OracleEvidenceAddress = common.HexToAddress("0x0000000000000000000000000000000000000111") // optional future split
+OracleHubAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
 ```
+
+Notes:
+
+- `0x...0109` is already occupied by `CheckpointSlashIndicatorAddress` in the current GTOS codebase.
+- Version 1 should not reserve separate `OracleMarketAddress` or `OracleEvidenceAddress`; those can be introduced later if the module is split.
 
 ### 4.2 Execution model
 
-Two implementation styles are valid:
+For the current GTOS implementation, use **SystemAction style**:
 
-- **SystemAction style**: send transactions to `SystemActionAddress`, with `ORACLE_*` payloads executed natively
-- **Dedicated native route**: send transactions to `OracleHubAddress`, handled specially in state transition logic
+- send transactions to `SystemActionAddress`
+- encode `ORACLE_*` actions in the system-action payload
+- store oracle state under `OracleHubAddress`
 
 ### 4.3 Recommendation
 
@@ -195,6 +202,8 @@ Adds:
 - source policy enforcement
 - evidence-based challenge types
 
+Phase II binds candidate results to evidence and interpretation commitments, but it does not yet prove the full off-chain reasoning path. It establishes the boundary conditions for later verification by committing to authenticated evidence roots, source-proof roots, prompt or policy commitments, and model-set commitments so challenges can target mismatches between source bytes, interpretation policy, and canonical output.
+
 ## 7.3 Phase III — Verifiable AI Oracle
 
 Adds one or more proof modes:
@@ -203,6 +212,16 @@ Adds one or more proof modes:
 - TEE-attested mode
 - zk-aggregated committee mode
 - zkML classifier mode for narrow bounded tasks
+
+The target object of verification is not arbitrary free-form LLM reasoning. It is a bounded oracle pipeline:
+
+```text
+authenticated evidence
+  -> constrained interpretation
+  -> canonical result
+  -> M-of-N committee threshold
+  -> optional succinct proof
+```
 
 Phase III does not require all markets to use zkML. Proof mode is selected per market.
 
@@ -631,16 +650,18 @@ The chain stores only compact roots and hashes, not full evidence.
 
 ## 15. Phase III: Verifiable AI Oracle
 
+Phase III is intended to verify a bounded evidence-processing pipeline, not to bless arbitrary model outputs. In the intended design, authenticated source bytes are bound to a committed interpretation policy, reduced into a canonical result, aggregated across an `M-of-N` oracle committee, and optionally compressed into a succinct proof that the on-chain verifier can check efficiently.
+
 ## 15.1 Verifiable modes
 
 ### A. Evidence-authenticated mode
-Includes authenticated source proof hashes such as zkTLS or TLSNotary digests.
+Includes authenticated source proof hashes such as zkTLS or TLSNotary digests. This mode proves where the evidence came from, even if full inference is not proved.
 
 ### B. TEE-attested mode
 Includes enclave attestation for the inference or evidence-processing environment.
 
 ### C. ZK-aggregated committee mode
-A proof shows that at least `M` out of `N` valid committee reports agreed on the canonical result.
+A proof shows that at least `M` out of `N` valid committee reports, each bound to the same evidence and policy commitments, agreed on the canonical result.
 
 ### D. zkML classifier mode
 For narrow bounded classification tasks only.
