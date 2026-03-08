@@ -57,6 +57,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		MonitorDoubleSign                     bool                      `toml:",omitempty"`
 		MonitorMaliciousVote                  bool                      `toml:",omitempty"`
 		MonitorJournalDir                     string                    `toml:",omitempty"`
+		VoteJournalPath                       string                    `toml:",omitempty"`
 		Checkpoint                            *params.TrustedCheckpoint `toml:",omitempty"`
 		OverrideTerminalTotalDifficulty       *big.Int                  `toml:",omitempty"`
 		OverrideTerminalTotalDifficultyPassed *bool                     `toml:",omitempty"`
@@ -103,6 +104,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.MonitorDoubleSign = c.MonitorDoubleSign
 	enc.MonitorMaliciousVote = c.MonitorMaliciousVote
 	enc.MonitorJournalDir = c.MonitorJournalDir
+	enc.VoteJournalPath = c.VoteJournalPath
 	enc.Checkpoint = c.Checkpoint
 	enc.OverrideTerminalTotalDifficulty = c.OverrideTerminalTotalDifficulty
 	enc.OverrideTerminalTotalDifficultyPassed = c.OverrideTerminalTotalDifficultyPassed
@@ -153,6 +155,7 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		MonitorDoubleSign                     *bool                     `toml:",omitempty"`
 		MonitorMaliciousVote                  *bool                     `toml:",omitempty"`
 		MonitorJournalDir                     *string                   `toml:",omitempty"`
+		VoteJournalPath                       *string                   `toml:",omitempty"`
 		Checkpoint                            *params.TrustedCheckpoint `toml:",omitempty"`
 		OverrideTerminalTotalDifficulty       *big.Int                  `toml:",omitempty"`
 		OverrideTerminalTotalDifficultyPassed *bool                     `toml:",omitempty"`
@@ -283,6 +286,9 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.MonitorJournalDir != nil {
 		c.MonitorJournalDir = *dec.MonitorJournalDir
+	}
+	if dec.VoteJournalPath != nil {
+		c.VoteJournalPath = *dec.VoteJournalPath
 	}
 	if dec.Checkpoint != nil {
 		c.Checkpoint = dec.Checkpoint

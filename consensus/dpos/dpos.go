@@ -132,6 +132,7 @@ type DPoS struct {
 
 	finalizedVSHash sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
 	voteMonitorFn   func(VoteMonitorEvent)
+	voteJournal     *checkpointVoteJournal
 
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
@@ -302,6 +303,24 @@ func (d *DPoS) SetVoteMonitorCallback(fn func(VoteMonitorEvent)) {
 	d.voteMonitorFn = fn
 }
 
+// SetVoteJournalPath enables native checkpoint vote journaling. Passing an empty
+// path disables vote journaling.
+func (d *DPoS) SetVoteJournalPath(path string) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	if path == "" {
+		d.voteJournal = nil
+		return nil
+	}
+	journal, err := newCheckpointVoteJournal(path, defaultVoteJournalRetentionDays)
+	if err != nil {
+		return err
+	}
+	d.voteJournal = journal
+	return nil
+}
+
 func (d *DPoS) emitVoteMonitorEvent(source string, previous, current *types.CheckpointVoteEnvelope) {
 	if previous == nil || current == nil {
 		return
@@ -363,11 +382,19 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	cpHeader := chain.GetHeader(env.Vote.Hash, env.Vote.Number)
 	if cpHeader == nil || env.Vote.Number == 0 {
 		d.votePool.AddPending(env)
+		d.lock.RLock()
+		journal := d.voteJournal
+		d.lock.RUnlock()
+		journal.RecordReceived("p2p", "pending", env)
 		return
 	}
 	preSnap, err := d.snapshot(chain, env.Vote.Number-1, cpHeader.ParentHash, nil)
 	if err != nil {
 		d.votePool.AddPending(env)
+		d.lock.RLock()
+		journal := d.voteJournal
+		d.lock.RUnlock()
+		journal.RecordReceived("p2p", "pending", env)
 		return
 	}
 	records, err := d.buildSignerSet(preSnap)
@@ -397,8 +424,13 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	}
 	prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
 	_, equivocation := d.votePool.AddVote(env)
+	d.lock.RLock()
+	journal := d.voteJournal
+	d.lock.RUnlock()
+	journal.RecordReceived("p2p", "admitted", env)
 	if equivocation {
 		d.emitVoteMonitorEvent("p2p", prev, env)
+		journal.RecordConflict("p2p", prev, env)
 	}
 	if head := chain.CurrentHeader(); head != nil && head.Number != nil {
 		d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
@@ -475,7 +507,7 @@ func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber 
 	}
 
 	d.lock.RLock()
-	v, signFn, bcastFn := d.validator, d.signFn, d.broadcastVoteFn
+	v, signFn, bcastFn, journal := d.validator, d.signFn, d.broadcastVoteFn, d.voteJournal
 	d.lock.RUnlock()
 
 	if v == (common.Address{}) || signFn == nil {
@@ -526,7 +558,9 @@ func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber 
 		_, equivocation := d.votePool.AddVote(env)
 		if equivocation {
 			d.emitVoteMonitorEvent("restart-gossip", prev, env)
+			journal.RecordConflict("restart-gossip", prev, env)
 		}
+		journal.RecordRebroadcast(env)
 		if bcastFn != nil {
 			bcastFn(env)
 		}
@@ -898,8 +932,13 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		}
 		prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
 		_, equivocation := d.votePool.AddVote(env)
+		d.lock.RLock()
+		journal := d.voteJournal
+		d.lock.RUnlock()
+		journal.RecordReceived("pending", "admitted", env)
 		if equivocation {
 			d.emitVoteMonitorEvent("pending", prev, env)
+			journal.RecordConflict("pending", prev, env)
 		}
 	}
 
@@ -1730,10 +1769,15 @@ func (d *DPoS) maybeProduceCheckpointVote(
 		return
 	}
 	cpHash := cpHeader.Hash()
+	chainID := chain.Config().ChainID
 
 	// §11 step 3–4: double-sign guard. Check DB before committing to this hash.
 	if d.db != nil {
 		if existing, ok := ReadSignedCheckpoint(d.db, candidate); ok && existing != cpHash {
+			d.lock.RLock()
+			journal := d.voteJournal
+			d.lock.RUnlock()
+			journal.RecordConflictGuard(candidate, chainID, v, existing, cpHash, common.Hash{})
 			log.Debug("DPoS checkpoint vote: different hash already signed, skipping",
 				"checkpoint", candidate, "signed", existing, "current", cpHash)
 			return
@@ -1741,7 +1785,6 @@ func (d *DPoS) maybeProduceCheckpointVote(
 	}
 
 	// Build the vote.
-	chainID := chain.Config().ChainID
 	vote := types.CheckpointVote{
 		ChainID: new(big.Int).Set(chainID),
 		Number:  candidate,
@@ -1805,8 +1848,13 @@ func (d *DPoS) maybeProduceCheckpointVote(
 
 	prev := d.votePool.ExistingVote(env.Vote.Number, env.Signer)
 	_, equivocation := d.votePool.AddVote(env)
+	d.lock.RLock()
+	journal := d.voteJournal
+	d.lock.RUnlock()
+	journal.RecordLocalSigned(env)
 	if equivocation {
 		d.emitVoteMonitorEvent("local", prev, env)
+		journal.RecordConflict("local", prev, env)
 	}
 
 	// §11 step 8: gossip to peers.
@@ -1897,7 +1945,16 @@ func (d *DPoS) OnCanonicalBlock(block *types.Block) {
 		rawdb.WriteFinalizedValidatorSetHash(d.db, result.ValidatorSetHash)
 	}
 	d.finalizedVSHash.Store("vsHash", result.ValidatorSetHash)
+	d.lock.RLock()
+	journal := d.voteJournal
+	d.lock.RUnlock()
 	if d.db == nil {
+		journal.RecordFinalized(types.CheckpointVote{
+			ChainID:          d.chainID,
+			Number:           result.FinalizedNumber,
+			Hash:             result.FinalizedHash,
+			ValidatorSetHash: result.ValidatorSetHash,
+		}, block.NumberU64(), block.Hash())
 		return
 	}
 	finalizedHeader := rawdb.ReadHeader(d.db, result.FinalizedHash, result.FinalizedNumber)
@@ -1912,6 +1969,12 @@ func (d *DPoS) OnCanonicalBlock(block *types.Block) {
 	if setFn != nil {
 		setFn(finalizedHeader)
 	}
+	journal.RecordFinalized(types.CheckpointVote{
+		ChainID:          d.chainID,
+		Number:           result.FinalizedNumber,
+		Hash:             result.FinalizedHash,
+		ValidatorSetHash: result.ValidatorSetHash,
+	}, block.NumberU64(), block.Hash())
 }
 
 // Close implements consensus.Engine.

@@ -111,6 +111,7 @@ var (
 		utils.MonitorDoubleSignFlag,
 		utils.MonitorMaliciousVoteFlag,
 		utils.MonitorJournalDirFlag,
+		utils.VoteJournalPathFlag,
 		utils.IgnoreLegacyReceiptsFlag,
 		configFileFlag,
 	}, utils.NetworkFlags, utils.DatabasePathFlags)
@@ -188,6 +189,7 @@ func init() {
 		versionCommand,
 		versionCheckCommand,
 		licenseCommand,
+		voteCommand,
 		// See config.go
 		dumpConfigCommand,
 		// see dbcmd.go

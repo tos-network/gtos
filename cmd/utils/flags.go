@@ -529,6 +529,11 @@ var (
 		Value:    flags.DirectoryString(tosconfig.Defaults.MonitorJournalDir),
 		Category: flags.LoggingCategory,
 	}
+	VoteJournalPathFlag = &flags.DirectoryFlag{
+		Name:     "vote-journal-path",
+		Usage:    "Directory for native checkpoint vote journals (vote-YYYY-MM-DD.jsonl, state.json)",
+		Category: flags.LoggingCategory,
+	}
 	// Authenticated RPC HTTP settings
 	AuthListenFlag = &cli.StringFlag{
 		Name:     "authrpc.addr",
@@ -1609,6 +1614,9 @@ func SetTOSConfig(ctx *cli.Context, stack *node.Node, cfg *tosconfig.Config) {
 	}
 	if ctx.IsSet(MonitorJournalDirFlag.Name) {
 		cfg.MonitorJournalDir = ctx.String(MonitorJournalDirFlag.Name)
+	}
+	if ctx.IsSet(VoteJournalPathFlag.Name) {
+		cfg.VoteJournalPath = ctx.String(VoteJournalPathFlag.Name)
 	}
 	if ctx.IsSet(NoDiscoverFlag.Name) {
 		cfg.TosDiscoveryURLs, cfg.SnapDiscoveryURLs = []string{}, []string{}

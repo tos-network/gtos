@@ -42,6 +42,10 @@ At the time of writing, GTOS already has:
   - `--monitor.doublesign`
   - `--monitor.maliciousvote`
   - `--monitor.journal-dir`
+  - `--vote-journal-path`
+- native operator evidence commands:
+  - `gtos vote export-evidence`
+  - `gtos vote submit-evidence`
 - operator watchdog tooling:
   - [validator_guard.sh](../scripts/validator_guard.sh)
   - [validator_guard_report.sh](../scripts/validator_guard_report.sh)
@@ -59,6 +63,10 @@ discipline, not solved forever:
   be retired
 - validator guard journals and alerts should be wired into your actual alerting
   stack
+- vote journal retention should be monitored separately from generic operator
+  alerts; these two journals have different purposes
+- malicious-vote incidents should be exported from the vote journal and staged
+  through the standard `gtos vote` command path, not handled as ad hoc shell JSON
 - periodic summaries should be harvested from the validator guard report timer,
   not only ad hoc shell output
 - maintenance overrun governance still lives at the runbook layer, not in

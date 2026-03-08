@@ -66,6 +66,9 @@ The agent economy runs on three foundational layers.
     - `--monitor.doublesign`
     - `--monitor.maliciousvote`
     - `--monitor.journal-dir`
+    - `--vote-journal-path`
+    - `gtos vote export-evidence`
+    - `gtos vote submit-evidence`
   - operator watchdog tooling with `validator_guard.sh`
     and `validator_guard_report.sh`
   - validator guard alert fan-out:

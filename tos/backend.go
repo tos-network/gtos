@@ -263,6 +263,11 @@ func New(stack *node.Node, config *tosconfig.Config) (*TOS, error) {
 			},
 			chainConfig.ChainID,
 		)
+		if config.VoteJournalPath != "" {
+			if err := d.SetVoteJournalPath(stack.ResolvePath(config.VoteJournalPath)); err != nil {
+				return nil, err
+			}
+		}
 		tosNode.handler.CheckpointVoteHandler = d.HandleIncomingVote
 		if config.MonitorDoubleSign || config.MonitorMaliciousVote {
 			journalDir := config.MonitorJournalDir

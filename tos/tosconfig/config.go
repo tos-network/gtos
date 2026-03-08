@@ -128,6 +128,7 @@ type Config struct {
 	MonitorDoubleSign    bool   `toml:",omitempty"`
 	MonitorMaliciousVote bool   `toml:",omitempty"`
 	MonitorJournalDir    string `toml:",omitempty"`
+	VoteJournalPath      string `toml:",omitempty"`
 
 	// Checkpoint is a hardcoded checkpoint which can be nil.
 	Checkpoint *params.TrustedCheckpoint `toml:",omitempty"`

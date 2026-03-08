@@ -489,7 +489,7 @@ GTOS_VERBOSITY=${VERBOSITY}
 GTOS_BOOTNODES=${bootnodes}
 GTOS_NETWORK_ID=${NETWORK_ID}
 GTOS_GC_MODE=$(expected_service_gc_flags)
-GTOS_MONITOR_FLAGS=--monitor.doublesign --monitor.maliciousvote --monitor.journal-dir ${BASE_DIR}/ops/native_monitor/node${idx}
+GTOS_MONITOR_FLAGS=--monitor.doublesign --monitor.maliciousvote --monitor.journal-dir ${BASE_DIR}/ops/native_monitor/node${idx} --vote-journal-path ${BASE_DIR}/ops/vote_journal/node${idx}
 GTOS_EXTRA_FLAGS=
 EOF_ENV
 }
