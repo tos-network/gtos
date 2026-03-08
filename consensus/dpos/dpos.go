@@ -200,6 +200,9 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if err := config.ValidateTurnLengthConfig(); err != nil {
 		return nil, err
 	}
+	if err := config.ValidateMaintenanceConfig(); err != nil {
+		return nil, err
+	}
 	sealSignerType, err := params.NormalizeDPoSSealSignerType(config.SealSignerType)
 	if err != nil {
 		return nil, err
@@ -385,7 +388,7 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		d.lock.RLock()
 		journal := d.voteJournal
 		d.lock.RUnlock()
-		journal.RecordReceived("p2p", "pending", env)
+		journal.RecordReceived("p2p", "pending", env, nil)
 		return
 	}
 	preSnap, err := d.snapshot(chain, env.Vote.Number-1, cpHeader.ParentHash, nil)
@@ -394,7 +397,7 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 		d.lock.RLock()
 		journal := d.voteJournal
 		d.lock.RUnlock()
-		journal.RecordReceived("p2p", "pending", env)
+		journal.RecordReceived("p2p", "pending", env, nil)
 		return
 	}
 	records, err := d.buildSignerSet(preSnap)
@@ -427,10 +430,10 @@ func (d *DPoS) HandleIncomingVote(env *types.CheckpointVoteEnvelope) {
 	d.lock.RLock()
 	journal := d.voteJournal
 	d.lock.RUnlock()
-	journal.RecordReceived("p2p", "admitted", env)
+	journal.RecordReceived("p2p", "admitted", env, records[idx].SignerPub)
 	if equivocation {
 		d.emitVoteMonitorEvent("p2p", prev, env)
-		journal.RecordConflict("p2p", prev, env)
+		journal.RecordConflict("p2p", prev, env, records[idx].SignerPub)
 	}
 	if head := chain.CurrentHeader(); head != nil && head.Number != nil {
 		d.votePool.Prune(d.runtimeFinalizedNumber(), head.Number.Uint64(), cfg.CheckpointInterval)
@@ -530,9 +533,11 @@ func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber 
 			continue
 		}
 		found := false
+		var signerPub []byte
 		for _, r := range records {
 			if r.Address == v {
 				found = true
+				signerPub = append([]byte(nil), r.SignerPub...)
 				break
 			}
 		}
@@ -558,9 +563,9 @@ func (d *DPoS) RestartGossip(chain consensus.ChainHeaderReader, finalizedNumber 
 		_, equivocation := d.votePool.AddVote(env)
 		if equivocation {
 			d.emitVoteMonitorEvent("restart-gossip", prev, env)
-			journal.RecordConflict("restart-gossip", prev, env)
+			journal.RecordConflict("restart-gossip", prev, env, signerPub)
 		}
-		journal.RecordRebroadcast(env)
+		journal.RecordRebroadcast(env, signerPub)
 		if bcastFn != nil {
 			bcastFn(env)
 		}
@@ -935,10 +940,10 @@ func (d *DPoS) assembleCheckpointQC(chain consensus.ChainHeaderReader, header *t
 		d.lock.RLock()
 		journal := d.voteJournal
 		d.lock.RUnlock()
-		journal.RecordReceived("pending", "admitted", env)
+		journal.RecordReceived("pending", "admitted", env, records[idx].SignerPub)
 		if equivocation {
 			d.emitVoteMonitorEvent("pending", prev, env)
-			journal.RecordConflict("pending", prev, env)
+			journal.RecordConflict("pending", prev, env, records[idx].SignerPub)
 		}
 	}
 
@@ -1223,7 +1228,7 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 		return errInvalidSlot
 	}
 	if isEpoch {
-		expected, err := d.activeValidatorsAtRoot(parent.Root, state.NewDatabase(d.db))
+		expected, err := d.activeValidatorsAtRoot(parent.Root, state.NewDatabase(d.db), header.Number.Uint64())
 		switch {
 		case err == nil:
 			if len(expected) == 0 {
@@ -1249,7 +1254,7 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 	return d.verifySeal(snap, header)
 }
 
-func (d *DPoS) activeValidatorsAtRoot(root common.Hash, db state.Database) ([]common.Address, error) {
+func (d *DPoS) activeValidatorsAtRoot(root common.Hash, db state.Database, currentBlock uint64) ([]common.Address, error) {
 	if db == nil {
 		return nil, errors.New("dpos: missing database for validator lookup")
 	}
@@ -1257,11 +1262,11 @@ func (d *DPoS) activeValidatorsAtRoot(root common.Hash, db state.Database) ([]co
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errMissingParentState, err)
 	}
-	return validator.ReadActiveValidators(statedb, d.config.MaxValidators), nil
+	return validator.ReadActiveValidatorsAtBlock(statedb, d.config.MaxValidators, currentBlock, d.config), nil
 }
 
 func (d *DPoS) expectedEpochValidators(parent *types.Header, fallback []common.Address, db state.Database) ([]common.Address, error) {
-	actual, err := d.activeValidatorsAtRoot(parent.Root, db)
+	actual, err := d.activeValidatorsAtRoot(parent.Root, db, parent.Number.Uint64()+1)
 	if err == nil && len(actual) > 0 {
 		return actual, nil
 	}
@@ -1807,14 +1812,14 @@ func (d *DPoS) maybeProduceCheckpointVote(
 	vote.ValidatorSetHash = vsHash
 
 	// Check that this validator is in the signer set.
-	found := false
+	var localSignerPub []byte
 	for _, r := range records {
 		if r.Address == v {
-			found = true
+			localSignerPub = append([]byte(nil), r.SignerPub...)
 			break
 		}
 	}
-	if !found {
+	if len(localSignerPub) == 0 {
 		return
 	}
 
@@ -1851,10 +1856,10 @@ func (d *DPoS) maybeProduceCheckpointVote(
 	d.lock.RLock()
 	journal := d.voteJournal
 	d.lock.RUnlock()
-	journal.RecordLocalSigned(env)
+	journal.RecordLocalSigned(env, localSignerPub)
 	if equivocation {
 		d.emitVoteMonitorEvent("local", prev, env)
-		journal.RecordConflict("local", prev, env)
+		journal.RecordConflict("local", prev, env, localSignerPub)
 	}
 
 	// §11 step 8: gossip to peers.

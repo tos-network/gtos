@@ -14,6 +14,10 @@ const (
 	// Maintenance keeps stake locked but removes the validator from the active
 	// producer set until it explicitly exits maintenance.
 	Maintenance ValidatorStatus = 2
+	// MaintenanceExpired is an effective runtime status: the validator still has
+	// persisted status Maintenance, but it has exceeded the protocol-hard
+	// maintenance window and is no longer eligible to re-enter via exit.
+	MaintenanceExpired ValidatorStatus = 3
 )
 
 // Sentinel errors returned by system action handlers.
@@ -22,6 +26,7 @@ var (
 	ErrNotActive                      = errors.New("validator: not active")
 	ErrAlreadyInMaintenance           = errors.New("validator: already in maintenance")
 	ErrNotInMaintenance               = errors.New("validator: not in maintenance")
+	ErrMaintenanceExpired             = errors.New("validator: maintenance window expired; withdraw and register again")
 	ErrInsufficientStake              = errors.New("validator: insufficient stake")
 	ErrInsufficientBalance            = errors.New("validator: sender balance below stake amount")
 	ErrValidatorRegistryBalanceBroken = errors.New("validator: validator registry balance invariant violated")

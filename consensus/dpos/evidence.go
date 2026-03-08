@@ -113,7 +113,11 @@ func exportMaliciousVoteEvidenceFromFile(path string, number uint64, signer comm
 		if err != nil {
 			return nil, err
 		}
-		return types.NewMaliciousVoteEvidence(previous, current)
+		pubBytes, err := hex.DecodeString(strings.TrimPrefix(rec.SignerPubKey, "0x"))
+		if err != nil {
+			return nil, err
+		}
+		return types.NewMaliciousVoteEvidence(previous, current, "ed25519", pubBytes)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err

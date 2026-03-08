@@ -78,6 +78,7 @@ func (h *validatorHandler) handleRegister(ctx *sysaction.Context, _ *sysaction.S
 	// 6. Write per-validator fields.
 	writeSelfStake(ctx.StateDB, ctx.From, ctx.Value)
 	WriteValidatorStatus(ctx.StateDB, ctx.From, Active)
+	writeMaintenanceSince(ctx.StateDB, ctx.From, 0)
 
 	// 7. Append address to list only on first-ever registration.
 	//    Re-registration after withdraw: address already in list (status was inactive,
@@ -114,6 +115,7 @@ func (h *validatorHandler) handleWithdraw(ctx *sysaction.Context, _ *sysaction.S
 	// Clear fields. Address remains in list; status=Inactive is the tombstone.
 	writeSelfStake(ctx.StateDB, ctx.From, new(big.Int))
 	WriteValidatorStatus(ctx.StateDB, ctx.From, Inactive)
+	writeMaintenanceSince(ctx.StateDB, ctx.From, 0)
 
 	// MVP: no lockup period. Funds returned immediately.
 	return nil
@@ -123,6 +125,9 @@ func (h *validatorHandler) handleEnterMaintenance(ctx *sysaction.Context, _ *sys
 	switch ReadValidatorStatus(ctx.StateDB, ctx.From) {
 	case Active:
 		WriteValidatorStatus(ctx.StateDB, ctx.From, Maintenance)
+		if ctx.BlockNumber != nil {
+			writeMaintenanceSince(ctx.StateDB, ctx.From, ctx.BlockNumber.Uint64())
+		}
 		return nil
 	case Maintenance:
 		return ErrAlreadyInMaintenance
@@ -135,6 +140,12 @@ func (h *validatorHandler) handleExitMaintenance(ctx *sysaction.Context, _ *sysa
 	if ReadValidatorStatus(ctx.StateDB, ctx.From) != Maintenance {
 		return ErrNotInMaintenance
 	}
+	if ctx.ChainConfig != nil && ctx.ChainConfig.DPoS != nil && ctx.BlockNumber != nil {
+		if ReadEffectiveValidatorStatus(ctx.StateDB, ctx.From, ctx.BlockNumber.Uint64(), ctx.ChainConfig.DPoS) == MaintenanceExpired {
+			return ErrMaintenanceExpired
+		}
+	}
 	WriteValidatorStatus(ctx.StateDB, ctx.From, Active)
+	writeMaintenanceSince(ctx.StateDB, ctx.From, 0)
 	return nil
 }

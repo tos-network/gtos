@@ -263,6 +263,44 @@ func TestExitMaintenanceRequiresMaintenance(t *testing.T) {
 	}
 }
 
+func TestMaintenanceExpiryExcludesValidatorAndBlocksExit(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x26)
+	fund(st, a, params.DPoSMinValidatorStake)
+	cfg := &params.ChainConfig{
+		DPoS: &params.DPoSConfig{
+			MaintenanceMaxBlocks: 5,
+		},
+	}
+	ctx := &sysaction.Context{
+		From:        a,
+		Value:       params.DPoSMinValidatorStake,
+		BlockNumber: big.NewInt(10),
+		StateDB:     st,
+		ChainConfig: cfg,
+	}
+	if err := h.Handle(ctx, regSA); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	ctx.Value = big.NewInt(0)
+	if err := h.Handle(ctx, enterSA); err != nil {
+		t.Fatalf("enter maintenance: %v", err)
+	}
+	if got := ReadEffectiveValidatorStatus(st, a, 14, cfg.DPoS); got != Maintenance {
+		t.Fatalf("status before expiry: have=%d want=%d", got, Maintenance)
+	}
+	if got := ReadEffectiveValidatorStatus(st, a, 15, cfg.DPoS); got != MaintenanceExpired {
+		t.Fatalf("status at expiry: have=%d want=%d", got, MaintenanceExpired)
+	}
+	if got := ReadActiveValidatorsAtBlock(st, 10, 15, cfg.DPoS); len(got) != 0 {
+		t.Fatalf("expired maintenance validator must be excluded from active set, got %v", got)
+	}
+	ctx.BlockNumber = big.NewInt(15)
+	if err := h.Handle(ctx, exitSA); err != ErrMaintenanceExpired {
+		t.Fatalf("want ErrMaintenanceExpired, got %v", err)
+	}
+}
+
 func TestWithdrawWhileInMaintenance(t *testing.T) {
 	st := newTestState()
 	a := tAddr(0x26)

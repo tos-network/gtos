@@ -74,6 +74,19 @@ func writeSelfStake(db vm.StateDB, addr common.Address, stake *big.Int) {
 		common.BigToHash(stake))
 }
 
+func writeMaintenanceSince(db vm.StateDB, addr common.Address, blockNumber uint64) {
+	var val common.Hash
+	binary.BigEndian.PutUint64(val[24:], blockNumber)
+	db.SetState(params.ValidatorRegistryAddress, validatorSlot(addr, "maintenanceSince"), val)
+}
+
+// ReadMaintenanceSince returns the block number at which the validator entered
+// maintenance, or 0 if unset.
+func ReadMaintenanceSince(db vm.StateDB, addr common.Address) uint64 {
+	raw := db.GetState(params.ValidatorRegistryAddress, validatorSlot(addr, "maintenanceSince"))
+	return binary.BigEndian.Uint64(raw[24:])
+}
+
 // readRegisteredFlag returns true if addr has ever been registered (persists
 // through withdrawals, unlike selfStake which is reset to 0 on withdrawal).
 func readRegisteredFlag(db vm.StateDB, addr common.Address) bool {
@@ -105,6 +118,30 @@ func ReadSelfStake(db vm.StateDB, addr common.Address) *big.Int {
 func ReadValidatorStatus(db vm.StateDB, addr common.Address) ValidatorStatus {
 	raw := db.GetState(params.ValidatorRegistryAddress, validatorSlot(addr, "status"))
 	return ValidatorStatus(raw[31])
+}
+
+// ReadEffectiveValidatorStatus evaluates runtime maintenance expiry rules at
+// the given block number.
+func ReadEffectiveValidatorStatus(db vm.StateDB, addr common.Address, currentBlock uint64, cfg *params.DPoSConfig) ValidatorStatus {
+	status := ReadValidatorStatus(db, addr)
+	if status != Maintenance {
+		return status
+	}
+	if cfg == nil || currentBlock == 0 {
+		return status
+	}
+	since := ReadMaintenanceSince(db, addr)
+	if since == 0 {
+		return status
+	}
+	maxBlocks := cfg.MaintenanceMaxBlocksEffective()
+	if maxBlocks == 0 {
+		return status
+	}
+	if currentBlock >= since && currentBlock-since >= maxBlocks {
+		return MaintenanceExpired
+	}
+	return status
 }
 
 // ReadActiveValidators returns up to maxValidators active validators sorted
@@ -145,6 +182,40 @@ func ReadActiveValidators(db vm.StateDB, maxValidators uint64) []common.Address 
 	}
 
 	// Phase 3: re-sort by address ascending on the truncated slice.
+	result := make([]common.Address, len(entries))
+	for i, e := range entries {
+		result[i] = e.addr
+	}
+	sort.Sort(addressAscending(result))
+	return result
+}
+
+// ReadActiveValidatorsAtBlock returns the active validator set after applying
+// runtime maintenance-expiry rules for the given block number.
+func ReadActiveValidatorsAtBlock(db vm.StateDB, maxValidators uint64, currentBlock uint64, cfg *params.DPoSConfig) []common.Address {
+	count := readValidatorCount(db)
+
+	type entry struct {
+		addr  common.Address
+		stake *big.Int
+	}
+	entries := make([]entry, 0, count)
+	for i := uint64(0); i < count; i++ {
+		addr := readValidatorAt(db, i)
+		if ReadEffectiveValidatorStatus(db, addr, currentBlock, cfg) == Active {
+			entries = append(entries, entry{addr, ReadSelfStake(db, addr)})
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		cmp := entries[i].stake.Cmp(entries[j].stake)
+		if cmp != 0 {
+			return cmp > 0
+		}
+		return bytes.Compare(entries[i].addr[:], entries[j].addr[:]) < 0
+	})
+	if uint64(len(entries)) > maxValidators {
+		entries = entries[:maxValidators]
+	}
 	result := make([]common.Address, len(entries))
 	for i, e := range entries {
 		result[i] = e.addr

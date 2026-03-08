@@ -17,6 +17,7 @@ const (
 	ActionValidatorWithdraw         ActionKind = "VALIDATOR_WITHDRAW"
 	ActionValidatorEnterMaintenance ActionKind = "VALIDATOR_ENTER_MAINTENANCE"
 	ActionValidatorExitMaintenance  ActionKind = "VALIDATOR_EXIT_MAINTENANCE"
+	ActionCheckpointSubmitMaliciousVoteEvidence ActionKind = "CHECKPOINT_SUBMIT_MALICIOUS_VOTE_EVIDENCE"
 	// Account signer metadata update.
 	ActionAccountSetSigner ActionKind = "ACCOUNT_SET_SIGNER"
 

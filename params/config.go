@@ -192,6 +192,7 @@ type DPoSConfig struct {
 	RecentSignerWindow      uint64   `json:"recentSignerWindow,omitempty"`      // recent-sign window in slots; 0 => auto (grouped-turn default)
 	TurnLength              uint64   `json:"turnLength,omitempty"`              // consecutive slots owned by the in-turn proposer; mandatory
 	SealSignerType          string   `json:"sealSignerType,omitempty"`          // consensus block-seal signer type: ed25519 only
+	MaintenanceMaxBlocks    uint64   `json:"maintenanceMaxBlocks,omitempty"`    // max blocks a validator may remain in maintenance before protocol expiry; 0 => default
 	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`      // blocks between checkpoint finality votes (0 => inactive)
 	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"` // activation block for checkpoint finality (nil => inactive)
 }
@@ -221,6 +222,15 @@ func (c *DPoSConfig) RecentSignerWindowSize(validators int) uint64 {
 	return (uint64(validators/2)+1)*turnLength - 1
 }
 
+// MaintenanceMaxBlocksEffective returns the effective protocol-hard maintenance
+// expiry window in blocks.
+func (c *DPoSConfig) MaintenanceMaxBlocksEffective() uint64 {
+	if c != nil && c.MaintenanceMaxBlocks > 0 {
+		return c.MaintenanceMaxBlocks
+	}
+	return DPoSMaintenanceMaxBlocks
+}
+
 // UnmarshalJSON rejects the removed legacy dpos.period field.
 func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 	var fields map[string]json.RawMessage
@@ -241,8 +251,8 @@ func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, turnLength: %d, sealSignerType: %s}",
-		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.TurnLength, c.SealSignerType)
+	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, turnLength: %d, sealSignerType: %s, maintenanceMaxBlocks: %d}",
+		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.TurnLength, c.SealSignerType, c.MaintenanceMaxBlocksEffective())
 }
 
 // IsCheckpointFinality reports whether checkpoint finality is active at the given block number.
@@ -298,6 +308,21 @@ func (c *DPoSConfig) ValidateTurnLengthConfig() error {
 	}
 	if c.Epoch%c.TurnLength != 0 {
 		return fmt.Errorf("dpos: epoch %d must be divisible by turnLength %d", c.Epoch, c.TurnLength)
+	}
+	return nil
+}
+
+// ValidateMaintenanceConfig returns an error if maintenance-governance
+// parameters are invalid. Zero means "use protocol default".
+func (c *DPoSConfig) ValidateMaintenanceConfig() error {
+	if c == nil {
+		return nil
+	}
+	if c.MaintenanceMaxBlocks == 0 {
+		c.MaintenanceMaxBlocks = DPoSMaintenanceMaxBlocks
+	}
+	if c.MaintenanceMaxBlocks == 0 {
+		return fmt.Errorf("dpos: maintenanceMaxBlocks missing or zero")
 	}
 	return nil
 }
@@ -420,6 +445,15 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 				What:         "DPoS maxValidators",
 				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaxValidators),
 				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaxValidators),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
+		if c.DPoS.MaintenanceMaxBlocksEffective() != newcfg.DPoS.MaintenanceMaxBlocksEffective() {
+			return &ConfigCompatError{
+				What:         "DPoS maintenanceMaxBlocks",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaintenanceMaxBlocksEffective()),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaintenanceMaxBlocksEffective()),
 				RewindTo:     0,
 				Fatal:        true,
 			}

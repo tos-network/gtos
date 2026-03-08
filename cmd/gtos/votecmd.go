@@ -8,6 +8,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/tosclient"
 	"github.com/urfave/cli/v2"
 )
 
@@ -41,6 +42,16 @@ var (
 		Usage:    "Directory used to stage evidence for future submission",
 		Required: true,
 	}
+	voteRPCURLFlag = &cli.StringFlag{
+		Name:  "rpc",
+		Usage: "TOS RPC endpoint used for evidence submission",
+		Value: "http://localhost:8545",
+	}
+	voteFromFlag = &cli.StringFlag{
+		Name:     "from",
+		Usage:    "Submitter account address",
+		Required: true,
+	}
 	voteCommand = &cli.Command{
 		Name:  "vote",
 		Usage: "Checkpoint vote evidence operations",
@@ -57,11 +68,21 @@ var (
 				Action: exportVoteEvidence,
 			},
 			{
-				Name:  "submit-evidence",
+				Name:  "stage-evidence",
 				Usage: "Validate and stage malicious-vote evidence in a standard outbox path",
 				Flags: []cli.Flag{
 					voteEvidenceFileFlag,
 					voteEvidenceOutboxFlag,
+				},
+				Action: stageVoteEvidence,
+			},
+			{
+				Name:  "submit-evidence",
+				Usage: "Validate and submit malicious-vote evidence on-chain via RPC",
+				Flags: []cli.Flag{
+					voteEvidenceFileFlag,
+					voteRPCURLFlag,
+					voteFromFlag,
 				},
 				Action: submitVoteEvidence,
 			},
@@ -91,7 +112,7 @@ func exportVoteEvidence(ctx *cli.Context) error {
 	return err
 }
 
-func submitVoteEvidence(ctx *cli.Context) error {
+func stageVoteEvidence(ctx *cli.Context) error {
 	data, err := os.ReadFile(ctx.String(voteEvidenceFileFlag.Name))
 	if err != nil {
 		return err
@@ -105,6 +126,37 @@ func submitVoteEvidence(ctx *cli.Context) error {
 		return err
 	}
 	fmt.Printf("staged malicious vote evidence: %s\n", path)
+	fmt.Printf("evidence hash: %s\n", evidence.Hash().Hex())
+	return nil
+}
+
+func submitVoteEvidence(ctx *cli.Context) error {
+	data, err := os.ReadFile(ctx.String(voteEvidenceFileFlag.Name))
+	if err != nil {
+		return err
+	}
+	var evidence types.MaliciousVoteEvidence
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		return err
+	}
+	if err := evidence.Validate(); err != nil {
+		return err
+	}
+	client, err := tosclient.Dial(ctx.String(voteRPCURLFlag.Name))
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	from := common.HexToAddress(ctx.String(voteFromFlag.Name))
+	txHash, err := client.SubmitMaliciousVoteEvidence(ctx.Context, tosclient.SubmitMaliciousVoteEvidenceArgs{
+		From:     from,
+		Evidence: evidence,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("submitted malicious vote evidence tx: %s\n", txHash.Hex())
 	fmt.Printf("evidence hash: %s\n", evidence.Hash().Hex())
 	return nil
 }

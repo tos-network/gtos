@@ -20,6 +20,7 @@ import (
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/common/math"
 	"github.com/tos-network/gtos/consensus"
+	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
@@ -2166,6 +2167,32 @@ type RPCValidatorMaintenanceArgs struct {
 	RPCTxCommonArgs
 }
 
+type RPCSubmitMaliciousVoteEvidenceArgs struct {
+	RPCTxCommonArgs
+	Evidence types.MaliciousVoteEvidence `json:"evidence"`
+}
+
+type RPCMaliciousVoteEvidenceRecord struct {
+	EvidenceHash common.Hash    `json:"evidenceHash"`
+	Number       hexutil.Uint64 `json:"number"`
+	Signer       common.Address `json:"signer"`
+	SubmittedBy  common.Address `json:"submittedBy"`
+	SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+}
+
+func rpcMaliciousVoteEvidenceRecordFromModel(rec *dpos.MaliciousVoteEvidenceRecord) *RPCMaliciousVoteEvidenceRecord {
+	if rec == nil {
+		return nil
+	}
+	return &RPCMaliciousVoteEvidenceRecord{
+		EvidenceHash: rec.EvidenceHash,
+		Number:       hexutil.Uint64(rec.Number),
+		Signer:       rec.Signer,
+		SubmittedBy:  rec.SubmittedBy,
+		SubmittedAt:  hexutil.Uint64(rec.SubmittedAt),
+	}
+}
+
 type RPCBuildTxResult struct {
 	Tx  map[string]interface{} `json:"tx"`
 	Raw hexutil.Bytes          `json:"raw"`
@@ -2581,6 +2608,16 @@ func validateValidatorMaintenanceArgs(args RPCValidatorMaintenanceArgs) error {
 	return nil
 }
 
+func validateSubmitMaliciousVoteEvidenceArgs(args RPCSubmitMaliciousVoteEvidenceArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if err := args.Evidence.Validate(); err != nil {
+		return newRPCInvalidParamsError("evidence", err.Error())
+	}
+	return nil
+}
+
 func (s *TOSAPI) buildValidatorMaintenanceTransactionArgs(
 	ctx context.Context,
 	args RPCValidatorMaintenanceArgs,
@@ -2589,6 +2626,47 @@ func (s *TOSAPI) buildValidatorMaintenanceTransactionArgs(
 	payload, err := sysaction.MakeSysAction(action, nil)
 	if err != nil {
 		return nil, newRPCInvalidParamsError("payload", "failed to encode validator maintenance payload")
+	}
+	to := params.SystemActionAddress
+	input := hexutil.Bytes(payload)
+	zero := hexutil.Big{}
+	txArgs := &TransactionArgs{
+		From:  &args.From,
+		To:    &to,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
+	}
+	if currentSignerType, err := s.currentTxSignerType(ctx, args.From); err != nil {
+		return nil, err
+	} else if currentSignerType != nil {
+		txArgs.SignerType = currentSignerType
+	} else {
+		defaultSignerType := accountsigner.SignerTypeEd25519
+		txArgs.SignerType = &defaultSignerType
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := estimateSystemActionGas(payload)
+		if gasErr != nil {
+			return nil, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
+func (s *TOSAPI) buildSubmitMaliciousVoteEvidenceTransactionArgs(
+	ctx context.Context,
+	args RPCSubmitMaliciousVoteEvidenceArgs,
+) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionCheckpointSubmitMaliciousVoteEvidence, args.Evidence)
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode malicious vote evidence payload")
 	}
 	to := params.SystemActionAddress
 	input := hexutil.Bytes(payload)
@@ -2777,6 +2855,101 @@ func (s *TOSAPI) BuildExitMaintenanceTx(ctx context.Context, args RPCValidatorMa
 		},
 		Raw: raw,
 	}, nil
+}
+
+func (s *TOSAPI) SubmitMaliciousVoteEvidence(ctx context.Context, args RPCSubmitMaliciousVoteEvidenceArgs) (common.Hash, error) {
+	if err := validateSubmitMaliciousVoteEvidenceArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_submitMaliciousVoteEvidence")
+	}
+	txArgs, err := s.buildSubmitMaliciousVoteEvidenceTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildSubmitMaliciousVoteEvidenceTx(ctx context.Context, args RPCSubmitMaliciousVoteEvidenceArgs) (*RPCBuildTxResult, error) {
+	if err := validateSubmitMaliciousVoteEvidenceArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildSubmitMaliciousVoteEvidenceTx")
+	}
+	txArgs, err := s.buildSubmitMaliciousVoteEvidenceTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	tx := txArgs.toTransaction()
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":  args.From,
+			"to":    params.SystemActionAddress,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
+}
+
+func (s *TOSAPI) GetMaliciousVoteEvidence(ctx context.Context, evidenceHash common.Hash, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCMaliciousVoteEvidenceRecord, error) {
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "malicious vote evidence state not found"}
+	}
+	rec, ok := dpos.ReadMaliciousVoteEvidenceRecord(state, evidenceHash)
+	if !ok {
+		return nil, nil
+	}
+	return rpcMaliciousVoteEvidenceRecordFromModel(rec), nil
+}
+
+func (s *TOSAPI) ListMaliciousVoteEvidence(ctx context.Context, limit hexutil.Uint64, blockNrOrHash *rpc.BlockNumberOrHash) ([]*RPCMaliciousVoteEvidenceRecord, error) {
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "malicious vote evidence state not found"}
+	}
+	hashes := dpos.ReadMaliciousVoteEvidenceHashes(state, uint64(limit))
+	out := make([]*RPCMaliciousVoteEvidenceRecord, 0, len(hashes))
+	for _, hash := range hashes {
+		rec, ok := dpos.ReadMaliciousVoteEvidenceRecord(state, hash)
+		if !ok {
+			continue
+		}
+		out = append(out, rpcMaliciousVoteEvidenceRecordFromModel(rec))
+	}
+	return out, nil
 }
 
 func (s *TOSAPI) UnoShield(ctx context.Context, args RPCUNOShieldArgs) (common.Hash, error) {

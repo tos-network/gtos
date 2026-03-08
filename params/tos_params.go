@@ -39,6 +39,10 @@ var (
 
 	// TaskSchedulerAddress stores on-chain scheduled-task state via storage slots.
 	TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000108")
+
+	// CheckpointEvidenceRegistryAddress stores submitted malicious-vote evidence
+	// summaries for checkpoint finality operations.
+	CheckpointEvidenceRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
 )
 
 // DPoS validator stake and reward parameters.
@@ -115,4 +119,6 @@ const (
 	DPoSMaxValidators uint64 = 15
 	DPoSBlockPeriodMs uint64 = 360 // target milliseconds per block
 	DPoSTurnLength    uint64 = 16
+	// 24 hours at the default 360ms block interval.
+	DPoSMaintenanceMaxBlocks uint64 = 240000
 )

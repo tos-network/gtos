@@ -31,6 +31,7 @@ GTOS already has a strong baseline:
   - `--vote-journal-path`
 - native operator evidence commands:
   - `gtos vote export-evidence`
+  - `gtos vote stage-evidence`
   - `gtos vote submit-evidence`
 - continuous watchdog and report tooling:
   - `validator_guard.sh`
@@ -142,12 +143,13 @@ This does not require immediate slashing activation, but it does require a stand
 
 ### Scope
 
-Minimum v1:
+Implemented scope:
 
-- define a canonical `MaliciousVoteEvidence` structure
-- export evidence from monitor/journal data
-- add a command or script to package evidence
-- add a submission path placeholder even if final protocol enforcement is delayed
+- canonical `MaliciousVoteEvidence` structure
+- export from the native vote journal
+- standard staging path for incident handling
+- official on-chain submission path via `tos_submitMaliciousVoteEvidence`
+- on-chain query path for submitted evidence summaries
 
 Possible CLI examples:
 
@@ -172,25 +174,14 @@ Ops:
 
 - an equivocation event can be exported into a canonical evidence file
 - two operators observing the same event produce equivalent evidence output
-- evidence can be submitted or at least staged through a standard command path
+- evidence can be staged or submitted through a standard command path
+- submitted evidence is queryable from chain state
 
 ## Gap 3: Maintenance governance is still operational, not protocol-enforced
 
 ### Problem
 
-GTOS maintenance mode is now real and protocol-aware, but maintenance overrun handling still lives entirely in runbooks and operator alerts.
-
-Today the system can:
-
-- enter maintenance
-- exit maintenance
-- warn when maintenance lasts too long
-
-It cannot yet:
-
-- enforce maintenance duration limits
-- escalate beyond operator warnings
-- define governance action for forgotten or abused maintenance
+GTOS maintenance mode is real and protocol-aware. The remaining question is how hard governance should become beyond expiry.
 
 ### Why it matters
 
@@ -200,25 +191,16 @@ A validator that remains in maintenance indefinitely should not depend only on h
 
 ### Target
 
-Define and implement a formal maintenance governance policy.
-
-This can be delivered in two stages.
-
-### Stage A: Governance-hard, protocol-soft
-
-Implement:
+Implemented in v1:
 
 - explicit maintenance SLA in the runbook
 - severity escalation after threshold breach
 - mandatory incident creation path
-- cluster dashboards tracking maintenance duration
+- protocol-hard maintenance expiry via `maintenanceMaxBlocks`
 
-### Stage B: Protocol-hard
+Not yet implemented:
 
-Optionally implement:
-
-- maintenance expiry
-- forced maintenance state transitions
+- forced maintenance state transitions by third parties
 - slashing or stake impact for extreme abuse
 
 ### Deliverables
@@ -237,7 +219,8 @@ Protocol, if chosen:
 
 - there is a documented maximum tolerated maintenance duration
 - guard alerts escalate deterministically after threshold breach
-- the team can answer what happens after 2h, 6h, 24h, and multi-day maintenance cases
+- after `maintenanceMaxBlocks`, the validator cannot exit maintenance back to `Active`
+- the team can answer what happens after 2h, 6h, 24h, and expiry
 
 Current branch status:
 

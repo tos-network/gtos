@@ -42,10 +42,10 @@ func TestCheckpointVoteJournalLifecycle(t *testing.T) {
 		Signature: [64]byte{0xbb},
 	}
 
-	journal.RecordLocalSigned(envA)
-	journal.RecordReceived("p2p", "admitted", envA)
-	journal.RecordConflict("p2p", envA, envB)
-	journal.RecordRebroadcast(envA)
+	journal.RecordLocalSigned(envA, nil)
+	journal.RecordReceived("p2p", "admitted", envA, nil)
+	journal.RecordConflict("p2p", envA, envB, nil)
+	journal.RecordRebroadcast(envA, nil)
 	journal.RecordFinalized(vote, 67, common.HexToHash("0x67"))
 
 	entries := readVoteJournalFile(t, filepath.Join(dir, voteJournalFilename(time.Now().UTC())))
@@ -162,9 +162,16 @@ func TestExportMaliciousVoteEvidence(t *testing.T) {
 		Signer:    common.HexToAddress("0x100"),
 		Signature: [64]byte{0x2},
 	}
-	journal.RecordConflict("p2p", envA, envB)
+	pub, priv, signer := testEd25519Key(0x44)
+	envA.Signer = signer
+	envB.Signer = signer
+	hashA := envA.Vote.SigningHash()
+	copy(envA.Signature[:], ed25519.Sign(priv, hashA[:]))
+	hashB := envB.Vote.SigningHash()
+	copy(envB.Signature[:], ed25519.Sign(priv, hashB[:]))
+	journal.RecordConflict("p2p", envA, envB, pub)
 
-	evidence, err := ExportMaliciousVoteEvidence(dir, 64, envA.Signer)
+	evidence, err := ExportMaliciousVoteEvidence(dir, 64, signer)
 	if err != nil {
 		t.Fatalf("ExportMaliciousVoteEvidence: %v", err)
 	}
@@ -180,27 +187,34 @@ func TestExportMaliciousVoteEvidence(t *testing.T) {
 }
 
 func TestStageMaliciousVoteEvidence(t *testing.T) {
+	pub, priv, signer := testEd25519Key(0x55)
+	first := &types.CheckpointVoteEnvelope{
+		Vote: types.CheckpointVote{
+			ChainID:          big.NewInt(1),
+			Number:           10,
+			Hash:             common.HexToHash("0x01"),
+			ValidatorSetHash: common.HexToHash("0x11"),
+		},
+		Signer: signer,
+	}
+	firstHash := first.Vote.SigningHash()
+	copy(first.Signature[:], ed25519.Sign(priv, firstHash[:]))
+	second := &types.CheckpointVoteEnvelope{
+		Vote: types.CheckpointVote{
+			ChainID:          big.NewInt(1),
+			Number:           10,
+			Hash:             common.HexToHash("0x02"),
+			ValidatorSetHash: common.HexToHash("0x11"),
+		},
+		Signer: signer,
+	}
+	secondHash := second.Vote.SigningHash()
+	copy(second.Signature[:], ed25519.Sign(priv, secondHash[:]))
 	evidence, err := types.NewMaliciousVoteEvidence(
-		&types.CheckpointVoteEnvelope{
-			Vote: types.CheckpointVote{
-				ChainID:          big.NewInt(1),
-				Number:           10,
-				Hash:             common.HexToHash("0x01"),
-				ValidatorSetHash: common.HexToHash("0x11"),
-			},
-			Signer:    common.HexToAddress("0x100"),
-			Signature: [64]byte{0x1},
-		},
-		&types.CheckpointVoteEnvelope{
-			Vote: types.CheckpointVote{
-				ChainID:          big.NewInt(1),
-				Number:           10,
-				Hash:             common.HexToHash("0x02"),
-				ValidatorSetHash: common.HexToHash("0x11"),
-			},
-			Signer:    common.HexToAddress("0x100"),
-			Signature: [64]byte{0x2},
-		},
+		first,
+		second,
+		"ed25519",
+		pub,
 	)
 	if err != nil {
 		t.Fatalf("NewMaliciousVoteEvidence: %v", err)

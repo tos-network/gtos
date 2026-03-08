@@ -52,6 +52,7 @@ type checkpointVoteJournalRecord struct {
 	Vote              *voteRecord `json:"vote,omitempty"`
 	PreviousVote      *voteRecord `json:"previousVote,omitempty"`
 	Signer            string      `json:"signer,omitempty"`
+	SignerPubKey      string      `json:"signerPubKey,omitempty"`
 	Signature         string      `json:"signature,omitempty"`
 	PreviousSignature string      `json:"previousSignature,omitempty"`
 	PreviousHash      string      `json:"previousHash,omitempty"`
@@ -85,34 +86,37 @@ func newCheckpointVoteJournal(dir string, retentionDays int) (*checkpointVoteJou
 	return j, nil
 }
 
-func (j *checkpointVoteJournal) RecordLocalSigned(env *types.CheckpointVoteEnvelope) {
+func (j *checkpointVoteJournal) RecordLocalSigned(env *types.CheckpointVoteEnvelope, signerPub []byte) {
 	j.record(checkpointVoteJournalRecord{
 		Kind:      "local_vote_signed",
 		Source:    "local",
 		Vote:      voteRecordFromVote(envVote(env)),
 		Signer:    signerHex(env),
+		SignerPubKey: pubHex(signerPub),
 		Signature: sigHex(env),
 	})
 }
 
-func (j *checkpointVoteJournal) RecordReceived(source, status string, env *types.CheckpointVoteEnvelope) {
+func (j *checkpointVoteJournal) RecordReceived(source, status string, env *types.CheckpointVoteEnvelope, signerPub []byte) {
 	j.record(checkpointVoteJournalRecord{
 		Kind:      "vote_received",
 		Source:    source,
 		Status:    status,
 		Vote:      voteRecordFromVote(envVote(env)),
 		Signer:    signerHex(env),
+		SignerPubKey: pubHex(signerPub),
 		Signature: sigHex(env),
 	})
 }
 
-func (j *checkpointVoteJournal) RecordConflict(source string, previous, current *types.CheckpointVoteEnvelope) {
+func (j *checkpointVoteJournal) RecordConflict(source string, previous, current *types.CheckpointVoteEnvelope, signerPub []byte) {
 	j.record(checkpointVoteJournalRecord{
 		Kind:              "vote_conflict",
 		Source:            source,
 		Vote:              voteRecordFromVote(envVote(current)),
 		PreviousVote:      voteRecordFromVote(envVote(previous)),
 		Signer:            signerHex(current),
+		SignerPubKey:      pubHex(signerPub),
 		Signature:         sigHex(current),
 		PreviousSignature: sigHex(previous),
 		PreviousHash:      previousHashHex(previous),
@@ -135,16 +139,18 @@ func (j *checkpointVoteJournal) RecordConflictGuard(number uint64, chainID inter
 			ValidatorSetHash: validatorSetHash.Hex(),
 		},
 		Signer:       signer.Hex(),
+		SignerPubKey: "",
 		PreviousHash: previousHash.Hex(),
 	})
 }
 
-func (j *checkpointVoteJournal) RecordRebroadcast(env *types.CheckpointVoteEnvelope) {
+func (j *checkpointVoteJournal) RecordRebroadcast(env *types.CheckpointVoteEnvelope, signerPub []byte) {
 	j.record(checkpointVoteJournalRecord{
 		Kind:      "vote_rebroadcast",
 		Source:    "restart-gossip",
 		Vote:      voteRecordFromVote(envVote(env)),
 		Signer:    signerHex(env),
+		SignerPubKey: pubHex(signerPub),
 		Signature: sigHex(env),
 	})
 }
@@ -307,6 +313,13 @@ func sigHex(env *types.CheckpointVoteEnvelope) string {
 		return ""
 	}
 	return common.Bytes2Hex(env.Signature[:])
+}
+
+func pubHex(pub []byte) string {
+	if len(pub) == 0 {
+		return ""
+	}
+	return common.Bytes2Hex(pub)
 }
 
 func previousHashHex(env *types.CheckpointVoteEnvelope) string {

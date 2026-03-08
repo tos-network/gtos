@@ -68,6 +68,7 @@ The agent economy runs on three foundational layers.
     - `--monitor.journal-dir`
     - `--vote-journal-path`
     - `gtos vote export-evidence`
+    - `gtos vote stage-evidence`
     - `gtos vote submit-evidence`
     - maintenance governance ladder via `validator_guard.sh` incidents and alerts
   - operator watchdog tooling with `validator_guard.sh`

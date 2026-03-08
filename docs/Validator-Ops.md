@@ -48,6 +48,7 @@ At the time of writing, GTOS already has:
   - `--vote-journal-path`
 - native operator evidence commands:
   - `gtos vote export-evidence`
+  - `gtos vote stage-evidence`
   - `gtos vote submit-evidence`
 - operator watchdog tooling:
   - [validator_guard.sh](../scripts/validator_guard.sh)
@@ -73,8 +74,9 @@ discipline, not solved forever:
   through the standard `gtos vote` command path, not handled as ad hoc shell JSON
 - periodic summaries should be harvested from the validator guard report timer,
   not only ad hoc shell output
-- maintenance overrun governance still lives at the runbook layer, not in
-  protocol slashing
+- maintenance overrun is now protocol-hard via `maintenanceMaxBlocks`; once a
+  validator expires in maintenance it must withdraw and register again before
+  returning to `Active`
 
 Current DPoS rotation semantics are no longer "one proposer per block". GTOS
 uses grouped turns:
@@ -740,7 +742,6 @@ This operations plan does not require the following in its first version:
 
 - automatic slashing for maintenance abuse
 - maintenance quotas or maintenance scheduling windows
-- automatic maintenance expiry
 - complex remote signer integration
 - BLS-based voting or BSC-style fast finality operations
 

@@ -84,6 +84,25 @@ type ValidatorMaintenanceArgs struct {
 	Gas   *hexutil.Uint64 `json:"gas,omitempty"`
 }
 
+// SubmitMaliciousVoteEvidenceArgs is the argument object for
+// tos_submitMaliciousVoteEvidence.
+type SubmitMaliciousVoteEvidenceArgs struct {
+	From     common.Address              `json:"from"`
+	Nonce    *hexutil.Uint64             `json:"nonce,omitempty"`
+	Gas      *hexutil.Uint64             `json:"gas,omitempty"`
+	Evidence types.MaliciousVoteEvidence `json:"evidence"`
+}
+
+// MaliciousVoteEvidenceRecord is the on-chain summary for a submitted
+// malicious vote evidence item.
+type MaliciousVoteEvidenceRecord struct {
+	EvidenceHash common.Hash
+	Number       uint64
+	Signer       common.Address
+	SubmittedBy  common.Address
+	SubmittedAt  uint64
+}
+
 // BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
 type BuildSetSignerTxResult struct {
 	Tx  map[string]interface{} `json:"tx"`
@@ -126,6 +145,9 @@ type DPoSEpochInfo struct {
 	NextEpochStart      uint64
 	BlocksUntilEpoch    uint64
 	TargetBlockPeriodMs uint64
+	TurnLength          uint64
+	TurnGroupDurationMs uint64
+	RecentSignerWindow  uint64
 	MaxValidators       uint64
 	ValidatorCount      uint64
 	SnapshotHash        common.Hash
@@ -308,6 +330,71 @@ func (ec *Client) BuildExitMaintenanceTx(ctx context.Context, args ValidatorMain
 	return &out, nil
 }
 
+// SubmitMaliciousVoteEvidence submits canonical malicious-vote evidence on-chain.
+func (ec *Client) SubmitMaliciousVoteEvidence(ctx context.Context, args SubmitMaliciousVoteEvidenceArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_submitMaliciousVoteEvidence", args)
+	return txHash, err
+}
+
+// BuildSubmitMaliciousVoteEvidenceTx builds an unsigned malicious-vote evidence transaction.
+func (ec *Client) BuildSubmitMaliciousVoteEvidenceTx(ctx context.Context, args SubmitMaliciousVoteEvidenceArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildSubmitMaliciousVoteEvidenceTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetMaliciousVoteEvidence returns a submitted malicious-vote evidence summary by hash.
+func (ec *Client) GetMaliciousVoteEvidence(ctx context.Context, evidenceHash common.Hash, blockNumber *big.Int) (*MaliciousVoteEvidenceRecord, error) {
+	var raw struct {
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getMaliciousVoteEvidence", evidenceHash, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	if raw.EvidenceHash == (common.Hash{}) {
+		return nil, nil
+	}
+	return &MaliciousVoteEvidenceRecord{
+		EvidenceHash: raw.EvidenceHash,
+		Number:       uint64(raw.Number),
+		Signer:       raw.Signer,
+		SubmittedBy:  raw.SubmittedBy,
+		SubmittedAt:  uint64(raw.SubmittedAt),
+	}, nil
+}
+
+// ListMaliciousVoteEvidence returns recent submitted malicious-vote evidence summaries.
+func (ec *Client) ListMaliciousVoteEvidence(ctx context.Context, limit uint64, blockNumber *big.Int) ([]*MaliciousVoteEvidenceRecord, error) {
+	var raw []struct {
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_listMaliciousVoteEvidence", hexutil.Uint64(limit), toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	out := make([]*MaliciousVoteEvidenceRecord, 0, len(raw))
+	for _, rec := range raw {
+		out = append(out, &MaliciousVoteEvidenceRecord{
+			EvidenceHash: rec.EvidenceHash,
+			Number:       uint64(rec.Number),
+			Signer:       rec.Signer,
+			SubmittedBy:  rec.SubmittedBy,
+			SubmittedAt:  uint64(rec.SubmittedAt),
+		})
+	}
+	return out, nil
+}
+
 // GetCodeObject returns a code object by hash.
 func (ec *Client) GetCodeObject(ctx context.Context, codeHash common.Hash, blockNumber *big.Int) (*CodeObject, error) {
 	var raw struct {
@@ -399,6 +486,9 @@ func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*
 		NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
 		BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
 		TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+		TurnLength          hexutil.Uint64 `json:"turnLength"`
+		TurnGroupDurationMs hexutil.Uint64 `json:"turnGroupDurationMs"`
+		RecentSignerWindow  hexutil.Uint64 `json:"recentSignerWindow"`
 		MaxValidators       hexutil.Uint64 `json:"maxValidators"`
 		ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
 		SnapshotHash        common.Hash    `json:"snapshotHash"`
@@ -414,6 +504,9 @@ func (ec *Client) DPoSGetEpochInfo(ctx context.Context, blockNumber *big.Int) (*
 		NextEpochStart:      uint64(raw.NextEpochStart),
 		BlocksUntilEpoch:    uint64(raw.BlocksUntilEpoch),
 		TargetBlockPeriodMs: uint64(raw.TargetBlockPeriodMs),
+		TurnLength:          uint64(raw.TurnLength),
+		TurnGroupDurationMs: uint64(raw.TurnGroupDurationMs),
+		RecentSignerWindow:  uint64(raw.RecentSignerWindow),
 		MaxValidators:       uint64(raw.MaxValidators),
 		ValidatorCount:      uint64(raw.ValidatorCount),
 		SnapshotHash:        raw.SnapshotHash,

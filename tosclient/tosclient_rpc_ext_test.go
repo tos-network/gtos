@@ -7,6 +7,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
+	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/rpc"
 )
 
@@ -35,6 +36,8 @@ type rpcExtTestService struct {
 	lastMaintenanceArgs      ValidatorMaintenanceArgs
 	lastMaintenanceBuildArgs ValidatorMaintenanceArgs
 	lastMaintenanceMethod    string
+	lastEvidenceSubmitArgs   SubmitMaliciousVoteEvidenceArgs
+	lastEvidenceBuildArgs    SubmitMaliciousVoteEvidenceArgs
 	lastDPoSQueryAddress     common.Address
 	lastDPoSQueryBlock       string
 }
@@ -156,6 +159,56 @@ func (s *rpcExtTestService) BuildExitMaintenanceTx(args ValidatorMaintenanceArgs
 	}
 }
 
+func (s *rpcExtTestService) SubmitMaliciousVoteEvidence(args SubmitMaliciousVoteEvidenceArgs) common.Hash {
+	s.lastEvidenceSubmitArgs = args
+	return common.HexToHash("0x4")
+}
+
+func (s *rpcExtTestService) BuildSubmitMaliciousVoteEvidenceTx(args SubmitMaliciousVoteEvidenceArgs) interface{} {
+	s.lastEvidenceBuildArgs = args
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0x11, 0x22},
+	}
+}
+
+func (s *rpcExtTestService) GetMaliciousVoteEvidence(hash common.Hash, block string) interface{} {
+	s.lastGetCodeHash = hash
+	s.lastGetCodeBlock = block
+	return struct {
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+	}{
+		EvidenceHash: hash,
+		Number:       hexutil.Uint64(64),
+		Signer:       common.HexToAddress("0x100"),
+		SubmittedBy:  common.HexToAddress("0x200"),
+		SubmittedAt:  hexutil.Uint64(77),
+	}
+}
+
+func (s *rpcExtTestService) ListMaliciousVoteEvidence(limit hexutil.Uint64, block string) interface{} {
+	s.lastGetCodeBlock = block
+	return []struct {
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+	}{
+		{
+			EvidenceHash: common.HexToHash("0xa1"),
+			Number:       hexutil.Uint64(limit),
+			Signer:       common.HexToAddress("0x100"),
+			SubmittedBy:  common.HexToAddress("0x200"),
+			SubmittedAt:  hexutil.Uint64(77),
+		},
+	}
+}
+
 func (s *rpcExtTestService) GetCodeObject(codeHash common.Hash, block string) interface{} {
 	s.lastGetCodeHash = codeHash
 	s.lastGetCodeBlock = block
@@ -227,6 +280,9 @@ func (s *rpcExtTestService) GetEpochInfo(block string) interface{} {
 		NextEpochStart      hexutil.Uint64 `json:"nextEpochStart"`
 		BlocksUntilEpoch    hexutil.Uint64 `json:"blocksUntilEpoch"`
 		TargetBlockPeriodMs hexutil.Uint64 `json:"targetBlockPeriodMs"`
+		TurnLength          hexutil.Uint64 `json:"turnLength"`
+		TurnGroupDurationMs hexutil.Uint64 `json:"turnGroupDurationMs"`
+		RecentSignerWindow  hexutil.Uint64 `json:"recentSignerWindow"`
 		MaxValidators       hexutil.Uint64 `json:"maxValidators"`
 		ValidatorCount      hexutil.Uint64 `json:"validatorCount"`
 		SnapshotHash        common.Hash    `json:"snapshotHash"`
@@ -238,6 +294,9 @@ func (s *rpcExtTestService) GetEpochInfo(block string) interface{} {
 		NextEpochStart:      hexutil.Uint64(100),
 		BlocksUntilEpoch:    hexutil.Uint64(1),
 		TargetBlockPeriodMs: hexutil.Uint64(1000),
+		TurnLength:          hexutil.Uint64(16),
+		TurnGroupDurationMs: hexutil.Uint64(16000),
+		RecentSignerWindow:  hexutil.Uint64(31),
 		MaxValidators:       hexutil.Uint64(21),
 		ValidatorCount:      hexutil.Uint64(7),
 		SnapshotHash:        common.HexToHash("0x99"),
@@ -423,6 +482,51 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		t.Fatalf("buildExitMaintenance args were not forwarded")
 	}
 
+	evidence := types.MaliciousVoteEvidence{
+		Version:      "GTOS_MALICIOUS_VOTE_EVIDENCE_V1",
+		Kind:         "checkpoint_equivocation",
+		ChainID:      big.NewInt(1666),
+		Number:       64,
+		Signer:       from,
+		SignerType:   "ed25519",
+		SignerPubKey: "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+	}
+	submitArgs := SubmitMaliciousVoteEvidenceArgs{From: from, Evidence: evidence}
+	evidenceHash, err := client.SubmitMaliciousVoteEvidence(ctx, submitArgs)
+	if err != nil {
+		t.Fatalf("SubmitMaliciousVoteEvidence error: %v", err)
+	}
+	if evidenceHash != common.HexToHash("0x4") || svc.lastEvidenceSubmitArgs.From != from {
+		t.Fatalf("unexpected malicious vote submit result: hash=%s args=%+v", evidenceHash.Hex(), svc.lastEvidenceSubmitArgs)
+	}
+
+	evidenceTx, err := client.BuildSubmitMaliciousVoteEvidenceTx(ctx, submitArgs)
+	if err != nil {
+		t.Fatalf("BuildSubmitMaliciousVoteEvidenceTx error: %v", err)
+	}
+	if evidenceTx == nil || len(evidenceTx.Raw) != 2 || evidenceTx.Raw[0] != 0x11 {
+		t.Fatalf("unexpected buildSubmitMaliciousVoteEvidenceTx result: %+v", evidenceTx)
+	}
+	if svc.lastEvidenceBuildArgs.From != from {
+		t.Fatalf("buildSubmitMaliciousVoteEvidence args were not forwarded")
+	}
+
+	rec, err := client.GetMaliciousVoteEvidence(ctx, common.HexToHash("0xa1"), big.NewInt(12))
+	if err != nil {
+		t.Fatalf("GetMaliciousVoteEvidence error: %v", err)
+	}
+	if svc.lastGetCodeBlock != "0xc" || rec == nil || rec.Number != 64 {
+		t.Fatalf("unexpected GetMaliciousVoteEvidence response: block=%q rec=%+v", svc.lastGetCodeBlock, rec)
+	}
+
+	list, err := client.ListMaliciousVoteEvidence(ctx, 5, nil)
+	if err != nil {
+		t.Fatalf("ListMaliciousVoteEvidence error: %v", err)
+	}
+	if svc.lastGetCodeBlock != "latest" || len(list) != 1 || list[0].Number != 5 {
+		t.Fatalf("unexpected ListMaliciousVoteEvidence response: block=%q list=%+v", svc.lastGetCodeBlock, list)
+	}
+
 	validators, err := client.DPoSGetValidators(ctx, nil)
 	if err != nil {
 		t.Fatalf("DPoSGetValidators error: %v", err)
@@ -452,7 +556,7 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	if svc.lastDPoSQueryBlock != "pending" {
 		t.Fatalf("DPoSGetEpochInfo block arg = %q, want pending", svc.lastDPoSQueryBlock)
 	}
-	if epoch.TargetBlockPeriodMs != 1000 || epoch.ValidatorCount != 7 {
+	if epoch.TargetBlockPeriodMs != 1000 || epoch.ValidatorCount != 7 || epoch.TurnLength != 16 || epoch.RecentSignerWindow != 31 {
 		t.Fatalf("unexpected epoch info: %+v", epoch)
 	}
 }
