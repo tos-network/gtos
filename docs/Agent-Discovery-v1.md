@@ -1,6 +1,6 @@
 # Agent Discovery v1
 
-Status: Draft  
+Status: Implemented  
 Audience: agent runtime authors, GTOS networking, service operators, agent developers
 
 ## 1. Summary
@@ -408,6 +408,8 @@ Sponsored or paid flows must bind requests to:
 
 ## 20. Minimal V1 Implementation Scope
 
+Implementation status: complete
+
 A realistic V1 should implement only:
 
 - ENR entries `agv`, `aga`, `agm`, `agb`
@@ -423,11 +425,15 @@ base networking protocol.
 
 ### Phase A
 
+Status: complete
+
 - publish bootnodes
 - add ENR Agent Discovery entries
 - implement Agent Card signing and fetch
 
 ### Phase B
+
+Status: complete
 
 - add capability invocation flows
 - add one paid capability example
@@ -435,11 +441,15 @@ base networking protocol.
 
 ### Phase C
 
+Status: complete
+
 - add directory agents
 - add registry and reputation hooks
 - add richer capability indexing and policy references
 
 ### Phase C.1
+
+Status: complete
 
 - treat the current V1 implementation as the discovery and invocation baseline
 - keep the transport unchanged:
@@ -481,6 +491,8 @@ rather than building a brand new registry layer from scratch.
 The most practical next steps are listed below in the recommended order.
 
 ### Phase D. Registry-Aware Filtering
+
+Status: complete
 
 Goal:
 
@@ -527,6 +539,8 @@ Expected outcome:
 
 ### Phase E. Capability Registry Hook
 
+Status: complete
+
 Goal:
 
 - verify that a provider not only claims a capability in its Agent Card, but
@@ -570,6 +584,8 @@ Expected outcome:
 - capability assignment can be governed separately from discovery
 
 ### Phase F. Reputation-Aware Ranking
+
+Status: complete
 
 Goal:
 
@@ -615,6 +631,8 @@ Expected outcome:
 
 ### Phase G. Stake and Bond Policy by Capability Class
 
+Status: complete
+
 Goal:
 
 - give higher-risk capabilities stronger economic requirements
@@ -645,6 +663,8 @@ Expected outcome:
 - the same agent registry can support different trust levels by capability class
 
 ### Phase H. Directory Ranking and Summary Output
+
+Status: complete
 
 Goal:
 
@@ -685,6 +705,8 @@ Expected outcome:
 
 ### Phase I. Policy References and Provider Scoring Feedback
 
+Status: complete
+
 Goal:
 
 - connect invocation outcomes back into discovery quality
@@ -716,6 +738,16 @@ Expected outcome:
 - reputation becomes tied to real service behavior, not just self-asserted claims
 
 ## 21C. Concrete Post-V1 Deliverables
+
+Implementation status:
+
+- complete: requester-side registry and suspension filtering
+- complete: requester-side capability-bit verification
+- complete: requester-side reputation-aware ranking
+- complete: directory result summaries with registration, stake, reputation, and local rank signals
+- complete: capability-family policy profiles for `sponsor.*`, `observation.*`, and `oracle.*`
+- complete: local provider feedback scoring
+- complete: optional GTOS-native reputation submission path for discovery outcomes
 
 The first concrete deliverables after V1 should be:
 
