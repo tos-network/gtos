@@ -23,7 +23,7 @@ var customGenesisTests = []struct {
 			"mixhash"    : "0x0000000000000000000000000000000000000000000000000000000000000000",
 			"parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
 			"timestamp"  : "0x00",
-			"config"     : {}
+			"config"     : {"chainId": 1337}
 		}`,
 		query:  "tos.getBlockByNumber(0, false).nonce",
 		result: "0x0000000000001338",
@@ -41,6 +41,7 @@ var customGenesisTests = []struct {
 			"parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
 			"timestamp"  : "0x00",
 			"config"     : {
+				"chainId" : 1337,
 				"homesteadBlock" : 42
 			}
 		}`,
