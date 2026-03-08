@@ -373,13 +373,16 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 			if st.ctxAborted() {
 				vmerr = ErrExecutionAborted
 			} else if st.gas < params.SysActionGas {
-				// Guard: handler must not execute if remaining gas is below the flat sysaction cost.
 				st.gas = 0
 				vmerr = vm.ErrOutOfGas
 			} else {
+				snap := st.state.Snapshot()
 				gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
 				st.gas -= gasUsed
 				vmerr = execErr
+				if vmerr != nil {
+					st.state.RevertToSnapshot(snap)
+				}
 			}
 		} else if toAddr == params.CheckpointSlashIndicatorAddress {
 			if st.ctxAborted() {
@@ -388,15 +391,23 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				st.gas = 0
 				vmerr = vm.ErrOutOfGas
 			} else {
+				snap := st.state.Snapshot()
 				gasUsed, execErr := slashindicator.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
 				st.gas -= gasUsed
 				vmerr = execErr
+				if vmerr != nil {
+					st.state.RevertToSnapshot(snap)
+				}
 			}
 		} else if toAddr == params.PrivacyRouterAddress {
 			if st.ctxAborted() {
 				vmerr = ErrExecutionAborted
 			} else {
+				snap := st.state.Snapshot()
 				vmerr = st.applyUNO(msg)
+				if vmerr != nil {
+					st.state.RevertToSnapshot(snap)
+				}
 			}
 		} else {
 			toCode := st.state.GetCode(toAddr)

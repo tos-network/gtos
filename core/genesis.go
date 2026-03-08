@@ -442,6 +442,18 @@ func (g *Genesis) Commit(db tosdb.Database) (*types.Block, error) {
 	if err := config.CheckConfigForkOrder(); err != nil {
 		return nil, err
 	}
+	// Validate DPoS genesis extra data: must contain vanity + at least one validator.
+	if config.DPoS != nil {
+		extra := block.Extra()
+		const vanity = 32
+		if len(extra) < vanity+common.AddressLength {
+			return nil, fmt.Errorf("dpos genesis extra too short: need >= %d bytes, have %d", vanity+common.AddressLength, len(extra))
+		}
+		validatorBytes := len(extra) - vanity
+		if validatorBytes%common.AddressLength != 0 {
+			return nil, fmt.Errorf("dpos genesis extra validator section length %d is not a multiple of %d", validatorBytes, common.AddressLength)
+		}
+	}
 	// All the checks has passed, flush the states derived from the genesis
 	// specification as well as the specification itself into the provided
 	// database.
@@ -489,7 +501,7 @@ func DefaultTestnetGenesisBlock() *Genesis {
 		ExtraData:  hexutil.MustDecode("0x22bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
 		GasLimit:   5000,
 		Difficulty: big.NewInt(17179869184),
-		Alloc:      decodePrealloc(mainnetAllocData),
+		Alloc:      nil,
 	}
 }
 
@@ -510,7 +522,8 @@ func DeveloperGenesisBlockMs(periodMs uint64, gasLimit uint64, faucet common.Add
 	genesisExtra := make([]byte, 32+common.AddressLength)
 	copy(genesisExtra[32:], faucet[:])
 
-	// Assemble and return the genesis with the precompiles and faucet pre-funded
+	// Assemble and return the genesis with the faucet pre-funded.
+	// EVM precompile addresses (1-9) are not pre-funded — GTOS uses LVM, not EVM.
 	return &Genesis{
 		Config:     &config,
 		ExtraData:  genesisExtra,
@@ -518,16 +531,7 @@ func DeveloperGenesisBlockMs(periodMs uint64, gasLimit uint64, faucet common.Add
 		BaseFee:    big.NewInt(params.InitialBaseFee),
 		Difficulty: big.NewInt(1),
 		Alloc: map[common.Address]GenesisAccount{
-			common.BytesToAddress([]byte{1}): {Balance: big.NewInt(1)}, // ECRecover
-			common.BytesToAddress([]byte{2}): {Balance: big.NewInt(1)}, // SHA256
-			common.BytesToAddress([]byte{3}): {Balance: big.NewInt(1)}, // RIPEMD
-			common.BytesToAddress([]byte{4}): {Balance: big.NewInt(1)}, // Identity
-			common.BytesToAddress([]byte{5}): {Balance: big.NewInt(1)}, // ModExp
-			common.BytesToAddress([]byte{6}): {Balance: big.NewInt(1)}, // ECAdd
-			common.BytesToAddress([]byte{7}): {Balance: big.NewInt(1)}, // ECScalarMul
-			common.BytesToAddress([]byte{8}): {Balance: big.NewInt(1)}, // ECPairing
-			common.BytesToAddress([]byte{9}): {Balance: big.NewInt(1)}, // BLAKE2b
-			faucet:                           {Balance: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(9))},
+			faucet: {Balance: new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(9))},
 		},
 	}
 }

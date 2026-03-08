@@ -580,7 +580,12 @@ func checkpointVoteKey(env *types.CheckpointVoteEnvelope) common.Hash {
 // re-relay when the same vote is received back from peers.
 func (h *handler) BroadcastCheckpointVote(env *types.CheckpointVoteEnvelope) {
 	h.seenVotes.Add(checkpointVoteKey(env), struct{}{})
-	for _, p := range h.peers.allPeers() {
+	peers := h.peers.allPeers()
+	n := int(math.Sqrt(float64(len(peers))))
+	if n < 1 {
+		n = len(peers)
+	}
+	for _, p := range peers[:n] {
 		if err := p.SendCheckpointVote(env); err != nil {
 			p.Log().Debug("Failed to send checkpoint vote", "err", err)
 		}
@@ -596,10 +601,19 @@ func (h *handler) RelayCheckpointVote(excludeID string, env *types.CheckpointVot
 		return
 	}
 	h.seenVotes.Add(key, struct{}{})
-	for _, p := range h.peers.allPeers() {
-		if p.ID() == excludeID {
-			continue
+	allPeers := h.peers.allPeers()
+	// Filter out the source peer
+	peers := make([]*tosPeer, 0, len(allPeers))
+	for _, p := range allPeers {
+		if p.ID() != excludeID {
+			peers = append(peers, p)
 		}
+	}
+	n := int(math.Sqrt(float64(len(peers))))
+	if n < 1 {
+		n = len(peers)
+	}
+	for _, p := range peers[:n] {
 		if err := p.SendCheckpointVote(env); err != nil {
 			p.Log().Debug("Failed to relay checkpoint vote", "err", err)
 		}

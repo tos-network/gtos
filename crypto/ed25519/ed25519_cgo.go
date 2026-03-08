@@ -209,6 +209,9 @@ func Verify(publicKey PublicKey, message []byte, sig []byte) bool {
 	if len(publicKey) != PublicKeySize || len(sig) != SignatureSize {
 		return false
 	}
+	if !checkSLessThanL(sig) {
+		return false
+	}
 	return C.gtos_ed25519_verify(
 		byteSlicePtr(message),
 		C.size_t(len(message)),

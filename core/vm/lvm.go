@@ -153,6 +153,10 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	callerAddr := caller.Address()
 	snapshot := l.StateDB.Snapshot()
 
+	if !l.StateDB.Exist(addr) {
+		l.StateDB.CreateAccount(addr)
+	}
+
 	if value != nil && value.Sign() > 0 {
 		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
 			return nil, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
@@ -162,16 +166,16 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 
 	ctx := CallCtx{
 		From: callerAddr, To: addr, Value: value, Data: input,
-		Depth: 0, TxOrigin: l.Origin, TxPrice: l.GasPrice,
+		Depth: l.depth, TxOrigin: l.Origin, TxPrice: l.GasPrice,
 		GoCtx: l.goCtx,
 	}
 	code := l.StateDB.GetCode(addr)
 	gasUsed, returnData, _, execErr := Execute(l.StateDB, l.Context, l.chainConfig, ctx, code, gas)
 	if execErr != nil {
 		l.StateDB.RevertToSnapshot(snapshot)
-		// LVM-3 fix: do not use strings.Contains to classify OOG — user code can
-		// forge that string, causing all caller gas to be consumed without genuine OOG.
-		// Rely solely on the gasUsed > gas post-error check below.
+		if !errors.Is(execErr, ErrExecutionReverted) {
+			return nil, 0, execErr
+		}
 		consumed := gasUsed
 		if consumed > gas {
 			consumed = gas
@@ -2879,6 +2883,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		available := gasLimit - totalUsed
 		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
 
+		// Defense-in-depth snapshot: even though staticcall should not
+		// mutate state, a buggy callee could attempt writes before the
+		// readonly guard fires. Snapshot/revert guarantees rollback.
+		calleeSnap := stateDB.Snapshot()
+
 		// No value transfer for staticcall.
 		calleeCode := stateDB.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
@@ -2912,7 +2921,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 
 		if childErr != nil {
-			// No state was written (readonly), so no snapshot revert needed.
+			// Revert any state changes (defense-in-depth for readonly).
+			stateDB.RevertToSnapshot(calleeSnap)
 			L.Push(lua.LFalse)
 			if len(childRevertData) > 0 {
 				L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))

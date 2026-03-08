@@ -96,6 +96,12 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB) (ty
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	// NOTE: Scheduled task gas is added to block.GasUsed (via *usedGas) and
+	// shifted into each receipt's CumulativeGasUsed, but no dedicated receipt
+	// is emitted for the scheduled work itself. Block explorers that sum
+	// per-receipt gas will therefore undercount by scheduledGas. This is an
+	// accepted gap — scheduled tasks are consensus-internal and have no
+	// originating transaction to attach a receipt to.
 	if scheduledGas != 0 {
 		for _, receipt := range receipts {
 			receipt.CumulativeGasUsed += scheduledGas

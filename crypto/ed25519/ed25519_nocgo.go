@@ -20,6 +20,9 @@ func Sign(privateKey PrivateKey, message []byte) []byte {
 }
 
 func Verify(publicKey PublicKey, message []byte, sig []byte) bool {
+	if !checkSLessThanL(sig) {
+		return false
+	}
 	return stded25519.Verify(publicKey, message, sig)
 }
 

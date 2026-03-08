@@ -80,8 +80,8 @@ func LatestSignerForChainID(chainID *big.Int) Signer {
 }
 
 func normalizeChainID(chainID *big.Int) *big.Int {
-	if chainID == nil {
-		return new(big.Int)
+	if chainID == nil || chainID.Sign() == 0 {
+		panic("normalizeChainID: chainID must not be nil or zero")
 	}
 	return chainID
 }

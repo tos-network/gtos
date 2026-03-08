@@ -640,6 +640,10 @@ func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash,
 		if x == nil || y == nil {
 			return false
 		}
+		halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+		if s.Cmp(halfOrder) > 0 {
+			return false
+		}
 		return ecdsa.Verify(&ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, txHash[:], r, s)
 	case SignerTypeEd25519:
 		sig, err := rsSignatureBytes(r, s)

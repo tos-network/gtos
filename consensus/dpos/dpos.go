@@ -65,6 +65,7 @@ var (
 	errInvalidTimestamp            = errors.New("dpos: invalid timestamp")
 	errInvalidChain                = errors.New("dpos: non-contiguous header chain")
 	errInvalidSlot                 = errors.New("dpos: slot did not advance")
+	errInvalidNonce                = errors.New("dpos: non-zero nonce")
 	errMissingParentState          = errors.New("dpos: missing parent state")
 
 	// Checkpoint QC sentinel errors (Phase 1 structural + Phase 2 cryptographic).
@@ -627,7 +628,9 @@ func encodeSigHeader(w io.Writer, header *types.Header, sealLen int) {
 		extraNoSeal, // strip seal bytes
 		header.MixDigest, header.Nonce,
 	}
-	rlp.Encode(w, enc)
+	if err := rlp.Encode(w, enc); err != nil {
+		panic("can't encode: " + err.Error())
+	}
 }
 
 func sealLengthForSignerType(signerType string) int {
@@ -1086,6 +1089,10 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 	if header.MixDigest != (common.Hash{}) {
 		return errInvalidMixDigest
 	}
+	// Nonce must be zero in DPoS.
+	if header.Nonce != (types.BlockNonce{}) {
+		return errInvalidNonce
+	}
 	// Non-genesis: difficulty must be exactly 1 or 2.
 	if number > 0 {
 		if header.Difficulty == nil ||
@@ -1147,13 +1154,19 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		if len(parents) > 0 {
 			parent = parents[len(parents)-1]
 		} else {
-			parent = chain.GetHeaderByNumber(number - 1)
+			parent = chain.GetHeader(header.ParentHash, number-1)
 		}
-		if parent != nil {
-			if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
-				return err
-			}
+		if parent == nil {
+			return consensus.ErrUnknownAncestor
 		}
+		if err := misc.VerifyGaslimit(parent.GasLimit, header.GasLimit); err != nil {
+			return err
+		}
+	}
+
+	// Verify fork-specific hash checks.
+	if err := misc.VerifyForkHashes(chain.Config(), header, false); err != nil {
+		return err
 	}
 
 	// Genesis is always valid (no parent, no seal).
@@ -1409,7 +1422,31 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 			}
 		}
 
-		// 4. Walk backwards: collect headers until we find a cached/checkpoint ancestor.
+		// 4. Epoch trust fallback: if we have accumulated more headers than
+		// FullImmutabilityThreshold, or the parent is missing (light client),
+		// and this is an epoch block, trust its Extra and create a snapshot.
+		if number%d.config.Epoch == 0 && (len(headers) > int(params.FullImmutabilityThreshold) || chain.GetHeaderByNumber(number-1) == nil) {
+			checkpoint := chain.GetHeaderByNumber(number)
+			if checkpoint != nil {
+				validators, err := parseEpochValidators(checkpoint.Extra, d.config, false)
+				if err == nil {
+					sort.Sort(addressAscending(validators))
+					snap, err = newSnapshot(d.config, d.signatures, number, checkpoint.Hash(), validators,
+						checkpoint.Time, d.config.TargetBlockPeriodMs())
+					if err != nil {
+						return nil, err
+					}
+					if d.db != nil {
+						if err := snap.store(d.db); err != nil {
+							return nil, err
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// 5. Walk backwards: collect headers until we find a cached/checkpoint ancestor.
 		var header *types.Header
 		if len(parents) > 0 {
 			header = parents[len(parents)-1]

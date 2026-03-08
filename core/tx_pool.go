@@ -965,6 +965,13 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 			knownTxMeter.Mark(1)
 			continue
 		}
+		// Pre-lock signature verification: reject invalid signatures cheaply
+		// before acquiring pool.mu. Read-only stale-is-ok access to currentState.
+		if _, err := ResolveSender(tx, pool.signer, pool.currentState); err != nil {
+			errs[i] = ErrInvalidSender
+			invalidTxMeter.Mark(1)
+			continue
+		}
 		// Accumulate all unknown transactions for deeper processing
 		news = append(news, tx)
 	}

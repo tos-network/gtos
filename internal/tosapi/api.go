@@ -435,6 +435,10 @@ func (s *PersonalAccountAPI) UnoBalance(
 	if maxAmount != nil {
 		effectiveMax = uint64(*maxAmount)
 	}
+	const maxDecryptAmount = 10_000_000_000 // 10 billion cap
+	if effectiveMax > maxDecryptAmount {
+		effectiveMax = maxDecryptAmount
+	}
 
 	resolved := resolveBlockArg(blockNrOrHash)
 	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
@@ -1062,13 +1066,14 @@ func DoCall(ctx context.Context, b Backend, args TransactionArgs, blockNrOrHash 
 }
 
 func newRevertError(result *core.ExecutionResult) *revertError {
-	reason := hexutil.Encode(result.Revert())
-	if decoded, err := abi.UnpackRevert(result.Revert()); err == nil {
-		reason = decoded
+	reason, errUnpack := abi.UnpackRevert(result.Revert())
+	err := errors.New("execution reverted")
+	if errUnpack == nil {
+		err = fmt.Errorf("execution reverted: %v", reason)
 	}
 	return &revertError{
-		error:  errors.New("execution reverted"),
-		reason: reason,
+		error:  err,
+		reason: hexutil.Encode(result.Revert()),
 	}
 }
 
@@ -1328,6 +1333,7 @@ type RPCTransaction struct {
 	Type             hexutil.Uint64    `json:"type"`
 	Accesses         *types.AccessList `json:"accessList,omitempty"`
 	ChainID          *hexutil.Big      `json:"chainId,omitempty"`
+	GasPrice         *hexutil.Big      `json:"gasPrice"`
 	V                *hexutil.Big      `json:"v"`
 	R                *hexutil.Big      `json:"r"`
 	S                *hexutil.Big      `json:"s"`
@@ -1362,6 +1368,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		R:     (*hexutil.Big)(r),
 		S:     (*hexutil.Big)(s),
 	}
+	result.GasPrice = (*hexutil.Big)(tx.TxPrice())
 	if blockHash != (common.Hash{}) {
 		result.BlockHash = &blockHash
 		result.BlockNumber = (*hexutil.Big)(new(big.Int).SetUint64(blockNumber))
@@ -1659,10 +1666,10 @@ func (s *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	if header.BaseFee == nil {
-		fields["effectiveTxPrice"] = hexutil.Uint64(tx.TxPrice().Uint64())
+		fields["effectiveGasPrice"] = hexutil.Uint64(tx.TxPrice().Uint64())
 	} else {
 		txPrice := new(big.Int).Add(header.BaseFee, tx.EffectiveGasTipValue(header.BaseFee))
-		fields["effectiveTxPrice"] = hexutil.Uint64(txPrice.Uint64())
+		fields["effectiveGasPrice"] = hexutil.Uint64(txPrice.Uint64())
 	}
 	// Assign receipt status or post state.
 	if len(receipt.PostState) > 0 {
@@ -3176,6 +3183,10 @@ func (s *TOSAPI) UnoDecryptBalance(
 	effectiveMax := uint64(1_000_000_000)
 	if maxAmount != nil {
 		effectiveMax = uint64(*maxAmount)
+	}
+	const maxDecryptAmount = 10_000_000_000 // 10 billion cap
+	if effectiveMax > maxDecryptAmount {
+		effectiveMax = maxDecryptAmount
 	}
 
 	resolved := resolveBlockArg(blockNrOrHash)

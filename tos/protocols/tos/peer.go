@@ -9,6 +9,7 @@ import (
 	mapset "github.com/deckarep/golang-set"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/rlp"
 )
@@ -21,6 +22,10 @@ const (
 	// maxKnownBlocks is the maximum block hashes to keep in the known list
 	// before starting to randomly evict them.
 	maxKnownBlocks = 1024
+
+	// maxKnownVotes is the maximum checkpoint vote hashes to keep in the
+	// known list before starting to randomly evict them.
+	maxKnownVotes = 1024
 
 	// maxQueuedTxs is the maximum number of transactions to queue up before dropping
 	// older broadcasts.
@@ -61,6 +66,7 @@ type Peer struct {
 	td   *big.Int    // Latest advertised head block total difficulty
 
 	knownBlocks     *knownCache            // Set of block hashes known to be known by this peer
+	knownVotes      *knownCache            // Set of checkpoint vote hashes known to be known by this peer
 	queuedBlocks    chan *blockPropagation // Queue of blocks to broadcast to the peer
 	queuedBlockAnns chan *types.Block      // Queue of blocks to announce to the peer
 
@@ -87,6 +93,7 @@ func NewPeer(version uint, p *p2p.Peer, rw p2p.MsgReadWriter, txpool TxPool) *Pe
 		version:         version,
 		knownTxs:        newKnownCache(maxKnownTxs),
 		knownBlocks:     newKnownCache(maxKnownBlocks),
+		knownVotes:      newKnownCache(maxKnownVotes),
 		queuedBlocks:    make(chan *blockPropagation, maxQueuedBlocks),
 		queuedBlockAnns: make(chan *types.Block, maxQueuedBlockAnns),
 		txBroadcast:     make(chan []common.Hash),
@@ -284,8 +291,20 @@ func (p *Peer) AsyncSendNewBlock(block *types.Block, td *big.Int) {
 	}
 }
 
+// MarkCheckpointVote marks a checkpoint vote as known for the peer, ensuring
+// that it will never be propagated to this particular peer.
+func (p *Peer) MarkCheckpointVote(hash common.Hash) {
+	p.knownVotes.Add(hash)
+}
+
+// KnownCheckpointVote returns whether peer is known to already have a vote.
+func (p *Peer) KnownCheckpointVote(hash common.Hash) bool {
+	return p.knownVotes.Contains(hash)
+}
+
 // SendCheckpointVote sends a checkpoint vote envelope to the peer.
 func (p *Peer) SendCheckpointVote(env *types.CheckpointVoteEnvelope) error {
+	p.knownVotes.Add(crypto.Keccak256Hash(env.Vote.Hash.Bytes(), env.Signer.Bytes()))
 	return p2p.Send(p.rw, NewCheckpointVoteMsg, &NewCheckpointVotePacket{*env})
 }
 
