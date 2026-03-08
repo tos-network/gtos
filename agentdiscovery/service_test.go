@@ -259,11 +259,15 @@ func TestSearchIncludesTrustSummary(t *testing.T) {
 			Registered:           true,
 			Suspended:            false,
 			Stake:                "250000000000000000",
+			StakeBucket:          "medium",
 			Reputation:           "42",
+			ReputationBucket:     "high",
 			RatingCount:          "7",
 			CapabilityRegistered: true,
 			CapabilityBit:        &bit,
 			HasOnchainCapability: true,
+			LocalRankScore:       123,
+			LocalRankReason:      "registered,active,onchain-capability",
 		}
 	})
 
@@ -306,6 +310,12 @@ func TestSearchIncludesTrustSummary(t *testing.T) {
 	}
 	if results[0].Trust.Reputation != "42" {
 		t.Fatalf("unexpected reputation %s", results[0].Trust.Reputation)
+	}
+	if results[0].Trust.StakeBucket != "medium" || results[0].Trust.ReputationBucket != "high" {
+		t.Fatalf("unexpected trust buckets: %+v", results[0].Trust)
+	}
+	if results[0].Trust.LocalRankScore != 123 {
+		t.Fatalf("unexpected rank score %d", results[0].Trust.LocalRankScore)
 	}
 }
 

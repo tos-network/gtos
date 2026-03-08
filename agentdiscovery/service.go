@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -181,8 +182,14 @@ func (s *Service) Search(capability string, limit int) ([]SearchResult, error) {
 
 		results = append(results, result)
 		if len(results) >= limit {
-			break
+			continue
 		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return compareSearchResults(results[i], results[j])
+	})
+	if len(results) > limit {
+		results = results[:limit]
 	}
 	return results, nil
 }
@@ -341,4 +348,23 @@ func (s *Service) providerTrustSummary(identity common.Address, capability strin
 		return nil
 	}
 	return provider(identity, capability)
+}
+
+func compareSearchResults(left SearchResult, right SearchResult) bool {
+	leftTrust := left.Trust
+	rightTrust := right.Trust
+	if leftTrust != nil || rightTrust != nil {
+		leftScore := int64(0)
+		rightScore := int64(0)
+		if leftTrust != nil {
+			leftScore = leftTrust.LocalRankScore
+		}
+		if rightTrust != nil {
+			rightScore = rightTrust.LocalRankScore
+		}
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+	}
+	return left.CardSequence > right.CardSequence
 }

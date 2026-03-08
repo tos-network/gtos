@@ -4,6 +4,7 @@ package tos
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"runtime"
 	"strings"
 	"sync"
@@ -581,19 +582,98 @@ func (s *TOS) agentDiscoveryTrustSummary(identity common.Address, capabilityName
 		return nil
 	}
 
+	stake := agent.ReadStake(stateDB, identity)
+	reputationScore := reputation.TotalScoreOf(stateDB, identity)
+	ratingCount := reputation.RatingCountOf(stateDB, identity)
 	summary := &agentdiscovery.ProviderTrustSummary{
 		Registered:  agent.IsRegistered(stateDB, identity),
 		Suspended:   agent.IsSuspended(stateDB, identity),
-		Stake:       agent.ReadStake(stateDB, identity).String(),
-		Reputation:  reputation.TotalScoreOf(stateDB, identity).String(),
-		RatingCount: reputation.RatingCountOf(stateDB, identity).String(),
+		Stake:       stake.String(),
+		StakeBucket: stakeBucket(stake),
+		Reputation:  reputationScore.String(),
+		ReputationBucket: reputationBucket(
+			reputationScore,
+			ratingCount,
+		),
+		RatingCount: ratingCount.String(),
 	}
 	if bit, ok := capability.CapabilityBit(stateDB, capabilityName); ok {
 		summary.CapabilityRegistered = true
 		summary.CapabilityBit = &bit
 		summary.HasOnchainCapability = capability.HasCapability(stateDB, identity, bit)
 	}
+	summary.LocalRankScore, summary.LocalRankReason = providerRankSummary(summary)
 	return summary
+}
+
+func providerRankSummary(summary *agentdiscovery.ProviderTrustSummary) (int64, string) {
+	if summary == nil {
+		return 0, ""
+	}
+	score := int64(0)
+	reasons := make([]string, 0, 6)
+	if summary.Registered {
+		score += 1000
+		reasons = append(reasons, "registered")
+	}
+	if !summary.Suspended {
+		score += 500
+		reasons = append(reasons, "active")
+	}
+	if summary.HasOnchainCapability {
+		score += 300
+		reasons = append(reasons, "onchain-capability")
+	}
+	switch summary.ReputationBucket {
+	case "high":
+		score += 200
+		reasons = append(reasons, "high-reputation")
+	case "medium":
+		score += 100
+		reasons = append(reasons, "medium-reputation")
+	}
+	switch summary.StakeBucket {
+	case "high":
+		score += 80
+		reasons = append(reasons, "high-stake")
+	case "medium":
+		score += 40
+		reasons = append(reasons, "medium-stake")
+	case "low":
+		score += 10
+		reasons = append(reasons, "low-stake")
+	}
+	return score, strings.Join(reasons, ",")
+}
+
+func stakeBucket(stake *big.Int) string {
+	if stake == nil || stake.Sign() <= 0 {
+		return "none"
+	}
+	switch {
+	case stake.Cmp(big.NewInt(1_000_000_000_000_000_000)) >= 0:
+		return "high"
+	case stake.Cmp(big.NewInt(100_000_000_000_000_000)) >= 0:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func reputationBucket(score *big.Int, ratingCount *big.Int) string {
+	if score == nil || ratingCount == nil || ratingCount.Sign() == 0 {
+		return "none"
+	}
+	switch {
+	case score.Sign() > 0 && ratingCount.Cmp(big.NewInt(10)) >= 0:
+		return "high"
+	case score.Sign() >= 0 && ratingCount.Cmp(big.NewInt(3)) >= 0:
+		return "medium"
+	case score.Sign() < 0:
+		return "negative"
+	default:
+		return "low"
+	}
 }
 
 func (s *TOS) SyncMode() downloader.SyncMode {

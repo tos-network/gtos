@@ -82,11 +82,15 @@ type ProviderTrustSummary struct {
 	Registered           bool   `json:"registered"`
 	Suspended            bool   `json:"suspended"`
 	Stake                string `json:"stake"`
+	StakeBucket          string `json:"stakeBucket,omitempty"`
 	Reputation           string `json:"reputation"`
+	ReputationBucket     string `json:"reputationBucket,omitempty"`
 	RatingCount          string `json:"ratingCount"`
 	CapabilityRegistered bool   `json:"capabilityRegistered"`
 	CapabilityBit        *uint8 `json:"capabilityBit,omitempty"`
 	HasOnchainCapability bool   `json:"hasOnchainCapability"`
+	LocalRankScore       int64  `json:"localRankScore,omitempty"`
+	LocalRankReason      string `json:"localRankReason,omitempty"`
 }
 
 type CardResponse struct {
