@@ -39,7 +39,6 @@ type TransactionArgs struct {
 	AccessList *types.AccessList `json:"accessList,omitempty"`
 	ChainID    *hexutil.Big      `json:"chainId,omitempty"`
 	SignerType *string           `json:"signerType,omitempty"`
-
 }
 
 // from retrieves the transaction sender address.
@@ -99,7 +98,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 		var estimated hexutil.Uint64
 		// Contract calls (non-system address with calldata) require binary-search
 		// gas estimation via actual execution, not a static formula.
-		if args.To != nil && *args.To != params.SystemActionAddress && len(data) > 0 {
+		if args.To != nil && *args.To != params.SystemActionAddress && *args.To != params.CheckpointSlashIndicatorAddress && len(data) > 0 {
 			est, err := DoEstimateGas(ctx, b, callArgs,
 				rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber), b.RPCGasCap())
 			if err != nil {
@@ -161,6 +160,13 @@ func estimateStorageFirstGas(args TransactionArgs) (hexutil.Uint64, error) {
 	to := *args.To
 	if to == params.SystemActionAddress {
 		gas, err := estimateSystemActionGas(data)
+		if err != nil {
+			return 0, err
+		}
+		return hexutil.Uint64(gas), nil
+	}
+	if to == params.CheckpointSlashIndicatorAddress {
+		gas, err := estimateCheckpointSlashIndicatorGas(data)
 		if err != nil {
 			return 0, err
 		}

@@ -25,6 +25,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/consensus/slashindicator"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
@@ -39,21 +40,21 @@ var emptyCodeHash = crypto.Keccak256Hash(nil)
 // Smart contract execution is not supported; only plain TOS transfers and
 // system actions are allowed.
 type StateTransition struct {
-	gp             *GasPool
-	msg            Message
-	gas            uint64
-	txPrice        *big.Int
-	gasFeeCap      *big.Int
-	gasTipCap      *big.Int
-	initialGas     uint64
-	validationGas  uint64 // gas consumed by AA validate() — tracked separately from st.gas
-	value          *big.Int
-	data           []byte
-	state          vm.StateDB
-	blockCtx       vm.BlockContext
-	chainConfig    *params.ChainConfig
-	lvm            *vm.LVM
-	goCtx          context.Context // RPC timeout context; nil for block-processing
+	gp            *GasPool
+	msg           Message
+	gas           uint64
+	txPrice       *big.Int
+	gasFeeCap     *big.Int
+	gasTipCap     *big.Int
+	initialGas    uint64
+	validationGas uint64 // gas consumed by AA validate() — tracked separately from st.gas
+	value         *big.Int
+	data          []byte
+	state         vm.StateDB
+	blockCtx      vm.BlockContext
+	chainConfig   *params.ChainConfig
+	lvm           *vm.LVM
+	goCtx         context.Context // RPC timeout context; nil for block-processing
 }
 
 // Message represents a message sent to a contract.
@@ -267,9 +268,11 @@ func (st *StateTransition) preCheck() error {
 //  1. LVM contract deployment (To == nil): standard CREATE — derive address, collision-check,
 //     charge 200 gas/byte for code storage, set code at the new address.
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
-//  3. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
-//  4. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  5. Transactions with non-empty data to other non-system addresses: rejected
+//  3. Checkpoint SlashIndicator address (params.CheckpointSlashIndicatorAddress):
+//     execute native evidence submission handler
+//  4. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
+//  5. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
+//  6. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if err := st.preCheck(); err != nil {
 		return nil, err
@@ -378,6 +381,17 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				st.gas -= gasUsed
 				vmerr = execErr
 			}
+		} else if toAddr == params.CheckpointSlashIndicatorAddress {
+			if st.ctxAborted() {
+				vmerr = ErrExecutionAborted
+			} else if st.gas < params.SysActionGas {
+				st.gas = 0
+				vmerr = vm.ErrOutOfGas
+			} else {
+				gasUsed, execErr := slashindicator.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
+				st.gas -= gasUsed
+				vmerr = execErr
+			}
 		} else if toAddr == params.PrivacyRouterAddress {
 			if st.ctxAborted() {
 				vmerr = ErrExecutionAborted
@@ -438,14 +452,17 @@ func (st *StateTransition) isAccountContract(addr common.Address) bool {
 // with a hard gas cap of ValidationGasCap.
 //
 // Phase 1 — pre-flight balance check:
-//   sender balance must cover ValidationGasCap * txPrice (worst-case validation cost).
+//
+//	sender balance must cover ValidationGasCap * txPrice (worst-case validation cost).
 //
 // Phase 2 — LVM call:
-//   validate(txHash, sig) is executed with gas cap 50k, Readonly=false.
-//   If it returns false, reverts, or runs OOG → ErrAAValidationFailed, no gas charged.
+//
+//	validate(txHash, sig) is executed with gas cap 50k, Readonly=false.
+//	If it returns false, reverts, or runs OOG → ErrAAValidationFailed, no gas charged.
 //
 // Phase 3 — deduct actual validation gas:
-//   gasUsed * txPrice is deducted from the sender's balance.
+//
+//	gasUsed * txPrice is deducted from the sender's balance.
 func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byte) error {
 	toAddr := st.to()
 

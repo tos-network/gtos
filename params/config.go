@@ -193,7 +193,6 @@ type DPoSConfig struct {
 	TurnLength              uint64   `json:"turnLength,omitempty"`              // consecutive slots owned by the in-turn proposer; mandatory
 	SealSignerType          string   `json:"sealSignerType,omitempty"`          // consensus block-seal signer type: ed25519 only
 	MaintenanceMaxBlocks    uint64   `json:"maintenanceMaxBlocks,omitempty"`    // max blocks a validator may remain in maintenance before protocol expiry; 0 => default
-	MaliciousVoteSlashBips  uint64   `json:"maliciousVoteSlashBips,omitempty"`  // slash percentage in basis points applied on adjudicated malicious vote evidence; 0 => default
 	CheckpointInterval      uint64   `json:"checkpointInterval,omitempty"`      // blocks between checkpoint finality votes (0 => inactive)
 	CheckpointFinalityBlock *big.Int `json:"checkpointFinalityBlock,omitempty"` // activation block for checkpoint finality (nil => inactive)
 }
@@ -232,14 +231,6 @@ func (c *DPoSConfig) MaintenanceMaxBlocksEffective() uint64 {
 	return DPoSMaintenanceMaxBlocks
 }
 
-// MaliciousVoteSlashBipsEffective returns the effective slash percentage in bips.
-func (c *DPoSConfig) MaliciousVoteSlashBipsEffective() uint64 {
-	if c != nil && c.MaliciousVoteSlashBips > 0 {
-		return c.MaliciousVoteSlashBips
-	}
-	return DPoSMaliciousVoteSlashBips
-}
-
 // UnmarshalJSON rejects the removed legacy dpos.period field.
 func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 	var fields map[string]json.RawMessage
@@ -260,8 +251,8 @@ func (c *DPoSConfig) UnmarshalJSON(input []byte) error {
 
 // String implements the stringer interface, returning the consensus engine details.
 func (c *DPoSConfig) String() string {
-	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, turnLength: %d, sealSignerType: %s, maintenanceMaxBlocks: %d, maliciousVoteSlashBips: %d}",
-		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.TurnLength, c.SealSignerType, c.MaintenanceMaxBlocksEffective(), c.MaliciousVoteSlashBipsEffective())
+	return fmt.Sprintf("{periodMs: %d, epoch: %d, maxValidators: %d, recentSignerWindow: %d, turnLength: %d, sealSignerType: %s, maintenanceMaxBlocks: %d}",
+		c.TargetBlockPeriodMs(), c.Epoch, c.MaxValidators, c.RecentSignerWindow, c.TurnLength, c.SealSignerType, c.MaintenanceMaxBlocksEffective())
 }
 
 // IsCheckpointFinality reports whether checkpoint finality is active at the given block number.
@@ -332,20 +323,6 @@ func (c *DPoSConfig) ValidateMaintenanceConfig() error {
 	}
 	if c.MaintenanceMaxBlocks == 0 {
 		return fmt.Errorf("dpos: maintenanceMaxBlocks missing or zero")
-	}
-	return nil
-}
-
-// ValidateMaliciousVoteSlashConfig returns an error if slash parameters are invalid.
-func (c *DPoSConfig) ValidateMaliciousVoteSlashConfig() error {
-	if c == nil {
-		return nil
-	}
-	if c.MaliciousVoteSlashBips == 0 {
-		c.MaliciousVoteSlashBips = DPoSMaliciousVoteSlashBips
-	}
-	if c.MaliciousVoteSlashBips == 0 || c.MaliciousVoteSlashBips > 10_000 {
-		return fmt.Errorf("dpos: maliciousVoteSlashBips must be within 1..10000")
 	}
 	return nil
 }
@@ -477,15 +454,6 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 				What:         "DPoS maintenanceMaxBlocks",
 				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaintenanceMaxBlocksEffective()),
 				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaintenanceMaxBlocksEffective()),
-				RewindTo:     0,
-				Fatal:        true,
-			}
-		}
-		if c.DPoS.MaliciousVoteSlashBipsEffective() != newcfg.DPoS.MaliciousVoteSlashBipsEffective() {
-			return &ConfigCompatError{
-				What:         "DPoS maliciousVoteSlashBips",
-				StoredConfig: new(big.Int).SetUint64(c.DPoS.MaliciousVoteSlashBipsEffective()),
-				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.MaliciousVoteSlashBipsEffective()),
 				RewindTo:     0,
 				Fatal:        true,
 			}

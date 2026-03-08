@@ -40,12 +40,9 @@ var (
 	// TaskSchedulerAddress stores on-chain scheduled-task state via storage slots.
 	TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000108")
 
-	// CheckpointEvidenceRegistryAddress stores submitted malicious-vote evidence
-	// summaries for checkpoint finality operations.
-	CheckpointEvidenceRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
-
-	// ValidatorPenaltyVaultAddress receives slashed validator stake.
-	ValidatorPenaltyVaultAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
+	// CheckpointSlashIndicatorAddress is the native system-contract style address
+	// that accepts malicious-vote evidence submissions for checkpoint finality.
+	CheckpointSlashIndicatorAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
 )
 
 // DPoS validator stake and reward parameters.
@@ -124,6 +121,4 @@ const (
 	DPoSTurnLength    uint64 = 16
 	// 24 hours at the default 360ms block interval.
 	DPoSMaintenanceMaxBlocks uint64 = 240000
-	// 100% slash of the currently locked self-stake on malicious vote adjudication.
-	DPoSMaliciousVoteSlashBips uint64 = 10000
 )

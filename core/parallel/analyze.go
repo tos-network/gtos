@@ -51,6 +51,11 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 		// System action: conflicts with any other system action via ValidatorRegistryAddress.
 		as.WriteAddrs[params.ValidatorRegistryAddress] = struct{}{}
 
+	case params.CheckpointSlashIndicatorAddress:
+		// SlashIndicator evidence submission mutates a single fixed storage account
+		// and is serialized with other evidence submissions.
+		as.WriteAddrs[params.CheckpointSlashIndicatorAddress] = struct{}{}
+
 	case params.PrivacyRouterAddress:
 		// UNO transactions are serialized in MVP for deterministic proof/state handling.
 		// They also read the LVM sentinel because UNO unshield/transfer can write

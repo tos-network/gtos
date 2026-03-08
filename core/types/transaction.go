@@ -504,6 +504,12 @@ func txSenderHint(signer Signer, tx *Transaction) common.Address {
 	if from, err := Sender(signer, tx); err == nil {
 		return from
 	}
+	// Non-secp signer types still carry an explicit From field on SignerTx.
+	// Use it as the stable account key for heap grouping even when Sender()
+	// cannot recover the signer locally.
+	if from, ok := tx.SignerFrom(); ok {
+		return from
+	}
 	// Check sender cache populated by ResolveSender for non-secp256k1 types.
 	if sc := tx.from.Load(); sc != nil {
 		if sigCache, ok := sc.(sigCache); ok {

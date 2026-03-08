@@ -44,6 +44,24 @@ This means GTOS is no longer in an ad hoc operations state.
 
 However, it is still not fully aligned with the stronger BSC operator model.
 
+## BSC Alignment Migration Tasks
+
+The BSC-alignment migration for malicious vote handling was executed as four
+tracked tasks. All four are complete in the current branch.
+
+- [x] Roll back client-side adjudication/slash
+- [x] Introduce a SlashIndicator-style native contract path
+- [x] Move `submit-evidence` to the SlashIndicator transaction path
+- [x] Update query/status/docs for the new submission-only model
+
+Implementation note:
+
+- GTOS now follows the BSC direction:
+  - client = discover, journal, export, submit
+  - native SlashIndicator contract path = record and expose submitted evidence
+- GTOS no longer treats the client as the final adjudicator or slashing
+  authority for malicious checkpoint votes
+
 ## The Remaining Gaps
 
 Gap 1 and Gap 2 are implemented. Gap 3 through Gap 5 are now materially
@@ -139,7 +157,8 @@ That causes two problems:
 
 Add an operator-facing evidence pipeline for malicious vote incidents.
 
-This does not require immediate slashing activation, but it does require a standard evidence format and a standard operator command path.
+This requires a standard evidence format and a standard operator command path,
+but it does not require the client itself to perform adjudication or slashing.
 
 ### Scope
 
@@ -148,8 +167,11 @@ Implemented scope:
 - canonical `MaliciousVoteEvidence` structure
 - export from the native vote journal
 - standard staging path for incident handling
-- official on-chain submission path via `tos_submitMaliciousVoteEvidence`
+- official on-chain submission path via the native
+  `CheckpointSlashIndicatorAddress`
 - on-chain query path for submitted evidence summaries
+- offense-key dedupe so the same `(signer, checkpointNumber)` offense is not
+  recorded repeatedly
 
 Possible CLI examples:
 
@@ -163,7 +185,8 @@ Code:
 - evidence schema
 - evidence serialization
 - CLI export command
-- submission stub or RPC
+- native contract submit path
+- query path for submitted evidence records
 
 Ops:
 
@@ -176,6 +199,15 @@ Ops:
 - two operators observing the same event produce equivalent evidence output
 - evidence can be staged or submitted through a standard command path
 - submitted evidence is queryable from chain state
+
+Current branch status:
+
+- implemented
+- submission now targets the native SlashIndicator contract path, not a
+  client-local adjudication handler
+- evidence query returns submitted records and offense-key metadata
+- client-local adjudication/slash code has been removed to match the BSC
+  direction more closely
 
 ## Gap 3: Maintenance governance is still operational, not protocol-enforced
 
@@ -389,7 +421,7 @@ Recommended sequence:
 
 3. **Malicious-vote evidence pipeline**
    - builds on journaled data
-   - implemented
+   - implemented with native SlashIndicator submission
 
 4. **TOML-first cleanup**
    - lowers long-term configuration drift
@@ -397,7 +429,7 @@ Recommended sequence:
 
 5. **Maintenance governance hardening**
    - should be done after operators already have reliable visibility and evidence
-   - implemented as governance-hard, protocol-soft controls
+   - implemented as protocol-hard expiry plus operator escalation
 
 ## Suggested Milestones
 
@@ -424,6 +456,7 @@ Deliver:
 Success condition:
 
 - suspicious vote incidents move from detection to repeatable response
+- evidence submission no longer depends on client-local adjudication/slashing
 
 ### Milestone 3: Config Hardening
 
@@ -473,14 +506,9 @@ Validator and RPC nodes must remain distinct templates even if they share some T
 
 GTOS should treat the remaining BSC alignment work as an operator-platform roadmap, not as miscellaneous cleanup.
 
-The remaining highest-value next step is:
+The BSC-alignment gaps tracked in this document are now implemented.
 
-1. move from malicious-vote evidence staging to a protocol-enforced submission
-   and adjudication path
-
-The remaining highest-value second step is:
-
-2. decide whether maintenance governance should remain operational or become
-   protocol-hard
+Further work, if desired, should be treated as governance-policy expansion, not
+as baseline operator-platform parity.
 
 Those two changes improve reliability immediately and create the base needed for evidence handling and stronger governance.

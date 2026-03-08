@@ -141,27 +141,6 @@ func TestValidateTurnLengthConfig(t *testing.T) {
 	}
 }
 
-func TestValidateMaliciousVoteSlashConfig(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *DPoSConfig
-		wantErr bool
-	}{
-		{name: "defaulted", cfg: &DPoSConfig{}, wantErr: false},
-		{name: "valid", cfg: &DPoSConfig{MaliciousVoteSlashBips: 5000}, wantErr: false},
-		{name: "too high", cfg: &DPoSConfig{MaliciousVoteSlashBips: 10001}, wantErr: true},
-	}
-	for _, tc := range tests {
-		err := tc.cfg.ValidateMaliciousVoteSlashConfig()
-		if tc.wantErr && err == nil {
-			t.Fatalf("%s: expected error", tc.name)
-		}
-		if !tc.wantErr && err != nil {
-			t.Fatalf("%s: unexpected error: %v", tc.name, err)
-		}
-	}
-}
-
 func TestCheckConfigForkOrder(t *testing.T) {
 	tests := []struct {
 		name    string

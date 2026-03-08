@@ -93,27 +93,16 @@ type SubmitMaliciousVoteEvidenceArgs struct {
 	Evidence types.MaliciousVoteEvidence `json:"evidence"`
 }
 
-// AdjudicateMaliciousVoteEvidenceArgs is the argument object for
-// tos_adjudicateMaliciousVoteEvidence.
-type AdjudicateMaliciousVoteEvidenceArgs struct {
-	From         common.Address  `json:"from"`
-	Nonce        *hexutil.Uint64 `json:"nonce,omitempty"`
-	Gas          *hexutil.Uint64 `json:"gas,omitempty"`
-	EvidenceHash common.Hash     `json:"evidenceHash"`
-}
-
 // MaliciousVoteEvidenceRecord is the on-chain summary for a submitted
 // malicious vote evidence item.
 type MaliciousVoteEvidenceRecord struct {
-	EvidenceHash  common.Hash
-	Number        uint64
-	Signer        common.Address
-	SubmittedBy   common.Address
-	SubmittedAt   uint64
-	Status        string
-	AdjudicatedBy common.Address
-	AdjudicatedAt uint64
-	SlashAmount   *big.Int
+	EvidenceHash common.Hash
+	OffenseKey   common.Hash
+	Number       uint64
+	Signer       common.Address
+	SubmittedBy  common.Address
+	SubmittedAt  uint64
+	Status       string
 }
 
 // BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
@@ -359,34 +348,16 @@ func (ec *Client) BuildSubmitMaliciousVoteEvidenceTx(ctx context.Context, args S
 	return &out, nil
 }
 
-// AdjudicateMaliciousVoteEvidence executes on-chain adjudication for a submitted evidence hash.
-func (ec *Client) AdjudicateMaliciousVoteEvidence(ctx context.Context, args AdjudicateMaliciousVoteEvidenceArgs) (common.Hash, error) {
-	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_adjudicateMaliciousVoteEvidence", args)
-	return txHash, err
-}
-
-// BuildAdjudicateMaliciousVoteEvidenceTx builds an unsigned malicious-vote adjudication transaction.
-func (ec *Client) BuildAdjudicateMaliciousVoteEvidenceTx(ctx context.Context, args AdjudicateMaliciousVoteEvidenceArgs) (*BuildSetSignerTxResult, error) {
-	var out BuildSetSignerTxResult
-	if err := ec.c.CallContext(ctx, &out, "tos_buildAdjudicateMaliciousVoteEvidenceTx", args); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // GetMaliciousVoteEvidence returns a submitted malicious-vote evidence summary by hash.
 func (ec *Client) GetMaliciousVoteEvidence(ctx context.Context, evidenceHash common.Hash, blockNumber *big.Int) (*MaliciousVoteEvidenceRecord, error) {
 	var raw struct {
-		EvidenceHash  common.Hash    `json:"evidenceHash"`
-		Number        hexutil.Uint64 `json:"number"`
-		Signer        common.Address `json:"signer"`
-		SubmittedBy   common.Address `json:"submittedBy"`
-		SubmittedAt   hexutil.Uint64 `json:"submittedAt"`
-		Status        string         `json:"status"`
-		AdjudicatedBy common.Address `json:"adjudicatedBy"`
-		AdjudicatedAt hexutil.Uint64 `json:"adjudicatedAt"`
-		SlashAmount   *hexutil.Big   `json:"slashAmount"`
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		OffenseKey   common.Hash    `json:"offenseKey"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+		Status       string         `json:"status"`
 	}
 	if err := ec.c.CallContext(ctx, &raw, "tos_getMaliciousVoteEvidence", evidenceHash, toBlockNumArg(blockNumber)); err != nil {
 		return nil, err
@@ -395,30 +366,26 @@ func (ec *Client) GetMaliciousVoteEvidence(ctx context.Context, evidenceHash com
 		return nil, nil
 	}
 	return &MaliciousVoteEvidenceRecord{
-		EvidenceHash:  raw.EvidenceHash,
-		Number:        uint64(raw.Number),
-		Signer:        raw.Signer,
-		SubmittedBy:   raw.SubmittedBy,
-		SubmittedAt:   uint64(raw.SubmittedAt),
-		Status:        raw.Status,
-		AdjudicatedBy: raw.AdjudicatedBy,
-		AdjudicatedAt: uint64(raw.AdjudicatedAt),
-		SlashAmount:   bigFromHex(raw.SlashAmount),
+		EvidenceHash: raw.EvidenceHash,
+		OffenseKey:   raw.OffenseKey,
+		Number:       uint64(raw.Number),
+		Signer:       raw.Signer,
+		SubmittedBy:  raw.SubmittedBy,
+		SubmittedAt:  uint64(raw.SubmittedAt),
+		Status:       raw.Status,
 	}, nil
 }
 
 // ListMaliciousVoteEvidence returns recent submitted malicious-vote evidence summaries.
 func (ec *Client) ListMaliciousVoteEvidence(ctx context.Context, limit uint64, blockNumber *big.Int) ([]*MaliciousVoteEvidenceRecord, error) {
 	var raw []struct {
-		EvidenceHash  common.Hash    `json:"evidenceHash"`
-		Number        hexutil.Uint64 `json:"number"`
-		Signer        common.Address `json:"signer"`
-		SubmittedBy   common.Address `json:"submittedBy"`
-		SubmittedAt   hexutil.Uint64 `json:"submittedAt"`
-		Status        string         `json:"status"`
-		AdjudicatedBy common.Address `json:"adjudicatedBy"`
-		AdjudicatedAt hexutil.Uint64 `json:"adjudicatedAt"`
-		SlashAmount   *hexutil.Big   `json:"slashAmount"`
+		EvidenceHash common.Hash    `json:"evidenceHash"`
+		OffenseKey   common.Hash    `json:"offenseKey"`
+		Number       hexutil.Uint64 `json:"number"`
+		Signer       common.Address `json:"signer"`
+		SubmittedBy  common.Address `json:"submittedBy"`
+		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+		Status       string         `json:"status"`
 	}
 	if err := ec.c.CallContext(ctx, &raw, "tos_listMaliciousVoteEvidence", hexutil.Uint64(limit), toBlockNumArg(blockNumber)); err != nil {
 		return nil, err
@@ -426,15 +393,13 @@ func (ec *Client) ListMaliciousVoteEvidence(ctx context.Context, limit uint64, b
 	out := make([]*MaliciousVoteEvidenceRecord, 0, len(raw))
 	for _, rec := range raw {
 		out = append(out, &MaliciousVoteEvidenceRecord{
-			EvidenceHash:  rec.EvidenceHash,
-			Number:        uint64(rec.Number),
-			Signer:        rec.Signer,
-			SubmittedBy:   rec.SubmittedBy,
-			SubmittedAt:   uint64(rec.SubmittedAt),
-			Status:        rec.Status,
-			AdjudicatedBy: rec.AdjudicatedBy,
-			AdjudicatedAt: uint64(rec.AdjudicatedAt),
-			SlashAmount:   bigFromHex(rec.SlashAmount),
+			EvidenceHash: rec.EvidenceHash,
+			OffenseKey:   rec.OffenseKey,
+			Number:       uint64(rec.Number),
+			Signer:       rec.Signer,
+			SubmittedBy:  rec.SubmittedBy,
+			SubmittedAt:  uint64(rec.SubmittedAt),
+			Status:       rec.Status,
 		})
 	}
 	return out, nil
