@@ -100,7 +100,7 @@ func TestUNOTransferProofFailureHasNoStateWrite(t *testing.T) {
 		To:            recv,
 		NewSender:     newSender,
 		ReceiverDelta: receiverDelta,
-		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("EncodeTransferPayload: %v", err)
@@ -247,7 +247,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 			To:            recv,
 			NewSender:     makeValidCiphertext(id, id),
 			ReceiverDelta: makeValidCiphertext(gen, id),
-			ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+			ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 		})
 		if err != nil {
 			t.Fatalf("EncodeTransferPayload: %v", err)
@@ -294,7 +294,7 @@ func TestUNOVersionOverflowRejectedInExecution(t *testing.T) {
 			To:            recv,
 			NewSender:     makeValidCiphertext(id, id),
 			ReceiverDelta: makeValidCiphertext(gen, id),
-			ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+			ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 		})
 		if err != nil {
 			t.Fatalf("EncodeTransferPayload: %v", err)
@@ -394,7 +394,7 @@ func TestUNONonceReplayRejectedAcrossActions(t *testing.T) {
 			To:            recv,
 			NewSender:     makeValidCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
 			ReceiverDelta: makeValidCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
-			ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+			ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 		})
 		if err != nil {
 			t.Fatalf("EncodeTransferPayload: %v", err)

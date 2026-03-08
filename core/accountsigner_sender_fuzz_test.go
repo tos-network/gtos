@@ -140,6 +140,11 @@ func FuzzResolveSenderSecp256r1Mutation(f *testing.F) {
 	if err != nil {
 		panic(err)
 	}
+	// Normalize to low-S form required by VerifyRawSignature.
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if baseS.Cmp(halfOrder) > 0 {
+		baseS = new(big.Int).Sub(elliptic.P256().Params().N, baseS)
+	}
 
 	// kind: 0=none, 1=from, 2=R, 3=S, 4=signerType, 5=chainID mismatch
 	f.Add(uint8(0), uint8(0), uint8(1), "secp256r1")

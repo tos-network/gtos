@@ -534,11 +534,8 @@ func TestExecuteTransactionsBatchVsPerTxParityUNORandomizedStress(t *testing.T) 
 		}
 		return wire
 	}
-	makeTransferWire := func(to common.Address, senderSeed, receiverSeed byte, withRange bool) []byte {
-		proof := make([]byte, uno.CTValidityProofSizeT1+uno.BalanceProofSize)
-		if withRange {
-			proof = append(proof, make([]byte, uno.RangeProofSingle64)...)
-		}
+	makeTransferWire := func(to common.Address, senderSeed, receiverSeed byte, _ bool) []byte {
+		proof := make([]byte, uno.TransferProofRequiredSize)
 		body, err := uno.EncodeTransferPayload(uno.TransferPayload{
 			To:            to,
 			NewSender:     makeCiphertext(senderSeed),

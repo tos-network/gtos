@@ -76,7 +76,8 @@ func TestUNOReorgReimportVersionConsistency(t *testing.T) {
 	}
 
 	genesisSpec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			from: {
 				Balance:     new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(params.TOS)),

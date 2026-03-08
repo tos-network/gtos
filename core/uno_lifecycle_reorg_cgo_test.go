@@ -125,7 +125,8 @@ func TestUNOLifecycleReorgAndReimportDeterminism(t *testing.T) {
 	}
 
 	genesisSpec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			aAddr: {
 				Balance:     new(big.Int).Mul(big.NewInt(1000), new(big.Int).SetUint64(params.TOS)),
@@ -322,7 +323,8 @@ func TestUNOGenesisPreallocReorgLifecycle(t *testing.T) {
 	genesisCt := ciphertextFromCompressed(t, genesisCtCompressed)
 
 	genesisSpec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			bAddr: {
 				Balance:       new(big.Int).Mul(big.NewInt(100), new(big.Int).SetUint64(params.TOS)),

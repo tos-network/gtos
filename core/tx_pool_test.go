@@ -326,7 +326,7 @@ func testUNOTransferWire(t *testing.T, to common.Address) []byte {
 		To:            to,
 		NewSender:     testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
 		ReceiverDelta: testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
-		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("EncodeTransferPayload: %v", err)
@@ -363,7 +363,7 @@ func testUNOTransferWireMalformedProof(t *testing.T, to common.Address) []byte {
 		NewSender:     testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
 		ReceiverDelta: testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
 		// Invalid shape: shorter than CTValidity(T1)+Balance.
-		ProofBundle: make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize-1),
+		ProofBundle: make([]byte, coreuno.TransferProofRequiredSize-1),
 	})
 	if err != nil {
 		t.Fatalf("EncodeTransferPayload malformed: %v", err)
@@ -594,7 +594,7 @@ func testUNOTransferWireZeroReceiver(t *testing.T) []byte {
 			Commitment: ristretto255.NewGeneratorElement().Bytes(),
 			Handle:     ristretto255.NewIdentityElement().Bytes(),
 		},
-		ProofBundle: make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle: make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("rlp.EncodeToBytes malformed transfer payload: %v", err)
@@ -691,7 +691,7 @@ func testUNOTransferWireMalformedCiphertext(t *testing.T, to common.Address) []b
 			Commitment: ristretto255.NewGeneratorElement().Bytes(),
 			Handle:     ristretto255.NewIdentityElement().Bytes(),
 		},
-		ProofBundle: make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle: make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("rlp.EncodeToBytes malformed transfer ciphertext payload: %v", err)
@@ -743,7 +743,7 @@ func testUNOTransferWireSelfTransfer(t *testing.T, from common.Address) []byte {
 		To:            from,
 		NewSender:     testUNOCiphertext(id, id),
 		ReceiverDelta: testUNOCiphertext(gen, id),
-		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("EncodeTransferPayload self-transfer: %v", err)
@@ -932,7 +932,7 @@ func TestTxPoolUNOTransferRejectsReceiverWithoutSigner(t *testing.T) {
 		To:            receiver,
 		NewSender:     testUNOCiphertext(ristretto255.NewIdentityElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
 		ReceiverDelta: testUNOCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
-		ProofBundle:   make([]byte, coreuno.CTValidityProofSizeT1+coreuno.BalanceProofSize),
+		ProofBundle:   make([]byte, coreuno.TransferProofRequiredSize),
 	})
 	if err != nil {
 		t.Fatalf("EncodeTransferPayload: %v", err)

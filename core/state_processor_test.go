@@ -254,20 +254,25 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	chainSigner := types.LatestSigner(config)
-	fromKey, err := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	if err != nil {
-		t.Fatalf("failed to load sender key: %v", err)
-	}
-	from := crypto.PubkeyToAddress(fromKey.PublicKey)
 	to := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
 
 	edPub, edPriv, err := ed25519.GenerateKey(crand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate ed25519 key: %v", err)
 	}
+	_, normalizedPub, normalizedValue, err := accountsigner.NormalizeSigner(accountsigner.SignerTypeEd25519, hexutil.Encode(edPub))
+	if err != nil {
+		t.Fatalf("normalize signer failed: %v", err)
+	}
+	from, err := accountsigner.AddressFromSigner(accountsigner.SignerTypeEd25519, normalizedPub)
+	if err != nil {
+		t.Fatalf("derive address failed: %v", err)
+	}
+
+	// Block 0: bootstrap setSigner tx signed with Ed25519
 	setSignerPayload, err := sysaction.MakeSysAction(sysaction.ActionAccountSetSigner, accountsigner.SetSignerPayload{
 		SignerType:  accountsigner.SignerTypeEd25519,
-		SignerValue: hexutil.Encode(edPub),
+		SignerValue: normalizedValue,
 	})
 	if err != nil {
 		t.Fatalf("failed to encode setSigner payload: %v", err)
@@ -281,13 +286,25 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 		Gas:        500_000,
 		Data:       setSignerPayload,
 		From:       from,
-		SignerType: accountsigner.SignerTypeSecp256k1,
+		SignerType: accountsigner.SignerTypeEd25519,
 	})
-	txSetSigner, err := types.SignTx(txSetSignerUnsigned, chainSigner, fromKey)
-	if err != nil {
-		t.Fatalf("failed to sign setSigner tx: %v", err)
-	}
+	setSignerHash := chainSigner.Hash(txSetSignerUnsigned)
+	setSignerSig := ed25519.Sign(edPriv, setSignerHash[:])
+	txSetSigner := types.NewTx(&types.SignerTx{
+		ChainID:    txSetSignerUnsigned.ChainId(),
+		Nonce:      txSetSignerUnsigned.Nonce(),
+		To:         txSetSignerUnsigned.To(),
+		Value:      txSetSignerUnsigned.Value(),
+		Gas:        txSetSignerUnsigned.Gas(),
+		Data:       txSetSignerUnsigned.Data(),
+		From:       from,
+		SignerType: accountsigner.SignerTypeEd25519,
+		V:          big.NewInt(0),
+		R:          new(big.Int).SetBytes(setSignerSig[:32]),
+		S:          new(big.Int).SetBytes(setSignerSig[32:]),
+	})
 
+	// Block 1: value transfer signed with Ed25519
 	txEdUnsigned := types.NewTx(&types.SignerTx{
 		ChainID:    chainSigner.ChainID(),
 		Nonce:      1,
