@@ -74,6 +74,35 @@ func writeSelfStake(db vm.StateDB, addr common.Address, stake *big.Int) {
 		common.BigToHash(stake))
 }
 
+// ApplySlash reduces the validator's locked self-stake and transfers the slashed
+// amount into the penalty vault. The validator is forced inactive.
+func ApplySlash(db vm.StateDB, addr common.Address, amount *big.Int, recipient common.Address) (*big.Int, error) {
+	if amount == nil || amount.Sign() < 0 {
+		return nil, ErrInvalidSlashAmount
+	}
+	selfStake := ReadSelfStake(db, addr)
+	if selfStake.Sign() == 0 {
+		WriteValidatorStatus(db, addr, Inactive)
+		writeMaintenanceSince(db, addr, 0)
+		return new(big.Int), nil
+	}
+	slashAmount := new(big.Int).Set(amount)
+	if slashAmount.Cmp(selfStake) > 0 {
+		slashAmount.Set(selfStake)
+	}
+	if db.GetBalance(params.ValidatorRegistryAddress).Cmp(slashAmount) < 0 {
+		return nil, ErrValidatorRegistryBalanceBroken
+	}
+	if slashAmount.Sign() > 0 {
+		db.SubBalance(params.ValidatorRegistryAddress, slashAmount)
+		db.AddBalance(recipient, slashAmount)
+	}
+	writeSelfStake(db, addr, new(big.Int).Sub(selfStake, slashAmount))
+	WriteValidatorStatus(db, addr, Inactive)
+	writeMaintenanceSince(db, addr, 0)
+	return slashAmount, nil
+}
+
 func writeMaintenanceSince(db vm.StateDB, addr common.Address, blockNumber uint64) {
 	var val common.Hash
 	binary.BigEndian.PutUint64(val[24:], blockNumber)

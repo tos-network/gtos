@@ -43,6 +43,9 @@ var (
 	// CheckpointEvidenceRegistryAddress stores submitted malicious-vote evidence
 	// summaries for checkpoint finality operations.
 	CheckpointEvidenceRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
+
+	// ValidatorPenaltyVaultAddress receives slashed validator stake.
+	ValidatorPenaltyVaultAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
 )
 
 // DPoS validator stake and reward parameters.
@@ -121,4 +124,6 @@ const (
 	DPoSTurnLength    uint64 = 16
 	// 24 hours at the default 360ms block interval.
 	DPoSMaintenanceMaxBlocks uint64 = 240000
+	// 100% slash of the currently locked self-stake on malicious vote adjudication.
+	DPoSMaliciousVoteSlashBips uint64 = 10000
 )

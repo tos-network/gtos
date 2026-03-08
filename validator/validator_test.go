@@ -318,3 +318,30 @@ func TestWithdrawWhileInMaintenance(t *testing.T) {
 		t.Fatalf("status after withdraw: have=%d want=%d", status, Inactive)
 	}
 }
+
+func TestApplySlashTransfersStakeAndForcesInactive(t *testing.T) {
+	st := newTestState()
+	a := tAddr(0x27)
+	stake := new(big.Int).Set(params.DPoSMinValidatorStake)
+	fund(st, a, stake)
+	if err := h.Handle(newCtx(st, a, stake), regSA); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	wantSlash := new(big.Int).Div(stake, big.NewInt(2))
+	gotSlash, err := ApplySlash(st, a, wantSlash, params.ValidatorPenaltyVaultAddress)
+	if err != nil {
+		t.Fatalf("ApplySlash: %v", err)
+	}
+	if gotSlash.Cmp(wantSlash) != 0 {
+		t.Fatalf("slash amount: have=%v want=%v", gotSlash, wantSlash)
+	}
+	if got := ReadSelfStake(st, a); got.Cmp(new(big.Int).Sub(stake, wantSlash)) != 0 {
+		t.Fatalf("selfStake after slash: have=%v", got)
+	}
+	if got := st.GetBalance(params.ValidatorPenaltyVaultAddress); got.Cmp(wantSlash) != 0 {
+		t.Fatalf("penalty vault balance: have=%v want=%v", got, wantSlash)
+	}
+	if got := ReadValidatorStatus(st, a); got != Inactive {
+		t.Fatalf("validator status: have=%d want=%d", got, Inactive)
+	}
+}

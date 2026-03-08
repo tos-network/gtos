@@ -52,6 +52,11 @@ var (
 		Usage:    "Submitter account address",
 		Required: true,
 	}
+	voteEvidenceHashFlag = &cli.StringFlag{
+		Name:     "hash",
+		Usage:    "Submitted malicious vote evidence hash",
+		Required: true,
+	}
 	voteCommand = &cli.Command{
 		Name:  "vote",
 		Usage: "Checkpoint vote evidence operations",
@@ -85,6 +90,16 @@ var (
 					voteFromFlag,
 				},
 				Action: submitVoteEvidence,
+			},
+			{
+				Name:  "adjudicate-evidence",
+				Usage: "Execute on-chain adjudication for a submitted malicious-vote evidence hash",
+				Flags: []cli.Flag{
+					voteEvidenceHashFlag,
+					voteRPCURLFlag,
+					voteFromFlag,
+				},
+				Action: adjudicateVoteEvidence,
 			},
 		},
 	}
@@ -158,5 +173,26 @@ func submitVoteEvidence(ctx *cli.Context) error {
 	}
 	fmt.Printf("submitted malicious vote evidence tx: %s\n", txHash.Hex())
 	fmt.Printf("evidence hash: %s\n", evidence.Hash().Hex())
+	return nil
+}
+
+func adjudicateVoteEvidence(ctx *cli.Context) error {
+	client, err := tosclient.Dial(ctx.String(voteRPCURLFlag.Name))
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	from := common.HexToAddress(ctx.String(voteFromFlag.Name))
+	hash := common.HexToHash(ctx.String(voteEvidenceHashFlag.Name))
+	txHash, err := client.AdjudicateMaliciousVoteEvidence(ctx.Context, tosclient.AdjudicateMaliciousVoteEvidenceArgs{
+		From:         from,
+		EvidenceHash: hash,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("submitted malicious vote adjudication tx: %s\n", txHash.Hex())
+	fmt.Printf("evidence hash: %s\n", hash.Hex())
 	return nil
 }

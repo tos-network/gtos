@@ -2172,24 +2172,41 @@ type RPCSubmitMaliciousVoteEvidenceArgs struct {
 	Evidence types.MaliciousVoteEvidence `json:"evidence"`
 }
 
+type RPCAdjudicateMaliciousVoteEvidenceArgs struct {
+	RPCTxCommonArgs
+	EvidenceHash common.Hash `json:"evidenceHash"`
+}
+
 type RPCMaliciousVoteEvidenceRecord struct {
-	EvidenceHash common.Hash    `json:"evidenceHash"`
-	Number       hexutil.Uint64 `json:"number"`
-	Signer       common.Address `json:"signer"`
-	SubmittedBy  common.Address `json:"submittedBy"`
-	SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+	EvidenceHash  common.Hash    `json:"evidenceHash"`
+	Number        hexutil.Uint64 `json:"number"`
+	Signer        common.Address `json:"signer"`
+	SubmittedBy   common.Address `json:"submittedBy"`
+	SubmittedAt   hexutil.Uint64 `json:"submittedAt"`
+	Status        string         `json:"status"`
+	AdjudicatedBy common.Address `json:"adjudicatedBy"`
+	AdjudicatedAt hexutil.Uint64 `json:"adjudicatedAt"`
+	SlashAmount   *hexutil.Big   `json:"slashAmount"`
 }
 
 func rpcMaliciousVoteEvidenceRecordFromModel(rec *dpos.MaliciousVoteEvidenceRecord) *RPCMaliciousVoteEvidenceRecord {
 	if rec == nil {
 		return nil
 	}
+	status := "submitted"
+	if rec.Status == dpos.MaliciousVoteEvidenceAdjudicated {
+		status = "adjudicated"
+	}
 	return &RPCMaliciousVoteEvidenceRecord{
-		EvidenceHash: rec.EvidenceHash,
-		Number:       hexutil.Uint64(rec.Number),
-		Signer:       rec.Signer,
-		SubmittedBy:  rec.SubmittedBy,
-		SubmittedAt:  hexutil.Uint64(rec.SubmittedAt),
+		EvidenceHash:  rec.EvidenceHash,
+		Number:        hexutil.Uint64(rec.Number),
+		Signer:        rec.Signer,
+		SubmittedBy:   rec.SubmittedBy,
+		SubmittedAt:   hexutil.Uint64(rec.SubmittedAt),
+		Status:        status,
+		AdjudicatedBy: rec.AdjudicatedBy,
+		AdjudicatedAt: hexutil.Uint64(rec.AdjudicatedAt),
+		SlashAmount:   (*hexutil.Big)(new(big.Int).Set(rec.SlashAmount)),
 	}
 }
 
@@ -2618,6 +2635,16 @@ func validateSubmitMaliciousVoteEvidenceArgs(args RPCSubmitMaliciousVoteEvidence
 	return nil
 }
 
+func validateAdjudicateMaliciousVoteEvidenceArgs(args RPCAdjudicateMaliciousVoteEvidenceArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if args.EvidenceHash == (common.Hash{}) {
+		return newRPCInvalidParamsError("evidenceHash", "must not be zero hash")
+	}
+	return nil
+}
+
 func (s *TOSAPI) buildValidatorMaintenanceTransactionArgs(
 	ctx context.Context,
 	args RPCValidatorMaintenanceArgs,
@@ -2667,6 +2694,49 @@ func (s *TOSAPI) buildSubmitMaliciousVoteEvidenceTransactionArgs(
 	payload, err := sysaction.MakeSysAction(sysaction.ActionCheckpointSubmitMaliciousVoteEvidence, args.Evidence)
 	if err != nil {
 		return nil, newRPCInvalidParamsError("payload", "failed to encode malicious vote evidence payload")
+	}
+	to := params.SystemActionAddress
+	input := hexutil.Bytes(payload)
+	zero := hexutil.Big{}
+	txArgs := &TransactionArgs{
+		From:  &args.From,
+		To:    &to,
+		Gas:   args.Gas,
+		Value: &zero,
+		Nonce: args.Nonce,
+		Input: &input,
+	}
+	if currentSignerType, err := s.currentTxSignerType(ctx, args.From); err != nil {
+		return nil, err
+	} else if currentSignerType != nil {
+		txArgs.SignerType = currentSignerType
+	} else {
+		defaultSignerType := accountsigner.SignerTypeEd25519
+		txArgs.SignerType = &defaultSignerType
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := estimateSystemActionGas(payload)
+		if gasErr != nil {
+			return nil, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
+func (s *TOSAPI) buildAdjudicateMaliciousVoteEvidenceTransactionArgs(
+	ctx context.Context,
+	args RPCAdjudicateMaliciousVoteEvidenceArgs,
+) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionCheckpointAdjudicateMaliciousVoteEvidence, dpos.AdjudicateMaliciousVoteEvidencePayload{
+		EvidenceHash: args.EvidenceHash,
+	})
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode malicious vote adjudication payload")
 	}
 	to := params.SystemActionAddress
 	input := hexutil.Bytes(payload)
@@ -2888,6 +2958,58 @@ func (s *TOSAPI) BuildSubmitMaliciousVoteEvidenceTx(ctx context.Context, args RP
 		return nil, newRPCNotImplementedError("tos_buildSubmitMaliciousVoteEvidenceTx")
 	}
 	txArgs, err := s.buildSubmitMaliciousVoteEvidenceTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	tx := txArgs.toTransaction()
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":  args.From,
+			"to":    params.SystemActionAddress,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
+}
+
+func (s *TOSAPI) AdjudicateMaliciousVoteEvidence(ctx context.Context, args RPCAdjudicateMaliciousVoteEvidenceArgs) (common.Hash, error) {
+	if err := validateAdjudicateMaliciousVoteEvidenceArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_adjudicateMaliciousVoteEvidence")
+	}
+	txArgs, err := s.buildAdjudicateMaliciousVoteEvidenceTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildAdjudicateMaliciousVoteEvidenceTx(ctx context.Context, args RPCAdjudicateMaliciousVoteEvidenceArgs) (*RPCBuildTxResult, error) {
+	if err := validateAdjudicateMaliciousVoteEvidenceArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildAdjudicateMaliciousVoteEvidenceTx")
+	}
+	txArgs, err := s.buildAdjudicateMaliciousVoteEvidenceTransactionArgs(ctx, args)
 	if err != nil {
 		return nil, err
 	}

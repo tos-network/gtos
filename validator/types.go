@@ -27,6 +27,7 @@ var (
 	ErrAlreadyInMaintenance           = errors.New("validator: already in maintenance")
 	ErrNotInMaintenance               = errors.New("validator: not in maintenance")
 	ErrMaintenanceExpired             = errors.New("validator: maintenance window expired; withdraw and register again")
+	ErrInvalidSlashAmount             = errors.New("validator: invalid slash amount")
 	ErrInsufficientStake              = errors.New("validator: insufficient stake")
 	ErrInsufficientBalance            = errors.New("validator: sender balance below stake amount")
 	ErrValidatorRegistryBalanceBroken = errors.New("validator: validator registry balance invariant violated")

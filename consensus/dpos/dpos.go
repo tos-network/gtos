@@ -203,6 +203,9 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	if err := config.ValidateMaintenanceConfig(); err != nil {
 		return nil, err
 	}
+	if err := config.ValidateMaliciousVoteSlashConfig(); err != nil {
+		return nil, err
+	}
 	sealSignerType, err := params.NormalizeDPoSSealSignerType(config.SealSignerType)
 	if err != nil {
 		return nil, err

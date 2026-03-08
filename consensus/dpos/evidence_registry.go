@@ -2,6 +2,7 @@ package dpos
 
 import (
 	"encoding/binary"
+	"math/big"
 
 	"github.com/tos-network/gtos/common"
 	vmtypes "github.com/tos-network/gtos/core/vmtypes"
@@ -14,12 +15,23 @@ import (
 // preserved in the submission transaction input; this record provides indexing,
 // dedupe, and operator query state.
 type MaliciousVoteEvidenceRecord struct {
-	EvidenceHash common.Hash    `json:"evidenceHash"`
-	Number       uint64         `json:"number"`
-	Signer       common.Address `json:"signer"`
-	SubmittedBy  common.Address `json:"submittedBy"`
-	SubmittedAt  uint64         `json:"submittedAt"`
+	EvidenceHash  common.Hash                 `json:"evidenceHash"`
+	Number        uint64                      `json:"number"`
+	Signer        common.Address              `json:"signer"`
+	SubmittedBy   common.Address              `json:"submittedBy"`
+	SubmittedAt   uint64                      `json:"submittedAt"`
+	Status        MaliciousVoteEvidenceStatus `json:"status"`
+	AdjudicatedBy common.Address              `json:"adjudicatedBy"`
+	AdjudicatedAt uint64                      `json:"adjudicatedAt"`
+	SlashAmount   *big.Int                    `json:"slashAmount"`
 }
+
+type MaliciousVoteEvidenceStatus uint8
+
+const (
+	MaliciousVoteEvidenceSubmitted   MaliciousVoteEvidenceStatus = 1
+	MaliciousVoteEvidenceAdjudicated MaliciousVoteEvidenceStatus = 2
+)
 
 var (
 	evidenceCountSlot = crypto.Keccak256Hash([]byte("dpos.evidence.count"))
@@ -49,6 +61,22 @@ func evidenceNumberSlot(hash common.Hash) common.Hash {
 
 func evidenceBlockSlot(hash common.Hash) common.Hash {
 	return crypto.Keccak256Hash(append([]byte("dpos.evidence.block"), hash[:]...))
+}
+
+func evidenceStatusSlot(hash common.Hash) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("dpos.evidence.status"), hash[:]...))
+}
+
+func evidenceAdjudicatorSlot(hash common.Hash) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("dpos.evidence.adjudicator"), hash[:]...))
+}
+
+func evidenceAdjudicatedAtSlot(hash common.Hash) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("dpos.evidence.adjudicatedAt"), hash[:]...))
+}
+
+func evidenceSlashAmountSlot(hash common.Hash) common.Hash {
+	return crypto.Keccak256Hash(append([]byte("dpos.evidence.slashAmount"), hash[:]...))
 }
 
 func writeUint64Word(db vmtypes.StateDB, owner common.Address, slot common.Hash, n uint64) {
@@ -93,6 +121,17 @@ func writeHashWord(db vmtypes.StateDB, owner common.Address, slot common.Hash, h
 	db.SetState(owner, slot, hash)
 }
 
+func readBigWord(db vmtypes.StateDB, owner common.Address, slot common.Hash) *big.Int {
+	return db.GetState(owner, slot).Big()
+}
+
+func writeBigWord(db vmtypes.StateDB, owner common.Address, slot common.Hash, n *big.Int) {
+	if n == nil {
+		n = new(big.Int)
+	}
+	db.SetState(owner, slot, common.BigToHash(n))
+}
+
 func ReadMaliciousVoteEvidenceCount(db vmtypes.StateDB) uint64 {
 	return readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceCountSlot)
 }
@@ -106,11 +145,15 @@ func ReadMaliciousVoteEvidenceRecord(db vmtypes.StateDB, hash common.Hash) (*Mal
 		return nil, false
 	}
 	return &MaliciousVoteEvidenceRecord{
-		EvidenceHash: hash,
-		Number:       readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceNumberSlot(hash)),
-		Signer:       readAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSignerSlot(hash)),
-		SubmittedBy:  readAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSubmitterSlot(hash)),
-		SubmittedAt:  readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceBlockSlot(hash)),
+		EvidenceHash:  hash,
+		Number:        readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceNumberSlot(hash)),
+		Signer:        readAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSignerSlot(hash)),
+		SubmittedBy:   readAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSubmitterSlot(hash)),
+		SubmittedAt:   readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceBlockSlot(hash)),
+		Status:        MaliciousVoteEvidenceStatus(readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceStatusSlot(hash))),
+		AdjudicatedBy: readAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatorSlot(hash)),
+		AdjudicatedAt: readUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatedAtSlot(hash)),
+		SlashAmount:   readBigWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSlashAmountSlot(hash)),
 	}, true
 }
 
@@ -123,6 +166,17 @@ func appendMaliciousVoteEvidenceRecord(db vmtypes.StateDB, hash common.Hash, num
 	writeAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSubmitterSlot(hash), submitter)
 	writeAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSignerSlot(hash), signer)
 	writeUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceBlockSlot(hash), blockNumber)
+	writeUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceStatusSlot(hash), uint64(MaliciousVoteEvidenceSubmitted))
+	writeAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatorSlot(hash), common.Address{})
+	writeUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatedAtSlot(hash), 0)
+	writeBigWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSlashAmountSlot(hash), new(big.Int))
+}
+
+func adjudicateMaliciousVoteEvidenceRecord(db vmtypes.StateDB, hash common.Hash, adjudicator common.Address, blockNumber uint64, slashAmount *big.Int) {
+	writeUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceStatusSlot(hash), uint64(MaliciousVoteEvidenceAdjudicated))
+	writeAddressWord(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatorSlot(hash), adjudicator)
+	writeUint64Word(db, params.CheckpointEvidenceRegistryAddress, evidenceAdjudicatedAtSlot(hash), blockNumber)
+	writeBigWord(db, params.CheckpointEvidenceRegistryAddress, evidenceSlashAmountSlot(hash), slashAmount)
 }
 
 func ReadMaliciousVoteEvidenceHashes(db vmtypes.StateDB, limit uint64) []common.Hash {

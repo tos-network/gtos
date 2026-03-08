@@ -31,15 +31,17 @@ type rpcExtTestService struct {
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
 
-	lastSetSignerArgs        SetSignerArgs
-	lastBuildSignerArgs      SetSignerArgs
-	lastMaintenanceArgs      ValidatorMaintenanceArgs
-	lastMaintenanceBuildArgs ValidatorMaintenanceArgs
-	lastMaintenanceMethod    string
-	lastEvidenceSubmitArgs   SubmitMaliciousVoteEvidenceArgs
-	lastEvidenceBuildArgs    SubmitMaliciousVoteEvidenceArgs
-	lastDPoSQueryAddress     common.Address
-	lastDPoSQueryBlock       string
+	lastSetSignerArgs               SetSignerArgs
+	lastBuildSignerArgs             SetSignerArgs
+	lastMaintenanceArgs             ValidatorMaintenanceArgs
+	lastMaintenanceBuildArgs        ValidatorMaintenanceArgs
+	lastMaintenanceMethod           string
+	lastEvidenceSubmitArgs          SubmitMaliciousVoteEvidenceArgs
+	lastEvidenceBuildArgs           SubmitMaliciousVoteEvidenceArgs
+	lastEvidenceAdjudicateArgs      AdjudicateMaliciousVoteEvidenceArgs
+	lastEvidenceAdjudicateBuildArgs AdjudicateMaliciousVoteEvidenceArgs
+	lastDPoSQueryAddress            common.Address
+	lastDPoSQueryBlock              string
 }
 
 func (s *rpcExtTestService) GetChainProfile() interface{} {
@@ -172,39 +174,68 @@ func (s *rpcExtTestService) BuildSubmitMaliciousVoteEvidenceTx(args SubmitMalici
 	}
 }
 
+func (s *rpcExtTestService) AdjudicateMaliciousVoteEvidence(args AdjudicateMaliciousVoteEvidenceArgs) common.Hash {
+	s.lastEvidenceAdjudicateArgs = args
+	return common.HexToHash("0x5")
+}
+
+func (s *rpcExtTestService) BuildAdjudicateMaliciousVoteEvidenceTx(args AdjudicateMaliciousVoteEvidenceArgs) interface{} {
+	s.lastEvidenceAdjudicateBuildArgs = args
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0x33, 0x44},
+	}
+}
+
 func (s *rpcExtTestService) GetMaliciousVoteEvidence(hash common.Hash, block string) interface{} {
 	s.lastGetCodeHash = hash
 	s.lastGetCodeBlock = block
 	return struct {
-		EvidenceHash common.Hash    `json:"evidenceHash"`
-		Number       hexutil.Uint64 `json:"number"`
-		Signer       common.Address `json:"signer"`
-		SubmittedBy  common.Address `json:"submittedBy"`
-		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+		EvidenceHash  common.Hash    `json:"evidenceHash"`
+		Number        hexutil.Uint64 `json:"number"`
+		Signer        common.Address `json:"signer"`
+		SubmittedBy   common.Address `json:"submittedBy"`
+		SubmittedAt   hexutil.Uint64 `json:"submittedAt"`
+		Status        string         `json:"status"`
+		AdjudicatedBy common.Address `json:"adjudicatedBy"`
+		AdjudicatedAt hexutil.Uint64 `json:"adjudicatedAt"`
+		SlashAmount   *hexutil.Big   `json:"slashAmount"`
 	}{
-		EvidenceHash: hash,
-		Number:       hexutil.Uint64(64),
-		Signer:       common.HexToAddress("0x100"),
-		SubmittedBy:  common.HexToAddress("0x200"),
-		SubmittedAt:  hexutil.Uint64(77),
+		EvidenceHash:  hash,
+		Number:        hexutil.Uint64(64),
+		Signer:        common.HexToAddress("0x100"),
+		SubmittedBy:   common.HexToAddress("0x200"),
+		SubmittedAt:   hexutil.Uint64(77),
+		Status:        "adjudicated",
+		AdjudicatedBy: common.HexToAddress("0x300"),
+		AdjudicatedAt: hexutil.Uint64(88),
+		SlashAmount:   (*hexutil.Big)(big.NewInt(123)),
 	}
 }
 
 func (s *rpcExtTestService) ListMaliciousVoteEvidence(limit hexutil.Uint64, block string) interface{} {
 	s.lastGetCodeBlock = block
 	return []struct {
-		EvidenceHash common.Hash    `json:"evidenceHash"`
-		Number       hexutil.Uint64 `json:"number"`
-		Signer       common.Address `json:"signer"`
-		SubmittedBy  common.Address `json:"submittedBy"`
-		SubmittedAt  hexutil.Uint64 `json:"submittedAt"`
+		EvidenceHash  common.Hash    `json:"evidenceHash"`
+		Number        hexutil.Uint64 `json:"number"`
+		Signer        common.Address `json:"signer"`
+		SubmittedBy   common.Address `json:"submittedBy"`
+		SubmittedAt   hexutil.Uint64 `json:"submittedAt"`
+		Status        string         `json:"status"`
+		AdjudicatedBy common.Address `json:"adjudicatedBy"`
+		AdjudicatedAt hexutil.Uint64 `json:"adjudicatedAt"`
+		SlashAmount   *hexutil.Big   `json:"slashAmount"`
 	}{
 		{
-			EvidenceHash: common.HexToHash("0xa1"),
-			Number:       hexutil.Uint64(limit),
-			Signer:       common.HexToAddress("0x100"),
-			SubmittedBy:  common.HexToAddress("0x200"),
-			SubmittedAt:  hexutil.Uint64(77),
+			EvidenceHash:  common.HexToHash("0xa1"),
+			Number:        hexutil.Uint64(limit),
+			Signer:        common.HexToAddress("0x100"),
+			SubmittedBy:   common.HexToAddress("0x200"),
+			SubmittedAt:   hexutil.Uint64(77),
+			Status:        "submitted",
+			AdjudicatedBy: common.Address{},
+			AdjudicatedAt: hexutil.Uint64(0),
+			SlashAmount:   (*hexutil.Big)(big.NewInt(0)),
 		},
 	}
 }
@@ -511,11 +542,31 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		t.Fatalf("buildSubmitMaliciousVoteEvidence args were not forwarded")
 	}
 
+	adjArgs := AdjudicateMaliciousVoteEvidenceArgs{From: from, EvidenceHash: common.HexToHash("0xa1")}
+	adjHash, err := client.AdjudicateMaliciousVoteEvidence(ctx, adjArgs)
+	if err != nil {
+		t.Fatalf("AdjudicateMaliciousVoteEvidence error: %v", err)
+	}
+	if adjHash != common.HexToHash("0x5") || svc.lastEvidenceAdjudicateArgs.From != from {
+		t.Fatalf("unexpected malicious vote adjudicate result: hash=%s args=%+v", adjHash.Hex(), svc.lastEvidenceAdjudicateArgs)
+	}
+
+	adjTx, err := client.BuildAdjudicateMaliciousVoteEvidenceTx(ctx, adjArgs)
+	if err != nil {
+		t.Fatalf("BuildAdjudicateMaliciousVoteEvidenceTx error: %v", err)
+	}
+	if adjTx == nil || len(adjTx.Raw) != 2 || adjTx.Raw[0] != 0x33 {
+		t.Fatalf("unexpected buildAdjudicateMaliciousVoteEvidenceTx result: %+v", adjTx)
+	}
+	if svc.lastEvidenceAdjudicateBuildArgs.From != from {
+		t.Fatalf("buildAdjudicateMaliciousVoteEvidence args were not forwarded")
+	}
+
 	rec, err := client.GetMaliciousVoteEvidence(ctx, common.HexToHash("0xa1"), big.NewInt(12))
 	if err != nil {
 		t.Fatalf("GetMaliciousVoteEvidence error: %v", err)
 	}
-	if svc.lastGetCodeBlock != "0xc" || rec == nil || rec.Number != 64 {
+	if svc.lastGetCodeBlock != "0xc" || rec == nil || rec.Number != 64 || rec.Status != "adjudicated" || rec.SlashAmount == nil || rec.SlashAmount.Cmp(big.NewInt(123)) != 0 {
 		t.Fatalf("unexpected GetMaliciousVoteEvidence response: block=%q rec=%+v", svc.lastGetCodeBlock, rec)
 	}
 
