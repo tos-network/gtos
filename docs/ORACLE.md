@@ -41,6 +41,45 @@ This document is intentionally split into two layers:
 5. Do not depend on delegation, zkTLS verification, SNARK verification, TEE attestation, or zkML for the first implementation.
 6. Still define the Layer B end-state precisely enough that Layer A does not paint the protocol into a corner.
 
+## 2A. GTOS Infrastructure Support Matrix
+
+If GTOS adopts a contract-first oracle architecture, the oracle protocol itself should live in user-deployed contracts, while GTOS provides reusable infrastructure primitives.
+
+The matrix below separates what the current codebase already provides from what still needs to be implemented for a general-purpose agent-native oracle stack.
+
+| Capability | Status | Current GTOS support | Still needed |
+| --- | --- | --- | --- |
+| Contract deployment and contract-to-contract composition | Available | LVM already supports `.tor` package deployment, direct contract calls, and `tos.package_call` / `tos.package(...)` for package-level composition. | No new primitive is required for a baseline contract oracle; only example packages and tooling are optional. |
+| Agent / identity / capability primitives | Available | `AgentRegistryAddress`, `CapabilityRegistryAddress`, and related sysactions already exist; contracts can read `stake`, `suspended`, `is_registered`, and capability bits through `tos.agentload`, `tos.hascapability`, and `tos.capabilitybit`. | Oracle-specific admission rules remain a contract concern. |
+| Reputation primitives | Available | `ReputationHubAddress` exists, reputation scoring is already implemented, and contracts can read cumulative reputation and rating count through `tos.agentload`. | Optional helper libraries for oracle-specific weighting, snapshots, or scoring policy. |
+| Staking / escrow / slashing primitives | Partial | GTOS already has agent stake, and contracts can manage contract-local escrow with `tos.escrow`, `tos.release`, and `tos.slash`. | Oracle-specific global bond pools, delegated oracle stake, weighted stake accounting, and committee-bond mechanics. |
+| Scheduled task / timer | Available | `TaskSchedulerAddress`, `TASK_SCHEDULE`, `TASK_CANCEL`, and block-based task execution already exist. This is enough to support activation keepers and delayed resolution triggers. | Optional higher-level keeper helpers tailored to oracle workflows. |
+| Low-cost host reads | Partial | GTOS already exposes efficient host reads such as `tos.agentload` and `tos.taskinfo`, plus package-level call composition. | Oracle-specific reads such as `tos.oracleresult`, `tos.oracleheaderhash`, `tos.oracleoperator`, or equivalent standard helpers. |
+| Canonical hashing / Oracle result ABI helper | Missing | The repository has a draft oracle result ABI spec, but no runtime helper or standard library implementation yet. | A canonical encode/decode/hash helper for bounded oracle results and headers. |
+| zkTLS / TLSNotary verifier primitive | Missing | No zkTLS or TLSNotary verifier exists in the current runtime. | A native verifier or precompile, plus standardized public-input and failure semantics. |
+| SNARK verifier primitive | Missing | GTOS does not currently expose a general succinct-proof verifier for oracle use. Existing proof verification code under `crypto/uno/` is privacy-specific, not a reusable oracle primitive. | A generic proof verification interface keyed by verifier type, verifier key ID, and proof mode. |
+| Proof verification host hook | Missing | There is no `tos.verifyproof(...)` or equivalent host function today. | A contract-callable proof verification hook that can route to zkTLS, SNARK, or later proof systems. |
+| Oracle-specific committee / source-policy standardization | Missing | Contracts can encode these rules themselves, but GTOS does not currently provide shared registries for committee roots, verifier keys, or source-set templates. | Optional registries or standard helpers for committee roots, verifier-key metadata, and source-policy templates if protocol-wide reuse is desired. |
+
+Representative existing code paths:
+
+- `params/tos_params.go`
+- `sysaction/types.go`
+- `core/state_transition.go`
+- `core/vm/lvm.go`
+- `task/`
+- `reputation/`
+- `crypto/uno/verify.go`
+- `docs/GTOS_AI_Oracle_Result_ABI_Spec.md`
+
+This matrix implies a practical build order for a contract-first oracle stack on GTOS:
+
+1. ship canonical OracleResult hashing and ABI helpers
+2. ship oracle-specific low-cost read helpers
+3. ship a generic proof-verification hook
+4. ship zkTLS and SNARK verifier backends behind that hook
+5. standardize optional committee and source-policy registries only after real contract users need them
+
 ## 3. Layer A — What Ships in v1
 
 Version 1 includes:
@@ -416,20 +455,31 @@ Version 1 deliberately uses **one query = one commit/reveal round**.
 
 There is no `ORACLE_OPEN_ROUND` in v1.
 
+The query creator, not the oracle operator, defines the resolution policy.
+Creating a query means defining both:
+
+- the market question
+- the oracle execution rules for when observation may begin, what kind of observation is expected, and when final resolution is allowed
+
+Layer A therefore treats a query as a compact **oracle spec** set by the market creator or market factory.
+
 ### 11.1 Query state
 
 ```text
 QueryStatus:
-  0 = COMMIT_OPEN
-  1 = REVEAL_OPEN
-  2 = FINALIZED
-  3 = FAILED
-  4 = CANCELLED
+  0 = CREATED
+  1 = COMMIT_OPEN
+  2 = REVEAL_OPEN
+  3 = FINALIZED
+  4 = FAILED
+  5 = CANCELLED
 ```
 
 The phase is block-driven:
 
-- from creation through `commit_end_block`: `COMMIT_OPEN`
+- from creation until `activation_block`: `CREATED`
+- after `activation_block`, the first valid commit may lazily open the round
+- from `round_opened_at_block` through `commit_end_block`: `COMMIT_OPEN`
 - from `commit_end_block + 1` through `reveal_end_block`: `REVEAL_OPEN`
 - after that: only terminal transitions are allowed
 
@@ -449,6 +499,12 @@ Handlers may update the stored status lazily when a query is touched after the p
   "min_responses": 3,
   "threshold_m": 2,
   "max_operators": 7,
+  "activation_block": 123456,
+  "observation_mode": 0,
+  "observation_start_block": 123460,
+  "observation_end_block": 123460,
+  "resolution_earliest_block": 123500,
+  "fetch_policy": 0,
   "commit_duration_blocks": 120,
   "reveal_duration_blocks": 120
 }
@@ -462,11 +518,107 @@ Funding rule:
 Validation rules:
 
 - `1 <= threshold_m <= min_responses <= max_operators <= OracleMaxOperatorsPerQuery`
+- `activation_block <= observation_start_block <= observation_end_block <= resolution_earliest_block`
 - `commit_duration_blocks >= OracleMinCommitBlocks`
 - `reveal_duration_blocks >= OracleMinRevealBlocks`
 - `proof_mode <= PROOF_EVIDENCE_AUTH` in v1
+- `observation_mode` must be one of the supported Layer A modes
+- `fetch_policy` must be one of the supported Layer A policies
 
-### 11.3 Query ID
+Implementation note:
+
+- Layer A stores schedule fields as block numbers, not wall-clock timestamps
+- user-facing UTC times must be converted off-chain into target block numbers before `ORACLE_CREATE_QUERY`
+
+### 11.3 Query activation, observation modes, and resolution scheduling
+
+Layer A separates three ideas:
+
+- **activation**
+  - when oracle operators are allowed to begin formal participation
+- **observation**
+  - whether the query expects one-time, windowed, continuous, or deferred observation behavior
+- **resolution**
+  - when the chain is allowed to finalize
+
+Required scheduling fields:
+
+- `activation_block`
+  - earliest block at which the query may become active
+- `observation_mode`
+  - defines the intended observation pattern
+- `observation_start_block`
+  - earliest block whose evidence should count toward settlement
+- `observation_end_block`
+  - latest block whose evidence should count toward settlement
+- `resolution_earliest_block`
+  - earliest block at which `ORACLE_FINALIZE` may succeed
+- `fetch_policy`
+  - describes whether operators act lazily on demand, via off-chain scheduling, or via external triggers
+
+Supported `observation_mode` values:
+
+```text
+0 = ONE_SHOT
+1 = WINDOWED
+2 = CONTINUOUS
+3 = DEFERRED_EVENT
+```
+
+Semantics:
+
+- `ONE_SHOT`
+  - use when the query is resolved by a single designated observation point
+  - recommended rule: `observation_start_block == observation_end_block`
+- `WINDOWED`
+  - use when evidence may be collected over a bounded interval
+- `CONTINUOUS`
+  - use when operators may observe throughout the full interval until the event occurs or the window closes
+- `DEFERRED_EVENT`
+  - use when the market may exist long before observation becomes meaningful
+  - this is the preferred mode for distant event markets such as elections years in advance
+
+Supported `fetch_policy` values:
+
+```text
+0 = MANUAL_ON_DEMAND
+1 = SCHEDULED
+2 = EVENT_TRIGGERED
+```
+
+Layer A interpretation:
+
+- `MANUAL_ON_DEMAND`
+  - default v1 mode
+  - operators or keepers act once the query enters its active window
+- `SCHEDULED`
+  - advisory metadata in Layer A
+  - real scheduler automation is a later integration target
+- `EVENT_TRIGGERED`
+  - advisory metadata in Layer A
+  - useful for describing off-chain keeper behavior, not native in-protocol triggers
+
+Lazy activation rule in Layer A:
+
+- the protocol does not begin fetching evidence by itself when the query is created
+- before `activation_block`, no commit or reveal is allowed
+- once `activation_block` is reached, any eligible operator or keeper may trigger the query's active round by submitting the first valid commit
+
+Round opening rule:
+
+- on the first valid `ORACLE_COMMIT` after `activation_block`, the handler sets:
+  - `roundOpenedAtBlock = current_block`
+  - `commitEndBlock = current_block + commit_duration_blocks`
+  - `revealEndBlock = commitEndBlock + reveal_duration_blocks`
+  - `status = COMMIT_OPEN`
+
+This gives Layer A a low-complexity model:
+
+- query creator defines when work should begin
+- operators decide when to act within that allowed window
+- protocol finalization remains bounded by `resolution_earliest_block`
+
+### 11.4 Query ID
 
 Use a per-creator nonce:
 
@@ -479,7 +631,7 @@ This requires:
 - `oracleCreatorNonceSlot(creator)` in state
 - append-only query list for enumeration
 
-### 11.4 Layer A semantics for `model_set_id`
+### 11.5 Layer A semantics for `model_set_id`
 
 Layer A stores `model_set_id` in reveal records and includes it in `commitment_hash`, but does not yet enforce a query-level model-set requirement.
 
@@ -600,7 +752,7 @@ Rules:
 Allowed only if:
 
 - sender is query creator
-- query is still `COMMIT_OPEN`
+- query is still `CREATED`
 - `commit_count == 0`
 
 Refund:
@@ -622,8 +774,9 @@ Refund:
 Rules:
 
 - operator must be `ACTIVE`
-- query must be `COMMIT_OPEN`
-- current block <= `commit_end_block`
+- current block >= `activation_block`
+- if query is `CREATED`, first valid commit lazily opens the round
+- if query is `COMMIT_OPEN`, current block <= `commit_end_block`
 - operator must not have committed already
 - `commit_count < max_operators`
 
@@ -742,6 +895,7 @@ Rules:
 
 - query must not already be terminal
 - current block > `reveal_end_block`
+- current block >= `resolution_earliest_block`
 
 ## 13. Aggregation and Finalization
 
@@ -957,6 +1111,15 @@ Fields:
 - `minResponses`
 - `thresholdM`
 - `maxOperators`
+- `activationBlock`
+- `observationMode`
+- `observationStartBlock`
+- `observationEndBlock`
+- `resolutionEarliestBlock`
+- `fetchPolicy`
+- `commitDurationBlocks`
+- `revealDurationBlocks`
+- `roundOpenedAtBlock`
 - `commitEndBlock`
 - `revealEndBlock`
 - `commitCount`
@@ -1170,7 +1333,10 @@ Create `oracle/oracle_test.go` covering at least:
 - stake increase and two-step unstake
 - create query happy path
 - create query rejects unsupported proof modes
+- create query rejects invalid activation / observation / resolution ordering
 - commit then reveal happy path
+- commit before `activation_block` is rejected
+- first valid commit after `activation_block` lazily opens the round and initializes block deadlines
 - first commit appends operator to the query participant index
 - reveal rejects bad commitment
 - reveal rejects policy mismatch
