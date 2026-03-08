@@ -231,6 +231,63 @@ func TestDirectorySearchTalkHandler(t *testing.T) {
 	}
 }
 
+func TestServiceClearRemovesPublishedProfile(t *testing.T) {
+	t.Parallel()
+
+	provider := startLocalUDPv5(t)
+	defer provider.Close()
+
+	svc, err := New(provider.LocalNode(), provider)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	cardJSON, err := json.Marshal(map[string]any{
+		"version":  1,
+		"agent_id": "provider-agent",
+		"capabilities": []map[string]any{
+			{"name": "sponsor.topup.testnet", "mode": "sponsored"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal card: %v", err)
+	}
+
+	if _, err := svc.Publish(PublishConfig{
+		PrimaryIdentity: common.HexToAddress("0x9999"),
+		Capabilities:    []string{"sponsor.topup.testnet"},
+		ConnectionModes: ConnectionModeTalkReq | ConnectionModeHTTPS,
+		CardJSON:        string(cardJSON),
+		CardSequence:    3,
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	info := svc.Clear()
+	if !info.Enabled {
+		t.Fatalf("expected discovery service to remain enabled")
+	}
+	if info.HasPublishedCard {
+		t.Fatalf("expected published card to be cleared")
+	}
+	if info.CardSequence != 0 {
+		t.Fatalf("expected card sequence to reset, got %d", info.CardSequence)
+	}
+	if len(info.Capabilities) != 0 {
+		t.Fatalf("expected capabilities to be cleared, got %v", info.Capabilities)
+	}
+
+	record := provider.LocalNode().Node().Record()
+	var version profileVersionEntry
+	if err := record.Load(&version); err == nil {
+		t.Fatalf("expected agv entry to be removed")
+	}
+	var bloom capabilityBloomEntry
+	if err := record.Load(&bloom); err == nil {
+		t.Fatalf("expected capability bloom entry to be removed")
+	}
+}
+
 func TestSearchIncludesTrustSummary(t *testing.T) {
 	t.Parallel()
 

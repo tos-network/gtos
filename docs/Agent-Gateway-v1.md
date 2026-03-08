@@ -1,6 +1,6 @@
 # Agent Gateway v1
 
-Status: Draft
+Status: Implemented
 Audience: GTOS networking, agent runtime authors, gateway agent operators, service providers
 
 ## 1. Summary
@@ -979,29 +979,61 @@ load distribution. Agent Card lists multiple endpoints.
 
 ## 22. Rollout Plan
 
-### Phase 1
+All Agent Gateway v1 rollout tasks below are implemented in the current
+`GTOS + OpenFox` stack.
+
+### Phase 1 — complete
 
 - `gateway.relay` capability definition
-- gateway bootnode list format and distribution
+- gateway bootnode list format, signature verification, and distribution
 - provider outbound WebSocket session to gateway agents
 - signed session auth with `gateway_agent_id` binding
 - public endpoint allocation and HTTPS request/response forwarding
 - OpenFox faucet capability over gateway relay
 
-### Phase 2
+### Phase 2 — complete
 
 - discovery-based gateway selection with reputation and stake filtering
 - gateway migration without session interruption
+- deterministic provider path tokens and `session_resume`
+- dynamic route updates over live relay sessions
 - streaming support over relay sessions
 - multi-gateway redundancy
 - relay payment enforcement (x402)
 
-### Phase 3
+### Phase 3 — complete
 
 - on-chain `gateway.relay` capability registry
 - gateway agent reputation feedback from providers
 - optional end-to-end encrypted invocation payloads
 - relay quality metrics and SLA declarations in Agent Card
+
+## 22A. Implementation Status
+
+The current implementation covers the full rollout scope above:
+
+- GTOS Agent Discovery exposes `gateway.relay` providers through the same
+  discovery, card, and trust summary path as any other capability
+- OpenFox can act as:
+  - gateway agent
+  - NAT'd provider
+  - requester
+- OpenFox gateway providers can:
+  - discover gateway agents through discovery or bootnode fallback
+  - verify signed gateway bootnode lists before using them
+  - open one or more outbound relay sessions
+  - resume relay sessions while keeping stable public provider paths
+  - add or remove relayed routes without reopening the session
+  - publish multiple gateway-backed endpoints in the Agent Card
+  - clear Agent Discovery publication when all invokable endpoints disappear
+  - relay sponsored, paid, streaming, and optional E2E-encrypted capability
+    invocations
+  - submit optional gateway feedback to local scoring and GTOS reputation
+- Gateway agents can:
+  - advertise `gateway.relay`
+  - expose both relay-session and requester-invocation faces
+  - enforce `provider_pays`, `requester_pays`, and `split` TOS x402 relay payments
+  - publish relay quality and SLA metadata in Agent Card capability policy
 
 ## 23. Implementation Guidance for GTOS
 

@@ -97,6 +97,32 @@ func (s *Service) Publish(cfg PublishConfig) (Info, error) {
 	return s.Info(), nil
 }
 
+func (s *Service) Clear() Info {
+	if !s.Enabled() {
+		return Info{
+			Enabled:        false,
+			ProfileVersion: ProfileVersion,
+			TalkProtocol:   TalkProtocol,
+		}
+	}
+
+	s.localNode.Delete(profileVersionEntry(0))
+	s.localNode.Delete(primaryAddressEntry{})
+	s.localNode.Delete(connectionModesEntry(0))
+	s.localNode.Delete(capabilityBloomEntry{})
+	s.localNode.Delete(cardSequenceEntry(0))
+
+	s.mu.Lock()
+	s.capabilities = nil
+	s.cardJSON = ""
+	s.cardSequence = 0
+	s.primaryIdentity = common.Address{}
+	s.connectionModes = 0
+	s.mu.Unlock()
+
+	return s.Info()
+}
+
 func (s *Service) Info() Info {
 	if !s.Enabled() {
 		return Info{

@@ -54,6 +54,14 @@ func (s *TOSAPI) AgentDiscoveryPublish(args AgentDiscoveryPublishArgs) (agentdis
 	})
 }
 
+func (s *TOSAPI) AgentDiscoveryClear() (agentdiscovery.Info, error) {
+	svc := s.agentDiscoveryService()
+	if svc == nil {
+		return agentdiscovery.Info{}, agentdiscovery.ErrDiscoveryDisabled
+	}
+	return svc.Clear(), nil
+}
+
 func (s *TOSAPI) AgentDiscoverySearch(capability string, limit *int) ([]agentdiscovery.SearchResult, error) {
 	svc := s.agentDiscoveryService()
 	if svc == nil {
