@@ -1,12 +1,18 @@
-# GTOS Oracle v1 Design
+# GTOS Oracle Design
 
 **Status:** Proposed  
 **Target repository:** `gtos`  
-**Scope:** Native on-chain oracle module that is implementable with the current GTOS architecture.
+**Scope:** Dual-layer oracle design for GTOS:
+
+- Layer A: implementable native oracle MVP in the current GTOS architecture
+- Layer B: verifiable AI consensus path for later releases
 
 ## 1. Purpose
 
-This document turns the broader OracleHub, incentive, and result-ABI drafts into a version that can be implemented in the current `gtos` codebase without new cryptographic verifiers, new databases, or a new execution environment.
+This document turns the broader OracleHub, incentive, and result-ABI drafts into a design that serves two purposes at once:
+
+- specify a version that can be implemented in the current `gtos` codebase without new cryptographic verifiers, new databases, or a new execution environment
+- preserve a clean upgrade path toward an agent-native oracle in which `LLM + zkTLS + SNARK` can become a first-class protocol path
 
 The design target is a native oracle module for:
 
@@ -21,6 +27,11 @@ The implementation model must fit the current GTOS pattern:
 - state stored in a fixed system account via keccak256-derived slots
 - optional LVM read helpers in `core/vm/lvm.go`
 
+This document is intentionally split into two layers:
+
+- **Layer A**: what GTOS can encode and ship now
+- **Layer B**: what GTOS should converge to for verifiable AI consensus
+
 ## 2. Design Principles
 
 1. Ship a useful oracle before shipping a maximal oracle.
@@ -28,8 +39,9 @@ The implementation model must fit the current GTOS pattern:
 3. Accept evidence commitments in v1, not full proof verification.
 4. Reuse existing GTOS agent and reputation infrastructure where it is already real.
 5. Do not depend on delegation, zkTLS verification, SNARK verification, TEE attestation, or zkML for the first implementation.
+6. Still define the Layer B end-state precisely enough that Layer A does not paint the protocol into a corner.
 
-## 3. What Ships in v1
+## 3. Layer A — What Ships in v1
 
 Version 1 includes:
 
@@ -55,7 +67,7 @@ Version 1 includes:
 - reputation updates through the existing `reputation/` package
 - LVM read helper for finalized oracle results
 
-## 4. Explicit Non-Goals for v1
+## 4. Layer A — Explicit Non-Goals for v1
 
 The following items are intentionally cut from the initial implementation:
 
@@ -73,9 +85,9 @@ The following items are intentionally cut from the initial implementation:
 - separate `OracleMarketAddress` and `OracleEvidenceAddress`
 - full challenge game with subjective evidence adjudication
 
-These are not rejected forever. They are postponed until the base oracle is live and stable.
+These are not rejected forever. They are postponed into Layer B so the base oracle can go live first.
 
-## 5. High-Level Model
+## 5. Layer A — High-Level Model
 
 GTOS Oracle v1 is a native commit/reveal oracle with evidence commitments.
 
@@ -173,6 +185,71 @@ Normalized field usage:
 - `SCALAR`: use `scalar_value_i128` and `decimals_u8`
 - `RANGE`: use `outcome_u32` as bucket index, plus `raw_value_i128` and `decimals_u8`
 - `STATUS`: use `status_code_u8` and `reason_code_u32`
+
+### 6.4 Canonical encoding and hash rules
+
+All Layer A formulas that use `H(...)` must use the same byte-level encoding.
+
+Define:
+
+```text
+H(x) = keccak256(x)
+```
+
+Field encoding rules:
+
+- `uint8`: 1 byte
+- `uint16`: 2 bytes, big-endian
+- `uint32`: 4 bytes, big-endian
+- `uint64`: 8 bytes, big-endian
+- `int128`: 16 bytes, two's-complement, big-endian
+- `bool`: 1 byte, `0x00` or `0x01`
+- `bytes32` / `common.Hash`: raw 32 bytes
+- `address`: raw 20 bytes
+
+Concatenation rule:
+
+- fixed-width fields are concatenated directly
+- there are no length prefixes in Layer A hashing formulas
+- fields that are not used by a given `result_type` must be encoded as all-zero fixed-width values
+
+Normalized Layer A `outcome_hash` layout:
+
+```text
+outcome_hash =
+  H(
+    result_type:u8 ||
+    outcome_u32:u32 ||
+    scalar_value_i128:i128 ||
+    raw_value_i128:i128 ||
+    decimals_u8:u8 ||
+    invalid_u8:u8 ||
+    status_code_u8:u8 ||
+    reason_code_u32:u32
+  )
+```
+
+Normalized Layer A `commitment_hash` layout:
+
+```text
+commitment_hash =
+  H(
+    query_id:bytes32 ||
+    outcome_hash:bytes32 ||
+    confidence_bps:u16 ||
+    evidence_root:bytes32 ||
+    source_proofs_root:bytes32 ||
+    policy_hash:bytes32 ||
+    model_set_id:bytes32 ||
+    salt:bytes32
+  )
+```
+
+Implementation notes:
+
+- `confidence_bps` is encoded as `uint16`
+- `model_set_id` and `salt` are fixed as `bytes32` in Layer A payloads
+- `metadata_uri_hash`, `spec_hash`, and other committed hashes in Layer A should also be represented as `bytes32`
 
 ## 7. Proof Modes
 
@@ -386,6 +463,23 @@ This requires:
 - `oracleCreatorNonceSlot(creator)` in state
 - append-only query list for enumeration
 
+### 11.4 Layer A semantics for `model_set_id`
+
+Layer A stores `model_set_id` in reveal records and includes it in `commitment_hash`, but does not yet enforce a query-level model-set requirement.
+
+This means:
+
+- `model_set_id` is reporter-declared metadata in Layer A
+- it is useful for audit logs, off-chain analysis, and later migration to Layer B
+- it is not, by itself, a chain-enforced guarantee that all operators used the same model family or version
+
+If a market requires hard model-set constraints, it must use the Layer B fields:
+
+- `model_policy_hash`
+- query-level `model_set_id`
+- `committee_root`
+- proof-bearing verification rules
+
 ## 12. System Actions
 
 Add these `ActionKind` values to `sysaction/types.go`:
@@ -544,6 +638,58 @@ commitment_hash =
   )
 ```
 
+### 12.4 Reveal fault semantics under `sysaction`
+
+Because GTOS system actions revert all writes when the handler returns an error, Layer A must distinguish between:
+
+- **hard rejection errors**
+- **fault-bearing reveals**
+
+Hard rejection errors return `error` and must not mutate oracle state.
+
+Use hard rejection only for:
+
+- payload JSON cannot be decoded
+- `query_id` does not exist
+- operator is not registered as an active oracle operator
+- query is already terminal
+- query is not in reveal phase
+- operator never committed for this query
+- operator already revealed for this query
+
+Fault-bearing reveals return `nil`, write state, and may slash.
+
+Use fault-bearing reveal handling for decodable, attributable submissions where the operator had a valid commit but the revealed content is objectively invalid.
+
+Fault-bearing classes in Layer A:
+
+- `FAULT_RESULT_MALFORMED`
+  - result body is semantically invalid for its `result_type`
+  - examples: out-of-range boolean outcome, impossible enum/body combination, invalid field combination
+- `FAULT_COMMITMENT_MISMATCH`
+  - recomputed `commitment_hash` does not match the stored commit
+- `FAULT_POLICY_MISMATCH`
+  - reveal `policy_hash` does not match the query
+- `FAULT_EVIDENCE_REQUIREMENT_MISSING`
+  - required `evidence_root` or `source_proofs_root` is zero for the query proof mode
+
+When a fault-bearing reveal is processed, the handler must:
+
+1. set `commit.revealed = true`
+2. write a reveal record with:
+   - `accepted = false`
+   - `faultCode`
+   - `slashClass`
+3. apply the corresponding slash immediately
+4. decrement `active_commitments`
+5. return `nil`
+
+This ensures:
+
+- the operator is not double-slashed later as a non-revealer
+- objectively faulty reveals become visible on-chain
+- finalize logic can ignore `accepted = false` reveals during threshold aggregation
+
 `ORACLE_FINALIZE`
 
 ```json
@@ -636,14 +782,18 @@ Only objective, chain-checkable slashes are included.
 Light slash:
 
 - committed but never revealed
-- malformed reveal payload
+- semantically malformed reveal
 - reveal commitment mismatch
 
 Medium slash:
 
 - policy hash mismatch
 - missing required evidence fields for declared proof mode
-- attempting duplicate reveal after accepted commit
+
+Clarification:
+
+- raw JSON decode failure is a hard rejection error, not a slashable reveal
+- duplicate reveal after a stored reveal is a hard rejection error, not a separate slash class
 
 No heavy slash is included in v1 because no cryptographic evidence verifier exists yet.
 
@@ -678,6 +828,21 @@ Implementation note:
 
 All oracle state is stored under `params.OracleHubAddress`.
 
+Layer A storage is intentionally split into two classes:
+
+- **persistent state**
+  - long-lived state required after a query reaches terminal status
+  - operator state, query summary state, and finalized result state belong here
+- **ephemeral state**
+  - active-round working state needed only until query finalization
+  - commit and reveal records belong here
+  - ephemeral state must be deleted when a query reaches `FINALIZED`, `FAILED`, or `CANCELLED`
+
+Design rule:
+
+- if a field is only needed to evaluate one in-flight query, it should not survive query finalization
+- if a field can be reconstructed from tx history or from the finalized result object, it should not be kept in persistent state
+
 ### 15.1 Slot helpers
 
 Use field-per-slot layout, following `validator/` and `task/`.
@@ -685,11 +850,11 @@ Use field-per-slot layout, following `validator/` and `task/`.
 Prefixes:
 
 ```text
-"oracle\x00operator\x00"
-"oracle\x00query\x00"
-"oracle\x00commit\x00"
-"oracle\x00reveal\x00"
-"oracle\x00final\x00"
+"oracle\x00p\x00operator\x00"
+"oracle\x00p\x00query\x00"
+"oracle\x00e\x00commit\x00"
+"oracle\x00e\x00reveal\x00"
+"oracle\x00p\x00final\x00"
 "oracle\x00opcount"
 "oracle\x00oplist\x00"
 "oracle\x00qcount"
@@ -703,7 +868,12 @@ Derived slot rule:
 slot = keccak256(prefix || key_bytes || field_name)
 ```
 
-### 15.2 Operator slots
+Recommended naming:
+
+- `p` = persistent
+- `e` = ephemeral
+
+### 15.2 Persistent operator state
 
 Keyed by `operator address`.
 
@@ -723,7 +893,11 @@ Fields:
 - `lastActiveBlock`
 - `registered`
 
-### 15.3 Query slots
+Rationale:
+
+- all fields here are required across many queries and across terminal query boundaries
+
+### 15.3 Persistent query state
 
 Keyed by `query_id`.
 
@@ -747,33 +921,45 @@ Fields:
 - `finalizedAtBlock`
 - `finalResultHash`
 
-### 15.4 Commit slots
+Rationale:
+
+- this is the compact summary of the query itself
+- it remains useful after commit/reveal working state has been cleared
+
+### 15.4 Ephemeral commit state
 
 Keyed by `(query_id, operator)`.
 
 Fields:
 
 - `commitmentHash`
-- `committed`
 - `revealed`
-- `countedMiss`
 
-`countedMiss` prevents double-slashing or double-decrement during finalize.
+Encoding rule:
 
-### 15.5 Reveal slots
+- `commitmentHash == 0` means "no commit exists"
+- `revealed == 1` means the operator has consumed their commit by either:
+  - accepted reveal
+  - fault-bearing reveal
+  - non-reveal processing during finalize
+
+Rationale:
+
+- `committed` is derivable from `commitmentHash != 0`
+- `countedMiss` is unnecessary if finalize performs a single terminal cleanup pass and then deletes the ephemeral record
+
+### 15.5 Ephemeral reveal state
 
 Keyed by `(query_id, operator)`.
 
 Fields:
 
 - `accepted`
+- `faultCode`
 - `outcomeHash`
 - `confidenceBps`
 - `evidenceRoot`
 - `sourceProofsRoot`
-- `policyHash`
-- `modelSetId`
-- `resultType`
 - `outcomeU32`
 - `scalarValue`
 - `rawValue`
@@ -781,9 +967,14 @@ Fields:
 - `invalid`
 - `statusCode`
 - `reasonCode`
-- `slashClass`
 
-### 15.6 Final result slots
+Rationale:
+
+- `policyHash` and `resultType` are already stored on the query
+- `modelSetId` is Layer A audit metadata and should remain in tx payload / history rather than persistent or ephemeral state
+- `slashClass` is derivable from `faultCode`
+
+### 15.6 Persistent finalized result state
 
 Keyed by `query_id`.
 
@@ -808,6 +999,38 @@ Fields:
 - `reasonCode`
 - `resultHash`
 
+Rationale:
+
+- this is the only per-query result object that on-chain consumers should need after terminalization
+
+### 15.7 Ephemeral cleanup rule
+
+When a query reaches `FINALIZED`, `FAILED`, or `CANCELLED`, the handler must clear all ephemeral state for that query:
+
+- all `oracle\x00e\x00commit\x00(query_id, operator, *)` slots
+- all `oracle\x00e\x00reveal\x00(query_id, operator, *)` slots
+
+Cleanup procedure:
+
+1. iterate over operators that committed or revealed for the query
+2. finalize rewards, refunds, and slashes
+3. decrement any remaining `activeCommitments`
+4. zero the ephemeral commit/reveal slots
+5. leave only persistent query/operator/final state behind
+
+Because `max_operators` is capped at a small number in Layer A, this terminal cleanup pass is acceptable.
+
+### 15.8 Auditing model
+
+After cleanup, auditability comes from:
+
+- persistent query summary state
+- persistent final result state
+- operator counters and reputation changes
+- the original commit/reveal transactions in chain history
+
+Layer A does not aim to keep a permanently queryable per-reveal archive in protocol state.
+
 ## 16. Handler Behavior
 
 `oracle/handler.go` should follow the same pattern as other native modules:
@@ -830,6 +1053,7 @@ Important invariants:
 - `active_commitments` must return to zero once a query reaches a terminal state
 - no query may finalize twice
 - only one commit and one reveal per operator per query
+- ephemeral commit/reveal state must be zeroed when the query becomes terminal
 
 ## 17. LVM Read API
 
@@ -874,6 +1098,8 @@ Create `oracle/oracle_test.go` covering at least:
 - commit then reveal happy path
 - reveal rejects bad commitment
 - reveal rejects policy mismatch
+- malformed JSON reveal is hard-rejected with no oracle state mutation
+- decodable faulty reveal records `accepted = false`, stores `faultCode`, and applies slash
 - finalize success with `M-of-N` threshold
 - finalize failure with insufficient reveals
 - finalize failure on tie
@@ -881,24 +1107,323 @@ Create `oracle/oracle_test.go` covering at least:
 - reward payout to winners
 - refund on failed query
 - operator `active_commitments` accounting
+- terminal finalize clears ephemeral commit/reveal state
 - LVM `tos.oracleresult()` reads finalized values correctly
 
 Use `go test -p 96 ./oracle ./core/vm -count=1`.
 
-## 19. Deferred v2 Work
+## 19. Layer B — Verifiable AI Consensus Path
 
-After v1 is merged and stable, the next meaningful upgrades are:
+Layer B is the protocol path that addresses the full agent-native oracle vision:
 
-1. objective challenge actions for narrow fraud classes
-2. task-scheduler integration for recurring queries
-3. proof mode `3/4/5` with real verifier hooks
-4. stake-weighted or reputation-weighted aggregation
-5. delegated oracle stake once delegation becomes more than nonce tracking
-6. richer result-envelope hashing utilities for `.abi` consumers
+- `M-of-N` oracle agents
+- each operator may run a small, bounded LLM-based extraction pipeline
+- operators consume authenticated source evidence such as zkTLS or TLSNotary transcripts
+- the committee reduces evidence into a canonical bounded result
+- a succinct proof may attest to the aggregation and result-binding process
 
-## 20. Summary
+This is the layer in which the oracle stops looking like "people reporting answers" and starts looking like **verifiable AI consensus**.
 
-This design intentionally narrows OracleHub into something GTOS can actually ship:
+### 19.1 What Layer B is for
+
+Layer B is specifically for query classes where agents need more than a human-style reporter network:
+
+- news facts
+- market state snapshots
+- external event resolution
+- multi-source composite judgments
+
+In these classes, the protocol must eventually express three distinct roles:
+
+- `LLM`: interpret authenticated evidence under a fixed extraction policy
+- `zkTLS`: authenticate where the evidence came from
+- `SNARK`: compress committee agreement and pipeline correctness into an efficiently verifiable proof
+
+### 19.2 Layer B pipeline
+
+The target pipeline is:
+
+```text
+authenticated source sessions
+  -> source proofs root
+  -> extraction / normalization policy
+  -> model-set constrained oracle committee
+  -> canonical result hash
+  -> committee agreement root
+  -> succinct proof
+  -> native verification
+  -> finalized verified result
+```
+
+Important boundary:
+
+- AI is not the root source of truth
+- authenticated source bytes are the root evidence
+- AI is the constrained interpreter that maps evidence into a bounded settlement object
+
+### 19.3 Layer B query-level commitments
+
+Layer A already commits to `policy_hash`, `evidence_root`, `source_proofs_root`, and `model_set_id`.
+Layer B extends this into explicit query-level constraints so the committee is not free to improvise its own evidence or model stack.
+
+Add these query fields for proof-bearing modes:
+
+- `source_set_root`
+  - Merkle root of allowed source descriptors
+  - can encode domains, endpoint classes, publisher IDs, or source schemas
+- `source_policy_hash`
+  - minimum distinct sources
+  - minimum distinct domains
+  - freshness window
+  - publication-time rules
+  - source conflict handling rules
+- `model_policy_hash`
+  - exact extraction / normalization / prompt policy commitment
+- `model_set_id`
+  - fixed model family / version set allowed for the committee
+- `committee_root`
+  - Merkle root of the operator set eligible for the proof-bearing round
+- `verifier_key_id`
+  - selects the verifier and key material used by the chain
+- `proof_requirement`
+  - threshold-only
+  - evidence-authenticated
+  - zk-aggregated
+  - zkml-classified
+
+For news-fact style queries, `source_set_root` and `source_policy_hash` are what let GTOS express "a few mainstream news sites" as a protocol rule rather than a social expectation.
+
+Recommended `source_set_root` templates by market class:
+
+| Market class | Primary settlement sources | Secondary corroboration sources | Notes |
+|---|---|---|---|
+| Polymarket-style election event | official election authority pages; certified result feeds; state or national election APIs | AP Elections API; Reuters; AP wire | Final settlement should prefer official election authorities. Media confirms freshness and conflict handling, but should not override certified results. |
+| Polymarket-style company / product event | company IR / newsroom pages; exchange filings; SEC / regulator filings | Reuters; AP; selected mainstream business press | Use official issuer or regulator disclosures as the strongest source. News can corroborate timing or summarize event interpretation. |
+| Polymarket-style legal / regulatory event | court docket pages; regulator announcement pages; government gazettes | Reuters; AP; selected legal or financial press | Prefer docketed or officially published actions over narrative coverage. |
+| Polymarket-style generic news fact | designated official pages if they exist; otherwise a configured multi-source news set | Reuters; AP; The Guardian; other explicitly allowed outlets | This is the main class where "a few mainstream news sites" is appropriate. Query policy should require multiple distinct domains and explicit conflict rules. |
+| Kalshi-style macro statistic | official statistics agency release pages and machine-readable feeds | Reuters; AP; specialized economic data vendors if explicitly allowed | Settlement should follow the official published statistic, including revision policy defined in `source_policy_hash`. |
+| Kalshi-style weather / climate scalar | national weather agency or official meteorological service feeds; station datasets | Reuters; AP; local official weather bulletins | Prefer the designated official station or official aggregate dataset. Media should not be the settlement source. |
+| Kalshi-style market reference value | designated exchange, benchmark administrator, or official reference publisher | Reuters; official market data redistributors if explicitly allowed | Query policy must pin the exact benchmark and publication timestamp semantics. |
+| Agent task settlement with external event dependency | the task-specific official system of record | Reuters; AP; task-specific backup source set | For agent tasks, `source_set_root` should be narrow and task-specific, not a generic news bundle. |
+
+Operational rule:
+
+- default to official system-of-record sources whenever such a source exists
+- only use mainstream news outlets as primary settlement sources for event classes where no single official publisher fully determines the outcome
+- require all domains in the source set to be explicitly allowlisted by the query creator or protocol policy
+
+### 19.4 Layer B agreement object
+
+Layer A groups reports by `outcome_hash`.
+That is sufficient for an MVP, but it is not sufficient for verifiable AI consensus.
+
+In Layer B, the committee must agree on a **bound result context**, not just the final answer.
+
+Define:
+
+```text
+consensus_context_hash =
+  H(
+    query_id ||
+    source_set_root ||
+    source_policy_hash ||
+    model_policy_hash ||
+    model_set_id ||
+    proof_mode
+  )
+
+binding_hash =
+  H(
+    canonical_result_hash ||
+    evidence_root ||
+    source_proofs_root ||
+    consensus_context_hash
+  )
+```
+
+Layer B threshold consensus is over `binding_hash`, not merely over `outcome_hash`.
+
+This means `M-of-N` agreement now covers:
+
+- the result
+- the evidence commitments
+- the allowed sources
+- the interpretation policy
+- the model set
+
+That is the protocol-level meaning of verifiable AI consensus.
+
+### 19.5 Layer B proof modes
+
+Layer B keeps the existing proof mode enum but changes which modes are first-class:
+
+- `PROOF_EVIDENCE_AUTH`
+  - authenticated source proofs are required
+  - suitable when source authenticity is provable but the inference path is not yet fully proved
+- `PROOF_ZK_AGGREGATED`
+  - a succinct proof shows at least `M` of `N` valid committee members agreed on the same `binding_hash`
+- `PROOF_ZKML_CLASSIFIED`
+  - only for narrow bounded tasks
+  - not required for general news/event interpretation
+- `PROOF_TEE_ATTESTED`
+  - optional intermediate path
+  - not the primary architectural direction for open verifiable consensus
+
+For the specific vision of `LLM + zkTLS + SNARK`, the canonical Layer B path is:
+
+```text
+LLM-constrained committee
+  + zkTLS-authenticated evidence
+  + ZK-aggregated committee proof
+```
+
+### 19.6 Layer B system actions
+
+Layer B adds proof lifecycle actions:
+
+```go
+ActionOracleSubmitPhase3Proof ActionKind = "ORACLE_SUBMIT_PHASE3_PROOF"
+ActionOracleVerifyPhase3Proof ActionKind = "ORACLE_VERIFY_PHASE3_PROOF"
+ActionOracleChallengeProof    ActionKind = "ORACLE_CHALLENGE_PROOF"
+```
+
+`ORACLE_SUBMIT_PHASE3_PROOF` payload:
+
+```json
+{
+  "query_id": "0x...",
+  "canonical_result_hash": "0x...",
+  "binding_hash": "0x...",
+  "evidence_root": "0x...",
+  "source_proofs_root": "0x...",
+  "source_set_root": "0x...",
+  "source_policy_hash": "0x...",
+  "model_policy_hash": "0x...",
+  "model_set_id": "0x...",
+  "committee_root": "0x...",
+  "verifier_key_id": "0x...",
+  "proof_blob_hash": "0x..."
+}
+```
+
+`ORACLE_VERIFY_PHASE3_PROOF` payload:
+
+```json
+{
+  "query_id": "0x..."
+}
+```
+
+`ORACLE_CHALLENGE_PROOF` payload:
+
+```json
+{
+  "query_id": "0x...",
+  "challenge_type": 1,
+  "expected_hash": "0x...",
+  "observed_hash": "0x..."
+}
+```
+
+Objective proof challenge classes:
+
+- `1 = SOURCE_SET_MISMATCH`
+- `2 = SOURCE_PROOFS_ROOT_MISMATCH`
+- `3 = MODEL_SET_MISMATCH`
+- `4 = POLICY_HASH_MISMATCH`
+- `5 = PUBLIC_INPUTS_MISMATCH`
+- `6 = INVALID_PROOF`
+
+### 19.7 Layer B proof public inputs
+
+At minimum, a Layer B proof should bind the following public inputs:
+
+- `query_id`
+- `canonical_result_hash`
+- `binding_hash`
+- `evidence_root`
+- `source_proofs_root`
+- `source_set_root`
+- `source_policy_hash`
+- `model_policy_hash`
+- `model_set_id`
+- `committee_root`
+- `threshold_m`
+- `verifier_key_id`
+
+This is the minimum set that makes the proof about the whole bounded pipeline rather than only about an output blob.
+
+### 19.8 Layer B verification rule
+
+For queries with proof-bearing modes, finalization must change from:
+
+```text
+threshold met -> finalize
+```
+
+to:
+
+```text
+threshold on binding_hash met
+  -> proof submitted
+  -> public inputs match stored commitments
+  -> native verifier accepts proof
+  -> no unresolved objective proof challenge
+  -> finalize verified result
+```
+
+This is the critical rule that turns the module from evidence-aware into verifiable.
+
+### 19.9 Layer B storage additions
+
+Layer B extends query and final-result storage with:
+
+- `sourceSetRoot`
+- `sourcePolicyHash`
+- `modelPolicyHash`
+- `committeeRoot`
+- `verifierKeyId`
+- `phase3Required`
+- `phase3ProofHash`
+- `phase3PublicInputsHash`
+- `phase3Verified`
+- `verificationStatus`
+
+`verificationStatus` values:
+
+- `0 = UNVERIFIED`
+- `1 = VERIFIED`
+- `2 = CHALLENGED`
+
+### 19.10 Layer B implementation note
+
+Layer B is not immediately implementable in the current repository without new verifier code and proof plumbing.
+Its purpose in this document is to:
+
+- make the end-state explicit
+- force Layer A data structures to remain upgrade-friendly
+- ensure GTOS can grow from commit/reveal oracle into an AI-native oracle without redesigning the protocol from scratch
+
+## 20. Layer B Rollout Order
+
+After Layer A is live, the recommended rollout order is:
+
+1. extend `ORACLE_CREATE_QUERY` with `source_set_root`, `source_policy_hash`, `model_policy_hash`, `committee_root`, and `verifier_key_id`
+2. switch proof-bearing queries from `outcome_hash` aggregation to `binding_hash` aggregation
+3. add proof submission and verification storage paths
+4. implement native verifier hooks for `PROOF_EVIDENCE_AUTH` and `PROOF_ZK_AGGREGATED`
+5. add objective proof challenges
+6. add `phase3_verified` / `verification_status` reads to LVM
+7. only after that, consider narrow `PROOF_ZKML_CLASSIFIED`
+
+## 21. Summary
+
+This design is now intentionally dual-layer:
+
+- **Layer A** makes GTOS oracle settlement real, testable, and shippable now
+- **Layer B** captures the actual AI-native oracle destination
+
+Layer A gives GTOS:
 
 - one native module
 - one slashable operator bond
@@ -906,6 +1431,12 @@ This design intentionally narrows OracleHub into something GTOS can actually shi
 - one bounded result language
 - one threshold finalization rule
 - evidence commitments now
-- cryptographic evidence verification later
 
-That is enough to make GTOS oracle settlement real, testable, and incrementally extensible.
+Layer B adds what the stronger vision requires:
+
+- query-level source and model constraints
+- committee agreement on a bound evidence-processing context
+- zkTLS-authenticated source evidence
+- succinct proof verification for `M-of-N` committee agreement
+
+That is the bridge from a practical MVP to a future oracle that can reasonably be described as **verifiable AI consensus**.
