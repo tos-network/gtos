@@ -1,33 +1,33 @@
-# OpenFox Agent Discovery v1
+# Agent Discovery v1
 
 Status: Draft  
-Audience: OpenFox runtime, GTOS networking, service operators, agent developers
+Audience: agent runtime authors, GTOS networking, service operators, agent developers
 
 ## 1. Summary
 
-OpenFox Agent Discovery v1 is an application-layer discovery profile built on top of
-discv5, ENR, and TOS-native identity/payment primitives.
+Agent Discovery v1 is an application-layer discovery profile built on top of discv5,
+ENR, and optional identity/payment primitives.
 
-Its purpose is to let OpenFox agents discover other online agents with specific
-capabilities, verify basic identity and policy information, and connect to them for
-paid or sponsored work.
+Its purpose is to let agents discover other online agents with specific capabilities,
+verify basic identity and policy information, and connect to them for paid or
+sponsored work.
 
 Examples:
 
 - find an agent that can resolve an oracle query
 - find an agent that can perform an observation job
-- find an agent that can offer a one-time TOS bootstrap top-up
+- find an agent that can provide a constrained bootstrap top-up
 
-The protocol is not a new replacement for discv5. It is a profile over the existing
-discv5 transport already present in GTOS.
+This protocol does not replace discv5. It is a profile over the existing discovery
+transport already present in GTOS and reusable by any agent application.
 
 ## 2. Goals
 
-- Discover live OpenFox agents without requiring a centralized control plane
+- Discover live agents without requiring a centralized control plane
 - Support capability-oriented search
 - Keep discovery metadata small enough for ENR and TALKREQ
-- Bind discovered agents to TOS identities and payment endpoints
-- Support both paid services and tightly constrained sponsor/faucet-style services
+- Bind discovered agents to verifiable identities and invocation endpoints
+- Support both paid services and tightly constrained sponsor-style services
 
 ## 3. Non-Goals
 
@@ -41,12 +41,12 @@ discv5 transport already present in GTOS.
 
 ### 4.1 Layering
 
-OpenFox Agent Discovery v1 separates four concerns:
+Agent Discovery v1 separates four concerns:
 
 - Discovery plane: discv5 and ENR
-- Metadata plane: signed OpenFox Agent Card
-- Trust plane: TOS identity, optional on-chain registry, optional reputation
-- Settlement plane: x402 and TOS-native payment or sponsor policies
+- Metadata plane: signed Agent Card
+- Trust plane: identity, optional registry, optional reputation
+- Settlement plane: optional payment or sponsor policies
 
 ### 4.2 Minimal ENR, Rich Signed Metadata
 
@@ -59,28 +59,28 @@ The protocol is optimized for "find an agent that can do X", not only "find any 
 
 ### 4.4 Sponsor Capabilities Must Be Constrained
 
-An agent advertising a TOS top-up or sponsor capability must expose policy, quota, and
+An agent advertising a sponsor or top-up capability must expose policy, quota, and
 rate limits. V1 does not support unrestricted free-token distribution.
 
 ## 5. Roles
 
-- Requester: the OpenFox agent searching for a capability
-- Provider: the OpenFox agent offering a capability
-- Directory agent: an optional OpenFox agent that indexes capability claims and returns
+- Requester: the agent searching for a capability
+- Provider: the agent offering a capability
+- Directory agent: an optional agent that indexes capability claims and returns
   candidate providers
 - Bootstrap node: a discv5 bootnode used only to join the discovery network
 
 ## 6. Identity Model
 
-Each OpenFox provider in v1 has:
+Each provider in v1 has:
 
 - a discv5 node identity for network discovery
-- a TOS wallet address for settlement and external identity
-- an OpenFox signing key for Agent Card signatures
+- a metadata signing key for Agent Card signatures
+- zero or more settlement identities, such as a TOS wallet address
 
 V1 recommendation:
 
-- one provider process advertises one primary TOS wallet address
+- one provider process advertises one primary settlement identity
 - one provider process exposes one signed Agent Card
 
 This keeps the first version simple. Multi-wallet or multi-tenant providers can be
@@ -88,8 +88,7 @@ added later.
 
 ## 7. Discovery Transport
 
-OpenFox Agent Discovery v1 uses the existing GTOS discv5 implementation as the base
-transport.
+Agent Discovery v1 uses the existing GTOS discv5 implementation as the base transport.
 
 Relevant GTOS components:
 
@@ -97,22 +96,23 @@ Relevant GTOS components:
 - `p2p/server.go`
 - `cmd/utils/flags.go`
 
-The profile does not require a GTOS hard fork. It can be implemented by OpenFox nodes
-and OpenFox-aware services running on top of the current stack.
+The profile does not require a GTOS hard fork. It can be implemented by any agent
+runtime or service running on top of the current stack.
 
 ## 8. ENR Profile
 
-Each OpenFox-capable provider SHOULD publish the following ENR entries.
+Each provider implementing Agent Discovery v1 SHOULD publish the following ENR
+entries.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `ofx` | `u16` | OpenFox discovery profile version. V1 value is `1`. |
-| `ofa` | `bytes32` | TOS wallet address or canonical 32-byte agent address. |
-| `ofm` | `u8` | Supported connection modes bitset. |
-| `ofb` | `bytes32` | 256-bit capability bloom filter. |
-| `ofs` | `u64` | Optional agent card sequence number. |
+| `agv` | `u16` | Agent Discovery profile version. V1 value is `1`. |
+| `aga` | `bytes32` | Primary settlement identity or canonical agent address. |
+| `agm` | `u8` | Supported connection modes bitset. |
+| `agb` | `bytes32` | 256-bit capability bloom filter. |
+| `ags` | `u64` | Optional Agent Card sequence number. |
 
-Connection mode bits for `ofm`:
+Connection mode bits for `agm`:
 
 - `0x01`: supports discv5 `TALKREQ` metadata exchange
 - `0x02`: supports HTTPS endpoint invocation
@@ -122,7 +122,7 @@ Notes:
 
 - ENR MUST NOT contain full capability documents
 - ENR MUST NOT contain full pricing tables
-- ENR MAY omit `ofs` if sequence tracking is not implemented
+- ENR MAY omit `ags` if sequence tracking is not implemented
 
 ## 9. Capability Naming
 
@@ -133,7 +133,7 @@ Examples:
 - `oracle.resolve`
 - `observation.once`
 - `observation.window`
-- `sponsor.topup.tos.testnet`
+- `sponsor.topup.testnet`
 - `directory.search`
 
 Rules:
@@ -142,7 +142,7 @@ Rules:
 - allowed characters: `a-z`, `0-9`, `.`, `-`, `_`
 - names SHOULD be stable and human-readable
 
-The capability bloom filter in `ofb` is constructed from these canonical names.
+The capability bloom filter in `agb` is constructed from these canonical names.
 
 ## 10. Capability Bloom Filter
 
@@ -162,11 +162,11 @@ Implications:
 - false negatives are not acceptable if encoding is correct
 - a requester MUST fetch and verify the Agent Card before trusting a match
 
-## 11. OpenFox Agent Card
+## 11. Agent Card
 
 After finding a candidate ENR, the requester fetches a signed Agent Card.
 
-The Agent Card is the primary metadata object for OpenFox Agent Discovery v1.
+The Agent Card is the primary metadata object for Agent Discovery v1.
 
 Suggested canonical JSON shape:
 
@@ -174,12 +174,15 @@ Suggested canonical JSON shape:
 {
   "version": 1,
   "agent_id": "0x...",
-  "tos_address": "0x...",
+  "primary_identity": {
+    "kind": "tos",
+    "value": "0x..."
+  },
   "discovery_node_id": "enode://...",
   "card_seq": 7,
   "issued_at": 1770000000,
   "expires_at": 1770003600,
-  "display_name": "OpenFox Sponsor Node A",
+  "display_name": "Sponsor Node A",
   "endpoints": [
     {
       "kind": "https",
@@ -188,11 +191,11 @@ Suggested canonical JSON shape:
   ],
   "capabilities": [
     {
-      "name": "sponsor.topup.tos.testnet",
+      "name": "sponsor.topup.testnet",
       "mode": "sponsored",
       "policy_ref": "https://agent.example.com/policies/topup-v1.json",
       "rate_limit": "1/day",
-      "max_amount_wei": "10000000000000000"
+      "max_amount": "10000000000000000"
     },
     {
       "name": "oracle.resolve",
@@ -207,8 +210,8 @@ Suggested canonical JSON shape:
 
 Agent Card requirements:
 
-- MUST be signed by the provider's OpenFox signing key
-- MUST include the TOS address used for settlement
+- MUST be signed by the provider's metadata signing key
+- MUST include at least one identity usable for settlement or attribution
 - MUST include expiry
 - MUST include at least one supported endpoint or TALKREQ-only mode
 - SHOULD include a sequence number for refresh logic
@@ -220,7 +223,7 @@ V1 defines a small metadata exchange protocol over discv5 `TALKREQ`.
 Protocol name:
 
 ```text
-openfox/discovery/1
+agent/discovery/1
 ```
 
 Suggested message set:
@@ -246,15 +249,15 @@ V1 implementation guidance:
 
 Direct discovery is the default flow.
 
-1. Requester joins the OpenFox discovery network using known bootnodes
-2. Requester iterates candidate nodes via discv5 lookup / random iteration
-3. Requester filters candidates whose ENR contains `ofx=1`
-4. Requester tests the candidate capability against `ofb`
+1. Requester joins the discovery network using known bootnodes
+2. Requester iterates candidate nodes via discv5 lookup or random iteration
+3. Requester filters candidates whose ENR contains `agv=1`
+4. Requester tests the candidate capability against `agb`
 5. Requester sends `GET_CARD`
 6. Provider returns `CARD`
-7. Requester verifies signature, expiry, TOS address, and capability policy
+7. Requester verifies signature, expiry, identities, and capability policy
 8. Requester connects to the provider endpoint
-9. Requester invokes the capability using x402-paid or sponsor flow
+9. Requester invokes the capability using the provider's declared paid or sponsor flow
 
 ## 14. Directory-Assisted Discovery Flow
 
@@ -282,14 +285,15 @@ endpoint or another higher-level session transport.
 
 V1 recommended invocation methods:
 
-- HTTPS endpoint with x402
+- HTTPS endpoint with optional x402
 - WebSocket endpoint for streaming or long-running tasks
 - TALKREQ-only invocation for small metadata operations
 
 V1 recommendation:
 
 - use `TALKREQ` for metadata
-- use HTTPS plus x402 for paid service calls
+- use HTTPS for paid or sponsored service calls
+- bind payment semantics separately from discovery semantics
 
 ## 16. Paid vs Sponsored Capabilities
 
@@ -307,9 +311,9 @@ The provider exposes:
 - price model
 - endpoint
 
-V1 recommendation:
+GTOS recommendation:
 
-- use x402 exact payment with TOS-native settlement
+- use x402 exact payment with TOS-native settlement where appropriate
 
 ### 16.2 Sponsored
 
@@ -318,7 +322,7 @@ The provider exposes:
 - eligibility policy
 - quota
 - cooldown
-- max payout
+- max payout or subsidy amount
 
 Examples:
 
@@ -330,15 +334,15 @@ Examples:
 
 The provider may sponsor some requests and charge for others depending on policy.
 
-## 17. TOS Top-Up and Airdrop Use Case
+## 17. Top-Up and Airdrop Use Case
 
-The example "find an agent that can give me some TOS" should be modeled as a
+The example "find an agent that can give me some tokens" should be modeled as a
 constrained sponsor capability, not a generic free-transfer capability.
 
 Recommended capability names:
 
-- `sponsor.topup.tos.testnet`
-- `sponsor.bootstrap.tos`
+- `sponsor.topup.testnet`
+- `sponsor.bootstrap`
 - `airdrop.campaign.<campaign_id>`
 
 Required controls:
@@ -348,17 +352,17 @@ Required controls:
 - replay protection
 - policy disclosure
 - optional allowlist or reputation threshold
-- optional proof that the requester is itself a valid OpenFox agent
+- optional proof that the requester is itself a valid registered agent
 
 ## 18. Verification Rules
 
 Before trusting a discovered capability, the requester SHOULD verify:
 
-- the ENR advertises `ofx=1`
+- the ENR advertises `agv=1`
 - the Agent Card signature is valid
 - the Agent Card is not expired
 - the Agent Card capability list contains the requested capability
-- the Agent Card TOS address matches the expected settlement identity
+- the Agent Card identity fields match the expected settlement or attribution identity
 - the provider endpoint speaks the declared mode
 
 Optional additional checks:
@@ -379,7 +383,7 @@ checked against signature, policy, reputation, or actual service behavior.
 
 V1 discovery itself is Sybil-sensitive. Mitigations should come from:
 
-- TOS identity
+- identity binding
 - reputation
 - stake or bond
 - sponsor quotas
@@ -404,13 +408,13 @@ Sponsored or paid flows must bind requests to:
 
 ## 20. Minimal V1 Implementation Scope
 
-A realistic V1 for OpenFox should implement only:
+A realistic V1 should implement only:
 
-- ENR entries `ofx`, `ofa`, `ofm`, `ofb`
-- `GET_CARD` / `CARD` over `TALKREQ`
+- ENR entries `agv`, `aga`, `agm`, `agb`
+- `GET_CARD` and `CARD` over `TALKREQ`
 - signed Agent Card verification
-- HTTPS plus x402 invocation for paid capabilities
-- one sponsor capability example such as `sponsor.topup.tos.testnet`
+- HTTPS invocation for paid capabilities
+- one sponsor capability example such as `sponsor.topup.testnet`
 
 This is enough to make agent-to-agent capability discovery real without requiring a new
 base networking protocol.
@@ -419,30 +423,30 @@ base networking protocol.
 
 ### Phase A
 
-- Publish OpenFox bootnodes
-- Add ENR OpenFox entries
-- Implement Agent Card signing and fetch
+- publish bootnodes
+- add ENR Agent Discovery entries
+- implement Agent Card signing and fetch
 
 ### Phase B
 
-- Add x402-bound capability invocation
-- Add one paid capability example
-- Add one sponsored capability example
+- add capability invocation flows
+- add one paid capability example
+- add one sponsored capability example
 
 ### Phase C
 
-- Add directory agents
-- Add on-chain registry and reputation hooks
-- Add richer capability indexing and policy references
+- add directory agents
+- add registry and reputation hooks
+- add richer capability indexing and policy references
 
 ## 22. Final Position
 
-OpenFox Agent Discovery v1 should be treated as:
+Agent Discovery v1 should be treated as:
 
-- a discv5-based OpenFox profile
+- a discv5-based discovery profile for agents
 - capability-oriented
-- wallet-aware
-- x402-aware
-- TOS-settlement-ready
+- identity-aware
+- payment-compatible but not payment-specific
+- reusable across multiple agent applications
 
 It should not be treated as a replacement for GTOS node discovery itself.
