@@ -153,7 +153,14 @@ Capability name:
 gateway.relay
 ```
 
-A gateway agent advertises this capability in its Agent Card:
+### 8.1 Gateway Agent Card
+
+A gateway agent has two network faces:
+
+- a **relay endpoint** for providers to establish outbound sessions (WSS)
+- a **public endpoint** for requesters to invoke provider capabilities (HTTPS)
+
+Both MUST be declared in the gateway agent's Agent Card:
 
 ```json
 {
@@ -180,14 +187,28 @@ A gateway agent advertises this capability in its Agent Card:
   "endpoints": [
     {
       "kind": "wss",
-      "url": "wss://gw1.example.com/relay"
+      "url": "wss://gw1.example.com/relay",
+      "role": "provider_relay"
+    },
+    {
+      "kind": "https",
+      "url": "https://gw1.example.com",
+      "role": "requester_invocation"
     }
   ],
   "signature": "0x..."
 }
 ```
 
-Gateway relay capability modes:
+The `role` field disambiguates:
+
+- `provider_relay`: the WSS endpoint that providers connect to for relay sessions
+- `requester_invocation`: the HTTPS base URL under which provider routes are exposed
+
+The allocated per-provider paths (e.g. `/a/4f2b.../faucet`) are relative to the
+`requester_invocation` base URL.
+
+### 8.2 Gateway Relay Capability Modes
 
 - `paid`: provider pays for relay service (per-session, per-request, or metered)
 - `sponsored`: gateway operator subsidizes relay (e.g. for testnet or ecosystem growth)
@@ -233,15 +254,55 @@ Or as a configuration array:
 }
 ```
 
+### 9.2.1 Bootnode List Integrity
+
+Unlike discv5 bootnodes (which only help join the DHT), gateway bootnodes become
+traffic intermediaries. A tampered bootnode list can route a provider to a malicious
+gateway. Therefore the bootnode list MUST be integrity-protected:
+
+- the list SHOULD be signed by the runtime distributor or network operator
+- the runtime MUST verify the signature before using the list
+- each entry includes `agent_id`, which the provider MUST verify against the
+  gateway's TLS certificate or session handshake identity
+- providers SHOULD cross-check bootnode gateway agents against on-chain registration
+  once the discovery network is joined
+
+Suggested signed list format:
+
+```json
+{
+  "version": 1,
+  "network_id": 1666,
+  "entries": [
+    { "agent_id": "0x...", "url": "wss://gw1.example.com/relay" },
+    { "agent_id": "0x...", "url": "wss://gw2.example.com/relay" }
+  ],
+  "issued_at": 1770000000,
+  "signer": "0xNetworkOperator...",
+  "signature": "0x..."
+}
+```
+
 ### 9.3 Bootstrap Flow
 
-1. provider starts and loads the gateway bootnode list
+1. provider starts and loads the gateway bootnode list (verify list signature)
 2. provider joins the discv5 network using standard bootnodes
 3. provider connects to a bootnode gateway agent for immediate reachability
-4. provider concurrently searches Agent Discovery for `gateway.relay` capability
-5. provider evaluates discovered gateway agents by reputation, price, and latency
-6. provider may migrate to a better gateway agent if one is found
-7. provider may maintain sessions to multiple gateway agents for redundancy
+4. provider receives allocated endpoints from the gateway agent
+5. provider publishes its Agent Card with `agv=1` in ENR and the gateway-backed
+   endpoints; the card is now complete and requesters can invoke it
+6. provider concurrently searches Agent Discovery for `gateway.relay` capability
+7. provider evaluates discovered gateway agents by reputation, price, and latency
+8. provider may migrate to a better gateway agent if one is found
+9. provider may maintain sessions to multiple gateway agents for redundancy
+
+Important: a provider MUST NOT set `agv=1` in its ENR until it has at least one
+usable endpoint (either a gateway-backed endpoint or a direct public endpoint).
+Publishing an Agent Card without any invokable endpoint wastes requester resources
+and produces avoidable invocation failures.
+
+If a provider loses all gateway sessions and has no direct endpoint, it SHOULD
+clear `agv=1` from its ENR until an endpoint is re-established.
 
 ### 9.4 Gateway Migration
 
@@ -365,8 +426,61 @@ The provider includes this endpoint in its Agent Card:
 }
 ```
 
-The `via_gateway` field is optional but recommended. It lets requesters know the
-endpoint is relayed and identify which gateway agent is involved.
+The `via_gateway` field is REQUIRED for gateway-backed endpoints. It serves two
+purposes:
+
+- it lets the requester know the endpoint is relayed, enabling trust-aware
+  invocation decisions
+- it identifies which gateway agent is involved, so the requester can optionally
+  verify the gateway agent's on-chain registration, stake, and reputation before
+  invoking
+
+### 12.1 Requester-Side Gateway Trust (Optional)
+
+A requester MAY choose to evaluate the gateway agent before invoking a
+gateway-backed endpoint:
+
+1. read `via_gateway` from the provider's Agent Card
+2. look up the gateway agent's on-chain registration and stake
+3. optionally fetch the gateway agent's own Agent Card to verify `gateway.relay`
+   capability and policy
+4. apply local trust policy (e.g. minimum gateway stake threshold)
+5. proceed with invocation or reject
+
+This is optional in V1. Requesters that do not perform gateway trust checks simply
+invoke the endpoint as-is. Requesters that require higher assurance can enforce
+gateway quality thresholds.
+
+### 12.2 Stable Endpoint Paths and Session Resumption
+
+The path segment in the allocated URL (e.g. `/a/4f2b...`) is session-scoped by
+default. If the gateway agent restarts, session paths are lost and the provider's
+Agent Card endpoints become stale.
+
+To reduce endpoint churn, V1 supports optional session resumption:
+
+- the gateway agent MAY assign a **stable provider path** derived from the
+  provider's `agent_id` rather than a random session identifier
+- on reconnection, the provider sends a `session_resume` with the previous
+  `session_id`
+- if the gateway agent recognizes the provider identity and the session has not
+  expired, it SHOULD re-allocate the same path
+
+```json
+{
+  "type": "session_resume",
+  "previous_session_id": "s-9a3f...",
+  "auth": { "..." }
+}
+```
+
+If resumption fails (e.g. gateway agent has no memory of the session), the gateway
+agent responds with a normal `session_open_ack` containing new paths, and the
+provider updates its Agent Card.
+
+Gateway agents that use deterministic path derivation (e.g.
+`/a/<truncated_hash(agent_id)>`) can survive restarts without any session state
+persistence, because the same provider identity always maps to the same path prefix.
 
 ## 13. Invocation Flow
 
@@ -426,6 +540,53 @@ The gateway agent:
 - MUST NOT infer or auto-generate routes
 - MAY enforce per-route rate limits
 
+### 14.1 Dynamic Route Updates
+
+A provider MAY update its routes during a live session without re-establishing the
+session. This supports capabilities that come online or go offline dynamically.
+
+Route add:
+
+```json
+{
+  "type": "route_add",
+  "routes": [
+    {
+      "path": "/observation/once",
+      "capability": "observation.once",
+      "mode": "paid"
+    }
+  ]
+}
+```
+
+Route remove:
+
+```json
+{
+  "type": "route_remove",
+  "paths": ["/oracle/resolve"]
+}
+```
+
+Route update response:
+
+```json
+{
+  "type": "route_update_ack",
+  "added": [
+    {
+      "path": "/observation/once",
+      "public_url": "https://gw1.example.com/a/4f2b.../observation/once"
+    }
+  ],
+  "removed": ["/oracle/resolve"]
+}
+```
+
+After a route update, the provider SHOULD update its Agent Card to reflect the
+current set of available capabilities and endpoints.
+
 ## 15. Gateway Agent Trust Model
 
 Because the gateway agent is a participant in Agent Discovery, it is subject to the
@@ -475,9 +636,48 @@ Gateway agents MUST implement:
 Gateway relay is a service with real costs (bandwidth, public IP, compute). The
 payment model uses the same mechanisms as any other agent capability.
 
-### 16.1 Paid Relay
+### 16.1 Payment Direction
 
-The gateway agent charges the provider for relay service.
+Relay costs can be borne by different parties depending on the use case:
+
+- **provider-pays**: the provider pays the gateway agent for maintaining
+  reachability. This is the most common model. The provider is buying public
+  presence as a service.
+- **requester-pays**: the requester pays a relay surcharge on each invocation.
+  This is appropriate when the provider offers free or sponsored capabilities
+  (e.g. a faucet) and should not bear relay costs.
+- **split**: the provider pays a base session fee; the requester pays a
+  per-request relay surcharge. Combines both models.
+
+The payment direction is declared in the gateway agent's Agent Card `policy` field:
+
+```json
+{
+  "name": "gateway.relay",
+  "policy": {
+    "payment_direction": "provider_pays",
+    "session_fee_tos": "1000000000000000",
+    "per_request_fee_tos": "0"
+  }
+}
+```
+
+Or for requester-pays:
+
+```json
+{
+  "name": "gateway.relay",
+  "policy": {
+    "payment_direction": "requester_pays",
+    "session_fee_tos": "0",
+    "per_request_fee_tos": "100000000000000"
+  }
+}
+```
+
+Providers and requesters can compare gateway agents on pricing before selecting.
+
+### 16.2 Paid Relay
 
 Pricing options:
 
@@ -486,7 +686,7 @@ Pricing options:
 - metered by bandwidth or duration
 - x402 settlement
 
-### 16.2 Sponsored Relay
+### 16.3 Sponsored Relay
 
 The gateway operator subsidizes relay for ecosystem growth.
 
@@ -496,7 +696,7 @@ Use cases:
 - foundation-operated gateways for early network bootstrap
 - community-funded relay pools
 
-### 16.3 Hybrid Relay
+### 16.4 Hybrid Relay
 
 Free tier for low-volume providers, paid for higher usage.
 
@@ -646,7 +846,29 @@ This section is illustrative rather than normative.
 }
 ```
 
-### 20.2 Session Open Response
+### 20.2 Provider Session Resume
+
+```json
+{
+  "type": "session_resume",
+  "previous_session_id": "s-9a3f...",
+  "auth": {
+    "version": 1,
+    "agent_id": "0xProviderAgent...",
+    "primary_identity": {
+      "kind": "tos",
+      "value": "0xProviderTOS..."
+    },
+    "gateway_agent_id": "0xGatewayAgent...",
+    "session_nonce": "0x...",
+    "issued_at": 1770000000,
+    "expires_at": 1770000600,
+    "signature": "0x..."
+  }
+}
+```
+
+### 20.3 Session Open Response
 
 ```json
 {
@@ -665,7 +887,35 @@ This section is illustrative rather than normative.
 }
 ```
 
-### 20.3 Forwarded Request
+### 20.4 Route Update
+
+```json
+{
+  "type": "route_add",
+  "routes": [
+    {
+      "path": "/observation/once",
+      "capability": "observation.once",
+      "mode": "paid"
+    }
+  ]
+}
+```
+
+```json
+{
+  "type": "route_update_ack",
+  "added": [
+    {
+      "path": "/observation/once",
+      "public_url": "https://gw1.example.com/a/4f2b.../observation/once"
+    }
+  ],
+  "removed": []
+}
+```
+
+### 20.5 Forwarded Request
 
 ```json
 {
@@ -687,7 +937,7 @@ This section is illustrative rather than normative.
 }
 ```
 
-### 20.4 Forwarded Response
+### 20.6 Forwarded Response
 
 ```json
 {
