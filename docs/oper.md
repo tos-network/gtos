@@ -20,6 +20,9 @@ GTOS already has a strong baseline:
 
 - template-driven validator deployment via `gtos-validator@.service`
 - separate RPC role via `gtos-rpc@.service`
+- per-node TOML-first runtime configs:
+  - `nodeN/validator.toml`
+  - `rpcN/rpc.toml`
 - grouped-turn-aware validator checks
 - native validator monitor flags:
   - `--monitor.doublesign`
@@ -42,8 +45,9 @@ However, it is still not fully aligned with the stronger BSC operator model.
 
 ## The Remaining Gaps
 
-Gap 1 and Gap 2 are now implemented in the current branch and are retained here
-as delivery records. The remaining active roadmap items are Gap 3 through Gap 5.
+Gap 1 and Gap 2 are implemented. Gap 3 through Gap 5 are now materially
+implemented in the current branch as well, and this document is retained as the
+delivery record plus follow-up hardening plan.
 
 ### Gap 1: No native vote journal
 
@@ -105,6 +109,13 @@ Ops:
 - a validator restart does not lose visibility into previously signed votes
 - the operator can reconstruct vote history for a finalized checkpoint from disk alone
 - journal entries are distinct from generic monitor alerts
+
+Current branch status:
+
+- implemented
+- native `--vote-journal-path` persists vote lifecycle under per-validator
+  journal directories
+- restart-safe rebroadcast and finalized/settled tracking are recorded locally
 
 ## Gap 2: No malicious-vote evidence submission pipeline
 
@@ -228,6 +239,16 @@ Protocol, if chosen:
 - guard alerts escalate deterministically after threshold breach
 - the team can answer what happens after 2h, 6h, 24h, and multi-day maintenance cases
 
+Current branch status:
+
+- implemented as a governance-hard, protocol-soft control set
+- deterministic severity ladder is now:
+  - `WARN` at `2h`
+  - `ERROR` at `6h`
+  - `CRITICAL` at `24h`
+- guard writes incident outbox records under `/data/gtos/ops/incidents`
+- cluster status and periodic reports include maintenance state visibility
+
 ## Gap 4: Deployment is not yet fully TOML-first
 
 ### Problem
@@ -292,6 +313,16 @@ Keep in env:
 - two validators with identical TOML and different envs behave identically except for identity and ports
 - node role drift becomes auditable by diffing TOML files first
 
+Current branch status:
+
+- implemented
+- validator and RPC services now consume per-node TOML files:
+  - `nodeN/validator.toml`
+  - `rpcN/rpc.toml`
+- env files are reduced to identity, secrets, bootnodes, verbosity, and small
+  local overrides
+- systemd templates are now thin launchers around TOML-first configuration
+
 ## Gap 5: No single authoritative chain-status operator tool
 
 ### Problem
@@ -352,6 +383,13 @@ Minimum output:
 - JSON output can feed dashboards or automation
 - the tool replaces ad hoc manual querying for routine operations
 
+Current branch status:
+
+- implemented as `scripts/gtos_chain_status.sh`
+- emits machine-readable JSON and operator-facing Markdown
+- joins validator health, RPC health, grouped-turn analysis, maintenance,
+  alerts, and incidents in one command
+
 ## Recommended Delivery Order
 
 The five gaps should not be implemented in arbitrary order.
@@ -360,22 +398,23 @@ Recommended sequence:
 
 1. **Vote journal**
    - establishes durable vote state
-   - reduces risk before evidence and enforcement work
+   - implemented
 
 2. **Authoritative status tool**
    - improves operator visibility immediately
-   - simplifies adoption of later features
+   - implemented
 
 3. **Malicious-vote evidence pipeline**
    - builds on journaled data
-   - creates a proper response path
+   - implemented
 
 4. **TOML-first cleanup**
    - lowers long-term configuration drift
-   - reduces operational variance
+   - implemented
 
 5. **Maintenance governance hardening**
    - should be done after operators already have reliable visibility and evidence
+   - implemented as governance-hard, protocol-soft controls
 
 ## Suggested Milestones
 
@@ -451,12 +490,14 @@ Validator and RPC nodes must remain distinct templates even if they share some T
 
 GTOS should treat the remaining BSC alignment work as an operator-platform roadmap, not as miscellaneous cleanup.
 
-The highest-value next step is:
+The remaining highest-value next step is:
 
-1. native vote journal
+1. move from malicious-vote evidence staging to a protocol-enforced submission
+   and adjudication path
 
-The highest-value second step is:
+The remaining highest-value second step is:
 
-2. one authoritative chain-status tool
+2. decide whether maintenance governance should remain operational or become
+   protocol-hard
 
 Those two changes improve reliability immediately and create the base needed for evidence handling and stronger governance.

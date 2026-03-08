@@ -6,7 +6,10 @@ NODES="${NODES:-http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:854
 POLL_SEC="${POLL_SEC:-15}"
 DURATION="${DURATION:-0}"
 JOURNAL_DIR="${JOURNAL_DIR:-/data/gtos/ops/validator_guard}"
-MAINTENANCE_MAX_SEC="${MAINTENANCE_MAX_SEC:-7200}"
+INCIDENT_DIR="${INCIDENT_DIR:-/data/gtos/ops/incidents}"
+MAINTENANCE_WARN_SEC="${MAINTENANCE_WARN_SEC:-7200}"
+MAINTENANCE_CRITICAL_SEC="${MAINTENANCE_CRITICAL_SEC:-21600}"
+MAINTENANCE_EMERGENCY_SEC="${MAINTENANCE_EMERGENCY_SEC:-86400}"
 FINALITY_LAG_MAX_BLOCKS="${FINALITY_LAG_MAX_BLOCKS:-512}"
 HALT_TOLERANCE="${HALT_TOLERANCE:-4}"
 PEER_MIN="${PEER_MIN:-1}"
@@ -34,7 +37,10 @@ Options:
   --poll-sec <n>                    poll interval in seconds (default: 15)
   --duration <value>                total runtime, e.g. 2h, 30m, 0=forever
   --journal-dir <path>              directory for events.jsonl and alerts.jsonl
-  --maintenance-max-sec <n>         alert if maintenance exceeds this age
+  --incident-dir <path>             directory for incident outbox JSON records
+  --maintenance-warn-sec <n>        warning threshold for maintenance age
+  --maintenance-critical-sec <n>    critical threshold for maintenance age
+  --maintenance-emergency-sec <n>   emergency threshold for maintenance age
   --finality-lag-max-blocks <n>     alert threshold for head-finalized lag
   --halt-tolerance <n>              consecutive no-growth polls before halt alert
   --peer-min <n>                    minimum healthy peer count per node
@@ -60,7 +66,10 @@ while [[ $# -gt 0 ]]; do
 	--poll-sec) POLL_SEC="$2"; shift 2 ;;
 	--duration) DURATION="$2"; shift 2 ;;
 	--journal-dir) JOURNAL_DIR="$2"; shift 2 ;;
-	--maintenance-max-sec) MAINTENANCE_MAX_SEC="$2"; shift 2 ;;
+	--incident-dir) INCIDENT_DIR="$2"; shift 2 ;;
+	--maintenance-warn-sec) MAINTENANCE_WARN_SEC="$2"; shift 2 ;;
+	--maintenance-critical-sec) MAINTENANCE_CRITICAL_SEC="$2"; shift 2 ;;
+	--maintenance-emergency-sec) MAINTENANCE_EMERGENCY_SEC="$2"; shift 2 ;;
 	--finality-lag-max-blocks) FINALITY_LAG_MAX_BLOCKS="$2"; shift 2 ;;
 	--halt-tolerance) HALT_TOLERANCE="$2"; shift 2 ;;
 	--peer-min) PEER_MIN="$2"; shift 2 ;;
@@ -107,7 +116,7 @@ if (( TOTAL_SEC > 0 )); then
 fi
 
 IFS=',' read -ra NODE_URLS <<< "${NODES}"
-mkdir -p "${JOURNAL_DIR}"
+mkdir -p "${JOURNAL_DIR}" "${INCIDENT_DIR}"
 EVENTS_FILE="${JOURNAL_DIR}/events.jsonl"
 ALERTS_FILE="${JOURNAL_DIR}/alerts.jsonl"
 STATE_FILE="${JOURNAL_DIR}/state.json"
@@ -154,6 +163,47 @@ PY
 	echo "${level}: ${message}"
 	send_webhook_alert "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" || true
 	send_email_alert "${ts}" "${level}" "${kind}" "${message}" "${detail_json}" || true
+}
+
+emit_incident() {
+	local kind="$1" severity="$2" dedupe_key="$3" title="$4" detail_json="${5:-{}}"
+	local path="${INCIDENT_DIR}/${kind}-${dedupe_key}-${severity}.json"
+	if [[ -f "${path}" ]]; then
+		return 0
+	fi
+	python3 - <<PY >"${path}"
+import json, time
+print(json.dumps({
+    "ts": int(time.time()),
+    "kind": ${kind@Q},
+    "severity": ${severity@Q},
+    "title": ${title@Q},
+    "detail": json.loads(${detail_json@Q}),
+}, indent=2, sort_keys=True))
+PY
+}
+
+marker_exists() {
+	local name="$1"
+	[[ -f "${INCIDENT_DIR}/${name}.sent" ]]
+}
+
+write_marker() {
+	local name="$1"
+	: >"${INCIDENT_DIR}/${name}.sent"
+}
+
+maintenance_severity() {
+	local age="$1"
+	if (( age >= MAINTENANCE_EMERGENCY_SEC )); then
+		echo "EMERGENCY"
+	elif (( age >= MAINTENANCE_CRITICAL_SEC )); then
+		echo "CRITICAL"
+	elif (( age >= MAINTENANCE_WARN_SEC )); then
+		echo "WARN"
+	else
+		echo ""
+	fi
 }
 
 send_webhook_alert() {
@@ -393,6 +443,7 @@ PY
 		fi
 	fi
 
+	maintenance_rows=()
 	for idx in 1 2 3; do
 		state_file="${BASE_DIR}/ops/maintenance/node${idx}.env"
 		if [[ ! -f "${state_file}" ]]; then
@@ -402,11 +453,51 @@ PY
 		source "${state_file}"
 		if [[ "${STATE:-}" == "maintenance" && -n "${UPDATED_AT:-}" ]]; then
 			age=$(( now - UPDATED_AT ))
-			if (( age > MAINTENANCE_MAX_SEC )); then
-				alert "WARN" "maintenance" "node${idx} maintenance exceeds ${MAINTENANCE_MAX_SEC}s" "{\"node\":${idx},\"ageSec\":${age},\"validator\":\"${VALIDATOR_ADDR:-}\",\"txHash\":\"${TX_HASH:-}\"}"
+			severity="$(maintenance_severity "${age}")"
+			maintenance_rows+=("${idx}|maintenance|${age}|${severity}|${VALIDATOR_ADDR:-}|${TX_HASH:-}|${UPDATED_AT}")
+			if [[ -n "${severity}" ]]; then
+				detail="{\"node\":${idx},\"ageSec\":${age},\"validator\":\"${VALIDATOR_ADDR:-}\",\"txHash\":\"${TX_HASH:-}\",\"warnSec\":${MAINTENANCE_WARN_SEC},\"criticalSec\":${MAINTENANCE_CRITICAL_SEC},\"emergencySec\":${MAINTENANCE_EMERGENCY_SEC}}"
+				marker="maintenance-node${idx}-${UPDATED_AT}-${severity}"
+				if marker_exists "${marker}"; then
+					continue
+				fi
+				case "${severity}" in
+				WARN)
+					alert "WARN" "maintenance" "node${idx} maintenance exceeds ${MAINTENANCE_WARN_SEC}s" "${detail}"
+					;;
+				CRITICAL)
+					alert "ERROR" "maintenance" "node${idx} maintenance exceeds ${MAINTENANCE_CRITICAL_SEC}s" "${detail}"
+					emit_incident "maintenance" "critical" "node${idx}-${UPDATED_AT}" "Validator maintenance overrun requires incident handling" "${detail}"
+					;;
+				EMERGENCY)
+					alert "CRITICAL" "maintenance" "node${idx} maintenance exceeds ${MAINTENANCE_EMERGENCY_SEC}s" "${detail}"
+					emit_incident "maintenance" "emergency" "node${idx}-${UPDATED_AT}" "Validator maintenance emergency requires governance action" "${detail}"
+					;;
+				esac
+				write_marker "${marker}"
 			fi
+		else
+			maintenance_rows+=("${idx}|${STATE:-unknown}|0||${VALIDATOR_ADDR:-}|${TX_HASH:-}|${UPDATED_AT:-0}")
 		fi
 	done
+	maintenance_summary_json="$(python3 -c '
+import json, sys
+items = []
+for line in sys.stdin.read().splitlines():
+    if not line:
+        continue
+    node, state, age, severity, validator, txhash, updated_at = line.split("|", 6)
+    items.append({
+        "node": int(node),
+        "state": state,
+        "ageSec": int(age),
+        "severity": severity,
+        "validator": validator,
+        "txHash": txhash,
+        "updatedAt": int(updated_at) if updated_at else 0,
+    })
+print(json.dumps(items, sort_keys=True))
+' <<<"$(printf '%s\n' "${maintenance_rows[@]}")")"
 
 	latest_json="$(python3 -c '
 import json, sys
@@ -444,6 +535,7 @@ print(json.dumps({
     "updated_at": int(time.time()),
     "latest": latest,
     "analysis": analysis,
+    "maintenance": json.loads(r'''${maintenance_summary_json:-[]}'''),
 }, indent=2, sort_keys=True))
 PY
 

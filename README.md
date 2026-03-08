@@ -69,8 +69,10 @@ The agent economy runs on three foundational layers.
     - `--vote-journal-path`
     - `gtos vote export-evidence`
     - `gtos vote submit-evidence`
+    - maintenance governance ladder via `validator_guard.sh` incidents and alerts
   - operator watchdog tooling with `validator_guard.sh`
     and `validator_guard_report.sh`
+  - authoritative operator status with `gtos_chain_status.sh`
   - validator guard alert fan-out:
     - local journals
     - optional webhook delivery

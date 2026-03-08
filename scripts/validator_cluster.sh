@@ -69,6 +69,8 @@ Actions:
   resume <node>
            start service, wait for connectivity, then exit maintenance
   report   generate a guard report immediately via systemd oneshot service
+  chain-status
+           render authoritative cluster status from validator/rpc/guard state
   verify   check peers, block growth, and miner rotation
   status   print node status summary
   stop     stop validator + rpc systemd services
@@ -105,7 +107,7 @@ EOF_USAGE
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	up | setup | precollect-enode | start | restart | enter-maintenance | exit-maintenance | drain | resume | report | verify | status | stop | down | clean)
+	up | setup | precollect-enode | start | restart | enter-maintenance | exit-maintenance | drain | resume | report | chain-status | verify | status | stop | down | clean)
 		action="$1"
 		shift
 		if [[ $# -gt 0 && "$1" != --* ]] && [[ "${action}" == "enter-maintenance" || "${action}" == "exit-maintenance" || "${action}" == "drain" || "${action}" == "resume" ]]; then
@@ -181,6 +183,7 @@ node_dir() { echo "${BASE_DIR}/node$1"; }
 node_ipc() { echo "$(node_dir "$1")/gtos.ipc"; }
 node_addr_file() { echo "$(node_dir "$1")/validator.address"; }
 node_env_file() { echo "$(node_dir "$1")/validator.env"; }
+node_config_file() { echo "$(node_dir "$1")/validator.toml"; }
 rpc_gc_mode_value() {
 	case "${RPC_GC_MODE}" in
 	archive) echo "archive" ;;
@@ -194,12 +197,15 @@ rpc_gc_mode_value() {
 rpc_dir() { echo "${BASE_DIR}/rpc$1"; }
 rpc_ipc() { echo "$(rpc_dir "$1")/gtos.ipc"; }
 rpc_env_file() { echo "$(rpc_dir "$1")/rpc.env"; }
+rpc_config_file() { echo "$(rpc_dir "$1")/rpc.toml"; }
 rpc_service() { echo "${RPC_SERVICE_PREFIX}$1.service"; }
 ops_dir() { echo "${BASE_DIR}/ops"; }
 maintenance_state_dir() { echo "$(ops_dir)/maintenance"; }
 maintenance_state_file() { echo "$(maintenance_state_dir)/node$1.env"; }
 guard_env_file() { echo "$(ops_dir)/validator_guard.env"; }
+incident_dir() { echo "$(ops_dir)/incidents"; }
 report_env_file() { echo "$(ops_dir)/validator_report.env"; }
+chain_status_script() { echo "${REPO_ROOT}/scripts/gtos_chain_status.sh"; }
 node_account_log() { echo "$(node_dir "$1")/account_create.log"; }
 node_init_log() { echo "${BASE_DIR}/logs/init_node$1.log"; }
 node_service() { echo "${SERVICE_PREFIX}$1.service"; }
@@ -333,7 +339,7 @@ rpc_http_port() {
 
 ensure_dirs() {
 	mkdir -p "${BASE_DIR}/logs" "$(node_dir 1)" "$(node_dir 2)" "$(node_dir 3)" "$(rpc_dir 1)"
-	mkdir -p "$(maintenance_state_dir)"
+	mkdir -p "$(maintenance_state_dir)" "$(incident_dir)"
 }
 
 write_maintenance_state() {
@@ -352,7 +358,10 @@ NODES=http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8549
 POLL_SEC=15
 DURATION=0
 JOURNAL_DIR=${BASE_DIR}/ops/validator_guard
-MAINTENANCE_MAX_SEC=7200
+INCIDENT_DIR=${BASE_DIR}/ops/incidents
+MAINTENANCE_WARN_SEC=7200
+MAINTENANCE_CRITICAL_SEC=21600
+MAINTENANCE_EMERGENCY_SEC=86400
 FINALITY_LAG_MAX_BLOCKS=512
 HALT_TOLERANCE=4
 PEER_MIN=1
@@ -375,6 +384,8 @@ write_validator_report_env() {
 	cat >"$(report_env_file)" <<EOF_ENV
 JOURNAL_DIR=${BASE_DIR}/ops/validator_guard
 REPORT_DIR=${BASE_DIR}/ops/validator_guard/reports
+INCIDENT_DIR=${BASE_DIR}/ops/incidents
+BASE_DIR=${BASE_DIR}
 LOOKBACK_HOURS=24
 REPORT_FORMAT=both
 EOF_ENV
@@ -423,6 +434,71 @@ NoDiscovery = false
 EOF_CONFIG
 }
 
+write_validator_config() {
+	local idx="$1" addr p2p_port http_port ws_port authrpc_port no_pruning
+	addr="$(node_validator_address "${idx}")"
+	p2p_port=$((30310 + idx))
+	http_port="$(node_http_port "${idx}")"
+	ws_port=$((8643 + (idx * 2)))
+	authrpc_port=$((9550 + idx))
+	case "${GC_MODE}" in
+	archive) no_pruning=true ;;
+	full) no_pruning=false ;;
+	*)
+		echo "unsupported gc mode for validator config: ${GC_MODE}" >&2
+		exit 1
+		;;
+	esac
+
+	cat >"$(node_config_file "${idx}")" <<EOF_CONFIG
+[TOS]
+NetworkId = ${NETWORK_ID}
+SyncMode = "full"
+NoPruning = ${no_pruning}
+NoPrefetch = false
+FilterLogCacheSize = 32
+RPCGasCap = 50000000
+RPCEVMTimeout = 5000000000
+RPCTxFeeCap = 1.0
+MonitorDoubleSign = true
+MonitorMaliciousVote = true
+MonitorJournalDir = "${BASE_DIR}/ops/native_monitor/node${idx}"
+VoteJournalPath = "${BASE_DIR}/ops/vote_journal/node${idx}"
+
+[TOS.Miner]
+GasCeil = 30000000
+Recommit = 3000000000
+Noverify = false
+
+[Node]
+DataDir = "$(node_dir "${idx}")"
+IPCPath = "gtos.ipc"
+HTTPHost = "127.0.0.1"
+HTTPPort = ${http_port}
+HTTPVirtualHosts = ["localhost"]
+HTTPModules = ["admin", "net", "web3", "tos", "dpos", "miner"]
+AuthAddr = "127.0.0.1"
+AuthPort = ${authrpc_port}
+AuthVirtualHosts = ["localhost"]
+WSHost = "127.0.0.1"
+WSPort = ${ws_port}
+WSModules = ["net", "web3", "tos", "dpos"]
+GraphQLVirtualHosts = ["localhost"]
+
+[Node.P2P]
+NoDiscovery = false
+ListenAddr = ":${p2p_port}"
+DiscAddr = ":${p2p_port}"
+EOF_CONFIG
+}
+
+write_validator_configs() {
+	local idx
+	for idx in 1 2 3; do
+		write_validator_config "${idx}"
+	done
+}
+
 write_shared_rpc_config_toml() {
 	local no_pruning
 	case "${RPC_GC_MODE}" in
@@ -461,6 +537,58 @@ NoDiscovery = false
 EOF_CONFIG
 }
 
+write_rpc_config() {
+	local idx="$1" p2p_port http_port ws_port authrpc_port no_pruning
+	p2p_port=$((30400 + idx))
+	http_port="$(rpc_http_port "${idx}")"
+	ws_port=$((8654 + (idx * 2)))
+	authrpc_port=$((9650 + idx))
+	case "${RPC_GC_MODE}" in
+	archive) no_pruning=true ;;
+	full) no_pruning=false ;;
+	*)
+		echo "unsupported rpc gc mode for rpc config: ${RPC_GC_MODE}" >&2
+		exit 1
+		;;
+	esac
+
+	cat >"$(rpc_config_file "${idx}")" <<EOF_CONFIG
+[TOS]
+NetworkId = ${NETWORK_ID}
+SyncMode = "full"
+NoPruning = ${no_pruning}
+NoPrefetch = false
+FilterLogCacheSize = 64
+RPCGasCap = 50000000
+RPCEVMTimeout = 5000000000
+RPCTxFeeCap = 1.0
+
+[Node]
+DataDir = "$(rpc_dir "${idx}")"
+IPCPath = "gtos.ipc"
+HTTPHost = "127.0.0.1"
+HTTPPort = ${http_port}
+HTTPVirtualHosts = ["localhost"]
+HTTPModules = ["admin", "net", "web3", "tos", "dpos", "txpool", "debug"]
+AuthAddr = "127.0.0.1"
+AuthPort = ${authrpc_port}
+AuthVirtualHosts = ["localhost"]
+WSHost = "127.0.0.1"
+WSPort = ${ws_port}
+WSModules = ["net", "web3", "tos", "dpos", "txpool"]
+GraphQLVirtualHosts = ["localhost"]
+
+[Node.P2P]
+NoDiscovery = false
+ListenAddr = ":${p2p_port}"
+DiscAddr = ":${p2p_port}"
+EOF_CONFIG
+}
+
+write_rpc_configs() {
+	write_rpc_config 1
+}
+
 bootnodes_csv_value() {
 	if [[ -s "${BOOTNODES_FILE}" ]]; then
 		tr -d '\n\r' <"${BOOTNODES_FILE}"
@@ -468,28 +596,16 @@ bootnodes_csv_value() {
 }
 
 write_validator_env() {
-	local idx="$1" addr p2p_port http_port ws_port authrpc_port bootnodes
+	local idx="$1" addr bootnodes
 	addr="$(node_validator_address "${idx}")"
-	p2p_port=$((30310 + idx))
-	http_port="$(node_http_port "${idx}")"
-	ws_port=$((8643 + (idx * 2)))
-	authrpc_port=$((9550 + idx))
 	bootnodes="$(bootnodes_csv_value)"
 
 	cat >"$(node_env_file "${idx}")" <<EOF_ENV
-GTOS_CONFIG=${SHARED_CONFIG_FILE}
-GTOS_DATADIR=$(node_dir "${idx}")
-GTOS_P2P_PORT=${p2p_port}
-GTOS_HTTP_PORT=${http_port}
-GTOS_WS_PORT=${ws_port}
-GTOS_AUTHRPC_PORT=${authrpc_port}
+GTOS_CONFIG=$(node_config_file "${idx}")
 GTOS_VALIDATOR_ADDR=${addr}
 GTOS_PASSFILE=${PASSFILE}
 GTOS_VERBOSITY=${VERBOSITY}
 GTOS_BOOTNODES=${bootnodes}
-GTOS_NETWORK_ID=${NETWORK_ID}
-GTOS_GC_MODE=$(expected_service_gc_flags)
-GTOS_MONITOR_FLAGS=--monitor.doublesign --monitor.maliciousvote --monitor.journal-dir ${BASE_DIR}/ops/native_monitor/node${idx} --vote-journal-path ${BASE_DIR}/ops/vote_journal/node${idx}
 GTOS_EXTRA_FLAGS=
 EOF_ENV
 }
@@ -502,25 +618,13 @@ write_validator_envs() {
 }
 
 write_rpc_env() {
-	local idx="$1" p2p_port http_port ws_port authrpc_port bootnodes
-	p2p_port=$((30400 + idx))
-	http_port="$(rpc_http_port "${idx}")"
-	ws_port=$((8654 + (idx * 2)))
-	authrpc_port=$((9650 + idx))
+	local idx="$1" bootnodes
 	bootnodes="$(bootnodes_csv_value)"
 
 	cat >"$(rpc_env_file "${idx}")" <<EOF_ENV
-GTOS_CONFIG=${SHARED_RPC_CONFIG_FILE}
-GTOS_DATADIR=$(rpc_dir "${idx}")
-GTOS_P2P_PORT=${p2p_port}
-GTOS_HTTP_PORT=${http_port}
-GTOS_WS_PORT=${ws_port}
-GTOS_AUTHRPC_PORT=${authrpc_port}
-GTOS_HTTP_API=admin,net,web3,tos,dpos,txpool,debug
-GTOS_WS_API=net,web3,tos,dpos,txpool
+GTOS_CONFIG=$(rpc_config_file "${idx}")
 GTOS_VERBOSITY=${VERBOSITY}
 GTOS_BOOTNODES=${bootnodes}
-GTOS_NETWORK_ID=${NETWORK_ID}
 GTOS_EXTRA_FLAGS=--gcmode $(rpc_gc_mode_value)
 EOF_ENV
 }
@@ -558,6 +662,8 @@ install_rpc_service() {
 prepare_runtime_assets() {
 	write_shared_config_toml
 	write_shared_rpc_config_toml
+	write_validator_configs
+	write_rpc_configs
 	write_validator_envs
 	write_rpc_envs
 	write_validator_guard_env
@@ -1611,6 +1717,20 @@ run_report_now() {
 	run_systemctl --no-pager --lines=20 status "${REPORT_SERVICE_NAME}" || true
 }
 
+run_chain_status() {
+	if [[ ! -x "$(chain_status_script)" ]]; then
+		echo "missing chain status script: $(chain_status_script)" >&2
+		exit 1
+	fi
+	"$(chain_status_script)" \
+		--base-dir "${BASE_DIR}" \
+		--nodes "http://127.0.0.1:8545,http://127.0.0.1:8547,http://127.0.0.1:8549" \
+		--rpcs "http://127.0.0.1:8555" \
+		--guard-dir "${BASE_DIR}/ops/validator_guard" \
+		--incident-dir "${BASE_DIR}/ops/incidents" \
+		--format both
+}
+
 precollect_enodes() {
 	assert_services_prepared
 	stop_nodes
@@ -1961,6 +2081,27 @@ status_nodes() {
 		peers="-"
 	fi
 	echo "rpc1: ${state}, http=127.0.0.1:${port}, block=${block}, peers=${peers}"
+	for idx in 1 2 3; do
+		if [[ -f "$(maintenance_state_file "${idx}")" ]]; then
+			# shellcheck disable=SC1090
+			source "$(maintenance_state_file "${idx}")"
+			age="-"
+			severity=""
+			if [[ -n "${UPDATED_AT:-}" ]]; then
+				age="$(( $(date -u +%s) - UPDATED_AT ))"
+				if (( age >= 86400 )); then
+					severity="CRITICAL"
+				elif (( age >= 21600 )); then
+					severity="ERROR"
+				elif (( age >= 7200 )); then
+					severity="WARN"
+				fi
+			fi
+			echo "node${idx}-maintenance: state=${STATE:-unknown}, ageSec=${age}, severity=${severity:-none}, tx=${TX_HASH:-}"
+		else
+			echo "node${idx}-maintenance: state=unknown"
+		fi
+	done
 	if run_systemctl is-active --quiet "${GUARD_SERVICE_NAME}"; then
 		echo "guard: running(service=${GUARD_SERVICE_NAME})"
 	else
@@ -1971,6 +2112,8 @@ status_nodes() {
 	else
 		echo "report-timer: stopped(service=${REPORT_TIMER_NAME})"
 	fi
+	echo
+	run_chain_status || true
 }
 
 setup_network() {
@@ -1987,8 +2130,8 @@ setup_network() {
 	init_datadirs
 	echo "setup done (accounts/config/genesis initialized):"
 	echo "  validators: ${BASE_DIR}/validator_accounts.txt"
-	echo "  shared config: ${SHARED_CONFIG_FILE}"
-	echo "  shared rpc config: ${SHARED_RPC_CONFIG_FILE}"
+	echo "  validator config example: $(node_config_file 1)"
+	echo "  rpc config example: $(rpc_config_file 1)"
 	echo "  systemd template: ${SYSTEMD_TEMPLATE_DEST}"
 	echo "  rpc systemd template: ${RPC_TEMPLATE_DEST}"
 	echo "  turn length: ${TURN_LENGTH}"
@@ -2063,6 +2206,9 @@ report)
 	ensure_dirs
 	prepare_runtime_assets
 	run_report_now
+	;;
+chain-status)
+	run_chain_status
 	;;
 precollect-enode)
 	ensure_dirs

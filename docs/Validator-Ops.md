@@ -26,6 +26,9 @@ At the time of writing, GTOS already has:
 - DPoS block production based on the active validator set
 - `ed25519-only` DPoS sealing
 - grouped-turn DPoS proposer ownership via `TurnLength`
+- TOML-first per-node runtime configs:
+  - `nodeN/validator.toml`
+  - `rpcN/rpc.toml`
 - a local three-node deployment script:
   - [validator_cluster.sh](../scripts/validator_cluster.sh)
 - template-driven validator deployment artifacts:
@@ -49,6 +52,7 @@ At the time of writing, GTOS already has:
 - operator watchdog tooling:
   - [validator_guard.sh](../scripts/validator_guard.sh)
   - [validator_guard_report.sh](../scripts/validator_guard_report.sh)
+  - [gtos_chain_status.sh](../scripts/gtos_chain_status.sh)
   - [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
   - guard alerts can be delivered to:
     - local journals
@@ -224,23 +228,18 @@ User=tomi
 Group=tomi
 WorkingDirectory=/data/gtos
 EnvironmentFile=/data/gtos/node%i/validator.env
-ExecStart=/usr/local/bin/gtos \
-  --config ${GTOS_CONFIG} \
-  --datadir ${GTOS_DATADIR} \
-  --networkid ${GTOS_NETWORK_ID} \
-  --port ${GTOS_P2P_PORT} \
-  --netrestrict 127.0.0.0/8 \
-  --nat none \
-  --http --http.addr 127.0.0.1 --http.port ${GTOS_HTTP_PORT} \
-  --ws --ws.addr 127.0.0.1 --ws.port ${GTOS_WS_PORT} \
-  --authrpc.addr 127.0.0.1 --authrpc.port ${GTOS_AUTHRPC_PORT} \
-  --unlock ${GTOS_VALIDATOR_ADDR} \
-  --password ${GTOS_PASSFILE} \
+ExecStart=/bin/bash -lc 'exec /usr/local/bin/gtos \
+  --config "$GTOS_CONFIG" \
+  --unlock "$GTOS_VALIDATOR_ADDR" \
+  --password "$GTOS_PASSFILE" \
   --allow-insecure-unlock \
   --mine \
-  --miner.coinbase ${GTOS_VALIDATOR_ADDR} \
-  --verbosity ${GTOS_VERBOSITY} \
-  --bootnodes ${GTOS_BOOTNODES}
+  --miner.coinbase "$GTOS_VALIDATOR_ADDR" \
+  --verbosity "$GTOS_VERBOSITY" \
+  --bootnodes "$GTOS_BOOTNODES" \
+  --netrestrict 127.0.0.0/8 \
+  --nat none \
+  ${GTOS_EXTRA_FLAGS}'
 Restart=always
 RestartSec=2
 LimitNOFILE=1048576
@@ -267,28 +266,32 @@ Each validator should have a per-node environment file, for example:
 `/data/gtos/node1/validator.env`
 
 ```bash
-GTOS_CONFIG=/data/gtos/config.toml
-GTOS_DATADIR=/data/gtos/node1
-GTOS_P2P_PORT=30311
-GTOS_HTTP_PORT=8545
-GTOS_WS_PORT=8645
-GTOS_AUTHRPC_PORT=9551
+GTOS_CONFIG=/data/gtos/node1/validator.toml
 GTOS_VALIDATOR_ADDR=0x...
 GTOS_PASSFILE=/data/gtos/pass.txt
 GTOS_VERBOSITY=3
 GTOS_BOOTNODES=enode://...@127.0.0.1:30311,enode://...@127.0.0.1:30312,enode://...@127.0.0.1:30313
-GTOS_NETWORK_ID=1666
-GTOS_GC_MODE=full
+GTOS_EXTRA_FLAGS=
 ```
 
 This separates:
 
-- node identity and ports
+- validator identity and secret paths
 - validator key material and password path
-- process-level options
-- machine-local service paths
+- machine-local overrides
 
 from the shared node configuration.
+
+The per-node TOML now carries most runtime behavior:
+
+- datadir
+- HTTP / WS / AuthRPC ports
+- P2P listen address
+- role-specific monitor defaults
+- vote journal path
+
+This keeps the env file intentionally small and makes runtime drift auditable by
+diffing TOML first.
 
 ## Validator Roles
 
@@ -628,6 +631,11 @@ Current operator tooling:
   - writes `events.jsonl`, `alerts.jsonl`, and `state.json`
   - monitors peer health, head/finalized lag, grouped-turn integrity, and
     maintenance overruns
+  - applies a deterministic maintenance severity ladder:
+    - `WARN` at `2h`
+    - `ERROR` at `6h`
+    - `CRITICAL` at `24h`
+  - writes incident JSON records under `/data/gtos/ops/incidents`
   - emits an approximate conflict alert if different nodes report different
     latest hashes for the same `miner,height` pair
   - can fan out alerts to:
@@ -639,9 +647,20 @@ Current operator tooling:
   - writes reports under `/data/gtos/ops/validator_guard/reports`
   - is installed as `gtos-validator-report.service`
   - is scheduled by `gtos-validator-report.timer`
+- [gtos_chain_status.sh](../scripts/gtos_chain_status.sh)
+  - renders authoritative cluster status in JSON and Markdown
+  - joins validator health, RPC health, grouped-turn analysis, maintenance
+    state, recent alerts, and incidents
+  - is the preferred on-call command for routine health checks
 - [dpos_livenet_soak.sh](../scripts/dpos_livenet_soak.sh)
   - grouped-turn-aware long-duration soak monitor
   - validates within-group proposer consistency and finalized-lag bounds
+
+Recommended authoritative status command:
+
+```bash
+scripts/gtos_chain_status.sh --format both
+```
 
 Recommended alert configuration in `/data/gtos/ops/validator_guard.env`:
 
@@ -658,6 +677,14 @@ SMTP_USERNAME=gtos-validator@example.com
 SMTP_PASSWORD=change-me
 SMTP_TLS=true
 ```
+
+Recommended maintenance governance policy:
+
+- less than `2h`: planned maintenance, no escalation
+- at `2h`: `WARN`, operator attention required
+- at `6h`: `ERROR`, create and track an incident
+- at `24h`: `CRITICAL`, require governance or leadership review
+- multi-day maintenance: remains `CRITICAL` and must be treated as an unresolved incident
 
 ## Recommended Rollout Plan
 
