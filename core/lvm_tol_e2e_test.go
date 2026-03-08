@@ -224,8 +224,9 @@ func TestTolTRC20EndToEnd(t *testing.T) {
 	}
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config:   config,
-		GasLimit: 100_000_000, // high limit: .tor code storage = 200 gas/byte × ~120KB = ~24M gas
+		Config:    config,
+		GasLimit:  100_000_000, // high limit: .tor code storage = 200 gas/byte × ~120KB = ~24M gas
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			addr1: {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
 		},

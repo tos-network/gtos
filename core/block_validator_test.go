@@ -21,18 +21,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/params"
 )
 
+func testDPoSGenesisExtra() []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	return extra
+}
+
 // Tests that simple header verification works, for both good and bad blocks.
 func TestHeaderVerification(t *testing.T) {
 	// Create a simple chain to verify
 	var (
 		testdb    = rawdb.NewMemoryDatabase()
-		gspec     = &Genesis{Config: params.TestChainConfig}
+		gspec     = &Genesis{Config: params.TestChainConfig, ExtraData: testDPoSGenesisExtra()}
 		genesis   = gspec.MustCommit(testdb)
 		blocks, _ = GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), testdb, 8, nil)
 	)
@@ -84,7 +90,7 @@ func testHeaderConcurrentVerification(t *testing.T, threads int) {
 	// Create a simple chain to verify
 	var (
 		testdb    = rawdb.NewMemoryDatabase()
-		gspec     = &Genesis{Config: params.TestChainConfig}
+		gspec     = &Genesis{Config: params.TestChainConfig, ExtraData: testDPoSGenesisExtra()}
 		genesis   = gspec.MustCommit(testdb)
 		blocks, _ = GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), testdb, 8, nil)
 	)
@@ -158,7 +164,7 @@ func testHeaderConcurrentAbortion(t *testing.T, threads int) {
 	// Create a simple chain to verify
 	var (
 		testdb    = rawdb.NewMemoryDatabase()
-		gspec     = &Genesis{Config: params.TestChainConfig}
+		gspec     = &Genesis{Config: params.TestChainConfig, ExtraData: testDPoSGenesisExtra()}
 		genesis   = gspec.MustCommit(testdb)
 		blocks, _ = GenerateChain(params.TestChainConfig, genesis, dpos.NewFaker(), testdb, 1024, nil)
 	)

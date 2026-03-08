@@ -15,6 +15,8 @@ import (
 func newTestState() *state.StateDB {
 	db := state.NewDatabase(rawdb.NewMemoryDatabase())
 	s, _ := state.New(common.Hash{}, db, nil)
+	// Pre-seed bit count so grant/revoke handlers accept test bit indices.
+	writeBitCount(s, 16)
 	return s
 }
 

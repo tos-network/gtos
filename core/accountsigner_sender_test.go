@@ -95,6 +95,11 @@ func TestResolveSenderSecp256r1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to sign hash: %v", err)
 	}
+	// Normalize s to low-S form (required by VerifyRawSignature).
+	halfOrder := new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+	if s.Cmp(halfOrder) > 0 {
+		s = new(big.Int).Sub(elliptic.P256().Params().N, s)
+	}
 	tx := types.NewTx(&types.SignerTx{
 		ChainID:    unsigned.ChainId(),
 		Nonce:      unsigned.Nonce(),

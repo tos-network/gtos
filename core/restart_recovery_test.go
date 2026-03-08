@@ -15,8 +15,9 @@ func TestRestartRecoversLatestFinalizedAndResumesImport(t *testing.T) {
 		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
 	gspec := &Genesis{
-		Config: config,
-		Alloc:  GenesisAlloc{},
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
+		Alloc:     GenesisAlloc{},
 	}
 	db := rawdb.NewMemoryDatabase()
 	gspec.MustCommit(db)

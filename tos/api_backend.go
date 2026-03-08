@@ -9,6 +9,7 @@ import (
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/accounts"
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/dpos"
@@ -339,6 +340,10 @@ func (b *TOSAPIBackend) RPCEVMTimeout() time.Duration {
 
 func (b *TOSAPIBackend) RPCTxFeeCap() float64 {
 	return b.tos.config.RPCTxFeeCap
+}
+
+func (b *TOSAPIBackend) AgentDiscovery() *agentdiscovery.Service {
+	return b.tos.AgentDiscovery()
 }
 
 func (b *TOSAPIBackend) BloomStatus() (uint64, uint64) {

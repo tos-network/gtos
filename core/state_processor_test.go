@@ -85,7 +85,8 @@ func TestStateProcessorErrors(t *testing.T) {
 		var (
 			db    = rawdb.NewMemoryDatabase()
 			gspec = &Genesis{
-				Config: config,
+				Config:    config,
+				ExtraData: testDPoSGenesisExtra(),
 				Alloc: GenesisAlloc{
 					addr1: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
@@ -210,7 +211,8 @@ func TestStateProcessorErrors(t *testing.T) {
 		var (
 			db    = rawdb.NewMemoryDatabase()
 			gspec = &Genesis{
-				Config: config,
+				Config:    config,
+				ExtraData: testDPoSGenesisExtra(),
 				Alloc: GenesisAlloc{
 					addr1: GenesisAccount{
 						Balance: big.NewInt(1000000000000000000), // 1 tos
@@ -314,7 +316,8 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 	makeChain := func() (*BlockChain, *types.Block) {
 		db := rawdb.NewMemoryDatabase()
 		gspec := &Genesis{
-			Config: config,
+			Config:    config,
+			ExtraData: testDPoSGenesisExtra(),
 			Alloc: GenesisAlloc{
 				from: {Balance: big.NewInt(10_000_000_000_000_000)},
 				to:   {Balance: big.NewInt(0)},
@@ -335,7 +338,8 @@ func TestDeterministicNonceStateTransitionAndReplayRejection(t *testing.T) {
 
 	generateDB := rawdb.NewMemoryDatabase()
 	generateGenesis := (&Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			from: {Balance: big.NewInt(10_000_000_000_000_000)},
 			to:   {Balance: big.NewInt(0)},
@@ -419,7 +423,8 @@ func TestScheduledTaskGasCountedInGeneratedBlock(t *testing.T) {
 
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			scheduler: {
 				Balance: new(big.Int).Mul(big.NewInt(10), new(big.Int).SetUint64(params.TOS)),
@@ -558,7 +563,8 @@ func TestAddTxWithChainAndProcessSharePreBlockSignerSemantics(t *testing.T) {
 	// because sender resolution uses pre-block signer metadata.
 	buildDB := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			from: {Balance: big.NewInt(10_000_000_000_000_000)},
 			to:   {Balance: big.NewInt(0)},

@@ -65,7 +65,7 @@ func (basic *snapshotTestBasic) prepare(t *testing.T) (*BlockChain, []*types.Blo
 	}
 	// Initialize a fresh chain
 	var (
-		genesis = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+		genesis = (&Genesis{Config: params.TestChainConfig, BaseFee: big.NewInt(params.InitialBaseFee), ExtraData: testDPoSGenesisExtra()}).MustCommit(db)
 		engine  = dpos.NewFaker()
 		gendb   = rawdb.NewMemoryDatabase()
 

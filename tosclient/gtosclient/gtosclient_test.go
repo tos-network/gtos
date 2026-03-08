@@ -29,6 +29,12 @@ var (
 	testBalance = big.NewInt(2e15)
 )
 
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
+
 func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	// Generate test chain.
 	genesis, blocks := generateTestChain()
@@ -67,7 +73,7 @@ func generateTestChain() (*core.Genesis, []*types.Block) {
 	genesis := &core.Genesis{
 		Config:    config,
 		Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance, Storage: map[common.Hash]common.Hash{testSlot: testValue}}},
-		ExtraData: []byte("test genesis"),
+		ExtraData: testDPoSGenesisExtra(testAddr),
 		Timestamp: 9000,
 	}
 	generate := func(i int, g *core.BlockGen) {

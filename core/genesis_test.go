@@ -178,7 +178,7 @@ func TestSetupGenesisBlockRejectsFatalDPoSCompatMismatch(t *testing.T) {
 			SealSignerType: params.DPoSSealSignerTypeEd25519,
 		},
 	}
-	storedGenesis := &Genesis{Config: storedCfg, Alloc: alloc}
+	storedGenesis := &Genesis{Config: storedCfg, Alloc: alloc, ExtraData: testDPoSGenesisExtra()}
 	genesisBlock := storedGenesis.MustCommit(db)
 
 	bc, err := NewBlockChain(db, nil, storedCfg, dpos.NewFaker(), nil, nil)
@@ -201,7 +201,7 @@ func TestSetupGenesisBlockRejectsFatalDPoSCompatMismatch(t *testing.T) {
 			SealSignerType: params.DPoSSealSignerTypeEd25519,
 		},
 	}
-	newGenesis := &Genesis{Config: newCfg, Alloc: alloc}
+	newGenesis := &Genesis{Config: newCfg, Alloc: alloc, ExtraData: testDPoSGenesisExtra()}
 	_, _, err = SetupGenesisBlock(db, newGenesis)
 	if err == nil {
 		t.Fatal("expected fatal DPoS compatibility error, got nil")
@@ -244,8 +244,9 @@ func TestGenesisHashes(t *testing.T) {
 
 func TestGenesis_Commit(t *testing.T) {
 	genesis := &Genesis{
-		BaseFee: big.NewInt(params.InitialBaseFee),
-		Config:  params.TestChainConfig,
+		BaseFee:   big.NewInt(params.InitialBaseFee),
+		Config:    params.TestChainConfig,
+		ExtraData: testDPoSGenesisExtra(),
 		// difficulty is nil
 	}
 

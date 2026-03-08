@@ -568,19 +568,19 @@ func TestProcessDueTasksCallbackLogIsFatal(t *testing.T) {
 	}
 
 	n, gasUsed, err := ProcessDueTasks(db, noopBlockCtx(targetBlock), params.MainnetChainConfig, targetBlock, exec)
-	if !errors.Is(err, ErrTaskLogsNotAllowed) {
-		t.Fatalf("expected ErrTaskLogsNotAllowed, got %v", err)
+	if err != nil {
+		t.Fatalf("expected nil error (log emission is per-task failure), got %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("expected 0 completed tasks before fatal stop, got %d", n)
+	if n != 1 {
+		t.Fatalf("expected 1 processed task (expired due to log), got %d", n)
 	}
 	if gasUsed != params.TaskMinGasLimit/2 {
 		t.Fatalf("expected gasUsed=%d, got %d", params.TaskMinGasLimit/2, gasUsed)
 	}
-	if rec, _ := ReadTask(db, taskId); rec.Status != TaskPending {
-		t.Fatalf("task status changed on fatal error: got %d", rec.Status)
+	if rec, _ := ReadTask(db, taskId); rec.Status != TaskExpired {
+		t.Fatalf("expected TaskExpired after log emission, got %d", rec.Status)
 	}
 	if len(db.Logs()) != 0 {
-		t.Fatal("task logs must be reverted on fatal error")
+		t.Fatal("task logs must be reverted on log emission")
 	}
 }

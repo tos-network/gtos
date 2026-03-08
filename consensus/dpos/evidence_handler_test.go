@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/validator"
 )
 
 func TestSlashIndicatorExecuteStoresSubmittedEvidence(t *testing.T) {
@@ -40,6 +41,7 @@ func TestSlashIndicatorExecuteStoresSubmittedEvidence(t *testing.T) {
 		t.Fatalf("PackSubmitFinalityViolationEvidence: %v", err)
 	}
 	to := params.CheckpointSlashIndicatorAddress
+	validator.WriteValidatorStatus(st, signer, validator.Active)
 	msg := types.NewMessage(common.HexToAddress("0xbeef"), &to, 0, big.NewInt(0), 500000, params.TxPrice(), params.TxPrice(), params.TxPrice(), input, nil, true)
 	if _, err := ExecuteSlashIndicator(msg, st, big.NewInt(77), &params.ChainConfig{ChainID: big.NewInt(42)}); err != nil {
 		t.Fatalf("ExecuteSlashIndicator: %v", err)
@@ -85,6 +87,7 @@ func TestSlashIndicatorRejectsDuplicateOffense(t *testing.T) {
 		t.Fatalf("NewMaliciousVoteEvidence second: %v", err)
 	}
 	cfg := &params.ChainConfig{ChainID: big.NewInt(42)}
+	validator.WriteValidatorStatus(st, signer, validator.Active)
 	to := params.CheckpointSlashIndicatorAddress
 	firstInput, _ := PackSubmitFinalityViolationEvidence(firstEvidence)
 	firstMsg := types.NewMessage(common.HexToAddress("0x100"), &to, 0, big.NewInt(0), 500000, params.TxPrice(), params.TxPrice(), params.TxPrice(), firstInput, nil, true)

@@ -71,7 +71,7 @@ func testInsert(t *testing.T, hc *HeaderChain, chain []*types.Header, wantStatus
 func TestHeaderInsertion(t *testing.T) {
 	var (
 		db      = rawdb.NewMemoryDatabase()
-		genesis = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+		genesis = (&Genesis{Config: params.TestChainConfig, BaseFee: big.NewInt(params.InitialBaseFee), ExtraData: testDPoSGenesisExtra()}).MustCommit(db)
 	)
 
 	hc, err := NewHeaderChain(db, params.AllDPoSProtocolChanges, dpos.NewFaker(), func() bool { return false })

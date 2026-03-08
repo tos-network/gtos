@@ -85,6 +85,12 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
+}
+
 // testWorkerBackend implements worker.Backend interfaces and wraps all information needed during the testing.
 type testWorkerBackend struct {
 	db         tosdb.Database
@@ -96,8 +102,9 @@ type testWorkerBackend struct {
 
 func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, n int) *testWorkerBackend {
 	var gspec = core.Genesis{
-		Config: chainConfig,
-		Alloc:  core.GenesisAlloc{testBankAddress: {Balance: testBankFunds}},
+		Config:    chainConfig,
+		Alloc:     core.GenesisAlloc{testBankAddress: {Balance: testBankFunds}},
+		ExtraData: testDPoSGenesisExtra(testBankAddress),
 	}
 	genesis := gspec.MustCommit(db)
 

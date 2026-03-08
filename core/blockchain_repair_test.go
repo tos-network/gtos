@@ -1763,7 +1763,7 @@ func testRepair(t *testing.T, tt *rewindTest, snapshots bool) {
 
 	// Initialize a fresh chain
 	var (
-		genesis = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+		genesis = (&Genesis{Config: params.TestChainConfig, BaseFee: big.NewInt(params.InitialBaseFee), ExtraData: testDPoSGenesisExtra()}).MustCommit(db)
 		engine  = dpos.NewFaker()
 		config  = &CacheConfig{
 			TrieCleanLimit: 256,
@@ -1887,7 +1887,7 @@ func TestIssue23496(t *testing.T) {
 
 	// Initialize a fresh chain
 	var (
-		genesis = (&Genesis{BaseFee: big.NewInt(params.InitialBaseFee)}).MustCommit(db)
+		genesis = (&Genesis{Config: params.TestChainConfig, BaseFee: big.NewInt(params.InitialBaseFee), ExtraData: testDPoSGenesisExtra()}).MustCommit(db)
 		engine  = dpos.NewFaker()
 		config  = &CacheConfig{
 			TrieCleanLimit: 256,

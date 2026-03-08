@@ -12,7 +12,8 @@ import (
 	"github.com/tos-network/gtos/accounts"
 	_ "github.com/tos-network/gtos/accountsigner" // registers ACCOUNT_SET_SIGNER handler via init()
 	_ "github.com/tos-network/gtos/agent"         // registers AGENT_* handlers via init()
-	_ "github.com/tos-network/gtos/capability"    // registers CAPABILITY_* handlers via init()
+	"github.com/tos-network/gtos/agentdiscovery"
+	_ "github.com/tos-network/gtos/capability" // registers CAPABILITY_* handlers via init()
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/consensus"
@@ -85,6 +86,8 @@ type TOS struct {
 	netRPCService *tosapi.NetAPI
 
 	p2pServer *p2p.Server
+
+	agentDiscovery *agentdiscovery.Service
 
 	lock sync.RWMutex // Protects variadic fields (e.g. coinbase)
 
@@ -539,6 +542,29 @@ func (s *TOS) SetSynced()                         { atomic.StoreUint32(&s.handle
 func (s *TOS) ArchiveMode() bool                  { return s.config.NoPruning }
 func (s *TOS) BloomIndexer() *core.ChainIndexer   { return s.bloomIndexer }
 func (s *TOS) Merger() *consensus.Merger          { return s.merger }
+func (s *TOS) AgentDiscovery() *agentdiscovery.Service {
+	s.lock.RLock()
+	if s.agentDiscovery != nil {
+		defer s.lock.RUnlock()
+		return s.agentDiscovery
+	}
+	s.lock.RUnlock()
+
+	if s.p2pServer == nil || s.p2pServer.DiscV5 == nil || s.p2pServer.LocalNode() == nil {
+		return nil
+	}
+	svc, err := agentdiscovery.New(s.p2pServer.LocalNode(), s.p2pServer.DiscV5)
+	if err != nil {
+		return nil
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.agentDiscovery == nil {
+		s.agentDiscovery = svc
+	}
+	return s.agentDiscovery
+}
 func (s *TOS) SyncMode() downloader.SyncMode {
 	mode, _ := s.handler.chainSync.modeAndLocalHead()
 	return mode

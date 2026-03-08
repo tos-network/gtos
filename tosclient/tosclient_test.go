@@ -173,9 +173,15 @@ var (
 var genesis = &core.Genesis{
 	Config:    params.AllDPoSProtocolChanges,
 	Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance}},
-	ExtraData: []byte("test genesis"),
+	ExtraData: testDPoSGenesisExtra(testAddr),
 	Timestamp: 9000,
 	BaseFee:   big.NewInt(params.InitialBaseFee),
+}
+
+func testDPoSGenesisExtra(validator common.Address) []byte {
+	extra := make([]byte, 32+common.AddressLength)
+	copy(extra[32:], validator.Bytes())
+	return extra
 }
 
 var testTx1 = types.MustSignNewTx(testKey, types.LatestSigner(genesis.Config), &types.SignerTx{

@@ -82,8 +82,9 @@ func newE2EBackend(t *testing.T) (*node.Node, *tos.TOS) {
 	t.Helper()
 	config := params.AllDPoSProtocolChanges
 	genesis := &core.Genesis{
-		Config:   config,
-		GasLimit: 100_000_000,
+		Config:    config,
+		GasLimit:  100_000_000,
+		ExtraData: testDPoSGenesisExtra(e2eAddr),
 		Alloc: core.GenesisAlloc{
 			e2eAddr: {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
 		},

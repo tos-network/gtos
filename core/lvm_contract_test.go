@@ -98,7 +98,8 @@ func lvmTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractA
 
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			addr1:         {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr:  {Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)), Code: []byte(codeA)},
@@ -131,7 +132,8 @@ func lvmTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			addr1: {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr: {
@@ -164,7 +166,8 @@ func lvmTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractA
 
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			addr1: {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr: {
@@ -1960,7 +1963,8 @@ func TestLvmContractCrossContractRead(t *testing.T) {
 	storageName := "hello"
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
-		Config: config,
+		Config:    config,
+		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
 			addr1:        {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr: {Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)), Code: []byte(codeA)},
@@ -2583,7 +2587,8 @@ func TestLvmContractStaticCall(t *testing.T) {
 
 		db := rawdb.NewMemoryDatabase()
 		gspec := &Genesis{
-			Config: config,
+			Config:    config,
+			ExtraData: testDPoSGenesisExtra(),
 			Alloc: GenesisAlloc{
 				addr1:        {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 				contractAddr: {Balance: big.NewInt(0), Code: []byte(codeA)},
