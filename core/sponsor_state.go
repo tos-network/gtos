@@ -13,9 +13,14 @@ func sponsorNonceSlot(addr common.Address) common.Hash {
 	return crypto.Keccak256Hash([]byte("tos.sponsor.nonce"), addr.Bytes())
 }
 
-func getSponsorNonce(statedb vm.StateDB, sponsor common.Address) uint64 {
+// ReadSponsorNonce returns the current sponsor replay nonce for a sponsor account.
+func ReadSponsorNonce(statedb vm.StateDB, sponsor common.Address) uint64 {
 	slot := statedb.GetState(params.SponsorRegistryAddress, sponsorNonceSlot(sponsor))
 	return binary.BigEndian.Uint64(slot[common.HashLength-8:])
+}
+
+func getSponsorNonce(statedb vm.StateDB, sponsor common.Address) uint64 {
+	return ReadSponsorNonce(statedb, sponsor)
 }
 
 func setSponsorNonce(statedb vm.StateDB, sponsor common.Address, nonce uint64) {

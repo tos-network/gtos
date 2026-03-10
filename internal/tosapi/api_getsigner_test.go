@@ -2,6 +2,7 @@ package tosapi
 
 import (
 	"context"
+	"encoding/binary"
 	"math/big"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 )
 
@@ -110,5 +113,29 @@ func TestGetAccountHistoryPrunedByRetentionWindow(t *testing.T) {
 	}
 	if rpcErr.code != rpcErrHistoryPruned {
 		t.Fatalf("unexpected error code %d, want %d", rpcErr.code, rpcErrHistoryPruned)
+	}
+}
+
+func TestGetSponsorNonceReadsStoredNonce(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	addr := common.HexToAddress("0x0b4fbf17a8c5355ee1af6ec6c3ecf4a00e6a6d5ecf45167f40556f4fbf20de8b")
+	var encoded common.Hash
+	binary.BigEndian.PutUint64(encoded[common.HashLength-8:], 17)
+	st.SetState(params.SponsorRegistryAddress, crypto.Keccak256Hash([]byte("tos.sponsor.nonce"), addr.Bytes()), encoded)
+
+	api := NewTOSAPI(&getSignerBackendMock{
+		backendMock: newBackendMock(),
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(100)},
+	})
+	got, err := api.GetSponsorNonce(context.Background(), addr, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || uint64(*got) != 17 {
+		t.Fatalf("unexpected sponsor nonce %v, want 17", got)
 	}
 }

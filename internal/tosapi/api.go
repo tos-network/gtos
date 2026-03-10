@@ -2461,6 +2461,23 @@ func (s *TOSAPI) GetSigner(ctx context.Context, address common.Address, blockNrO
 	}, nil
 }
 
+// GetSponsorNonce returns the current native sponsor replay nonce for a sponsor account.
+func (s *TOSAPI) GetSponsorNonce(ctx context.Context, address common.Address, blockNrOrHash *rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "account state not found"}
+	}
+	nonce := hexutil.Uint64(core.ReadSponsorNonce(state, address))
+	return &nonce, nil
+}
+
 func validateSetSignerArgs(args RPCSetSignerArgs) error {
 	if args.From == (common.Address{}) {
 		return &rpcAPIError{

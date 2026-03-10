@@ -284,6 +284,15 @@ func (ec *Client) GetSigner(ctx context.Context, address common.Address, blockNu
 	}, nil
 }
 
+// GetSponsorNonce returns the current native sponsor replay nonce for a block (latest when blockNumber is nil).
+func (ec *Client) GetSponsorNonce(ctx context.Context, address common.Address, blockNumber *big.Int) (uint64, error) {
+	var raw hexutil.Uint64
+	if err := ec.c.CallContext(ctx, &raw, "tos_getSponsorNonce", address, toBlockNumArg(blockNumber)); err != nil {
+		return 0, err
+	}
+	return uint64(raw), nil
+}
+
 // SetSigner submits a signer-change operation transaction.
 func (ec *Client) SetSigner(ctx context.Context, args SetSignerArgs) (common.Hash, error) {
 	var txHash common.Hash

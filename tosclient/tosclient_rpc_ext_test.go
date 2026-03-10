@@ -28,6 +28,9 @@ type rpcExtTestService struct {
 	lastGetSignerAddress common.Address
 	lastGetSignerBlock   string
 
+	lastGetSponsorNonceAddress common.Address
+	lastGetSponsorNonceBlock   string
+
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
 
@@ -114,6 +117,12 @@ func (s *rpcExtTestService) GetSigner(address common.Address, block string) inte
 		Signer:      SignerDescriptor{Type: "secp256k1", Value: "0xabcdef", Defaulted: false},
 		BlockNumber: hexutil.Uint64(43),
 	}
+}
+
+func (s *rpcExtTestService) GetSponsorNonce(address common.Address, block string) interface{} {
+	s.lastGetSponsorNonceAddress = address
+	s.lastGetSponsorNonceBlock = block
+	return hexutil.Uint64(23)
 }
 
 func (s *rpcExtTestService) SetSigner(args SetSignerArgs) common.Hash {
@@ -393,6 +402,17 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	}
 	if signer.Signer.Type != "secp256k1" || signer.Signer.Value != "0xabcdef" {
 		t.Fatalf("unexpected signer profile: %+v", signer)
+	}
+
+	sponsorNonce, err := client.GetSponsorNonce(ctx, address, big.NewInt(16))
+	if err != nil {
+		t.Fatalf("GetSponsorNonce error: %v", err)
+	}
+	if svc.lastGetSponsorNonceBlock != "0x10" {
+		t.Fatalf("GetSponsorNonce block arg = %q, want 0x10", svc.lastGetSponsorNonceBlock)
+	}
+	if sponsorNonce != 23 {
+		t.Fatalf("unexpected sponsor nonce: %d", sponsorNonce)
 	}
 
 	codeHash := common.HexToHash("0x1234")
