@@ -268,7 +268,8 @@ func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Tran
 	if old != nil {
 		// SignerTx uses protocol-fixed pricing, so replacement is nonce-based only.
 		// Price-bump semantics do not apply in this mode.
-		if old.Type() != types.SignerTxType || tx.Type() != types.SignerTxType {
+		if (old.Type() != types.SignerTxType && old.Type() != types.SponsoredSignerTxType) ||
+			(tx.Type() != types.SignerTxType && tx.Type() != types.SponsoredSignerTxType) {
 			if old.GasFeeCapCmp(tx) >= 0 || old.GasTipCapCmp(tx) >= 0 {
 				return false, nil
 			}

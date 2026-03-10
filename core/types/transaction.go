@@ -44,6 +44,7 @@ var (
 // Transaction types.
 const (
 	SignerTxType = iota
+	SponsoredSignerTxType
 )
 
 // Transaction is an TOS transaction.
@@ -66,7 +67,7 @@ func NewTx(inner TxData) *Transaction {
 
 // TxData is the underlying data of a transaction.
 //
-// This is implemented by SignerTx.
+// This is implemented by SignerTx and SponsoredSignerTx.
 type TxData interface {
 	txType() byte // returns the type ID
 	copy() TxData // creates a deep copy and initializes all fields
@@ -88,7 +89,7 @@ type TxData interface {
 
 // EncodeRLP implements rlp.Encoder
 func (tx *Transaction) EncodeRLP(w io.Writer) error {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
 		return ErrTxTypeNotSupported
 	}
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
@@ -109,7 +110,7 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 // MarshalBinary returns the canonical encoding of the transaction.
 // For SignerTx transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
 		return nil, ErrTxTypeNotSupported
 	}
 	var buf bytes.Buffer
@@ -170,6 +171,33 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 			return nil, fmt.Errorf("signer type too long: %d > 64", len(inner.SignerType))
 		}
 		if _, err := canonicalSignerType(inner.SignerType); err != nil {
+			return nil, err
+		}
+		return &inner, nil
+	case SponsoredSignerTxType:
+		var inner SponsoredSignerTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		if err != nil {
+			return nil, err
+		}
+		if len(inner.SignerType) > 64 {
+			return nil, fmt.Errorf("signer type too long: %d > 64", len(inner.SignerType))
+		}
+		if _, err := canonicalSignerType(inner.SignerType); err != nil {
+			return nil, err
+		}
+		if inner.Sponsor == (common.Address{}) {
+			return nil, fmt.Errorf("missing sponsor address for sponsored tx")
+		}
+		if inner.SponsorExpiry == 0 {
+			return nil, fmt.Errorf("missing sponsor expiry for sponsored tx")
+		}
+		if err := sanityCheckSignerTxSignature(inner.SignerType, inner.V, inner.R, inner.S); err != nil &&
+			(inner.V.Sign() != 0 || inner.R.Sign() != 0 || inner.S.Sign() != 0) {
+			return nil, err
+		}
+		if err := sanityCheckSignature(inner.SponsorV, inner.SponsorR, inner.SponsorS, false); err != nil &&
+			(inner.SponsorV.Sign() != 0 || inner.SponsorR.Sign() != 0 || inner.SponsorS.Sign() != 0) {
 			return nil, err
 		}
 		return &inner, nil
@@ -234,7 +262,7 @@ func sanityCheckSignerTxSignature(signerType string, v *big.Int, r *big.Int, s *
 
 // Protected is always true for SignerTx.
 func (tx *Transaction) Protected() bool {
-	return tx.Type() == SignerTxType
+	return tx.Type() == SignerTxType || tx.Type() == SponsoredSignerTxType
 }
 
 // Type returns the transaction type.
@@ -252,6 +280,9 @@ func (tx *Transaction) SignerFrom() (common.Address, bool) {
 	if stx, ok := tx.inner.(*SignerTx); ok {
 		return stx.From, true
 	}
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.From, true
+	}
 	return common.Address{}, false
 }
 
@@ -260,7 +291,55 @@ func (tx *Transaction) SignerType() (string, bool) {
 	if stx, ok := tx.inner.(*SignerTx); ok {
 		return stx.SignerType, true
 	}
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.SignerType, true
+	}
 	return "", false
+}
+
+// SponsorFrom returns the explicit sponsor address if the transaction carries one.
+func (tx *Transaction) SponsorFrom() (common.Address, bool) {
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.Sponsor, true
+	}
+	return common.Address{}, false
+}
+
+// SponsorNonce returns the sponsor replay nonce for sponsored transactions.
+func (tx *Transaction) SponsorNonce() (uint64, bool) {
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.SponsorNonce, true
+	}
+	return 0, false
+}
+
+// SponsorExpiry returns the sponsor expiry timestamp for sponsored transactions.
+func (tx *Transaction) SponsorExpiry() (uint64, bool) {
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.SponsorExpiry, true
+	}
+	return 0, false
+}
+
+// SponsorPolicyHash returns the sponsor policy hash for sponsored transactions.
+func (tx *Transaction) SponsorPolicyHash() (common.Hash, bool) {
+	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+		return stx.SponsorPolicyHash, true
+	}
+	return common.Hash{}, false
+}
+
+// SponsorRawSignatureValues returns the sponsor V, R, S values if present.
+func (tx *Transaction) SponsorRawSignatureValues() (v, r, s *big.Int, ok bool) {
+	if stx, okType := tx.inner.(*SponsoredSignerTx); okType {
+		return stx.SponsorV, stx.SponsorR, stx.SponsorS, true
+	}
+	return nil, nil, nil, false
+}
+
+// IsSponsored reports whether the transaction uses native sponsor funding.
+func (tx *Transaction) IsSponsored() bool {
+	return tx.Type() == SponsoredSignerTxType
 }
 
 // Data returns the input data of the transaction.
@@ -398,6 +477,24 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 	}
 	cpy := tx.inner.copy()
 	cpy.setSignatureValues(signer.ChainID(), v, r, s)
+	return &Transaction{inner: cpy, time: tx.time}, nil
+}
+
+// WithSponsorSignature returns a new sponsored transaction with the given
+// sponsor-side signature.
+func (tx *Transaction) WithSponsorSignature(sig []byte) (*Transaction, error) {
+	stx, ok := tx.inner.(*SponsoredSignerTx)
+	if !ok {
+		return nil, ErrTxTypeNotSupported
+	}
+	r, s, v, err := decodeSignerTxSignature("secp256k1", sig)
+	if err != nil {
+		return nil, err
+	}
+	cpy := stx.copy().(*SponsoredSignerTx)
+	cpy.SponsorV = v
+	cpy.SponsorR = r
+	cpy.SponsorS = s
 	return &Transaction{inner: cpy, time: tx.time}, nil
 }
 
@@ -605,17 +702,21 @@ func (t *TransactionsByPriceAndNonce) Pop() {
 //
 // NOTE: In a future PR this will be removed.
 type Message struct {
-	to         *common.Address
-	from       common.Address
-	nonce      uint64
-	amount     *big.Int
-	gasLimit   uint64
-	txPrice    *big.Int
-	gasFeeCap  *big.Int
-	gasTipCap  *big.Int
-	data       []byte
-	accessList AccessList
-	isFake     bool
+	to                *common.Address
+	from              common.Address
+	sponsor           common.Address
+	nonce             uint64
+	sponsorNonce      uint64
+	sponsorExpiry     uint64
+	sponsorPolicyHash common.Hash
+	amount            *big.Int
+	gasLimit          uint64
+	txPrice           *big.Int
+	gasFeeCap         *big.Int
+	gasTipCap         *big.Int
+	data              []byte
+	accessList        AccessList
+	isFake            bool
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, txPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
@@ -634,6 +735,14 @@ func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *b
 	}
 }
 
+func (m Message) WithSponsor(sponsor common.Address, sponsorNonce uint64, sponsorExpiry uint64, sponsorPolicyHash common.Hash) Message {
+	m.sponsor = sponsor
+	m.sponsorNonce = sponsorNonce
+	m.sponsorExpiry = sponsorExpiry
+	m.sponsorPolicyHash = sponsorPolicyHash
+	return m
+}
+
 // AsMessage returns the transaction as a core.Message.
 func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	msg := Message{
@@ -648,26 +757,50 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		accessList: tx.AccessList(),
 		isFake:     false,
 	}
+	if sponsor, ok := tx.SponsorFrom(); ok {
+		msg.sponsor = sponsor
+	}
+	if sponsorNonce, ok := tx.SponsorNonce(); ok {
+		msg.sponsorNonce = sponsorNonce
+	}
+	if sponsorExpiry, ok := tx.SponsorExpiry(); ok {
+		msg.sponsorExpiry = sponsorExpiry
+	}
+	if sponsorPolicyHash, ok := tx.SponsorPolicyHash(); ok {
+		msg.sponsorPolicyHash = sponsorPolicyHash
+	}
 	// If baseFee provided, set txPrice to effectiveTxPrice.
 	if baseFee != nil {
 		msg.txPrice = math.BigMin(msg.txPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
 	}
 	var err error
 	msg.from, err = Sender(s, tx)
+	if err == nil && tx.IsSponsored() {
+		sponsor, _ := tx.SponsorFrom()
+		sponsorNonce, _ := tx.SponsorNonce()
+		sponsorExpiry, _ := tx.SponsorExpiry()
+		sponsorPolicyHash, _ := tx.SponsorPolicyHash()
+		msg = msg.WithSponsor(sponsor, sponsorNonce, sponsorExpiry, sponsorPolicyHash)
+	}
 	return msg, err
 }
 
-func (m Message) From() common.Address   { return m.from }
-func (m Message) To() *common.Address    { return m.to }
-func (m Message) TxPrice() *big.Int      { return m.txPrice }
-func (m Message) GasFeeCap() *big.Int    { return m.gasFeeCap }
-func (m Message) GasTipCap() *big.Int    { return m.gasTipCap }
-func (m Message) Value() *big.Int        { return m.amount }
-func (m Message) Gas() uint64            { return m.gasLimit }
-func (m Message) Nonce() uint64          { return m.nonce }
-func (m Message) Data() []byte           { return m.data }
-func (m Message) AccessList() AccessList { return m.accessList }
-func (m Message) IsFake() bool           { return m.isFake }
+func (m Message) From() common.Address           { return m.from }
+func (m Message) Sponsor() common.Address        { return m.sponsor }
+func (m Message) To() *common.Address            { return m.to }
+func (m Message) TxPrice() *big.Int              { return m.txPrice }
+func (m Message) GasFeeCap() *big.Int            { return m.gasFeeCap }
+func (m Message) GasTipCap() *big.Int            { return m.gasTipCap }
+func (m Message) Value() *big.Int                { return m.amount }
+func (m Message) Gas() uint64                    { return m.gasLimit }
+func (m Message) Nonce() uint64                  { return m.nonce }
+func (m Message) SponsorNonce() uint64           { return m.sponsorNonce }
+func (m Message) SponsorExpiry() uint64          { return m.sponsorExpiry }
+func (m Message) SponsorPolicyHash() common.Hash { return m.sponsorPolicyHash }
+func (m Message) IsSponsored() bool              { return m.sponsor != (common.Address{}) }
+func (m Message) Data() []byte                   { return m.data }
+func (m Message) AccessList() AccessList         { return m.accessList }
+func (m Message) IsFake() bool                   { return m.isFake }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

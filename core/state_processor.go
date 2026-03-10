@@ -190,7 +190,7 @@ func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, ba
 	if err != nil {
 		return types.Message{}, err
 	}
-	return types.NewMessage(
+	msg := types.NewMessage(
 		from,
 		tx.To(),
 		tx.Nonce(),
@@ -202,5 +202,16 @@ func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, ba
 		tx.Data(),
 		tx.AccessList(),
 		false,
-	), nil
+	)
+	if tx.IsSponsored() {
+		sponsor, err := ResolveSponsor(tx, signer, statedb)
+		if err != nil {
+			return types.Message{}, err
+		}
+		sponsorNonce, _ := tx.SponsorNonce()
+		sponsorExpiry, _ := tx.SponsorExpiry()
+		sponsorPolicyHash, _ := tx.SponsorPolicyHash()
+		msg = msg.WithSponsor(sponsor, sponsorNonce, sponsorExpiry, sponsorPolicyHash)
+	}
+	return msg, nil
 }

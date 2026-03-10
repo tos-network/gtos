@@ -60,6 +60,7 @@ type StateTransition struct {
 // Message represents a message sent to a contract.
 type Message interface {
 	From() common.Address
+	Sponsor() common.Address
 	To() *common.Address
 
 	TxPrice() *big.Int
@@ -69,6 +70,10 @@ type Message interface {
 	Value() *big.Int
 
 	Nonce() uint64
+	SponsorNonce() uint64
+	SponsorExpiry() uint64
+	SponsorPolicyHash() common.Hash
+	IsSponsored() bool
 	IsFake() bool
 	Data() []byte
 	AccessList() types.AccessList
@@ -219,6 +224,13 @@ func (st *StateTransition) to() common.Address {
 	return *st.msg.To()
 }
 
+func (st *StateTransition) gasPayer() common.Address {
+	if st.msg != nil && st.msg.IsSponsored() {
+		return st.msg.Sponsor()
+	}
+	return st.msg.From()
+}
+
 func (st *StateTransition) buyGas() error {
 	mgval := new(big.Int).SetUint64(st.msg.Gas())
 	mgval = mgval.Mul(mgval, st.txPrice)
@@ -226,17 +238,20 @@ func (st *StateTransition) buyGas() error {
 	if st.gasFeeCap != nil {
 		balanceCheck = new(big.Int).SetUint64(st.msg.Gas())
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.gasFeeCap)
-		balanceCheck.Add(balanceCheck, st.value)
+		if !st.msg.IsSponsored() {
+			balanceCheck.Add(balanceCheck, st.value)
+		}
 	}
-	if have, want := st.state.GetBalance(st.msg.From()), balanceCheck; have.Cmp(want) < 0 {
-		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From().Hex(), have, want)
+	payer := st.gasPayer()
+	if have, want := st.state.GetBalance(payer), balanceCheck; have.Cmp(want) < 0 {
+		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, payer.Hex(), have, want)
 	}
 	if err := st.gp.SubGas(st.msg.Gas()); err != nil {
 		return err
 	}
 	st.gas += st.msg.Gas()
 	st.initialGas = st.msg.Gas()
-	st.state.SubBalance(st.msg.From(), mgval)
+	st.state.SubBalance(payer, mgval)
 	return nil
 }
 
@@ -252,6 +267,22 @@ func (st *StateTransition) preCheck() error {
 		} else if stNonce+1 < stNonce {
 			return fmt.Errorf("%w: address %v, nonce: %d", ErrNonceMax,
 				st.msg.From().Hex(), stNonce)
+		}
+		if st.msg.IsSponsored() {
+			stSponsorNonce := getSponsorNonce(st.state, st.msg.Sponsor())
+			if sponsorNonce := st.msg.SponsorNonce(); stSponsorNonce < sponsorNonce {
+				return fmt.Errorf("%w: sponsor %v, tx: %d state: %d", ErrNonceTooHigh,
+					st.msg.Sponsor().Hex(), sponsorNonce, stSponsorNonce)
+			} else if stSponsorNonce > sponsorNonce {
+				return fmt.Errorf("%w: sponsor %v, tx: %d state: %d", ErrNonceTooLow,
+					st.msg.Sponsor().Hex(), sponsorNonce, stSponsorNonce)
+			} else if stSponsorNonce+1 < stSponsorNonce {
+				return fmt.Errorf("%w: sponsor %v, nonce: %d", ErrNonceMax,
+					st.msg.Sponsor().Hex(), stSponsorNonce)
+			}
+			if expiry := st.msg.SponsorExpiry(); expiry != 0 && st.blockCtx.Time != nil && st.blockCtx.Time.Sign() > 0 && st.blockCtx.Time.Uint64() > expiry {
+				return fmt.Errorf("sponsor authorization expired: sponsor %v expiry %d block_time %d", st.msg.Sponsor().Hex(), expiry, st.blockCtx.Time.Uint64())
+			}
 		}
 		// Sender must always be an EOA — contract addresses have no private key.
 		if codeHash := st.state.GetCodeHash(st.msg.From()); codeHash != emptyCodeHash && codeHash != (common.Hash{}) {
@@ -346,6 +377,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// regardless of destination.
 	if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
+	}
+	if msg.IsSponsored() {
+		setSponsorNonce(st.state, msg.Sponsor(), getSponsorNonce(st.state, msg.Sponsor())+1)
 	}
 
 	var vmerr error
@@ -483,7 +517,7 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 		new(big.Int).SetUint64(params.ValidationGasCap),
 		st.txPrice,
 	)
-	if st.state.GetBalance(st.msg.From()).Cmp(worstCaseCost) < 0 {
+	if st.state.GetBalance(st.gasPayer()).Cmp(worstCaseCost) < 0 {
 		return ErrAAValidationFailed
 	}
 
@@ -552,7 +586,7 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 	// gasUsed is bounded by ValidationGasCap so this cannot underflow given phase 1.
 	actualCost := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), st.txPrice)
 	if actualCost.Sign() > 0 {
-		st.state.SubBalance(st.msg.From(), actualCost)
+		st.state.SubBalance(st.gasPayer(), actualCost)
 	}
 	st.validationGas = gasUsed // included in st.gasUsed() for consistent accounting
 
@@ -748,7 +782,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	st.gas += refund
 
 	remaining := new(big.Int).Mul(new(big.Int).SetUint64(st.gas), st.txPrice)
-	st.state.AddBalance(st.msg.From(), remaining)
+	st.state.AddBalance(st.gasPayer(), remaining)
 
 	st.gp.AddGas(st.gas)
 }

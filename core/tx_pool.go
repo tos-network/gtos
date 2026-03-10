@@ -46,6 +46,9 @@ var (
 	// ErrInvalidSender is returned if the transaction contains an invalid signature.
 	ErrInvalidSender = errors.New("invalid sender")
 
+	// ErrInvalidSponsor is returned if the sponsored transaction contains an invalid sponsor signature.
+	ErrInvalidSponsor = errors.New("invalid sponsor")
+
 	// ErrUnderpriced is returned if a transaction's tx price is below the minimum
 	// configured for the transaction pool.
 	ErrUnderpriced = errors.New("transaction underpriced")
@@ -565,9 +568,16 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
+	var sponsor common.Address
 	switch tx.Type() {
 	case types.SignerTxType:
-		// SignerTx is the only accepted tx envelope in GTOS.
+		// Native sender-pays transaction.
+	case types.SponsoredSignerTxType:
+		resolvedSponsor, err := ResolveSponsor(tx, pool.signer, pool.currentState)
+		if err != nil {
+			return ErrInvalidSponsor
+		}
+		sponsor = resolvedSponsor
 	default:
 		return ErrTxTypeNotSupported
 	}
@@ -609,7 +619,26 @@ func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	if tx.IsSponsored() {
+		gasCost := new(big.Int).Mul(tx.TxPrice(), new(big.Int).SetUint64(tx.Gas()))
+		if pool.currentState.GetBalance(sponsor).Cmp(gasCost) < 0 {
+			return ErrInsufficientFunds
+		}
+		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
+			return ErrInsufficientFundsForTransfer
+		}
+		sponsorNonce, _ := tx.SponsorNonce()
+		if getSponsorNonce(pool.currentState, sponsor) != sponsorNonce {
+			return ErrNonceTooLow
+		}
+		sponsorExpiry, _ := tx.SponsorExpiry()
+		if sponsorExpiry != 0 {
+			now := uint64(time.Now().Unix())
+			if now > sponsorExpiry {
+				return ErrInvalidSponsor
+			}
+		}
+	} else if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -726,6 +755,13 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		log.Trace("Discarding transaction with invalid sender", "hash", hash, "err", fromErr)
 		invalidTxMeter.Mark(1)
 		return false, ErrInvalidSender
+	}
+	if tx.IsSponsored() {
+		if _, sponsorErr := ResolveSponsor(tx, pool.signer, pool.currentState); sponsorErr != nil {
+			log.Trace("Discarding sponsored transaction with invalid sponsor", "hash", hash, "err", sponsorErr)
+			invalidTxMeter.Mark(1)
+			return false, ErrInvalidSponsor
+		}
 	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.

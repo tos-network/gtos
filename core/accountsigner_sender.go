@@ -9,6 +9,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -64,7 +65,7 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 	if tx == nil {
 		return common.Address{}, errors.New("nil tx")
 	}
-	if tx.Type() != types.SignerTxType {
+	if tx.Type() != types.SignerTxType && tx.Type() != types.SponsoredSignerTxType {
 		return common.Address{}, types.ErrTxTypeNotSupported
 	}
 	if tx.ChainId().Cmp(chainSigner.ChainID()) != 0 {
@@ -147,4 +148,74 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 		}
 		return from, nil
 	}
+}
+
+func buildRecoverableSignature(v, r, s *big.Int) ([]byte, error) {
+	if v == nil || r == nil || s == nil {
+		return nil, ErrInvalidAccountSignerSignature
+	}
+	vb := byte(v.Uint64())
+	if vb > 1 {
+		return nil, ErrInvalidAccountSignerSignature
+	}
+	sig := make([]byte, crypto.SignatureLength)
+	r.FillBytes(sig[:32])
+	s.FillBytes(sig[32:64])
+	sig[64] = vb
+	return sig, nil
+}
+
+// ResolveSponsor derives the explicit sponsor identity for a sponsored transaction.
+func ResolveSponsor(tx *types.Transaction, chainSigner types.Signer, statedb vm.StateDB) (common.Address, error) {
+	if tx == nil {
+		return common.Address{}, errors.New("nil tx")
+	}
+	if tx.Type() != types.SponsoredSignerTxType {
+		return common.Address{}, types.ErrTxTypeNotSupported
+	}
+	if tx.ChainId().Cmp(chainSigner.ChainID()) != 0 {
+		return common.Address{}, types.ErrInvalidChainId
+	}
+	sponsor, ok := tx.SponsorFrom()
+	if !ok {
+		return common.Address{}, ErrAccountSignerMismatch
+	}
+	v, r, s, ok := tx.SponsorRawSignatureValues()
+	if !ok {
+		return common.Address{}, ErrInvalidAccountSignerSignature
+	}
+	hash := chainSigner.Hash(tx)
+
+	cfgType, cfgValue, configured := accountsigner.Get(statedb, sponsor)
+	if configured {
+		normType, normPub, _, err := accountsigner.NormalizeSigner(cfgType, cfgValue)
+		if err != nil {
+			return common.Address{}, err
+		}
+		if !accountsigner.SupportsCurrentTxSignatureType(normType) {
+			return common.Address{}, ErrUnsupportedAccountSignerType
+		}
+		if !accountsigner.VerifyRawSignature(normType, normPub, hash, r, s) {
+			return common.Address{}, ErrInvalidAccountSignerSignature
+		}
+		addrFromSigner, err := accountsigner.AddressFromSigner(normType, normPub)
+		if err != nil || addrFromSigner != sponsor {
+			return common.Address{}, ErrAccountSignerMismatch
+		}
+		return sponsor, nil
+	}
+
+	sig, err := buildRecoverableSignature(v, r, s)
+	if err != nil {
+		return common.Address{}, err
+	}
+	pub, err := crypto.SigToPub(hash.Bytes(), sig)
+	if err != nil {
+		return common.Address{}, err
+	}
+	recovered := crypto.PubkeyToAddress(*pub)
+	if recovered != sponsor {
+		return common.Address{}, fmt.Errorf("%w: expected %s got %s", ErrAccountSignerMismatch, sponsor.Hex(), recovered.Hex())
+	}
+	return sponsor, nil
 }

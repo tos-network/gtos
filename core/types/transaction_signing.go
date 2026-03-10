@@ -107,7 +107,7 @@ func SignNewTx(prv *ecdsa.PrivateKey, s Signer, txdata TxData) (*Transaction, er
 
 func signForTx(tx *Transaction, s Signer, prv *ecdsa.PrivateKey) ([]byte, error) {
 	hash := s.Hash(tx)
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
 		return crypto.Sign(hash[:], prv)
 	}
 	signerType, ok := tx.SignerType()
@@ -472,7 +472,7 @@ func (s accessListSigner) Equal(s2 Signer) bool {
 }
 
 func (s accessListSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
 		return common.Address{}, ErrTxTypeNotSupported
 	}
 	V, R, S := tx.RawSignatureValues()
@@ -500,14 +500,22 @@ func (s accessListSigner) Sender(tx *Transaction) (common.Address, error) {
 }
 
 func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big.Int, err error) {
-	txdata, ok := tx.inner.(*SignerTx)
-	if !ok {
+	var signerType string
+	switch txdata := tx.inner.(type) {
+	case *SignerTx:
+		if txdata.ChainID.Sign() == 0 || txdata.ChainID.Cmp(s.chainId) != 0 {
+			return nil, nil, nil, ErrInvalidChainId
+		}
+		signerType = txdata.SignerType
+	case *SponsoredSignerTx:
+		if txdata.ChainID.Sign() == 0 || txdata.ChainID.Cmp(s.chainId) != 0 {
+			return nil, nil, nil, ErrInvalidChainId
+		}
+		signerType = txdata.SignerType
+	default:
 		return nil, nil, nil, ErrTxTypeNotSupported
 	}
-	if txdata.ChainID.Sign() == 0 || txdata.ChainID.Cmp(s.chainId) != 0 {
-		return nil, nil, nil, ErrInvalidChainId
-	}
-	R, S, V, err = decodeSignerTxSignature(txdata.SignerType, sig)
+	R, S, V, err = decodeSignerTxSignature(signerType, sig)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -517,7 +525,7 @@ func (s accessListSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V 
 // Hash returns the hash to be signed by the sender.
 // It does not uniquely identify the transaction.
 func (s accessListSigner) Hash(tx *Transaction) common.Hash {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
 		return common.Hash{}
 	}
 	from, ok := tx.SignerFrom()
@@ -527,6 +535,28 @@ func (s accessListSigner) Hash(tx *Transaction) common.Hash {
 	signerType, ok := tx.SignerType()
 	if !ok || signerType == "" {
 		panic("accessListSigner.Hash: transaction has no signerType")
+	}
+	if sponsor, ok := tx.SponsorFrom(); ok {
+		sponsorNonce, _ := tx.SponsorNonce()
+		sponsorExpiry, _ := tx.SponsorExpiry()
+		sponsorPolicyHash, _ := tx.SponsorPolicyHash()
+		return prefixedRlpHash(
+			tx.Type(),
+			[]interface{}{
+				s.chainId,
+				tx.Nonce(),
+				tx.Gas(),
+				tx.To(),
+				tx.Value(),
+				tx.Data(),
+				tx.AccessList(),
+				from,
+				signerType,
+				sponsor,
+				sponsorNonce,
+				sponsorExpiry,
+				sponsorPolicyHash,
+			})
 	}
 	return prefixedRlpHash(
 		tx.Type(),

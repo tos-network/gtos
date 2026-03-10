@@ -1317,26 +1317,30 @@ func (s *BlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, inc
 
 // RPCTransaction represents a transaction that will serialize to the RPC representation of a transaction
 type RPCTransaction struct {
-	BlockHash        *common.Hash      `json:"blockHash"`
-	BlockNumber      *hexutil.Big      `json:"blockNumber"`
-	From             common.Address    `json:"from"`
-	SignerType       string            `json:"signerType,omitempty"`
-	Gas              hexutil.Uint64    `json:"gas"`
-	GasFeeCap        *hexutil.Big      `json:"maxFeePerGas,omitempty"`
-	GasTipCap        *hexutil.Big      `json:"maxPriorityFeePerGas,omitempty"`
-	Hash             common.Hash       `json:"hash"`
-	Input            hexutil.Bytes     `json:"input"`
-	Nonce            hexutil.Uint64    `json:"nonce"`
-	To               *common.Address   `json:"to"`
-	TransactionIndex *hexutil.Uint64   `json:"transactionIndex"`
-	Value            *hexutil.Big      `json:"value"`
-	Type             hexutil.Uint64    `json:"type"`
-	Accesses         *types.AccessList `json:"accessList,omitempty"`
-	ChainID          *hexutil.Big      `json:"chainId,omitempty"`
-	GasPrice         *hexutil.Big      `json:"gasPrice"`
-	V                *hexutil.Big      `json:"v"`
-	R                *hexutil.Big      `json:"r"`
-	S                *hexutil.Big      `json:"s"`
+	BlockHash         *common.Hash      `json:"blockHash"`
+	BlockNumber       *hexutil.Big      `json:"blockNumber"`
+	From              common.Address    `json:"from"`
+	Sponsor           *common.Address   `json:"sponsor,omitempty"`
+	SponsorNonce      *hexutil.Uint64   `json:"sponsorNonce,omitempty"`
+	SponsorExpiry     *hexutil.Uint64   `json:"sponsorExpiry,omitempty"`
+	SponsorPolicyHash *common.Hash      `json:"sponsorPolicyHash,omitempty"`
+	SignerType        string            `json:"signerType,omitempty"`
+	Gas               hexutil.Uint64    `json:"gas"`
+	GasFeeCap         *hexutil.Big      `json:"maxFeePerGas,omitempty"`
+	GasTipCap         *hexutil.Big      `json:"maxPriorityFeePerGas,omitempty"`
+	Hash              common.Hash       `json:"hash"`
+	Input             hexutil.Bytes     `json:"input"`
+	Nonce             hexutil.Uint64    `json:"nonce"`
+	To                *common.Address   `json:"to"`
+	TransactionIndex  *hexutil.Uint64   `json:"transactionIndex"`
+	Value             *hexutil.Big      `json:"value"`
+	Type              hexutil.Uint64    `json:"type"`
+	Accesses          *types.AccessList `json:"accessList,omitempty"`
+	ChainID           *hexutil.Big      `json:"chainId,omitempty"`
+	GasPrice          *hexutil.Big      `json:"gasPrice"`
+	V                 *hexutil.Big      `json:"v"`
+	R                 *hexutil.Big      `json:"r"`
+	S                 *hexutil.Big      `json:"s"`
 }
 
 func rpcTxFrom(signer types.Signer, tx *types.Transaction) common.Address {
@@ -1376,11 +1380,27 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	}
 	switch tx.Type() {
 	case types.SignerTxType:
+		fallthrough
+	case types.SponsoredSignerTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
 		if signerType, ok := tx.SignerType(); ok {
 			result.SignerType = signerType
+		}
+		if sponsor, ok := tx.SponsorFrom(); ok {
+			result.Sponsor = &sponsor
+		}
+		if sponsorNonce, ok := tx.SponsorNonce(); ok {
+			nonce := hexutil.Uint64(sponsorNonce)
+			result.SponsorNonce = &nonce
+		}
+		if sponsorExpiry, ok := tx.SponsorExpiry(); ok {
+			expiry := hexutil.Uint64(sponsorExpiry)
+			result.SponsorExpiry = &expiry
+		}
+		if sponsorPolicyHash, ok := tx.SponsorPolicyHash(); ok {
+			result.SponsorPolicyHash = &sponsorPolicyHash
 		}
 	}
 	return result
@@ -1702,8 +1722,8 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
-	if tx.Type() != types.SignerTxType {
-		return common.Hash{}, fmt.Errorf("unsupported tx type %d: only SignerTx (type=%d) is accepted", tx.Type(), types.SignerTxType)
+	if tx.Type() != types.SignerTxType && tx.Type() != types.SponsoredSignerTxType {
+		return common.Hash{}, fmt.Errorf("unsupported tx type %d", tx.Type())
 	}
 	// If the transaction fee cap is already specified, ensure the
 	// fee of the given transaction is _reasonable_.

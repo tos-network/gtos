@@ -43,6 +43,10 @@ var (
 	// CheckpointSlashIndicatorAddress is the native system-contract style address
 	// that accepts malicious-vote evidence submissions for checkpoint finality.
 	CheckpointSlashIndicatorAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
+
+	// SponsorRegistryAddress stores protocol-level sponsor nonce state for
+	// native sponsored transactions.
+	SponsorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
 )
 
 // DPoS validator stake and reward parameters.
