@@ -569,17 +569,15 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
 	var sponsor common.Address
-	switch tx.Type() {
-	case types.SignerTxType:
-		// Native sender-pays transaction.
-	case types.SponsoredSignerTxType:
+	if tx.Type() != types.SignerTxType {
+		return ErrTxTypeNotSupported
+	}
+	if tx.IsSponsored() {
 		resolvedSponsor, err := ResolveSponsor(tx, pool.signer, pool.currentState)
 		if err != nil {
 			return ErrInvalidSponsor
 		}
 		sponsor = resolvedSponsor
-	default:
-		return ErrTxTypeNotSupported
 	}
 	// Reject transactions over defined size to prevent DOS attacks
 	if uint64(tx.Size()) > txMaxSize {

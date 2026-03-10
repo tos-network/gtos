@@ -1321,6 +1321,7 @@ type RPCTransaction struct {
 	BlockNumber       *hexutil.Big      `json:"blockNumber"`
 	From              common.Address    `json:"from"`
 	Sponsor           *common.Address   `json:"sponsor,omitempty"`
+	SponsorSignerType string            `json:"sponsorSignerType,omitempty"`
 	SponsorNonce      *hexutil.Uint64   `json:"sponsorNonce,omitempty"`
 	SponsorExpiry     *hexutil.Uint64   `json:"sponsorExpiry,omitempty"`
 	SponsorPolicyHash *common.Hash      `json:"sponsorPolicyHash,omitempty"`
@@ -1380,8 +1381,6 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 	}
 	switch tx.Type() {
 	case types.SignerTxType:
-		fallthrough
-	case types.SponsoredSignerTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1390,6 +1389,9 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		}
 		if sponsor, ok := tx.SponsorFrom(); ok {
 			result.Sponsor = &sponsor
+		}
+		if sponsorSignerType, ok := tx.SponsorSignerType(); ok {
+			result.SponsorSignerType = sponsorSignerType
 		}
 		if sponsorNonce, ok := tx.SponsorNonce(); ok {
 			nonce := hexutil.Uint64(sponsorNonce)
@@ -1722,7 +1724,7 @@ func (s *TransactionAPI) sign(addr common.Address, tx *types.Transaction) (*type
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
 func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (common.Hash, error) {
-	if tx.Type() != types.SignerTxType && tx.Type() != types.SponsoredSignerTxType {
+	if tx.Type() != types.SignerTxType {
 		return common.Hash{}, fmt.Errorf("unsupported tx type %d", tx.Type())
 	}
 	// If the transaction fee cap is already specified, ensure the

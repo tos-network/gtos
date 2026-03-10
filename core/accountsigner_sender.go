@@ -65,7 +65,7 @@ func ResolveSender(tx *types.Transaction, chainSigner types.Signer, statedb vm.S
 	if tx == nil {
 		return common.Address{}, errors.New("nil tx")
 	}
-	if tx.Type() != types.SignerTxType && tx.Type() != types.SponsoredSignerTxType {
+	if tx.Type() != types.SignerTxType {
 		return common.Address{}, types.ErrTxTypeNotSupported
 	}
 	if tx.ChainId().Cmp(chainSigner.ChainID()) != 0 {
@@ -170,7 +170,7 @@ func ResolveSponsor(tx *types.Transaction, chainSigner types.Signer, statedb vm.
 	if tx == nil {
 		return common.Address{}, errors.New("nil tx")
 	}
-	if tx.Type() != types.SponsoredSignerTxType {
+	if tx.Type() != types.SignerTxType || !tx.IsSponsored() {
 		return common.Address{}, types.ErrTxTypeNotSupported
 	}
 	if tx.ChainId().Cmp(chainSigner.ChainID()) != 0 {
@@ -185,6 +185,10 @@ func ResolveSponsor(tx *types.Transaction, chainSigner types.Signer, statedb vm.
 		return common.Address{}, ErrInvalidAccountSignerSignature
 	}
 	hash := chainSigner.Hash(tx)
+	sponsorSignerType, ok := tx.SponsorSignerType()
+	if !ok {
+		return common.Address{}, ErrUnsupportedAccountSignerType
+	}
 
 	cfgType, cfgValue, configured := accountsigner.Get(statedb, sponsor)
 	if configured {
@@ -203,6 +207,14 @@ func ResolveSponsor(tx *types.Transaction, chainSigner types.Signer, statedb vm.
 			return common.Address{}, ErrAccountSignerMismatch
 		}
 		return sponsor, nil
+	}
+
+	normalizedSponsorSignerType, err := accountsigner.CanonicalSignerType(sponsorSignerType)
+	if err != nil {
+		return common.Address{}, err
+	}
+	if normalizedSponsorSignerType != accountsigner.SignerTypeSecp256k1 {
+		return common.Address{}, ErrUnsupportedAccountSignerType
 	}
 
 	sig, err := buildRecoverableSignature(v, r, s)

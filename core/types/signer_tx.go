@@ -20,26 +20,44 @@ type SignerTx struct {
 	From       common.Address
 	SignerType string
 
+	Sponsor           common.Address
+	SponsorSignerType string
+	SponsorNonce      uint64
+	SponsorExpiry     uint64
+	SponsorPolicyHash common.Hash
+
 	V *big.Int `json:"v" gencodec:"required"`
 	R *big.Int `json:"r" gencodec:"required"`
 	S *big.Int `json:"s" gencodec:"required"`
+
+	SponsorV *big.Int `json:"sponsorV,omitempty"`
+	SponsorR *big.Int `json:"sponsorR,omitempty"`
+	SponsorS *big.Int `json:"sponsorS,omitempty"`
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *SignerTx) copy() TxData {
 	cpy := &SignerTx{
-		Nonce:      tx.Nonce,
-		To:         copyAddressPtr(tx.To),
-		Data:       common.CopyBytes(tx.Data),
-		Gas:        tx.Gas,
-		AccessList: make(AccessList, len(tx.AccessList)),
-		From:       tx.From,
-		SignerType: tx.SignerType,
-		Value:      new(big.Int),
-		ChainID:    new(big.Int),
-		V:          new(big.Int),
-		R:          new(big.Int),
-		S:          new(big.Int),
+		Nonce:             tx.Nonce,
+		To:                copyAddressPtr(tx.To),
+		Data:              common.CopyBytes(tx.Data),
+		Gas:               tx.Gas,
+		AccessList:        make(AccessList, len(tx.AccessList)),
+		From:              tx.From,
+		SignerType:        tx.SignerType,
+		Sponsor:           tx.Sponsor,
+		SponsorSignerType: tx.SponsorSignerType,
+		SponsorNonce:      tx.SponsorNonce,
+		SponsorExpiry:     tx.SponsorExpiry,
+		SponsorPolicyHash: tx.SponsorPolicyHash,
+		Value:             new(big.Int),
+		ChainID:           new(big.Int),
+		V:                 new(big.Int),
+		R:                 new(big.Int),
+		S:                 new(big.Int),
+		SponsorV:          new(big.Int),
+		SponsorR:          new(big.Int),
+		SponsorS:          new(big.Int),
 	}
 	copy(cpy.AccessList, tx.AccessList)
 	if tx.Value != nil {
@@ -56,6 +74,15 @@ func (tx *SignerTx) copy() TxData {
 	}
 	if tx.S != nil {
 		cpy.S.Set(tx.S)
+	}
+	if tx.SponsorV != nil {
+		cpy.SponsorV.Set(tx.SponsorV)
+	}
+	if tx.SponsorR != nil {
+		cpy.SponsorR.Set(tx.SponsorR)
+	}
+	if tx.SponsorS != nil {
+		cpy.SponsorS.Set(tx.SponsorS)
 	}
 	return cpy
 }

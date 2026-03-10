@@ -41,10 +41,16 @@ var (
 	errShortTypedTx       = errors.New("typed transaction too short")
 )
 
+func signatureValuesPresent(v, r, s *big.Int) bool {
+	if v == nil || r == nil || s == nil {
+		return false
+	}
+	return v.Sign() != 0 || r.Sign() != 0 || s.Sign() != 0
+}
+
 // Transaction types.
 const (
 	SignerTxType = iota
-	SponsoredSignerTxType
 )
 
 // Transaction is an TOS transaction.
@@ -67,7 +73,7 @@ func NewTx(inner TxData) *Transaction {
 
 // TxData is the underlying data of a transaction.
 //
-// This is implemented by SignerTx and SponsoredSignerTx.
+// This is implemented by SignerTx.
 type TxData interface {
 	txType() byte // returns the type ID
 	copy() TxData // creates a deep copy and initializes all fields
@@ -89,7 +95,7 @@ type TxData interface {
 
 // EncodeRLP implements rlp.Encoder
 func (tx *Transaction) EncodeRLP(w io.Writer) error {
-	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
+	if tx.Type() != SignerTxType {
 		return ErrTxTypeNotSupported
 	}
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
@@ -110,7 +116,7 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 // MarshalBinary returns the canonical encoding of the transaction.
 // For SignerTx transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
-	if tx.Type() != SignerTxType && tx.Type() != SponsoredSignerTxType {
+	if tx.Type() != SignerTxType {
 		return nil, ErrTxTypeNotSupported
 	}
 	var buf bytes.Buffer
@@ -173,32 +179,29 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		if _, err := canonicalSignerType(inner.SignerType); err != nil {
 			return nil, err
 		}
-		return &inner, nil
-	case SponsoredSignerTxType:
-		var inner SponsoredSignerTx
-		err := rlp.DecodeBytes(b[1:], &inner)
-		if err != nil {
-			return nil, err
-		}
-		if len(inner.SignerType) > 64 {
-			return nil, fmt.Errorf("signer type too long: %d > 64", len(inner.SignerType))
-		}
-		if _, err := canonicalSignerType(inner.SignerType); err != nil {
-			return nil, err
-		}
-		if inner.Sponsor == (common.Address{}) {
-			return nil, fmt.Errorf("missing sponsor address for sponsored tx")
-		}
-		if inner.SponsorExpiry == 0 {
-			return nil, fmt.Errorf("missing sponsor expiry for sponsored tx")
+		if inner.Sponsor != (common.Address{}) {
+			if len(inner.SponsorSignerType) > 64 {
+				return nil, fmt.Errorf("sponsor signer type too long: %d > 64", len(inner.SponsorSignerType))
+			}
+			if inner.SponsorSignerType == "" {
+				return nil, fmt.Errorf("missing sponsor signer type for sponsored tx")
+			}
+			if _, err := canonicalSignerType(inner.SponsorSignerType); err != nil {
+				return nil, err
+			}
+			if inner.SponsorExpiry == 0 {
+				return nil, fmt.Errorf("missing sponsor expiry for sponsored tx")
+			}
 		}
 		if err := sanityCheckSignerTxSignature(inner.SignerType, inner.V, inner.R, inner.S); err != nil &&
-			(inner.V.Sign() != 0 || inner.R.Sign() != 0 || inner.S.Sign() != 0) {
+			signatureValuesPresent(inner.V, inner.R, inner.S) {
 			return nil, err
 		}
-		if err := sanityCheckSignature(inner.SponsorV, inner.SponsorR, inner.SponsorS, false); err != nil &&
-			(inner.SponsorV.Sign() != 0 || inner.SponsorR.Sign() != 0 || inner.SponsorS.Sign() != 0) {
-			return nil, err
+		if inner.Sponsor != (common.Address{}) {
+			if err := sanityCheckSignerTxSignature(inner.SponsorSignerType, inner.SponsorV, inner.SponsorR, inner.SponsorS); err != nil &&
+				signatureValuesPresent(inner.SponsorV, inner.SponsorR, inner.SponsorS) {
+				return nil, err
+			}
 		}
 		return &inner, nil
 	default:
@@ -262,7 +265,7 @@ func sanityCheckSignerTxSignature(signerType string, v *big.Int, r *big.Int, s *
 
 // Protected is always true for SignerTx.
 func (tx *Transaction) Protected() bool {
-	return tx.Type() == SignerTxType || tx.Type() == SponsoredSignerTxType
+	return tx.Type() == SignerTxType
 }
 
 // Type returns the transaction type.
@@ -280,9 +283,6 @@ func (tx *Transaction) SignerFrom() (common.Address, bool) {
 	if stx, ok := tx.inner.(*SignerTx); ok {
 		return stx.From, true
 	}
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
-		return stx.From, true
-	}
 	return common.Address{}, false
 }
 
@@ -291,23 +291,28 @@ func (tx *Transaction) SignerType() (string, bool) {
 	if stx, ok := tx.inner.(*SignerTx); ok {
 		return stx.SignerType, true
 	}
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
-		return stx.SignerType, true
-	}
 	return "", false
 }
 
 // SponsorFrom returns the explicit sponsor address if the transaction carries one.
 func (tx *Transaction) SponsorFrom() (common.Address, bool) {
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+	if stx, ok := tx.inner.(*SignerTx); ok && stx.Sponsor != (common.Address{}) {
 		return stx.Sponsor, true
 	}
 	return common.Address{}, false
 }
 
+// SponsorSignerType returns the explicit sponsor signer type if the transaction carries one.
+func (tx *Transaction) SponsorSignerType() (string, bool) {
+	if stx, ok := tx.inner.(*SignerTx); ok && stx.Sponsor != (common.Address{}) {
+		return stx.SponsorSignerType, true
+	}
+	return "", false
+}
+
 // SponsorNonce returns the sponsor replay nonce for sponsored transactions.
 func (tx *Transaction) SponsorNonce() (uint64, bool) {
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+	if stx, ok := tx.inner.(*SignerTx); ok && stx.Sponsor != (common.Address{}) {
 		return stx.SponsorNonce, true
 	}
 	return 0, false
@@ -315,7 +320,7 @@ func (tx *Transaction) SponsorNonce() (uint64, bool) {
 
 // SponsorExpiry returns the sponsor expiry timestamp for sponsored transactions.
 func (tx *Transaction) SponsorExpiry() (uint64, bool) {
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+	if stx, ok := tx.inner.(*SignerTx); ok && stx.Sponsor != (common.Address{}) {
 		return stx.SponsorExpiry, true
 	}
 	return 0, false
@@ -323,7 +328,7 @@ func (tx *Transaction) SponsorExpiry() (uint64, bool) {
 
 // SponsorPolicyHash returns the sponsor policy hash for sponsored transactions.
 func (tx *Transaction) SponsorPolicyHash() (common.Hash, bool) {
-	if stx, ok := tx.inner.(*SponsoredSignerTx); ok {
+	if stx, ok := tx.inner.(*SignerTx); ok && stx.Sponsor != (common.Address{}) {
 		return stx.SponsorPolicyHash, true
 	}
 	return common.Hash{}, false
@@ -331,7 +336,7 @@ func (tx *Transaction) SponsorPolicyHash() (common.Hash, bool) {
 
 // SponsorRawSignatureValues returns the sponsor V, R, S values if present.
 func (tx *Transaction) SponsorRawSignatureValues() (v, r, s *big.Int, ok bool) {
-	if stx, okType := tx.inner.(*SponsoredSignerTx); okType {
+	if stx, okType := tx.inner.(*SignerTx); okType && stx.Sponsor != (common.Address{}) {
 		return stx.SponsorV, stx.SponsorR, stx.SponsorS, true
 	}
 	return nil, nil, nil, false
@@ -339,7 +344,10 @@ func (tx *Transaction) SponsorRawSignatureValues() (v, r, s *big.Int, ok bool) {
 
 // IsSponsored reports whether the transaction uses native sponsor funding.
 func (tx *Transaction) IsSponsored() bool {
-	return tx.Type() == SponsoredSignerTxType
+	if stx, ok := tx.inner.(*SignerTx); ok {
+		return stx.Sponsor != (common.Address{})
+	}
+	return false
 }
 
 // Data returns the input data of the transaction.
@@ -483,15 +491,18 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 // WithSponsorSignature returns a new sponsored transaction with the given
 // sponsor-side signature.
 func (tx *Transaction) WithSponsorSignature(sig []byte) (*Transaction, error) {
-	stx, ok := tx.inner.(*SponsoredSignerTx)
-	if !ok {
+	stx, ok := tx.inner.(*SignerTx)
+	if !ok || stx.Sponsor == (common.Address{}) {
 		return nil, ErrTxTypeNotSupported
 	}
-	r, s, v, err := decodeSignerTxSignature("secp256k1", sig)
+	if stx.SponsorSignerType == "" {
+		return nil, ErrTxTypeNotSupported
+	}
+	r, s, v, err := decodeSignerTxSignature(stx.SponsorSignerType, sig)
 	if err != nil {
 		return nil, err
 	}
-	cpy := stx.copy().(*SponsoredSignerTx)
+	cpy := stx.copy().(*SignerTx)
 	cpy.SponsorV = v
 	cpy.SponsorR = r
 	cpy.SponsorS = s

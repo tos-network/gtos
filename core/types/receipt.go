@@ -137,7 +137,7 @@ func NewReceipt(root []byte, failed bool, cumulativeGasUsed uint64) *Receipt {
 // EncodeRLP implements rlp.Encoder, and flattens the consensus fields of a receipt
 // into an RLP stream. If no post state is present, status-based encoding is assumed.
 func (r *Receipt) EncodeRLP(w io.Writer) error {
-	if r.Type != SignerTxType && r.Type != SponsoredSignerTxType {
+	if r.Type != SignerTxType {
 		return ErrTxTypeNotSupported
 	}
 	data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}
@@ -158,7 +158,7 @@ func (r *Receipt) encodeTyped(data *receiptRLP, w *bytes.Buffer) error {
 
 // MarshalBinary returns the consensus encoding of the receipt.
 func (r *Receipt) MarshalBinary() ([]byte, error) {
-	if r.Type != SignerTxType && r.Type != SponsoredSignerTxType {
+	if r.Type != SignerTxType {
 		return nil, ErrTxTypeNotSupported
 	}
 	data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}
@@ -203,8 +203,6 @@ func (r *Receipt) decodeTyped(b []byte) error {
 	}
 	switch b[0] {
 	case SignerTxType:
-		fallthrough
-	case SponsoredSignerTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -367,7 +365,7 @@ func (rs Receipts) Len() int { return len(rs) }
 // EncodeIndex encodes the i'th receipt to w.
 func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	r := rs[i]
-	if r.Type != SignerTxType && r.Type != SponsoredSignerTxType {
+	if r.Type != SignerTxType {
 		log.Crit("receipt.EncodeIndex: unexpected tx type", "type", r.Type)
 	}
 	data := &receiptRLP{r.statusEncoding(), r.CumulativeGasUsed, r.Bloom, r.Logs}

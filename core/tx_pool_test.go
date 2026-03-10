@@ -3313,18 +3313,20 @@ func TestTransactionAllowedTxSize(t *testing.T) {
 	account := crypto.PubkeyToAddress(key.PublicKey)
 	testAddBalance(pool, account, big.NewInt(1000000000000000000))
 
-	// Compute maximal data size for transactions (lower bound).
-	//
-	// It is assumed the fields in the transaction (except of the data) are:
-	//   - nonce     <= 32 bytes
-	//   - txPrice  <= 32 bytes
-	//   - gasLimit  <= 32 bytes
-	//   - recipient == 20 bytes
-	//   - value     <= 32 bytes
-	//   - signature == 65 bytes
-	// All those fields are summed up to at most 213 bytes.
-	baseSize := uint64(213)
-	dataSize := txMaxSize - baseSize
+	// Find the maximal payload size that still fits within txMaxSize.
+	var (
+		lo uint64
+		hi = uint64(txMaxSize)
+	)
+	for lo < hi {
+		mid := lo + (hi-lo+1)/2
+		if pricedDataTransaction(0, pool.currentMaxGas, big.NewInt(1), key, mid).Size() <= txMaxSize {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	dataSize := lo
 
 	// Try adding a transaction with maximal allowed size
 	tx := pricedDataTransaction(0, pool.currentMaxGas, big.NewInt(1), key, dataSize)
@@ -3336,7 +3338,7 @@ func TestTransactionAllowedTxSize(t *testing.T) {
 		t.Fatalf("failed to add transaction of random allowed size: %v", err)
 	}
 	// Try adding a transaction of minimal not allowed size
-	if err := pool.addRemoteSync(pricedDataTransaction(2, pool.currentMaxGas, big.NewInt(1), key, txMaxSize)); err == nil {
+	if err := pool.addRemoteSync(pricedDataTransaction(2, pool.currentMaxGas, big.NewInt(1), key, dataSize+1)); err == nil {
 		t.Fatalf("expected rejection on slightly oversize transaction")
 	}
 	// Try adding a transaction of random not allowed size

@@ -43,6 +43,7 @@ type txJSON struct {
 	From                 *common.Address `json:"from,omitempty"`
 	SignerType           *string         `json:"signerType,omitempty"`
 	Sponsor              *common.Address `json:"sponsor,omitempty"`
+	SponsorSignerType    *string         `json:"sponsorSignerType,omitempty"`
 	SponsorNonce         *hexutil.Uint64 `json:"sponsorNonce,omitempty"`
 	SponsorExpiry        *hexutil.Uint64 `json:"sponsorExpiry,omitempty"`
 	SponsorPolicyHash    *common.Hash    `json:"sponsorPolicyHash,omitempty"`
@@ -80,26 +81,16 @@ func (t *Transaction) MarshalJSON() ([]byte, error) {
 		enc.V = (*hexutil.Big)(tx.V)
 		enc.R = (*hexutil.Big)(tx.R)
 		enc.S = (*hexutil.Big)(tx.S)
-	case *SponsoredSignerTx:
-		enc.ChainID = (*hexutil.Big)(tx.ChainID)
-		enc.AccessList = &tx.AccessList
-		enc.Nonce = (*hexutil.Uint64)(&tx.Nonce)
-		enc.Gas = (*hexutil.Uint64)(&tx.Gas)
-		enc.Value = (*hexutil.Big)(tx.Value)
-		enc.Data = (*hexutil.Bytes)(&tx.Data)
-		enc.To = t.To()
-		enc.From = &tx.From
-		enc.SignerType = &tx.SignerType
-		enc.Sponsor = &tx.Sponsor
-		enc.SponsorNonce = (*hexutil.Uint64)(&tx.SponsorNonce)
-		enc.SponsorExpiry = (*hexutil.Uint64)(&tx.SponsorExpiry)
-		enc.SponsorPolicyHash = &tx.SponsorPolicyHash
-		enc.V = (*hexutil.Big)(tx.V)
-		enc.R = (*hexutil.Big)(tx.R)
-		enc.S = (*hexutil.Big)(tx.S)
-		enc.SponsorV = (*hexutil.Big)(tx.SponsorV)
-		enc.SponsorR = (*hexutil.Big)(tx.SponsorR)
-		enc.SponsorS = (*hexutil.Big)(tx.SponsorS)
+		if tx.Sponsor != (common.Address{}) {
+			enc.Sponsor = &tx.Sponsor
+			enc.SponsorSignerType = &tx.SponsorSignerType
+			enc.SponsorNonce = (*hexutil.Uint64)(&tx.SponsorNonce)
+			enc.SponsorExpiry = (*hexutil.Uint64)(&tx.SponsorExpiry)
+			enc.SponsorPolicyHash = &tx.SponsorPolicyHash
+			enc.SponsorV = (*hexutil.Big)(tx.SponsorV)
+			enc.SponsorR = (*hexutil.Big)(tx.SponsorR)
+			enc.SponsorS = (*hexutil.Big)(tx.SponsorS)
+		}
 	}
 	return json.Marshal(&enc)
 }
@@ -163,84 +154,45 @@ func (t *Transaction) UnmarshalJSON(input []byte) error {
 			return errors.New("missing required field 's' in transaction")
 		}
 		itx.S = (*big.Int)(dec.S)
+		if dec.Sponsor != nil {
+			itx.Sponsor = *dec.Sponsor
+			if dec.SponsorSignerType == nil || *dec.SponsorSignerType == "" {
+				return errors.New("missing required field 'sponsorSignerType' in sponsored transaction")
+			}
+			itx.SponsorSignerType = *dec.SponsorSignerType
+			if dec.SponsorNonce == nil {
+				return errors.New("missing required field 'sponsorNonce' in sponsored transaction")
+			}
+			itx.SponsorNonce = uint64(*dec.SponsorNonce)
+			if dec.SponsorExpiry == nil {
+				return errors.New("missing required field 'sponsorExpiry' in sponsored transaction")
+			}
+			itx.SponsorExpiry = uint64(*dec.SponsorExpiry)
+			if dec.SponsorPolicyHash == nil {
+				return errors.New("missing required field 'sponsorPolicyHash' in sponsored transaction")
+			}
+			itx.SponsorPolicyHash = *dec.SponsorPolicyHash
+			if dec.SponsorV == nil || dec.SponsorR == nil || dec.SponsorS == nil {
+				return errors.New("missing sponsor signature fields in sponsored transaction")
+			}
+			itx.SponsorV = (*big.Int)(dec.SponsorV)
+			itx.SponsorR = (*big.Int)(dec.SponsorR)
+			itx.SponsorS = (*big.Int)(dec.SponsorS)
+		}
 		withSignature := itx.V.Sign() != 0 || itx.R.Sign() != 0 || itx.S.Sign() != 0
 		if withSignature {
 			if err := sanityCheckSignerTxSignature(itx.SignerType, itx.V, itx.R, itx.S); err != nil {
 				return err
 			}
 		}
-	case SponsoredSignerTxType:
-		var itx SponsoredSignerTx
-		inner = &itx
-		if dec.AccessList != nil {
-			itx.AccessList = *dec.AccessList
+		if itx.Sponsor != (common.Address{}) {
+			withSponsorSignature := itx.SponsorV.Sign() != 0 || itx.SponsorR.Sign() != 0 || itx.SponsorS.Sign() != 0
+			if withSponsorSignature {
+				if err := sanityCheckSignerTxSignature(itx.SponsorSignerType, itx.SponsorV, itx.SponsorR, itx.SponsorS); err != nil {
+					return err
+				}
+			}
 		}
-		if dec.ChainID == nil {
-			return errors.New("missing required field 'chainId' in transaction")
-		}
-		itx.ChainID = (*big.Int)(dec.ChainID)
-		if dec.To != nil {
-			itx.To = dec.To
-		}
-		if dec.From == nil {
-			return errors.New("missing required field 'from' in transaction")
-		}
-		itx.From = *dec.From
-		if dec.SignerType == nil || *dec.SignerType == "" {
-			return errors.New("missing required field 'signerType' in transaction")
-		}
-		itx.SignerType = *dec.SignerType
-		if dec.Sponsor == nil {
-			return errors.New("missing required field 'sponsor' in transaction")
-		}
-		itx.Sponsor = *dec.Sponsor
-		if dec.SponsorNonce == nil {
-			return errors.New("missing required field 'sponsorNonce' in transaction")
-		}
-		itx.SponsorNonce = uint64(*dec.SponsorNonce)
-		if dec.SponsorExpiry == nil {
-			return errors.New("missing required field 'sponsorExpiry' in transaction")
-		}
-		itx.SponsorExpiry = uint64(*dec.SponsorExpiry)
-		if dec.SponsorPolicyHash == nil {
-			return errors.New("missing required field 'sponsorPolicyHash' in transaction")
-		}
-		itx.SponsorPolicyHash = *dec.SponsorPolicyHash
-		if dec.Nonce == nil {
-			return errors.New("missing required field 'nonce' in transaction")
-		}
-		itx.Nonce = uint64(*dec.Nonce)
-		if dec.Gas == nil {
-			return errors.New("missing required field 'gas' in transaction")
-		}
-		itx.Gas = uint64(*dec.Gas)
-		if dec.Value == nil {
-			return errors.New("missing required field 'value' in transaction")
-		}
-		itx.Value = (*big.Int)(dec.Value)
-		if dec.Data == nil {
-			return errors.New("missing required field 'input' in transaction")
-		}
-		itx.Data = *dec.Data
-		if dec.V == nil || dec.R == nil || dec.S == nil {
-			return errors.New("missing execution signature fields in sponsored transaction")
-		}
-		itx.V = (*big.Int)(dec.V)
-		itx.R = (*big.Int)(dec.R)
-		itx.S = (*big.Int)(dec.S)
-		if dec.SponsorV == nil || dec.SponsorR == nil || dec.SponsorS == nil {
-			return errors.New("missing sponsor signature fields in sponsored transaction")
-		}
-		itx.SponsorV = (*big.Int)(dec.SponsorV)
-		itx.SponsorR = (*big.Int)(dec.SponsorR)
-		itx.SponsorS = (*big.Int)(dec.SponsorS)
-		if err := sanityCheckSignerTxSignature(itx.SignerType, itx.V, itx.R, itx.S); err != nil {
-			return err
-		}
-		if err := sanityCheckSignature(itx.SponsorV, itx.SponsorR, itx.SponsorS, false); err != nil {
-			return err
-		}
-
 	default:
 		return ErrTxTypeNotSupported
 	}
