@@ -148,6 +148,11 @@ Semantics:
 This keeps lease deployment as an explicit opt-in capability while preserving
 full backward compatibility for the transaction model.
 
+The external native path is not the only deployment surface that should exist.
+`gtos` should also support explicit **in-contract lease deployment** for factory
+and composition use cases, but that should be modeled as a VM primitive rather
+than as a nested system-action transaction.
+
 ### 6.2 CALL Path
 
 The CALL path remains unchanged structurally, but it becomes lease-aware.
@@ -180,6 +185,70 @@ This has several advantages:
 - authorization is simple and explicit
 - gas accounting is deterministic
 - no special-case "call expired contract to renew itself" rule is needed
+
+### 6.4 In-Contract Lease Deployment via `tos.createx`
+
+External deployment through `LEASE_DEPLOY` is the right path for EOAs and RPC
+clients, but contracts also need an explicit way to create lease contracts.
+
+Recommended LVM primitives:
+
+- `tos.createx(code, leaseBlocks, leaseOwner [, value])`
+- `tos.create2x(code, salt, leaseBlocks, leaseOwner [, value])`
+
+These should be the lease variants of:
+
+- `tos.create`
+- `tos.create2`
+
+Important design rule:
+
+- `tos.createx` / `tos.create2x` should **not** be implemented by synthesizing a
+  nested `LEASE_DEPLOY` system-action transaction from inside the VM
+
+Instead, the implementation should extract a shared lower-level deployment
+helper and call it from all relevant paths:
+
+- ordinary external CREATE (`To == nil`, permanent)
+- external `LEASE_DEPLOY` (lease)
+- `tos.create` / `tos.create2` (permanent)
+- `tos.createx` / `tos.create2x` (lease)
+
+This preserves one source of truth for:
+
+- address derivation
+- collision checks
+- code installation
+- constructor / init handling
+- value transfer semantics
+
+Recommended semantics:
+
+- `tos.createx` uses the same address derivation model as `tos.create`
+- `tos.create2x` uses the same deterministic address derivation model as
+  `tos.create2`
+- both write lease metadata for the created address instance
+- both charge the normal deployment gas model of their permanent counterpart,
+  plus lease deposit / rent bookkeeping
+- both remain explicit opt-in lease deployment operations
+
+Recommended owner rule for in-contract lease deployment:
+
+- `leaseOwner` should be mandatory and non-zero
+- the initial implementation should require a renew-capable externally
+  controlled address
+- do **not** default `leaseOwner` to the deploying contract address
+
+The reason is operational clarity: renewal and close are native lease actions,
+so the owner must be an address that can practically exercise those rights
+later. Defaulting a VM-created lease to the deploying contract would create
+hard-to-manage leases in the first version.
+
+Recommended funding rule:
+
+- any deploy-time lease deposit is paid from the deploying execution context
+- optional `value` transfer to the created contract follows the same semantics
+  as `tos.create` / `tos.create2`
 
 ## 7. Contract Lease State Model
 
@@ -511,6 +580,14 @@ Recommended default:
 - if omitted, it defaults to `From`
 - only `LeaseOwner` may renew the contract
 
+For in-contract lease deployment, the rule should be stricter:
+
+- `tos.createx` / `tos.create2x` should require an explicit non-zero
+  `LeaseOwner`
+- the initial implementation should require that owner to be an EOA-controlled
+  address or another explicitly supported renew-capable authority
+- the owner should not silently default to the deploying contract address
+
 Possible future extensions:
 
 - multi-sig renewal authority
@@ -519,7 +596,7 @@ Possible future extensions:
 
 The base design should start with a single explicit owner.
 
-## 16. Recommended Native Actions
+## 16. Recommended Native Actions and LVM Primitives
 
 The protocol should support native actions for lease lifecycle management.
 
@@ -537,6 +614,14 @@ Optional later additions:
 `LEASE_CLOSE` is useful when the owner wants immediate shutdown and a partial
 deposit refund without waiting for passive expiry.
 
+For in-contract deployment, recommended initial LVM primitives are:
+
+- `tos.createx(code, leaseBlocks, leaseOwner [, value])`
+- `tos.create2x(code, salt, leaseBlocks, leaseOwner [, value])`
+
+These primitives should create lease contracts directly through the shared
+deployment helper, not by emulating an inner system-action transaction.
+
 ## 17. Compatibility with Existing GTOS Semantics
 
 This design is intentionally conservative.
@@ -544,6 +629,8 @@ This design is intentionally conservative.
 It preserves the current default model:
 
 - normal CREATE remains permanent
+- `tos.create` and `tos.create2` remain permanent
+- `tos.createx` and `tos.create2x` are new explicit lease variants
 - ordinary CALL behavior stays the same for permanent contracts
 - no existing contract is forced into a lease
 - the native transaction envelope remains unchanged
@@ -574,6 +661,15 @@ Add native/system execution paths for:
 
 `LEASE_DEPLOY` should call the same lower-level create helper used by ordinary
 CREATE so contract creation semantics stay aligned.
+
+That shared helper should also be called by:
+
+- `tos.createx`
+- `tos.create2x`
+
+The VM should not simulate an inner `SystemActionAddress` transaction to do
+this. Lease deployment from inside contracts should remain an LVM primitive that
+shares deployment internals with the native path.
 
 ### 18.3 State Transition and CALL Gate
 
@@ -610,12 +706,17 @@ The design should preserve the following invariants:
 1. A lease is attached to a contract address instance, never to a code hash.
 2. Expiry is determined by consensus state, not local clocks.
 3. The native transaction envelope remains unchanged.
-4. Ordinary execution stops before physical pruning begins.
-5. Expired contracts are not renewed by executing their own code.
-6. Pruning is a consensus state transition, not only a node-local cleanup.
-7. Pruning removes only the contract's own footprint, not arbitrary external
+4. External `LEASE_DEPLOY` and in-contract `tos.createx` / `tos.create2x`
+   share one lower-level deployment helper.
+5. `tos.createx` / `tos.create2x` are VM primitives, not nested system-action
+   transactions.
+6. In-contract lease deployment must specify an explicit recoverable owner.
+7. Ordinary execution stops before physical pruning begins.
+8. Expired contracts are not renewed by executing their own code.
+9. Pruning is a consensus state transition, not only a node-local cleanup.
+10. Pruning removes only the contract's own footprint, not arbitrary external
    references.
-8. Address reuse after pruning is permanently blocked.
+11. Address reuse after pruning is permanently blocked.
 
 ## 20. Open Policy Choices
 
@@ -625,6 +726,9 @@ Several policy values remain chain-governance decisions:
 - the exact rent curve per block or per epoch
 - the exact deposit schedule
 - the maximum prune budget per epoch sweep
+- whether `LeaseOwner` is restricted to EOAs in v1 or later expanded to
+  delegated / contract-managed authorities
+- whether `tos.create2x` ships in the first release or follows `tos.createx`
 - whether late recovery is allowed in a future revision
 
 These are implementation and governance choices, but they do not change the
@@ -642,8 +746,15 @@ Do:
 
 - keep permanent contracts as the default
 - deploy lease contracts through `LEASE_DEPLOY`
+- keep `tos.create` / `tos.create2` as permanent deployment primitives
+- add `tos.createx` and `tos.create2x` as explicit lease deployment primitives
 - leave `SignerTx` unchanged
 - use native renewal actions
+- require explicit `LeaseOwner` for in-contract lease deployment
+- share one lower-level create helper across external and in-contract lease
+  deployment paths
+- do not implement `tos.createx` by synthesizing an inner `LEASE_DEPLOY`
+  system action
 - enforce a frozen/expired/prunable lifecycle
 - make pruning a deterministic consensus action
 - prune only contract-owned code and storage
