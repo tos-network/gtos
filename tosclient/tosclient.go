@@ -93,6 +93,52 @@ type SubmitMaliciousVoteEvidenceArgs struct {
 	Evidence types.MaliciousVoteEvidence `json:"evidence"`
 }
 
+// LeaseDeployArgs is the argument object for tos_leaseDeploy.
+type LeaseDeployArgs struct {
+	From        common.Address  `json:"from"`
+	Nonce       *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas         *hexutil.Uint64 `json:"gas,omitempty"`
+	Code        hexutil.Bytes   `json:"code"`
+	LeaseBlocks hexutil.Uint64  `json:"leaseBlocks"`
+	LeaseOwner  common.Address  `json:"leaseOwner,omitempty"`
+	Value       *hexutil.Big    `json:"value,omitempty"`
+}
+
+// LeaseRenewArgs is the argument object for tos_leaseRenew.
+type LeaseRenewArgs struct {
+	From         common.Address  `json:"from"`
+	Nonce        *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas          *hexutil.Uint64 `json:"gas,omitempty"`
+	ContractAddr common.Address  `json:"contractAddr"`
+	DeltaBlocks  hexutil.Uint64  `json:"deltaBlocks"`
+}
+
+// LeaseCloseArgs is the argument object for tos_leaseClose.
+type LeaseCloseArgs struct {
+	From         common.Address  `json:"from"`
+	Nonce        *hexutil.Uint64 `json:"nonce,omitempty"`
+	Gas          *hexutil.Uint64 `json:"gas,omitempty"`
+	ContractAddr common.Address  `json:"contractAddr"`
+}
+
+// LeaseRecord contains protocol-native lease metadata at a specific block.
+type LeaseRecord struct {
+	Address             common.Address
+	LeaseOwner          common.Address
+	CreatedAtBlock      uint64
+	ExpireAtBlock       uint64
+	GraceUntilBlock     uint64
+	CodeBytes           uint64
+	DepositWei          *big.Int
+	ScheduledPruneEpoch uint64
+	ScheduledPruneSeq   uint64
+	Status              string
+	Tombstoned          bool
+	TombstoneCodeHash   common.Hash
+	TombstoneExpiredAt  uint64
+	BlockNumber         uint64
+}
+
 // MaliciousVoteEvidenceRecord is the on-chain summary for a submitted
 // malicious vote evidence item.
 type MaliciousVoteEvidenceRecord struct {
@@ -293,11 +339,101 @@ func (ec *Client) GetSponsorNonce(ctx context.Context, address common.Address, b
 	return uint64(raw), nil
 }
 
+// GetLease returns lease metadata for a contract at a block, or nil when absent.
+func (ec *Client) GetLease(ctx context.Context, address common.Address, blockNumber *big.Int) (*LeaseRecord, error) {
+	var raw *struct {
+		Address             common.Address `json:"address"`
+		LeaseOwner          common.Address `json:"leaseOwner"`
+		CreatedAtBlock      hexutil.Uint64 `json:"createdAtBlock"`
+		ExpireAtBlock       hexutil.Uint64 `json:"expireAtBlock"`
+		GraceUntilBlock     hexutil.Uint64 `json:"graceUntilBlock"`
+		CodeBytes           hexutil.Uint64 `json:"codeBytes"`
+		DepositWei          *hexutil.Big   `json:"depositWei"`
+		ScheduledPruneEpoch hexutil.Uint64 `json:"scheduledPruneEpoch"`
+		ScheduledPruneSeq   hexutil.Uint64 `json:"scheduledPruneSeq"`
+		Status              string         `json:"status"`
+		Tombstoned          bool           `json:"tombstoned"`
+		TombstoneCodeHash   common.Hash    `json:"tombstoneCodeHash"`
+		TombstoneExpiredAt  hexutil.Uint64 `json:"tombstoneExpiredAt"`
+		BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+	}
+	if err := ec.c.CallContext(ctx, &raw, "tos_getLease", address, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	return &LeaseRecord{
+		Address:             raw.Address,
+		LeaseOwner:          raw.LeaseOwner,
+		CreatedAtBlock:      uint64(raw.CreatedAtBlock),
+		ExpireAtBlock:       uint64(raw.ExpireAtBlock),
+		GraceUntilBlock:     uint64(raw.GraceUntilBlock),
+		CodeBytes:           uint64(raw.CodeBytes),
+		DepositWei:          bigFromHex(raw.DepositWei),
+		ScheduledPruneEpoch: uint64(raw.ScheduledPruneEpoch),
+		ScheduledPruneSeq:   uint64(raw.ScheduledPruneSeq),
+		Status:              raw.Status,
+		Tombstoned:          raw.Tombstoned,
+		TombstoneCodeHash:   raw.TombstoneCodeHash,
+		TombstoneExpiredAt:  uint64(raw.TombstoneExpiredAt),
+		BlockNumber:         uint64(raw.BlockNumber),
+	}, nil
+}
+
 // SetSigner submits a signer-change operation transaction.
 func (ec *Client) SetSigner(ctx context.Context, args SetSignerArgs) (common.Hash, error) {
 	var txHash common.Hash
 	err := ec.c.CallContext(ctx, &txHash, "tos_setSigner", args)
 	return txHash, err
+}
+
+// LeaseDeploy submits a lease contract deployment transaction.
+func (ec *Client) LeaseDeploy(ctx context.Context, args LeaseDeployArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_leaseDeploy", args)
+	return txHash, err
+}
+
+// BuildLeaseDeployTx builds an unsigned lease deployment transaction payload.
+func (ec *Client) BuildLeaseDeployTx(ctx context.Context, args LeaseDeployArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildLeaseDeployTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LeaseRenew submits a lease renewal transaction.
+func (ec *Client) LeaseRenew(ctx context.Context, args LeaseRenewArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_leaseRenew", args)
+	return txHash, err
+}
+
+// BuildLeaseRenewTx builds an unsigned lease renewal transaction payload.
+func (ec *Client) BuildLeaseRenewTx(ctx context.Context, args LeaseRenewArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildLeaseRenewTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LeaseClose submits a lease close transaction.
+func (ec *Client) LeaseClose(ctx context.Context, args LeaseCloseArgs) (common.Hash, error) {
+	var txHash common.Hash
+	err := ec.c.CallContext(ctx, &txHash, "tos_leaseClose", args)
+	return txHash, err
+}
+
+// BuildLeaseCloseTx builds an unsigned lease close transaction payload.
+func (ec *Client) BuildLeaseCloseTx(ctx context.Context, args LeaseCloseArgs) (*BuildSetSignerTxResult, error) {
+	var out BuildSetSignerTxResult
+	if err := ec.c.CallContext(ctx, &out, "tos_buildLeaseCloseTx", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // BuildSetSignerTx builds an unsigned signer-change transaction payload.

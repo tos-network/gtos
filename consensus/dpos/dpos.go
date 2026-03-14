@@ -37,6 +37,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
@@ -1629,6 +1630,7 @@ func (d *DPoS) VerifyFinalizedState(header *types.Header, st *state.StateDB) err
 func (d *DPoS) Finalize(chain consensus.ChainHeaderReader, header *types.Header,
 	st *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
 
+	lease.RunPruneSweep(st, header.Number.Uint64(), &params.ChainConfig{DPoS: d.config})
 	st.AddBalance(header.Coinbase, params.DPoSBlockReward)
 	header.Root = st.IntermediateRoot(true)
 	header.UncleHash = types.EmptyUncleHash

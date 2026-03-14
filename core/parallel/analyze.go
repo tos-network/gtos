@@ -6,6 +6,7 @@ import (
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 // StateReader is the subset of vm.StateDB used by AnalyzeTx to detect
@@ -50,6 +51,13 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	case params.SystemActionAddress:
 		// System action: conflicts with any other system action via ValidatorRegistryAddress.
 		as.WriteAddrs[params.ValidatorRegistryAddress] = struct{}{}
+		if sa, err := sysaction.Decode(msg.Data()); err == nil && sa.Action == sysaction.ActionLeaseDeploy {
+			contractAddr := crypto.CreateAddress(sender, msg.Nonce())
+			as.WriteAddrs[params.LeaseRegistryAddress] = struct{}{}
+			as.WriteAddrs[contractAddr] = struct{}{}
+			as.ReadAddrs[contractAddr] = struct{}{}
+			as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
+		}
 
 	case params.CheckpointSlashIndicatorAddress:
 		// SlashIndicator evidence submission mutates a single fixed storage account

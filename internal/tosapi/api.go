@@ -28,6 +28,7 @@ import (
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	cryptouno "github.com/tos-network/gtos/crypto/uno"
+	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/params"
@@ -2201,6 +2202,42 @@ type RPCSubmitMaliciousVoteEvidenceArgs struct {
 	Evidence types.MaliciousVoteEvidence `json:"evidence"`
 }
 
+type RPCLeaseDeployArgs struct {
+	RPCTxCommonArgs
+	Code        hexutil.Bytes  `json:"code"`
+	LeaseBlocks hexutil.Uint64 `json:"leaseBlocks"`
+	LeaseOwner  common.Address `json:"leaseOwner,omitempty"`
+	Value       *hexutil.Big   `json:"value,omitempty"`
+}
+
+type RPCLeaseRenewArgs struct {
+	RPCTxCommonArgs
+	ContractAddr common.Address `json:"contractAddr"`
+	DeltaBlocks  hexutil.Uint64 `json:"deltaBlocks"`
+}
+
+type RPCLeaseCloseArgs struct {
+	RPCTxCommonArgs
+	ContractAddr common.Address `json:"contractAddr"`
+}
+
+type RPCLeaseRecord struct {
+	Address             common.Address `json:"address"`
+	LeaseOwner          common.Address `json:"leaseOwner"`
+	CreatedAtBlock      hexutil.Uint64 `json:"createdAtBlock"`
+	ExpireAtBlock       hexutil.Uint64 `json:"expireAtBlock"`
+	GraceUntilBlock     hexutil.Uint64 `json:"graceUntilBlock"`
+	CodeBytes           hexutil.Uint64 `json:"codeBytes"`
+	DepositWei          *hexutil.Big   `json:"depositWei"`
+	ScheduledPruneEpoch hexutil.Uint64 `json:"scheduledPruneEpoch"`
+	ScheduledPruneSeq   hexutil.Uint64 `json:"scheduledPruneSeq"`
+	Status              string         `json:"status"`
+	Tombstoned          bool           `json:"tombstoned"`
+	TombstoneCodeHash   common.Hash    `json:"tombstoneCodeHash"`
+	TombstoneExpiredAt  hexutil.Uint64 `json:"tombstoneExpiredAt"`
+	BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+}
+
 type RPCMaliciousVoteEvidenceRecord struct {
 	EvidenceHash common.Hash    `json:"evidenceHash"`
 	OffenseKey   common.Hash    `json:"offenseKey"`
@@ -2480,6 +2517,73 @@ func (s *TOSAPI) GetSponsorNonce(ctx context.Context, address common.Address, bl
 	return &nonce, nil
 }
 
+func rpcLeaseStatus(blockNumber uint64, meta lease.Meta, tombstoned bool) string {
+	if tombstoned {
+		return "tombstoned"
+	}
+	switch lease.EffectiveStatus(meta, blockNumber) {
+	case lease.StatusActive:
+		return "active"
+	case lease.StatusFrozen:
+		return "frozen"
+	case lease.StatusExpired:
+		return "expired"
+	case lease.StatusPrunable:
+		return "prunable"
+	default:
+		return "unknown"
+	}
+}
+
+// GetLease returns protocol-native lease metadata for a contract address.
+func (s *TOSAPI) GetLease(ctx context.Context, address common.Address, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCLeaseRecord, error) {
+	if address == (common.Address{}) {
+		return nil, newRPCInvalidParamsError("address", "must not be zero address")
+	}
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "lease state not found"}
+	}
+	meta, ok := lease.ReadMeta(state, address)
+	tombstone, tombstoned := lease.ReadTombstone(state, address)
+	if !ok && !tombstoned {
+		return nil, nil
+	}
+	record := &RPCLeaseRecord{
+		Address:            address,
+		Status:             "unknown",
+		Tombstoned:         tombstoned,
+		TombstoneCodeHash:  tombstone.LastCodeHash,
+		TombstoneExpiredAt: hexutil.Uint64(tombstone.ExpiredAtBlock),
+		BlockNumber:        hexutil.Uint64(header.Number.Uint64()),
+	}
+	if ok {
+		deposit := new(big.Int)
+		if meta.DepositWei != nil {
+			deposit = new(big.Int).Set(meta.DepositWei)
+		}
+		record.LeaseOwner = meta.LeaseOwner
+		record.CreatedAtBlock = hexutil.Uint64(meta.CreatedAtBlock)
+		record.ExpireAtBlock = hexutil.Uint64(meta.ExpireAtBlock)
+		record.GraceUntilBlock = hexutil.Uint64(meta.GraceUntilBlock)
+		record.CodeBytes = hexutil.Uint64(meta.CodeBytes)
+		record.DepositWei = (*hexutil.Big)(deposit)
+		record.ScheduledPruneEpoch = hexutil.Uint64(meta.ScheduledPruneEpoch)
+		record.ScheduledPruneSeq = hexutil.Uint64(meta.ScheduledPruneSeq)
+		record.Status = rpcLeaseStatus(header.Number.Uint64(), meta, tombstoned)
+	} else {
+		record.Status = rpcLeaseStatus(header.Number.Uint64(), lease.Meta{}, tombstoned)
+	}
+	return record, nil
+}
+
 func validateSetSignerArgs(args RPCSetSignerArgs) error {
 	if args.From == (common.Address{}) {
 		return &rpcAPIError{
@@ -2524,10 +2628,67 @@ func validateSetSignerArgs(args RPCSetSignerArgs) error {
 	return nil
 }
 
+func validateLeaseDeployArgs(args RPCLeaseDeployArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if len(args.Code) == 0 {
+		return newRPCInvalidParamsError("code", "must not be empty")
+	}
+	if err := lease.ValidateLeaseBlocks(uint64(args.LeaseBlocks)); err != nil {
+		return newRPCInvalidParamsError("leaseBlocks", err.Error())
+	}
+	if args.Value != nil && (*big.Int)(args.Value).Sign() < 0 {
+		return newRPCInvalidParamsError("value", "must not be negative")
+	}
+	return nil
+}
+
+func validateLeaseRenewArgs(args RPCLeaseRenewArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if args.ContractAddr == (common.Address{}) {
+		return newRPCInvalidParamsError("contractAddr", "must not be zero address")
+	}
+	if err := lease.ValidateLeaseBlocks(uint64(args.DeltaBlocks)); err != nil {
+		return newRPCInvalidParamsError("deltaBlocks", err.Error())
+	}
+	return nil
+}
+
+func validateLeaseCloseArgs(args RPCLeaseCloseArgs) error {
+	if args.From == (common.Address{}) {
+		return newRPCInvalidParamsError("from", "must not be zero address")
+	}
+	if args.ContractAddr == (common.Address{}) {
+		return newRPCInvalidParamsError("contractAddr", "must not be zero address")
+	}
+	return nil
+}
+
 func estimateSystemActionGas(payload []byte) (uint64, error) {
 	intrinsic, err := core.IntrinsicGas(payload, nil, false, true, true)
 	if err != nil {
 		return 0, err
+	}
+	if sa, err := sysaction.Decode(payload); err == nil && sa.Action == sysaction.ActionLeaseDeploy {
+		var p lease.DeployAction
+		if err := sysaction.DecodePayload(sa, &p); err != nil {
+			return 0, err
+		}
+		deployPkgBytes, _, splitErr := vm.SplitDeployDataAndConstructorArgs(p.Code)
+		if splitErr != nil {
+			deployPkgBytes = p.Code
+		}
+		extra, err := lease.NativeDeployGas(uint64(len(deployPkgBytes)))
+		if err != nil {
+			return 0, err
+		}
+		if intrinsic > stdmath.MaxUint64-extra {
+			return 0, fmt.Errorf("system action gas overflows")
+		}
+		return intrinsic + extra, nil
 	}
 	if intrinsic > stdmath.MaxUint64-params.SysActionGas {
 		return 0, fmt.Errorf("system action gas overflows")
@@ -2595,6 +2756,62 @@ func (s *TOSAPI) currentTxSignerType(ctx context.Context, from common.Address) (
 	return lookupCurrentTxSignerType(ctx, s.b, from)
 }
 
+func (s *TOSAPI) buildSystemActionTransactionArgs(
+	ctx context.Context,
+	commonArgs RPCTxCommonArgs,
+	value *hexutil.Big,
+	payload []byte,
+) (*TransactionArgs, error) {
+	to := params.SystemActionAddress
+	input := hexutil.Bytes(payload)
+	txArgs := &TransactionArgs{
+		From:  &commonArgs.From,
+		To:    &to,
+		Gas:   commonArgs.Gas,
+		Value: value,
+		Nonce: commonArgs.Nonce,
+		Input: &input,
+	}
+	if currentSignerType, err := s.currentTxSignerType(ctx, commonArgs.From); err != nil {
+		return nil, err
+	} else if currentSignerType != nil {
+		txArgs.SignerType = currentSignerType
+	} else {
+		defaultSignerType := accountsigner.SignerTypeEd25519
+		txArgs.SignerType = &defaultSignerType
+	}
+	if txArgs.Gas == nil {
+		estimate, gasErr := estimateSystemActionGas(payload)
+		if gasErr != nil {
+			return nil, gasErr
+		}
+		gas := hexutil.Uint64(estimate)
+		txArgs.Gas = &gas
+	}
+	if err := txArgs.setDefaults(ctx, s.b); err != nil {
+		return nil, err
+	}
+	return txArgs, nil
+}
+
+func txResultFromArgs(from common.Address, to common.Address, tx *types.Transaction) (*RPCBuildTxResult, error) {
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return &RPCBuildTxResult{
+		Tx: map[string]interface{}{
+			"from":  from,
+			"to":    to,
+			"nonce": hexutil.Uint64(tx.Nonce()),
+			"gas":   hexutil.Uint64(tx.Gas()),
+			"value": (*hexutil.Big)(new(big.Int).Set(tx.Value())),
+			"input": hexutil.Bytes(tx.Data()),
+		},
+		Raw: raw,
+	}, nil
+}
+
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
 	normalizedType, _, normalizedValue, err := accountsigner.NormalizeSigner(args.SignerType, args.SignerValue)
 	if err != nil {
@@ -2638,6 +2855,46 @@ func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetS
 		return nil, err
 	}
 	return txArgs, nil
+}
+
+func (s *TOSAPI) buildLeaseDeployTransactionArgs(ctx context.Context, args RPCLeaseDeployArgs) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionLeaseDeploy, lease.DeployAction{
+		Code:        args.Code,
+		LeaseBlocks: uint64(args.LeaseBlocks),
+		LeaseOwner:  args.LeaseOwner,
+	})
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode lease deploy payload")
+	}
+	value := args.Value
+	if value == nil {
+		zero := hexutil.Big{}
+		value = &zero
+	}
+	return s.buildSystemActionTransactionArgs(ctx, args.RPCTxCommonArgs, value, payload)
+}
+
+func (s *TOSAPI) buildLeaseRenewTransactionArgs(ctx context.Context, args RPCLeaseRenewArgs) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionLeaseRenew, lease.RenewAction{
+		ContractAddr: args.ContractAddr,
+		DeltaBlocks:  uint64(args.DeltaBlocks),
+	})
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode lease renew payload")
+	}
+	zero := hexutil.Big{}
+	return s.buildSystemActionTransactionArgs(ctx, args.RPCTxCommonArgs, &zero, payload)
+}
+
+func (s *TOSAPI) buildLeaseCloseTransactionArgs(ctx context.Context, args RPCLeaseCloseArgs) (*TransactionArgs, error) {
+	payload, err := sysaction.MakeSysAction(sysaction.ActionLeaseClose, lease.CloseAction{
+		ContractAddr: args.ContractAddr,
+	})
+	if err != nil {
+		return nil, newRPCInvalidParamsError("payload", "failed to encode lease close payload")
+	}
+	zero := hexutil.Big{}
+	return s.buildSystemActionTransactionArgs(ctx, args.RPCTxCommonArgs, &zero, payload)
 }
 
 func validateValidatorMaintenanceArgs(args RPCValidatorMaintenanceArgs) error {
@@ -2790,6 +3047,117 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 		},
 		Raw: raw,
 	}, nil
+}
+
+func (s *TOSAPI) LeaseDeploy(ctx context.Context, args RPCLeaseDeployArgs) (common.Hash, error) {
+	if err := validateLeaseDeployArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_leaseDeploy")
+	}
+	txArgs, err := s.buildLeaseDeployTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildLeaseDeployTx(ctx context.Context, args RPCLeaseDeployArgs) (*RPCBuildTxResult, error) {
+	if err := validateLeaseDeployArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildLeaseDeployTx")
+	}
+	txArgs, err := s.buildLeaseDeployTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return txResultFromArgs(args.From, params.SystemActionAddress, txArgs.toTransaction())
+}
+
+func (s *TOSAPI) LeaseRenew(ctx context.Context, args RPCLeaseRenewArgs) (common.Hash, error) {
+	if err := validateLeaseRenewArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_leaseRenew")
+	}
+	txArgs, err := s.buildLeaseRenewTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildLeaseRenewTx(ctx context.Context, args RPCLeaseRenewArgs) (*RPCBuildTxResult, error) {
+	if err := validateLeaseRenewArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildLeaseRenewTx")
+	}
+	txArgs, err := s.buildLeaseRenewTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return txResultFromArgs(args.From, params.SystemActionAddress, txArgs.toTransaction())
+}
+
+func (s *TOSAPI) LeaseClose(ctx context.Context, args RPCLeaseCloseArgs) (common.Hash, error) {
+	if err := validateLeaseCloseArgs(args); err != nil {
+		return common.Hash{}, err
+	}
+	if s == nil || s.b == nil {
+		return common.Hash{}, newRPCNotImplementedError("tos_leaseClose")
+	}
+	txArgs, err := s.buildLeaseCloseTransactionArgs(ctx, args)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return SubmitTransaction(ctx, s.b, signed)
+}
+
+func (s *TOSAPI) BuildLeaseCloseTx(ctx context.Context, args RPCLeaseCloseArgs) (*RPCBuildTxResult, error) {
+	if err := validateLeaseCloseArgs(args); err != nil {
+		return nil, err
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_buildLeaseCloseTx")
+	}
+	txArgs, err := s.buildLeaseCloseTransactionArgs(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return txResultFromArgs(args.From, params.SystemActionAddress, txArgs.toTransaction())
 }
 
 func (s *TOSAPI) EnterMaintenance(ctx context.Context, args RPCValidatorMaintenanceArgs) (common.Hash, error) {

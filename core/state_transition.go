@@ -30,6 +30,7 @@ import (
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -315,6 +316,17 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		ret              []byte // return data from LVM call, passed through to ExecutionResult
 	)
 
+	if !contractCreation && msg.To() != nil {
+		if err := st.rejectTombstonedAddress(*msg.To()); err != nil {
+			return nil, err
+		}
+		if st.state.GetCodeSize(*msg.To()) > 0 {
+			if err := st.ensureLeaseCallable(*msg.To()); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Account Abstraction two-phase: if the destination is an AA account contract,
 	// run its validate(txHash, sig) before the nonce increment. On failure the tx
 	// is rejected without consuming gas from the caller.
@@ -406,14 +418,27 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		if toAddr == params.SystemActionAddress {
 			if st.ctxAborted() {
 				vmerr = ErrExecutionAborted
-			} else if st.gas < params.SysActionGas {
-				st.gas = 0
-				vmerr = vm.ErrOutOfGas
 			} else {
 				snap := st.state.Snapshot()
-				gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
-				st.gas -= gasUsed
-				vmerr = execErr
+				sa, decErr := sysaction.Decode(msg.Data())
+				if decErr != nil {
+					if st.gas < params.SysActionGas {
+						st.gas = 0
+						vmerr = vm.ErrOutOfGas
+					} else {
+						st.gas -= params.SysActionGas
+						vmerr = decErr
+					}
+				} else if sa.Action == sysaction.ActionLeaseDeploy {
+					vmerr = st.executeLeaseDeploy(sa)
+				} else if st.gas < params.SysActionGas {
+					st.gas = 0
+					vmerr = vm.ErrOutOfGas
+				} else {
+					gasUsed, execErr := sysaction.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
+					st.gas -= gasUsed
+					vmerr = execErr
+				}
 				if vmerr != nil {
 					st.state.RevertToSnapshot(snap)
 				}
@@ -484,6 +509,94 @@ func uint64ToStateWord(v uint64) common.Hash {
 
 func stateWordToUint64(h common.Hash) uint64 {
 	return new(big.Int).SetBytes(h.Bytes()).Uint64()
+}
+
+func (st *StateTransition) ensureLeaseCallable(addr common.Address) error {
+	if st.blockCtx.BlockNumber == nil {
+		return lease.CheckCallable(st.state, addr, 0)
+	}
+	return lease.CheckCallable(st.state, addr, st.blockCtx.BlockNumber.Uint64())
+}
+
+func (st *StateTransition) rejectTombstonedAddress(addr common.Address) error {
+	return lease.RejectTombstoned(st.state, addr)
+}
+
+func (st *StateTransition) executeLeaseDeploy(sa *sysaction.SysAction) error {
+	var payload lease.DeployAction
+	if err := sysaction.DecodePayload(sa, &payload); err != nil {
+		return err
+	}
+	if len(payload.Code) == 0 {
+		return lease.ErrLeaseCodeRequired
+	}
+	if err := lease.ValidateLeaseBlocks(payload.LeaseBlocks); err != nil {
+		return err
+	}
+	owner := payload.LeaseOwner
+	if owner == (common.Address{}) {
+		owner = st.msg.From()
+	}
+	if err := lease.RequireRenewCapableOwner(st.state, owner); err != nil {
+		return err
+	}
+
+	deployPkgBytes, ctorArgs, splitErr := vm.SplitDeployDataAndConstructorArgs(payload.Code)
+	if splitErr != nil {
+		deployPkgBytes = payload.Code
+		ctorArgs = nil
+	}
+	leaseGas, err := lease.NativeDeployGas(uint64(len(deployPkgBytes)))
+	if err != nil {
+		return err
+	}
+	if st.gas < leaseGas {
+		st.gas = 0
+		return vm.ErrOutOfGas
+	}
+	st.gas -= leaseGas
+
+	deposit, err := lease.DepositFor(uint64(len(deployPkgBytes)), payload.LeaseBlocks)
+	if err != nil {
+		return err
+	}
+	if st.state.GetBalance(st.msg.From()).Cmp(deposit) < 0 {
+		return lease.ErrLeaseInsufficientDeposit
+	}
+
+	currentBlock := uint64(0)
+	if st.blockCtx.BlockNumber != nil {
+		currentBlock = st.blockCtx.BlockNumber.Uint64()
+	}
+
+	if deposit.Sign() > 0 {
+		st.state.SubBalance(st.msg.From(), deposit)
+		st.state.AddBalance(params.LeaseRegistryAddress, deposit)
+	}
+
+	contractAddr, leftOverGas, createErr := st.lvm.Create(
+		vm.ContractAccount(st.msg.From()),
+		deployPkgBytes,
+		ctorArgs,
+		st.gas,
+		st.msg.Value(),
+		st.msg.Nonce(),
+	)
+	st.gas = leftOverGas
+	if createErr != nil {
+		return createErr
+	}
+	_, err = lease.Activate(
+		st.state,
+		contractAddr,
+		owner,
+		currentBlock,
+		payload.LeaseBlocks,
+		uint64(len(deployPkgBytes)),
+		deposit,
+		st.chainConfig,
+	)
+	return err
 }
 
 // isAccountContract returns true if addr is a TOL account contract.

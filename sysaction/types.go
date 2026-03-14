@@ -58,6 +58,11 @@ const (
 	// Group lifecycle.
 	ActionGroupRegister    ActionKind = "GROUP_REGISTER"
 	ActionGroupStateCommit ActionKind = "GROUP_STATE_COMMIT"
+
+	// Lease-contract lifecycle.
+	ActionLeaseDeploy ActionKind = "LEASE_DEPLOY"
+	ActionLeaseRenew  ActionKind = "LEASE_RENEW"
+	ActionLeaseClose  ActionKind = "LEASE_CLOSE"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

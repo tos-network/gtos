@@ -50,6 +50,10 @@ var (
 
 	// GroupRegistryAddress stores on-chain Group registration and state commitment data.
 	GroupRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010A")
+
+	// LeaseRegistryAddress stores protocol-native lease metadata, expiry indexes,
+	// and tombstones for lease contracts.
+	LeaseRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010B")
 )
 
 // DPoS validator stake and reward parameters.
@@ -101,6 +105,28 @@ const (
 // on top of the intrinsic gas.
 const SysActionGas uint64 = 100_000
 
+// Lease-contract constants.
+const (
+	// Separate gas schedule for native lease deployment via LEASE_DEPLOY.
+	LeaseDeployBaseGas uint64 = 48_000
+	LeaseDeployByteGas uint64 = 100
+
+	// Separate gas schedules for in-contract lease deployment.
+	LeaseCreateXBaseGas  uint64 = 36_000
+	LeaseCreateXByteGas  uint64 = 120
+	LeaseCreate2XBaseGas uint64 = 40_000
+	LeaseCreate2XByteGas uint64 = 120
+
+	// Deposit / lifecycle policy defaults.
+	LeaseDepositReferenceByteGas uint64 = 200
+	LeaseReferenceBlocks         uint64 = 87_600_000
+	LeaseMinBlocks               uint64 = 1
+	LeaseMaxBlocks               uint64 = LeaseReferenceBlocks
+	LeaseRefundNumerator         uint64 = 80
+	LeaseRefundDenominator       uint64 = 100
+	LeasePruneBudgetPerSweep     uint64 = 4096
+)
+
 // UNO private-balance gas and payload bounds (MVP).
 const (
 	UNOBaseGas         uint64 = 150_000
@@ -128,4 +154,6 @@ const (
 	DPoSTurnLength    uint64 = 16
 	// 24 hours at the default 360ms block interval.
 	DPoSMaintenanceMaxBlocks uint64 = 240000
+	// Lease contracts freeze for one epoch by default before becoming expired.
+	LeaseGraceBlocks uint64 = DPoSEpochLength
 )

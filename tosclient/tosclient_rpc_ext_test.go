@@ -31,9 +31,18 @@ type rpcExtTestService struct {
 	lastGetSponsorNonceAddress common.Address
 	lastGetSponsorNonceBlock   string
 
+	lastGetLeaseAddress common.Address
+	lastGetLeaseBlock   string
+
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
 
+	lastLeaseDeployArgs      LeaseDeployArgs
+	lastLeaseDeployBuildArgs LeaseDeployArgs
+	lastLeaseRenewArgs       LeaseRenewArgs
+	lastLeaseRenewBuildArgs  LeaseRenewArgs
+	lastLeaseCloseArgs       LeaseCloseArgs
+	lastLeaseCloseBuildArgs  LeaseCloseArgs
 	lastSetSignerArgs        SetSignerArgs
 	lastBuildSignerArgs      SetSignerArgs
 	lastMaintenanceArgs      ValidatorMaintenanceArgs
@@ -123,6 +132,81 @@ func (s *rpcExtTestService) GetSponsorNonce(address common.Address, block string
 	s.lastGetSponsorNonceAddress = address
 	s.lastGetSponsorNonceBlock = block
 	return hexutil.Uint64(23)
+}
+
+func (s *rpcExtTestService) GetLease(address common.Address, block string) interface{} {
+	s.lastGetLeaseAddress = address
+	s.lastGetLeaseBlock = block
+	return struct {
+		Address             common.Address `json:"address"`
+		LeaseOwner          common.Address `json:"leaseOwner"`
+		CreatedAtBlock      hexutil.Uint64 `json:"createdAtBlock"`
+		ExpireAtBlock       hexutil.Uint64 `json:"expireAtBlock"`
+		GraceUntilBlock     hexutil.Uint64 `json:"graceUntilBlock"`
+		CodeBytes           hexutil.Uint64 `json:"codeBytes"`
+		DepositWei          *hexutil.Big   `json:"depositWei"`
+		ScheduledPruneEpoch hexutil.Uint64 `json:"scheduledPruneEpoch"`
+		ScheduledPruneSeq   hexutil.Uint64 `json:"scheduledPruneSeq"`
+		Status              string         `json:"status"`
+		Tombstoned          bool           `json:"tombstoned"`
+		TombstoneCodeHash   common.Hash    `json:"tombstoneCodeHash"`
+		TombstoneExpiredAt  hexutil.Uint64 `json:"tombstoneExpiredAt"`
+		BlockNumber         hexutil.Uint64 `json:"blockNumber"`
+	}{
+		Address:             address,
+		LeaseOwner:          common.HexToAddress("0x1234"),
+		CreatedAtBlock:      hexutil.Uint64(10),
+		ExpireAtBlock:       hexutil.Uint64(110),
+		GraceUntilBlock:     hexutil.Uint64(120),
+		CodeBytes:           hexutil.Uint64(256),
+		DepositWei:          (*hexutil.Big)(big.NewInt(9999)),
+		ScheduledPruneEpoch: hexutil.Uint64(2),
+		ScheduledPruneSeq:   hexutil.Uint64(7),
+		Status:              "active",
+		Tombstoned:          false,
+		TombstoneCodeHash:   common.Hash{},
+		TombstoneExpiredAt:  hexutil.Uint64(0),
+		BlockNumber:         hexutil.Uint64(88),
+	}
+}
+
+func (s *rpcExtTestService) LeaseDeploy(args LeaseDeployArgs) common.Hash {
+	s.lastLeaseDeployArgs = args
+	return common.HexToHash("0x10")
+}
+
+func (s *rpcExtTestService) BuildLeaseDeployTx(args LeaseDeployArgs) interface{} {
+	s.lastLeaseDeployBuildArgs = args
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0x31, 0x32},
+	}
+}
+
+func (s *rpcExtTestService) LeaseRenew(args LeaseRenewArgs) common.Hash {
+	s.lastLeaseRenewArgs = args
+	return common.HexToHash("0x11")
+}
+
+func (s *rpcExtTestService) BuildLeaseRenewTx(args LeaseRenewArgs) interface{} {
+	s.lastLeaseRenewBuildArgs = args
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0x33, 0x34},
+	}
+}
+
+func (s *rpcExtTestService) LeaseClose(args LeaseCloseArgs) common.Hash {
+	s.lastLeaseCloseArgs = args
+	return common.HexToHash("0x12")
+}
+
+func (s *rpcExtTestService) BuildLeaseCloseTx(args LeaseCloseArgs) interface{} {
+	s.lastLeaseCloseBuildArgs = args
+	return BuildSetSignerTxResult{
+		Tx:  map[string]interface{}{"from": args.From.Hex()},
+		Raw: hexutil.Bytes{0x35, 0x36},
+	}
 }
 
 func (s *rpcExtTestService) SetSigner(args SetSignerArgs) common.Hash {
@@ -415,6 +499,17 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 		t.Fatalf("unexpected sponsor nonce: %d", sponsorNonce)
 	}
 
+	leaseRec, err := client.GetLease(ctx, address, big.NewInt(6))
+	if err != nil {
+		t.Fatalf("GetLease error: %v", err)
+	}
+	if svc.lastGetLeaseBlock != "0x6" {
+		t.Fatalf("GetLease block arg = %q, want 0x6", svc.lastGetLeaseBlock)
+	}
+	if leaseRec == nil || leaseRec.Status != "active" || leaseRec.BlockNumber != 88 {
+		t.Fatalf("unexpected lease record: %+v", leaseRec)
+	}
+
 	codeHash := common.HexToHash("0x1234")
 	code, err := client.GetCodeObject(ctx, codeHash, big.NewInt(-1))
 	if err != nil {
@@ -449,6 +544,21 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		SignerType:  "ed25519",
 		SignerValue: "z6Mkj...",
 	}
+	leaseDeployArgs := LeaseDeployArgs{
+		From:        from,
+		Code:        hexutil.Bytes{0x01, 0x02},
+		LeaseBlocks: hexutil.Uint64(123),
+		Value:       (*hexutil.Big)(big.NewInt(55)),
+	}
+	leaseRenewArgs := LeaseRenewArgs{
+		From:         from,
+		ContractAddr: common.HexToAddress("0x9999"),
+		DeltaBlocks:  hexutil.Uint64(22),
+	}
+	leaseCloseArgs := LeaseCloseArgs{
+		From:         from,
+		ContractAddr: common.HexToAddress("0xaaaa"),
+	}
 	hash, err := client.SetSigner(ctx, setSignerArgs)
 	if err != nil {
 		t.Fatalf("SetSigner error: %v", err)
@@ -469,6 +579,54 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	}
 	if svc.lastBuildSignerArgs.From != from {
 		t.Fatalf("buildSetSigner args were not forwarded")
+	}
+
+	deployHash, err := client.LeaseDeploy(ctx, leaseDeployArgs)
+	if err != nil {
+		t.Fatalf("LeaseDeploy error: %v", err)
+	}
+	if deployHash != common.HexToHash("0x10") || svc.lastLeaseDeployArgs.LeaseBlocks != leaseDeployArgs.LeaseBlocks {
+		t.Fatalf("unexpected leaseDeploy result: hash=%s args=%+v", deployHash.Hex(), svc.lastLeaseDeployArgs)
+	}
+
+	deployTx, err := client.BuildLeaseDeployTx(ctx, leaseDeployArgs)
+	if err != nil {
+		t.Fatalf("BuildLeaseDeployTx error: %v", err)
+	}
+	if deployTx == nil || len(deployTx.Raw) != 2 || deployTx.Raw[0] != 0x31 {
+		t.Fatalf("unexpected buildLeaseDeployTx result: %+v", deployTx)
+	}
+
+	renewHash, err := client.LeaseRenew(ctx, leaseRenewArgs)
+	if err != nil {
+		t.Fatalf("LeaseRenew error: %v", err)
+	}
+	if renewHash != common.HexToHash("0x11") || svc.lastLeaseRenewArgs.ContractAddr != leaseRenewArgs.ContractAddr {
+		t.Fatalf("unexpected leaseRenew result: hash=%s args=%+v", renewHash.Hex(), svc.lastLeaseRenewArgs)
+	}
+
+	renewTx, err := client.BuildLeaseRenewTx(ctx, leaseRenewArgs)
+	if err != nil {
+		t.Fatalf("BuildLeaseRenewTx error: %v", err)
+	}
+	if renewTx == nil || len(renewTx.Raw) != 2 || renewTx.Raw[0] != 0x33 {
+		t.Fatalf("unexpected buildLeaseRenewTx result: %+v", renewTx)
+	}
+
+	closeHash, err := client.LeaseClose(ctx, leaseCloseArgs)
+	if err != nil {
+		t.Fatalf("LeaseClose error: %v", err)
+	}
+	if closeHash != common.HexToHash("0x12") || svc.lastLeaseCloseArgs.ContractAddr != leaseCloseArgs.ContractAddr {
+		t.Fatalf("unexpected leaseClose result: hash=%s args=%+v", closeHash.Hex(), svc.lastLeaseCloseArgs)
+	}
+
+	closeTx, err := client.BuildLeaseCloseTx(ctx, leaseCloseArgs)
+	if err != nil {
+		t.Fatalf("BuildLeaseCloseTx error: %v", err)
+	}
+	if closeTx == nil || len(closeTx.Raw) != 2 || closeTx.Raw[0] != 0x35 {
+		t.Fatalf("unexpected buildLeaseCloseTx result: %+v", closeTx)
 	}
 
 	maintenanceArgs := ValidatorMaintenanceArgs{From: from}

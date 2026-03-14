@@ -29,7 +29,8 @@ import (
 	_ "github.com/tos-network/gtos/group" // registers GROUP_* handlers via init()
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/internal/tosapi"
-	_ "github.com/tos-network/gtos/kyc" // registers KYC_* handlers via init()
+	_ "github.com/tos-network/gtos/kyc"   // registers KYC_* handlers via init()
+	_ "github.com/tos-network/gtos/lease" // registers LEASE_* handlers via init()
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/miner"
 	"github.com/tos-network/gtos/node"
