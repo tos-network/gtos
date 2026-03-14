@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
+	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 )
 
 type mockBroadcaster struct {
@@ -19,9 +22,56 @@ type mockBroadcaster struct {
 	err     error
 }
 
+const canonicalPaymentPrivKeyHex = "4f3edf983ac636a65a842ce7c78d9aa706d3b113bce036f4c8f66ad19c7f4f54"
+
 func (m *mockBroadcaster) SendRawTransaction(_ context.Context, rawTx hexutil.Bytes) (common.Hash, error) {
 	m.lastRaw = append(hexutil.Bytes(nil), rawTx...)
 	return m.hash, m.err
+}
+
+func mustBuildCanonicalPaymentEnvelope(t *testing.T, requirement PaymentRequirement) (*PaymentEnvelope, common.Address, common.Hash) {
+	t.Helper()
+
+	chainID, err := ParseNetworkChainID(requirement.Network)
+	if err != nil {
+		t.Fatalf("parse network chain id: %v", err)
+	}
+	value, ok := new(big.Int).SetString(requirement.MaxAmountRequired, 0)
+	if !ok {
+		t.Fatalf("invalid payment amount %q", requirement.MaxAmountRequired)
+	}
+	key, err := crypto.HexToECDSA(canonicalPaymentPrivKeyHex)
+	if err != nil {
+		t.Fatalf("load canonical payment key: %v", err)
+	}
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:    new(big.Int).Set(chainID),
+		Nonce:      42,
+		Gas:        50_000,
+		To:         &requirement.PayToAddress,
+		Value:      value,
+		Data:       common.FromHex("0x11223344aabbc0"),
+		From:       from,
+		SignerType: accountsigner.SignerTypeSecp256k1,
+	})
+	signedTx, err := types.SignTx(tx, types.LatestSignerForChainID(chainID), key)
+	if err != nil {
+		t.Fatalf("sign canonical payment tx: %v", err)
+	}
+	rawTx, err := signedTx.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal canonical payment tx: %v", err)
+	}
+
+	return &PaymentEnvelope{
+		X402Version: 1,
+		Scheme:      SchemeExact,
+		Network:     requirement.Network,
+		Payload: TOSTransactionPayload{
+			RawTransaction: hexutil.Encode(rawTx),
+		},
+	}, from, signedTx.Hash()
 }
 
 func TestWritePaymentRequiredSetsHeaders(t *testing.T) {
@@ -48,23 +98,16 @@ func TestVerifyExactPaymentGoldenVector(t *testing.T) {
 		big.NewInt(12345),
 		"golden",
 	)
-	envelope := &PaymentEnvelope{
-		X402Version: 1,
-		Scheme:      SchemeExact,
-		Network:     "tos:1337",
-		Payload: TOSTransactionPayload{
-			RawTransaction: "0x00f8a18205392a82c350a011111111111111111111111111111111111111111111111111111111111111118230398611223344aabbc0a0969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a89736563703235366b3101a0109bbf2550567329ff51768666879a5d370e821fd51cd1f2444de5718e9342a3a03499fee0cdc9844a547689a5223e467fa6d9248c2c85abcedbd6a393c3ce816d",
-		},
-	}
+	envelope, wantFrom, wantHash := mustBuildCanonicalPaymentEnvelope(t, requirement)
 
 	verified, err := VerifyExactPayment(requirement, envelope)
 	if err != nil {
 		t.Fatalf("VerifyExactPayment: %v", err)
 	}
-	if verified.From != common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a") {
+	if verified.From != wantFrom {
 		t.Fatalf("unexpected from %s", verified.From.Hex())
 	}
-	if verified.TransactionHash != common.HexToHash("0xe1f91071dc24343ac9677e292b9f11a4fa5885d4a8370a7982e68b3076db3489") {
+	if verified.TransactionHash != wantHash {
 		t.Fatalf("unexpected tx hash %s", verified.TransactionHash.Hex())
 	}
 }
@@ -141,14 +184,7 @@ func TestRequireExactPaymentVerifiesAndInjectsContext(t *testing.T) {
 		big.NewInt(12345),
 		"paid",
 	)
-	env := PaymentEnvelope{
-		X402Version: 1,
-		Scheme:      SchemeExact,
-		Network:     "tos:1337",
-		Payload: TOSTransactionPayload{
-			RawTransaction: "0x00f8a18205392a82c350a011111111111111111111111111111111111111111111111111111111111111118230398611223344aabbc0a0969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a89736563703235366b3101a0109bbf2550567329ff51768666879a5d370e821fd51cd1f2444de5718e9342a3a03499fee0cdc9844a547689a5223e467fa6d9248c2c85abcedbd6a393c3ce816d",
-		},
-	}
+	env, _, wantHash := mustBuildCanonicalPaymentEnvelope(t, req)
 	payload, err := json.Marshal(env)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -161,7 +197,7 @@ func TestRequireExactPaymentVerifiesAndInjectsContext(t *testing.T) {
 		if !ok {
 			t.Fatal("expected verified payment in context")
 		}
-		if verified.TransactionHash != common.HexToHash("0xe1f91071dc24343ac9677e292b9f11a4fa5885d4a8370a7982e68b3076db3489") {
+		if verified.TransactionHash != wantHash {
 			t.Fatalf("unexpected tx hash %s", verified.TransactionHash.Hex())
 		}
 		w.WriteHeader(http.StatusOK)
