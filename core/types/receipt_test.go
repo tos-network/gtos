@@ -24,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/tos-network/gtos/common"
-	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
 )
@@ -258,12 +257,11 @@ func TestDeriveFields(t *testing.T) {
 		if receipts[i].GasUsed != txs[i].Gas() {
 			t.Errorf("receipts[%d].GasUsed = %d, want %d", i, receipts[i].GasUsed, txs[i].Gas())
 		}
-		if txs[i].To() != nil && receipts[i].ContractAddress != (common.Address{}) {
+		if txs[i].To() != nil && CreatedContractAddress(signer, txs[i]) == (common.Address{}) && receipts[i].ContractAddress != (common.Address{}) {
 			t.Errorf("receipts[%d].ContractAddress = %s, want %s", i, receipts[i].ContractAddress.String(), (common.Address{}).String())
 		}
-		from, _ := Sender(signer, txs[i])
-		contractAddress := crypto.CreateAddress(from, txs[i].Nonce())
-		if txs[i].To() == nil && receipts[i].ContractAddress != contractAddress {
+		contractAddress := CreatedContractAddress(signer, txs[i])
+		if contractAddress != (common.Address{}) && receipts[i].ContractAddress != contractAddress {
 			t.Errorf("receipts[%d].ContractAddress = %s, want %s", i, receipts[i].ContractAddress.String(), contractAddress.String())
 		}
 		for j := range receipts[i].Logs {
@@ -284,6 +282,41 @@ func TestDeriveFields(t *testing.T) {
 			}
 			logIndex++
 		}
+	}
+}
+
+func TestReceiptDeriveFieldsSetsLeaseDeployContractAddress(t *testing.T) {
+	from := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
+	to := params.SystemActionAddress
+	payload := []byte(`{"action":"LEASE_DEPLOY","payload":{"code":"AQI=","leaseBlocks":10}}`)
+	tx := NewTx(&SignerTx{
+		ChainID:    big.NewInt(1),
+		Nonce:      7,
+		Gas:        50_000,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Data:       payload,
+		From:       from,
+		SignerType: "secp256k1",
+		V:          big.NewInt(0),
+		R:          big.NewInt(1),
+		S:          big.NewInt(1),
+	})
+	receipt := &Receipt{Type: SignerTxType, CumulativeGasUsed: tx.Gas(), GasUsed: tx.Gas()}
+	receipts := Receipts{receipt}
+	number := uint64(9)
+	hash := common.HexToHash("0x01")
+
+	if err := receipts.DeriveFields(params.TestChainConfig, hash, number, Transactions{tx}); err != nil {
+		t.Fatalf("DeriveFields: %v", err)
+	}
+	signer := MakeSigner(params.TestChainConfig, new(big.Int).SetUint64(number))
+	want := CreatedContractAddress(signer, tx)
+	if want == (common.Address{}) {
+		t.Fatal("expected non-zero contract address for lease deploy")
+	}
+	if receipt.ContractAddress != want {
+		t.Fatalf("ContractAddress = %s, want %s", receipt.ContractAddress, want)
 	}
 }
 

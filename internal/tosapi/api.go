@@ -1706,6 +1706,8 @@ func (s *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
 	if receipt.ContractAddress != (common.Address{}) {
 		fields["contractAddress"] = receipt.ContractAddress
+	} else if contractAddress := types.CreatedContractAddress(signer, tx); contractAddress != (common.Address{}) {
+		fields["contractAddress"] = contractAddress
 	}
 	return fields, nil
 }
@@ -2161,6 +2163,11 @@ type RPCPruneWatermark struct {
 	RetainBlocks         hexutil.Uint64 `json:"retainBlocks"`
 }
 
+type RPCLeaseDeployResult struct {
+	TxHash          common.Hash    `json:"txHash"`
+	ContractAddress common.Address `json:"contractAddress"`
+}
+
 type RPCSignerDescriptor struct {
 	Type      string `json:"type"`
 	Value     string `json:"value"`
@@ -2264,8 +2271,9 @@ func rpcMaliciousVoteEvidenceRecordFromModel(rec *dpos.MaliciousVoteEvidenceReco
 }
 
 type RPCBuildTxResult struct {
-	Tx  map[string]interface{} `json:"tx"`
-	Raw hexutil.Bytes          `json:"raw"`
+	Tx              map[string]interface{} `json:"tx"`
+	Raw             hexutil.Bytes          `json:"raw"`
+	ContractAddress *common.Address        `json:"contractAddress,omitempty"`
 }
 
 type RPCUNOShieldArgs struct {
@@ -2517,11 +2525,11 @@ func (s *TOSAPI) GetSponsorNonce(ctx context.Context, address common.Address, bl
 	return &nonce, nil
 }
 
-func rpcLeaseStatus(blockNumber uint64, meta lease.Meta, tombstoned bool) string {
+func rpcLeaseStatus(blockNumber uint64, meta lease.Meta, tombstoned bool, chainConfig *params.ChainConfig) string {
 	if tombstoned {
 		return "tombstoned"
 	}
-	switch lease.EffectiveStatus(meta, blockNumber) {
+	switch lease.EffectiveStatus(meta, blockNumber, chainConfig) {
 	case lease.StatusActive:
 		return "active"
 	case lease.StatusFrozen:
@@ -2577,9 +2585,9 @@ func (s *TOSAPI) GetLease(ctx context.Context, address common.Address, blockNrOr
 		record.DepositWei = (*hexutil.Big)(deposit)
 		record.ScheduledPruneEpoch = hexutil.Uint64(meta.ScheduledPruneEpoch)
 		record.ScheduledPruneSeq = hexutil.Uint64(meta.ScheduledPruneSeq)
-		record.Status = rpcLeaseStatus(header.Number.Uint64(), meta, tombstoned)
+		record.Status = rpcLeaseStatus(header.Number.Uint64(), meta, tombstoned, s.b.ChainConfig())
 	} else {
-		record.Status = rpcLeaseStatus(header.Number.Uint64(), lease.Meta{}, tombstoned)
+		record.Status = rpcLeaseStatus(header.Number.Uint64(), lease.Meta{}, tombstoned, s.b.ChainConfig())
 	}
 	return record, nil
 }
@@ -2799,7 +2807,7 @@ func txResultFromArgs(from common.Address, to common.Address, tx *types.Transact
 	if err != nil {
 		return nil, err
 	}
-	return &RPCBuildTxResult{
+	res := &RPCBuildTxResult{
 		Tx: map[string]interface{}{
 			"from":  from,
 			"to":    to,
@@ -2809,7 +2817,27 @@ func txResultFromArgs(from common.Address, to common.Address, tx *types.Transact
 			"input": hexutil.Bytes(tx.Data()),
 		},
 		Raw: raw,
-	}, nil
+	}
+	if contractAddress, ok := predictedContractAddress(from, tx); ok {
+		res.ContractAddress = &contractAddress
+	}
+	return res, nil
+}
+
+func predictedContractAddress(from common.Address, tx *types.Transaction) (common.Address, bool) {
+	if tx == nil {
+		return common.Address{}, false
+	}
+	if tx.To() == nil {
+		return crypto.CreateAddress(from, tx.Nonce()), true
+	}
+	if to := tx.To(); to != nil && *to == params.SystemActionAddress {
+		sa, err := sysaction.Decode(tx.Data())
+		if err == nil && sa.Action == sysaction.ActionLeaseDeploy {
+			return crypto.CreateAddress(from, tx.Nonce()), true
+		}
+	}
+	return common.Address{}, false
 }
 
 func (s *TOSAPI) buildSetSignerTransactionArgs(ctx context.Context, args RPCSetSignerArgs) (*TransactionArgs, error) {
@@ -3049,27 +3077,35 @@ func (s *TOSAPI) BuildSetSignerTx(ctx context.Context, args RPCSetSignerArgs) (*
 	}, nil
 }
 
-func (s *TOSAPI) LeaseDeploy(ctx context.Context, args RPCLeaseDeployArgs) (common.Hash, error) {
+func (s *TOSAPI) LeaseDeploy(ctx context.Context, args RPCLeaseDeployArgs) (*RPCLeaseDeployResult, error) {
 	if err := validateLeaseDeployArgs(args); err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	if s == nil || s.b == nil {
-		return common.Hash{}, newRPCNotImplementedError("tos_leaseDeploy")
+		return nil, newRPCNotImplementedError("tos_leaseDeploy")
 	}
 	txArgs, err := s.buildLeaseDeployTransactionArgs(ctx, args)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	account := accounts.Account{Address: args.From}
 	wallet, err := s.b.AccountManager().Find(account)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	signed, err := wallet.SignTx(account, txArgs.toTransaction(), s.b.ChainConfig().ChainID)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
-	return SubmitTransaction(ctx, s.b, signed)
+	hash, err := SubmitTransaction(ctx, s.b, signed)
+	if err != nil {
+		return nil, err
+	}
+	contractAddress, ok := predictedContractAddress(args.From, signed)
+	if !ok {
+		return nil, fmt.Errorf("failed to derive lease deploy contract address")
+	}
+	return &RPCLeaseDeployResult{TxHash: hash, ContractAddress: contractAddress}, nil
 }
 
 func (s *TOSAPI) BuildLeaseDeployTx(ctx context.Context, args RPCLeaseDeployArgs) (*RPCBuildTxResult, error) {

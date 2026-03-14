@@ -54,6 +54,10 @@ type rpcExtTestService struct {
 	lastDPoSQueryBlock       string
 }
 
+func commonAddressPtr(addr common.Address) *common.Address {
+	return &addr
+}
+
 func (s *rpcExtTestService) GetChainProfile() interface{} {
 	return struct {
 		ChainID               *hexutil.Big   `json:"chainId"`
@@ -170,16 +174,20 @@ func (s *rpcExtTestService) GetLease(address common.Address, block string) inter
 	}
 }
 
-func (s *rpcExtTestService) LeaseDeploy(args LeaseDeployArgs) common.Hash {
+func (s *rpcExtTestService) LeaseDeploy(args LeaseDeployArgs) interface{} {
 	s.lastLeaseDeployArgs = args
-	return common.HexToHash("0x10")
+	return LeaseDeployResult{
+		TxHash:          common.HexToHash("0x10"),
+		ContractAddress: common.HexToAddress("0x1010"),
+	}
 }
 
 func (s *rpcExtTestService) BuildLeaseDeployTx(args LeaseDeployArgs) interface{} {
 	s.lastLeaseDeployBuildArgs = args
 	return BuildSetSignerTxResult{
-		Tx:  map[string]interface{}{"from": args.From.Hex()},
-		Raw: hexutil.Bytes{0x31, 0x32},
+		Tx:              map[string]interface{}{"from": args.From.Hex()},
+		Raw:             hexutil.Bytes{0x31, 0x32},
+		ContractAddress: commonAddressPtr(common.HexToAddress("0x1010")),
 	}
 }
 
@@ -581,12 +589,15 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 		t.Fatalf("buildSetSigner args were not forwarded")
 	}
 
-	deployHash, err := client.LeaseDeploy(ctx, leaseDeployArgs)
+	deployRes, err := client.LeaseDeploy(ctx, leaseDeployArgs)
 	if err != nil {
 		t.Fatalf("LeaseDeploy error: %v", err)
 	}
-	if deployHash != common.HexToHash("0x10") || svc.lastLeaseDeployArgs.LeaseBlocks != leaseDeployArgs.LeaseBlocks {
-		t.Fatalf("unexpected leaseDeploy result: hash=%s args=%+v", deployHash.Hex(), svc.lastLeaseDeployArgs)
+	if deployRes == nil {
+		t.Fatal("expected leaseDeploy result")
+	}
+	if deployRes.TxHash != common.HexToHash("0x10") || deployRes.ContractAddress != common.HexToAddress("0x1010") || svc.lastLeaseDeployArgs.LeaseBlocks != leaseDeployArgs.LeaseBlocks {
+		t.Fatalf("unexpected leaseDeploy result: %+v args=%+v", deployRes, svc.lastLeaseDeployArgs)
 	}
 
 	deployTx, err := client.BuildLeaseDeployTx(ctx, leaseDeployArgs)
@@ -595,6 +606,9 @@ func TestRPCExtWriteAndDPoSMethods(t *testing.T) {
 	}
 	if deployTx == nil || len(deployTx.Raw) != 2 || deployTx.Raw[0] != 0x31 {
 		t.Fatalf("unexpected buildLeaseDeployTx result: %+v", deployTx)
+	}
+	if deployTx.ContractAddress == nil || *deployTx.ContractAddress != common.HexToAddress("0x1010") {
+		t.Fatalf("unexpected buildLeaseDeployTx contract address: %+v", deployTx)
 	}
 
 	renewHash, err := client.LeaseRenew(ctx, leaseRenewArgs)

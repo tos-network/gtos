@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
@@ -38,6 +39,13 @@ func TestBuildLeaseDeployTxBuildsSystemActionTx(t *testing.T) {
 	}
 	if tx.Value().Cmp(big.NewInt(77)) != 0 {
 		t.Fatalf("expected forwarded value 77, got %s", tx.Value())
+	}
+	if res.ContractAddress == nil {
+		t.Fatal("expected predicted contract address")
+	}
+	wantContractAddress := crypto.CreateAddress(from, tx.Nonce())
+	if *res.ContractAddress != wantContractAddress {
+		t.Fatalf("unexpected contract address: have %s want %s", res.ContractAddress.Hex(), wantContractAddress.Hex())
 	}
 	wantGas, err := estimateSystemActionGas(tx.Data())
 	if err != nil {

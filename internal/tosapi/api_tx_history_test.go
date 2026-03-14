@@ -7,6 +7,9 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/lease"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 type txHistoryBackendMock struct {
@@ -53,6 +56,31 @@ func newHistoryTestTx() *types.Transaction {
 		To:         &to,
 		Value:      big.NewInt(1),
 		Data:       nil,
+		From:       from,
+		SignerType: "secp256k1",
+		V:          big.NewInt(0),
+		R:          big.NewInt(1),
+		S:          big.NewInt(1),
+	})
+}
+
+func newHistoryLeaseDeployTx() *types.Transaction {
+	from := common.HexToAddress("0x74c5f09f80cc62940a4f392f067a68b40696c06bf8e31f973efee01156caea5f")
+	to := params.SystemActionAddress
+	payload, err := sysaction.MakeSysAction(sysaction.ActionLeaseDeploy, lease.DeployAction{
+		Code:        []byte{0x01, 0x02, 0x03},
+		LeaseBlocks: 64,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return types.NewTx(&types.SignerTx{
+		ChainID:    big.NewInt(42),
+		Nonce:      9,
+		Gas:        210_000,
+		To:         &to,
+		Value:      big.NewInt(0),
+		Data:       payload,
 		From:       from,
 		SignerType: "secp256k1",
 		V:          big.NewInt(0),
@@ -116,5 +144,38 @@ func TestTransactionLookupHistoryPruned(t *testing.T) {
 	}
 	if backend.receiptsCalled {
 		t.Fatalf("receipt lookup should not run for pruned transaction")
+	}
+}
+
+func TestGetTransactionReceiptDerivesLeaseDeployContractAddress(t *testing.T) {
+	tx := newHistoryLeaseDeployTx()
+	base := newBackendMock()
+	backend := &txHistoryBackendMock{
+		backendMock: base,
+		tx:          tx,
+		blockHash:   common.HexToHash("0x55"),
+		blockNumber: 77,
+		index:       0,
+	}
+	api := NewTransactionAPI(backend, new(AddrLocker))
+
+	fields, err := api.GetTransactionReceipt(context.Background(), tx.Hash())
+	if err != nil {
+		t.Fatalf("GetTransactionReceipt error: %v", err)
+	}
+	if fields == nil {
+		t.Fatal("expected receipt fields")
+	}
+	got, ok := fields["contractAddress"].(common.Address)
+	if !ok {
+		t.Fatalf("contractAddress has unexpected type %T", fields["contractAddress"])
+	}
+	signer := types.MakeSigner(base.ChainConfig(), new(big.Int).SetUint64(backend.blockNumber))
+	want := types.CreatedContractAddress(signer, tx)
+	if want == (common.Address{}) {
+		t.Fatal("expected non-zero contract address")
+	}
+	if got != want {
+		t.Fatalf("contractAddress = %s, want %s", got.Hex(), want.Hex())
 	}
 }

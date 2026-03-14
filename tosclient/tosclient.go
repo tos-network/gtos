@@ -151,10 +151,17 @@ type MaliciousVoteEvidenceRecord struct {
 	Status       string
 }
 
-// BuildSetSignerTxResult is the result object for tos_buildSetSignerTx.
+// BuildSetSignerTxResult is the result object for unsigned transaction builder RPCs.
 type BuildSetSignerTxResult struct {
-	Tx  map[string]interface{} `json:"tx"`
-	Raw hexutil.Bytes          `json:"raw"`
+	Tx              map[string]interface{} `json:"tx"`
+	Raw             hexutil.Bytes          `json:"raw"`
+	ContractAddress *common.Address        `json:"contractAddress,omitempty"`
+}
+
+// LeaseDeployResult is the result object for tos_leaseDeploy.
+type LeaseDeployResult struct {
+	TxHash          common.Hash    `json:"txHash"`
+	ContractAddress common.Address `json:"contractAddress"`
 }
 
 // CodeObject describes a code record and ttl metadata.
@@ -389,10 +396,12 @@ func (ec *Client) SetSigner(ctx context.Context, args SetSignerArgs) (common.Has
 }
 
 // LeaseDeploy submits a lease contract deployment transaction.
-func (ec *Client) LeaseDeploy(ctx context.Context, args LeaseDeployArgs) (common.Hash, error) {
-	var txHash common.Hash
-	err := ec.c.CallContext(ctx, &txHash, "tos_leaseDeploy", args)
-	return txHash, err
+func (ec *Client) LeaseDeploy(ctx context.Context, args LeaseDeployArgs) (*LeaseDeployResult, error) {
+	var out LeaseDeployResult
+	if err := ec.c.CallContext(ctx, &out, "tos_leaseDeploy", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // BuildLeaseDeployTx builds an unsigned lease deployment transaction payload.

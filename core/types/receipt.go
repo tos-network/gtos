@@ -18,6 +18,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -116,6 +117,30 @@ type v3StoredReceiptRLP struct {
 	ContractAddress   common.Address
 	Logs              []*LogForStorage
 	GasUsed           uint64
+}
+
+type receiptSysActionEnvelope struct {
+	Action string `json:"action"`
+}
+
+// CreatedContractAddress returns the created contract address for tx when the
+// transaction is a contract-creating operation understood by GTOS.
+func CreatedContractAddress(signer Signer, tx *Transaction) common.Address {
+	if tx == nil {
+		return common.Address{}
+	}
+	if tx.To() == nil {
+		from, _ := Sender(signer, tx)
+		return crypto.CreateAddress(from, tx.Nonce())
+	}
+	if to := tx.To(); to != nil && *to == params.SystemActionAddress {
+		var sa receiptSysActionEnvelope
+		if err := json.Unmarshal(tx.Data(), &sa); err == nil && sa.Action == "LEASE_DEPLOY" {
+			from, _ := Sender(signer, tx)
+			return crypto.CreateAddress(from, tx.Nonce())
+		}
+	}
+	return common.Address{}
 }
 
 // NewReceipt creates a barebone transaction receipt, copying the init fields.
@@ -392,12 +417,8 @@ func (rs Receipts) DeriveFields(config *params.ChainConfig, hash common.Hash, nu
 		rs[i].BlockNumber = new(big.Int).SetUint64(number)
 		rs[i].TransactionIndex = uint(i)
 
-		// The contract address can be derived from the transaction itself
-		if txs[i].To() == nil {
-			// Deriving the signer is expensive, only do if it's actually needed
-			from, _ := Sender(signer, txs[i])
-			rs[i].ContractAddress = crypto.CreateAddress(from, txs[i].Nonce())
-		}
+		// The created contract address can be derived from the transaction itself.
+		rs[i].ContractAddress = CreatedContractAddress(signer, txs[i])
 		// The used gas can be calculated based on previous r
 		if i == 0 {
 			rs[i].GasUsed = rs[i].CumulativeGasUsed
