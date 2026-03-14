@@ -26,6 +26,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	_ "github.com/tos-network/gtos/delegation" // registers DELEGATION_* handlers via init()
 	"github.com/tos-network/gtos/event"
+	_ "github.com/tos-network/gtos/group" // registers GROUP_* handlers via init()
 	"github.com/tos-network/gtos/internal/shutdowncheck"
 	"github.com/tos-network/gtos/internal/tosapi"
 	_ "github.com/tos-network/gtos/kyc" // registers KYC_* handlers via init()

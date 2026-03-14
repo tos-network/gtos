@@ -54,6 +54,10 @@ const (
 	// Scheduled tasks.
 	ActionTaskSchedule ActionKind = "TASK_SCHEDULE"
 	ActionTaskCancel   ActionKind = "TASK_CANCEL"
+
+	// Group lifecycle.
+	ActionGroupRegister    ActionKind = "GROUP_REGISTER"
+	ActionGroupStateCommit ActionKind = "GROUP_STATE_COMMIT"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

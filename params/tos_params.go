@@ -47,6 +47,9 @@ var (
 	// SponsorRegistryAddress stores protocol-level sponsor nonce state for
 	// native sponsored transactions.
 	SponsorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
+
+	// GroupRegistryAddress stores on-chain Group registration and state commitment data.
+	GroupRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010A")
 )
 
 // DPoS validator stake and reward parameters.
