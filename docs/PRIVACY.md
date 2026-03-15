@@ -50,20 +50,78 @@
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions have a dedicated PrivTxPool, fully separate from the public TxPool
 
+**Signature Type Separation**:
+- `PrivTransferTxType`: **ElGamal only**. From/To fields are ElGamal compressed public keys (32 bytes each). No `SignerType` field — the signature algorithm is implicit in the transaction type
+- `SignerTxType` (public): **No longer supports ElGamal**. Only secp256k1, ed25519, schnorr, secp256r1, bls12-381
+
+---
+
+## Design Decisions: Pubkey-as-Address Model
+
+### Reference: X Protocol Transaction Structure
+
+The X protocol uses a clean pubkey-as-identity model for its confidential transactions:
+
+```rust
+// X Transaction
+struct Transaction {
+    source: CompressedPublicKey,       // 32B — sender IS their pubkey
+    data: TransactionType,             // Transfers(Vec<TransferPayload>), Burn, ...
+    fee: u64,
+    nonce: Nonce,                      // u64
+    source_commitments: Vec<SourceCommitment>,
+    range_proof: RangeProof,
+    signature: Signature,              // { s: Scalar, e: Scalar } = 64B
+    ...
+}
+
+// X TransferPayload
+struct TransferPayload {
+    destination: CompressedPublicKey,   // 32B — receiver IS their pubkey
+    commitment: CompressedCommitment,   // 32B
+    sender_handle: CompressedHandle,    // 32B
+    receiver_handle: CompressedHandle,  // 32B
+    ct_validity_proof: CiphertextValidityProof,
+    ...
+}
+```
+
+### GTOS PrivTransferTx Adopts Same Model
+
+| Aspect | X Protocol | GTOS PrivTransferTx |
+|--------|------------|---------------------|
+| **Sender identity** | `source: CompressedPublicKey` (32B) | `From: [32]byte` (ElGamal compressed pubkey) |
+| **Receiver identity** | `destination: CompressedPublicKey` (32B) | `To: [32]byte` (ElGamal compressed pubkey) |
+| **Address = pubkey** | Yes, address wraps pubkey directly | Yes, From/To ARE the pubkeys |
+| **Signature** | `{ s: Scalar, e: Scalar }` (64B) | `{ S: [32]byte, E: [32]byte }` (64B) |
+| **SignerType field** | None (implicit) | None (implicit in tx type) |
+| **Signer lookup** | Not needed — pubkey in tx | Not needed — pubkey in tx |
+| **Multi-transfer** | `Vec<TransferPayload>` per tx | Single transfer per tx |
+| **Ciphertext** | commitment + sender_handle + receiver_handle (3x32B) | commitment + sender_handle + receiver_handle (3x32B) |
+| **Proofs** | Per-transfer CiphertextValidityProof + per-asset CommitmentEqProof + aggregated RangeProof | CiphertextValidityProof + CommitmentEqProof + RangeProof (separated) |
+| **Nonce** | `nonce: u64` | `PrivNonce: uint64` |
+| **Fees** | `fee: u64` (flat amount) | `Gas + GasPrice` (gas model) |
+
+**Key benefits of pubkey-as-address**:
+- Signature verification uses From field directly — zero storage IO
+- Proof verification uses From/To as ElGamal pubkeys directly — zero storage IO
+- No need for signer metadata storage slots for priv accounts
+- No `RequireElgamalSigner()` lookup at transaction execution time
+
 ---
 
 ## Phase 1: PrivTransferTx Transaction Type + core/priv Package
 
 ### Goal
-Add `PrivTransferTxType` transaction type, create `core/priv/` package to replace `core/uno/`, remove Shield/Unshield.
+Add `PrivTransferTxType` transaction type with ElGamal-only pubkey-as-address model, create `core/priv/` package to replace `core/uno/`, remove Shield/Unshield. Remove ElGamal support from `SignerTxType`.
 
 ### 1a. New Transaction Type `PrivTransferTx`
 
 **Modify** `core/types/transaction.go`:
 ```go
 const (
-    SignerTxType       = iota  // 0x00 — existing public transactions
-    PrivTransferTxType         // 0x01 — private transfer
+    SignerTxType       = iota  // 0x00 — existing public transactions (no ElGamal)
+    PrivTransferTxType         // 0x01 — private transfer (ElGamal only)
 )
 ```
 
@@ -81,58 +139,116 @@ Relax type checks in `EncodeRLP()`/`MarshalBinary()` to support PrivTransferTxTy
 ```go
 package types
 
+// PrivTransferTx is a confidential transfer between two ElGamal accounts.
+// From and To are compressed ElGamal public keys (Ristretto255), NOT hashed addresses.
+// The signature is always ElGamal Ristretto-Schnorr (s, e) — no SignerType field needed.
+//
+// Ciphertext and proof structure aligned with X protocol:
+//   - Transfer ciphertext: 1 shared commitment + 2 handles (sender/receiver) = 3x32B
+//   - Source commitment: sender's new balance commitment = 32B
+//   - Proofs separated: CiphertextValidityProof + CommitmentEqProof + RangeProof
 type PrivTransferTx struct {
     ChainID   *big.Int
-    PrivNonce uint64             // independent nonce for private txs (validated against storage slot)
+    PrivNonce uint64           // independent nonce for private txs
     Gas       uint64
-    GasPrice  *big.Int           // gas paid from public Balance
+    GasPrice  *big.Int         // gas paid from public Balance (looked up via pubkey-derived address)
 
-    From      common.Address     // sender
-    To        common.Address     // receiver
+    From      [32]byte         // sender ElGamal compressed public key = identity
+    To        [32]byte         // receiver ElGamal compressed public key = identity
 
-    // Privacy payload (direct fields, no Envelope wrapping)
-    NewSenderCommitment     [32]byte
-    NewSenderHandle         [32]byte
-    ReceiverDeltaCommitment [32]byte
-    ReceiverDeltaHandle     [32]byte
-    ProofBundle             []byte   // 1032 bytes (CTValidity 160 + Balance 200 + Range 672)
-    EncryptedMemo           []byte
+    // Transfer ciphertext (3 fields, aligned with X protocol)
+    // Single Pedersen commitment shared by sender and receiver,
+    // with separate decrypt handles per party.
+    Commitment     [32]byte   // Pedersen commitment to transfer amount: C = amount*G + r*H
+    SenderHandle   [32]byte   // decrypt handle under sender's key:   sender_pubkey * r
+    ReceiverHandle [32]byte   // decrypt handle under receiver's key: receiver_pubkey * r
 
-    // Signature (ElGamal)
-    SignerType string
-    V *big.Int
-    R *big.Int
-    S *big.Int
+    // Source commitment: sender's new balance after transfer
+    SourceCommitment [32]byte // commitment to sender's post-transfer balance
+
+    // Proofs (separated, aligned with X protocol)
+    CtValidityProof   []byte  // CiphertextValidityProof (~160B): proves ciphertext is valid for receiver
+    CommitmentEqProof []byte  // CommitmentEqProof (~192B): proves source commitment equals new balance
+    RangeProof        []byte  // Aggregated Bulletproof (~672B): proves all amounts in [0, 2^64)
+
+    EncryptedMemo     []byte  // optional encrypted metadata
+
+    // ElGamal Ristretto-Schnorr signature (fixed, no SignerType field)
+    S [32]byte               // Schnorr s scalar
+    E [32]byte               // Schnorr e scalar
 }
 
 // Implements TxData interface
-func (tx *PrivTransferTx) txType() byte      { return PrivTransferTxType }
-func (tx *PrivTransferTx) chainID() *big.Int  { return tx.ChainID }
-func (tx *PrivTransferTx) gas() uint64        { return tx.Gas }
-func (tx *PrivTransferTx) txPrice() *big.Int  { return tx.GasPrice }
-func (tx *PrivTransferTx) value() *big.Int    { return common.Big0 }  // always 0
-func (tx *PrivTransferTx) nonce() uint64      { return tx.PrivNonce }
-func (tx *PrivTransferTx) to() *common.Address { return &tx.To }
-func (tx *PrivTransferTx) data() []byte        { return nil }         // payload in dedicated fields
+func (tx *PrivTransferTx) txType() byte        { return PrivTransferTxType }
+func (tx *PrivTransferTx) chainID() *big.Int    { return tx.ChainID }
+func (tx *PrivTransferTx) gas() uint64          { return tx.Gas }
+func (tx *PrivTransferTx) txPrice() *big.Int    { return tx.GasPrice }
+func (tx *PrivTransferTx) value() *big.Int      { return common.Big0 }  // always 0
+func (tx *PrivTransferTx) nonce() uint64        { return tx.PrivNonce }
+func (tx *PrivTransferTx) to() *common.Address  { /* derive address from To pubkey */ }
+func (tx *PrivTransferTx) data() []byte         { return nil }
 func (tx *PrivTransferTx) accessList() AccessList { return nil }
-func (tx *PrivTransferTx) gasTipCap() *big.Int { return tx.GasPrice }
-func (tx *PrivTransferTx) gasFeeCap() *big.Int { return tx.GasPrice }
-func (tx *PrivTransferTx) copy() TxData { ... }
-func (tx *PrivTransferTx) rawSignatureValues() (v, r, s *big.Int) { return tx.V, tx.R, tx.S }
+func (tx *PrivTransferTx) gasTipCap() *big.Int  { return tx.GasPrice }
+func (tx *PrivTransferTx) gasFeeCap() *big.Int  { return tx.GasPrice }
+func (tx *PrivTransferTx) copy() TxData         { ... }
+
+// Signature methods — convert between [32]byte scalars and *big.Int for TxData interface
+func (tx *PrivTransferTx) rawSignatureValues() (v, r, s *big.Int) {
+    return new(big.Int), new(big.Int).SetBytes(tx.S[:]), new(big.Int).SetBytes(tx.E[:])
+}
 func (tx *PrivTransferTx) setSignatureValues(chainID, v, r, s *big.Int) { ... }
+
+// PrivTransferTx-specific helpers
+func (tx *PrivTransferTx) FromPubkey() [32]byte { return tx.From }
+func (tx *PrivTransferTx) ToPubkey() [32]byte   { return tx.To }
+
+// FromAddress derives the common.Address for gas payment lookup.
+// This is Keccak256(From) — used only for public Balance deduction and state trie access.
+func (tx *PrivTransferTx) FromAddress() common.Address {
+    return common.BytesToAddress(crypto.Keccak256(tx.From[:]))
+}
+
+// ToAddress derives the common.Address for the receiver.
+func (tx *PrivTransferTx) ToAddress() common.Address {
+    return common.BytesToAddress(crypto.Keccak256(tx.To[:]))
+}
+
+// SenderCiphertext constructs the sender-side ciphertext from the shared commitment.
+// sender_ct = (Commitment, SenderHandle)
+func (tx *PrivTransferTx) SenderCiphertext() priv.Ciphertext {
+    return priv.Ciphertext{Commitment: tx.Commitment, Handle: tx.SenderHandle}
+}
+
+// ReceiverCiphertext constructs the receiver-side ciphertext from the shared commitment.
+// receiver_ct = (Commitment, ReceiverHandle)
+func (tx *PrivTransferTx) ReceiverCiphertext() priv.Ciphertext {
+    return priv.Ciphertext{Commitment: tx.Commitment, Handle: tx.ReceiverHandle}
+}
 ```
 
-**Advantages over PrivRouterAddress routing**:
+**Signature verification** — no storage lookup needed:
+```go
+// Verify signature directly from the From pubkey in the transaction
+func VerifyPrivTransferSignature(tx *PrivTransferTx, txHash common.Hash) bool {
+    // tx.From is the compressed Ristretto pubkey
+    // tx.S, tx.E are the Schnorr signature scalars
+    // Verify: H * s + From * (-e) == R, then check e == hash(From, msg, R)
+    return elgamalSchnorrVerify(tx.From[:], txHash[:], tx.S[:], tx.E[:])
+}
+```
 
-| | `To == PrivRouterAddress` (old) | `PrivTransferTxType` (new) |
-|---|---|---|
-| **Pool routing** | Must decode Data to identify private txs | `tx.Type()` routes directly to PrivTxPool |
-| **Field design** | Reuses SignerTx; To/Value/Data are redundant | Dedicated fields, no redundancy |
-| **Nonce** | Reuses public Nonce or hacks storage slot | `PrivNonce` field carried directly |
-| **RLP encoding** | Data nests "GTOSPRV1" + Envelope, double encoding | Single-layer RLP |
-| **P2P broadcast** | Extra logic to distinguish which pool | Routes by TxType directly |
+### 1b. Remove ElGamal from SignerTxType
 
-### 1b. New `core/priv/` Package (evolved from core/uno/)
+**Modify** `accountsigner/crypto.go`:
+- Remove `SignerTypeElgamal` from `NormalizeSigner()` — return error for elgamal type
+- Remove `case SignerTypeElgamal` from `AddressFromSigner()`
+- Remove `case SignerTypeElgamal` from `VerifySignature()`
+- Keep ElGamal crypto primitives in `crypto/priv/` for use by PrivTransferTx
+
+**Modify** `core/state_transition.go`:
+- In public tx validation, reject transactions with ElGamal signer type
+
+### 1c. New `core/priv/` Package (evolved from core/uno/)
 
 **New file** `core/priv/types.go`:
 ```go
@@ -152,7 +268,7 @@ type AccountState struct {
 }
 ```
 
-Note: `Envelope`, `ActionID`, `TransferPayload` types are no longer needed — payload is embedded directly in the `PrivTransferTx` struct. Only `Ciphertext` and `AccountState` are retained for state management.
+Note: `Envelope`, `ActionID`, `TransferPayload` types are no longer needed — payload is embedded directly in the `PrivTransferTx` struct. Only `Ciphertext` and `AccountState` are retained for state management. `RequireElgamalSigner()` is no longer needed — the pubkey is directly in the transaction.
 
 **New file** `core/priv/state.go`:
 ```go
@@ -163,11 +279,20 @@ var (
     NonceSlot      = crypto.Keccak256Hash([]byte("gtos.priv.nonce"))
 )
 
+// State functions take common.Address (derived from pubkey) for storage slot access.
 func GetAccountState(db vm.StateDB, account common.Address) AccountState
 func SetAccountState(db vm.StateDB, account common.Address, st AccountState)
 func GetPrivNonce(db vm.StateDB, account common.Address) uint64
 func IncrementPrivNonce(db vm.StateDB, account common.Address) uint64
 func IncrementVersion(db vm.StateDB, account common.Address) (uint64, error)
+```
+
+**New file** `core/priv/signature.go`:
+```go
+// ElGamal Ristretto-Schnorr signature verification.
+// No storage lookup needed — pubkey comes directly from the transaction.
+func VerifySchnorrSignature(pubkey [32]byte, message []byte, s, e [32]byte) bool
+func SignSchnorr(privkey [32]byte, message []byte) (s, e [32]byte, err error)
 ```
 
 **Migrated files** (trimmed from core/uno/ into core/priv/):
@@ -176,20 +301,20 @@ func IncrementVersion(db vm.StateDB, account common.Address) (uint64, error)
 |---|---|---|
 | `state.go` | `state.go` | Rename slots to gtos.priv.*, add NonceSlot |
 | `context.go` | `context.go` | Keep only BuildPrivTransferTranscriptContext |
-| `verify.go` | `verify.go` | Keep only VerifyTransferProofBundle |
-| `proofs.go` | `proofs.go` | Keep only Transfer proof decoding |
-| `signer.go` | `signer.go` | RequireElgamalSigner unchanged |
+| `verify.go` | `verify.go` | Separate verifiers: VerifyCiphertextValidityProof, VerifyCommitmentEqProof, VerifyRangeProof |
+| `proofs.go` | `proofs.go` | Separate proof decoding for each proof type |
 | `errors.go` | `errors.go` | Unchanged |
 | `prover.go` | `prover.go` | Keep only BuildTransferPayloadProof |
 
 **Deleted files/code**:
 - `core/uno/types.go`: Envelope, ShieldPayload, UnshieldPayload, ActionID constants
-- `core/uno/codec.go`: entire file (Envelope encode/decode no longer needed, payload in tx fields)
+- `core/uno/codec.go`: entire file (Envelope encode/decode no longer needed)
 - `core/uno/protocol_constants.go`: ProtocolPayloadPrefix "GTOSUNO1" no longer needed
+- `core/uno/signer.go`: RequireElgamalSigner no longer needed (pubkey in tx)
 - All Shield/Unshield related context, verify, prover functions
 - **Delete entire `core/uno/` directory after migration**
 
-### 1c. Update `params/tos_params.go`
+### 1d. Update `params/tos_params.go`
 
 ```go
 // Delete
@@ -202,7 +327,7 @@ PrivTransferGas     uint64 = 650_000    // uniform gas
 PrivMaxProofBytes          = 96 * 1024
 ```
 
-### 1d. Update `core/state_transition.go`
+### 1e. Update `core/state_transition.go`
 
 ```go
 // TransitionDb() routing now based on tx.Type()
@@ -221,41 +346,80 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
     ...
 }
 
-// applyPrivTransfer() — reads directly from tx fields, no Envelope decoding
+// applyPrivTransfer() — reads directly from tx fields, no Envelope decoding, no signer lookup
 func (st *StateTransition) applyPrivTransfer() error {
     ptx := st.msg.inner.(*types.PrivTransferTx)
 
-    // 1. Require sender has ElGamal signer
-    senderPubkey, err := priv.RequireElgamalSigner(st.state, ptx.From)
+    // 1. Derive addresses from pubkeys (for state trie access and gas payment)
+    fromAddr := ptx.FromAddress()  // Keccak256(From pubkey)
+    toAddr := ptx.ToAddress()      // Keccak256(To pubkey)
 
-    // 2. Charge gas: PrivTransferGas (deducted from public Balance)
+    // 2. Verify ElGamal Schnorr signature using From pubkey directly
+    //    (already done in tx validation, but double-check here)
+
+    // 3. Charge gas: PrivTransferGas (deducted from public Balance at fromAddr)
     if !st.useGas(params.PrivTransferGas) { return ErrOutOfGas }
 
-    // 3. Validate PrivNonce
-    expectedNonce := priv.GetPrivNonce(st.state, ptx.From)
-    if ptx.PrivNonce != expectedNonce { return ErrNonceTooHigh/Low }
+    // 4. Validate PrivNonce
+    expectedNonce := priv.GetPrivNonce(st.state, fromAddr)
+    if ptx.PrivNonce != expectedNonce { return ErrNonceMismatch }
 
-    // 4. Get sender/receiver AccountState
-    senderState := priv.GetAccountState(st.state, ptx.From)
-    receiverPubkey, err := priv.RequireElgamalSigner(st.state, ptx.To)
-    receiverState := priv.GetAccountState(st.state, ptx.To)
+    // 5. Get sender/receiver AccountState
+    senderState := priv.GetAccountState(st.state, fromAddr)
+    receiverState := priv.GetAccountState(st.state, toAddr)
 
-    // 5. Construct Ciphertext and verify proof bundle
-    newSender := priv.Ciphertext{Commitment: ptx.NewSenderCommitment, Handle: ptx.NewSenderHandle}
-    receiverDelta := priv.Ciphertext{Commitment: ptx.ReceiverDeltaCommitment, Handle: ptx.ReceiverDeltaHandle}
-    // ... verify CT-Validity + Balance + Range proofs
+    // 6. Verify proofs using ptx.From/To directly as ElGamal pubkeys — zero IO
+    //
+    // Transfer ciphertext uses shared commitment with two handles:
+    //   sender_ct  = (Commitment, SenderHandle)
+    //   receiver_ct = (Commitment, ReceiverHandle)
+    //
+    // Proof verification (3 separate proofs, aligned with X protocol):
+    //   a) CiphertextValidityProof: proves commitment & handles are valid
+    //      for both sender and receiver pubkeys
+    //   b) CommitmentEqProof: proves SourceCommitment equals sender's
+    //      new balance (old_balance - transfer_ct)
+    //   c) RangeProof: aggregated Bulletproof over SourceCommitment +
+    //      transfer Commitment, proving all values in [0, 2^64)
+    senderCt := ptx.SenderCiphertext()
+    receiverCt := ptx.ReceiverCiphertext()
 
-    // 6. Update state
-    senderState.Ciphertext = newSender
+    if err := priv.VerifyCiphertextValidityProof(
+        ptx.Commitment, ptx.SenderHandle, ptx.ReceiverHandle,
+        ptx.From, ptx.To, ptx.CtValidityProof); err != nil {
+        return err
+    }
+
+    // new_sender_balance_ct = old_sender_ct - sender_ct
+    newSenderBalanceCt := priv.SubCiphertexts(senderState.Ciphertext, senderCt)
+    if err := priv.VerifyCommitmentEqProof(
+        ptx.From, newSenderBalanceCt, ptx.SourceCommitment,
+        ptx.CommitmentEqProof); err != nil {
+        return err
+    }
+
+    if err := priv.VerifyRangeProof(
+        ptx.SourceCommitment, ptx.Commitment,
+        ptx.RangeProof); err != nil {
+        return err
+    }
+
+    // 7. Update state
+    //    Sender: set balance to SourceCommitment (new balance after transfer)
+    senderState.Ciphertext = priv.Ciphertext{
+        Commitment: ptx.SourceCommitment,
+        Handle:     newSenderBalanceCt.Handle,  // handle derived from subtraction
+    }
     senderState.Version++
-    priv.SetAccountState(st.state, ptx.From, senderState)
+    priv.SetAccountState(st.state, fromAddr, senderState)
 
-    receiverState.Ciphertext = priv.AddCiphertexts(receiverState.Ciphertext, receiverDelta)
+    //    Receiver: add transfer ciphertext to existing balance
+    receiverState.Ciphertext = priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
     receiverState.Version++
-    priv.SetAccountState(st.state, ptx.To, receiverState)
+    priv.SetAccountState(st.state, toAddr, receiverState)
 
-    // 7. Increment PrivNonce
-    priv.IncrementPrivNonce(st.state, ptx.From)
+    // 8. Increment PrivNonce
+    priv.IncrementPrivNonce(st.state, fromAddr)
 
     return nil
 }
@@ -265,20 +429,35 @@ func (st *StateTransition) applyPrivTransfer() error {
 - Entire `applyUNO()` function
 - `toAddr == params.PrivacyRouterAddress` branch in `TransitionDb()`
 
-### 1e. Update `core/parallel/analyze.go`
+### 1f. Update `core/parallel/analyze.go`
 
 ```go
 // Analyze by tx.Type(), no longer by To address
 switch msg.Type() {
 case types.PrivTransferTxType:
     ptx := msg.inner.(*types.PrivTransferTx)
-    as.WriteAddrs[ptx.From] = struct{}{}
-    as.ReadAddrs[ptx.From] = struct{}{}
-    as.WriteAddrs[ptx.To] = struct{}{}
-    as.ReadAddrs[ptx.To] = struct{}{}
+    fromAddr := ptx.FromAddress()
+    toAddr := ptx.ToAddress()
+    as.WriteAddrs[fromAddr] = struct{}{}
+    as.ReadAddrs[fromAddr] = struct{}{}
+    as.WriteAddrs[toAddr] = struct{}{}
+    as.ReadAddrs[toAddr] = struct{}{}
 default:
     // existing logic
 }
+```
+
+### 1g. Remove ElGamal from `accountsigner/`
+
+**Modify** `accountsigner/crypto.go`:
+```go
+// Remove from supported signer types for public transactions:
+// - Delete SignerTypeElgamal constant (or mark as deprecated/rejected)
+// - NormalizeSigner(): return ErrUnknownSignerType for "elgamal"
+// - AddressFromSigner(): remove case SignerTypeElgamal
+// - VerifySignature(): remove case SignerTypeElgamal
+
+// Keep ElGamal crypto primitives — they move to crypto/priv/ package
 ```
 
 ---
@@ -306,6 +485,8 @@ type GenesisAccount struct {
 }
 ```
 
+Note: For priv accounts in genesis, the address key in GenesisAlloc IS the Keccak256 of the ElGamal pubkey. The pubkey itself is implied by the signer metadata (SignerType="elgamal", SignerValue=hex pubkey). At genesis time the signer slot is still written so that the address↔pubkey mapping is discoverable.
+
 ### 2b. Update `applyExtendedGenesisAccount()`
 
 ```go
@@ -318,8 +499,9 @@ if len(account.PrivCommitment) != priv.CiphertextSize ||
     return fmt.Errorf("genesis alloc %s: priv_commitment/priv_handle must be %d bytes",
         addr.Hex(), priv.CiphertextSize)
 }
-if _, err := priv.RequireElgamalSigner(statedb, addr); err != nil {
-    return fmt.Errorf("genesis alloc %s: priv account requires elgamal signer: %w", addr.Hex(), err)
+// Verify the address matches the ElGamal pubkey (address = Keccak256(pubkey))
+if account.SignerType != "elgamal" {
+    return fmt.Errorf("genesis alloc %s: priv account requires elgamal signer", addr.Hex())
 }
 var st priv.AccountState
 copy(st.Ciphertext.Commitment[:], account.PrivCommitment)
@@ -348,13 +530,12 @@ type PrivTxPool struct {
     config      PrivTxPoolConfig
     chainconfig *params.ChainConfig
     chain       blockChain
-    signer      types.Signer
     mu          sync.RWMutex
 
     currentState  *state.StateDB
     pendingNonces *privTxNoncer     // uses PrivNonce
 
-    pending map[common.Address]*txList
+    pending map[common.Address]*txList   // keyed by FromAddress()
     queue   map[common.Address]*txList
     all     *txLookup
     priced  *txPricedList
@@ -392,10 +573,11 @@ func (txn *privTxNoncer) get(addr common.Address) uint64 {
 ```go
 func (pool *PrivTxPool) validateTx(tx *types.Transaction) error {
     // 1. tx.Type() must be PrivTransferTxType
-    // 2. Sender must have ElGamal signer
-    // 3. Public Balance >= gas cost (gas still paid from public balance)
-    // 4. PrivNonce validation (read from storage slot)
-    // 5. ProofBundle size validation (== 1032 bytes)
+    // 2. Verify ElGamal Schnorr signature using From pubkey (zero IO)
+    // 3. Public Balance >= gas cost at FromAddress() (gas paid from public balance)
+    // 4. PrivNonce validation (read from storage slot at FromAddress())
+    // 5. Validate From/To are valid Ristretto255 compressed points
+    // 6. Proof size validation: CtValidityProof (~160B), CommitmentEqProof (~192B), RangeProof (~672B)
 }
 ```
 
@@ -439,30 +621,33 @@ privPool := core.NewPrivTxPool(privPoolConfig, chainConfig, eth.BlockChain())
 | Old RPC | New RPC | Description |
 |---------|---------|-------------|
 | `tos_unoTransfer` | `priv_transfer` | Build and submit PrivTransferTx |
-| `tos_getUNOCiphertext` | `priv_getBalance` | Query encrypted balance |
+| `tos_getUNOCiphertext` | `priv_getBalance` | Query encrypted balance by pubkey |
 | `tos_unoDecryptBalance` | `priv_decryptBalance` | Client-side balance decryption |
 | `personal_unoBalance` | `priv_personalBalance` | Decrypt using keystore |
-| — | `priv_getNonce` | New: query on-chain PrivNonce |
+| — | `priv_getNonce` | New: query on-chain PrivNonce by pubkey |
 | — | `priv_pendingNonce` | New: PrivTxPool virtual nonce |
 
 **RPC Structures**:
 ```go
 type RPCPrivTransferArgs struct {
-    From                    common.Address
-    To                      common.Address
-    PrivNonce               *hexutil.Uint64  // private nonce
-    Gas                     *hexutil.Uint64
-    GasPrice                *hexutil.Big
-    NewSenderCommitment     hexutil.Bytes
-    NewSenderHandle         hexutil.Bytes
-    ReceiverDeltaCommitment hexutil.Bytes
-    ReceiverDeltaHandle     hexutil.Bytes
-    ProofBundle             hexutil.Bytes
-    EncryptedMemo           hexutil.Bytes
+    From                hexutil.Bytes    // 32-byte ElGamal pubkey
+    To                  hexutil.Bytes    // 32-byte ElGamal pubkey
+    PrivNonce           *hexutil.Uint64
+    Gas                 *hexutil.Uint64
+    GasPrice            *hexutil.Big
+    Commitment          hexutil.Bytes    // 32B: shared Pedersen commitment
+    SenderHandle        hexutil.Bytes    // 32B: decrypt handle for sender
+    ReceiverHandle      hexutil.Bytes    // 32B: decrypt handle for receiver
+    SourceCommitment    hexutil.Bytes    // 32B: sender's new balance commitment
+    CtValidityProof     hexutil.Bytes    // ~160B
+    CommitmentEqProof   hexutil.Bytes    // ~192B
+    RangeProof          hexutil.Bytes    // ~672B
+    EncryptedMemo       hexutil.Bytes
+    // Signature provided separately or signed server-side
 }
 
 type RPCPrivBalanceResult struct {
-    Address     common.Address
+    Pubkey      hexutil.Bytes    // 32-byte ElGamal pubkey
     Commitment  hexutil.Bytes
     Handle      hexutil.Bytes
     Version     hexutil.Uint64
@@ -471,7 +656,7 @@ type RPCPrivBalanceResult struct {
 }
 ```
 
-`priv_transfer` RPC builds a `PrivTransferTx`, signs it, and submits to `PrivTxPool`.
+`priv_transfer` RPC builds a `PrivTransferTx`, signs with ElGamal Schnorr, and submits to `PrivTxPool`.
 
 ---
 
@@ -480,7 +665,7 @@ type RPCPrivBalanceResult struct {
 ### Rename `cmd/toskey/uno_tx.go` → `cmd/toskey/priv_tx.go`
 
 - Remove `shield`, `unshield` subcommands
-- `transfer` → `priv-transfer`, builds `PrivTransferTx` instead of SignerTx + Envelope
+- `transfer` → `priv-transfer`, builds `PrivTransferTx` with ElGamal pubkeys as From/To
 
 ### Rename `scripts/gen_genesis_uno_ct/` → `scripts/gen_genesis_priv_ct/`
 
@@ -500,14 +685,16 @@ type RPCPrivBalanceResult struct {
 | `context_test.go` | `context_test.go` | Keep only Transfer context tests |
 | `state_test.go` | `state_test.go` | Add PrivNonce read/write tests |
 | `verify_test.go` | `verify_test.go` | Keep only Transfer verify tests |
-| `signer_test.go` | `signer_test.go` | Unchanged |
+| `signer_test.go` | Deleted | No more signer lookup for priv txs |
 
 ### New Tests
-- `core/types/priv_transfer_tx_test.go` — PrivTransferTx RLP encode/decode, sign/verify
+- `core/types/priv_transfer_tx_test.go` — PrivTransferTx RLP encode/decode, ElGamal Schnorr sign/verify
+- `core/priv/signature_test.go` — Schnorr signature round-trip, invalid pubkey rejection
 - `core/priv/state_test.go` — PrivNonce increments independently, does not affect public Nonce
 - `core/priv_tx_pool_test.go` — PrivTxPool ordering by PrivNonce, gap handling, no conflict with TxPool
 - `core/priv_state_transition_test.go` — End-to-end: genesis alloc → PrivTransferTx → verify balance change
 - `core/priv_isolation_test.go` — Public/private isolation: PrivTransfer does not change Balance, public transfer does not change PrivBalance
+- `accountsigner/crypto_test.go` — Verify ElGamal signer type is rejected for SignerTxType
 
 ---
 
@@ -519,36 +706,43 @@ type RPCPrivBalanceResult struct {
 |------|---------|
 | `verify.go` | Rename package to priv, remove Shield/Unshield wrappers |
 | `prove.go` | Remove Shield/Unshield proof generation |
-| `elgamal.go` | Rename package to priv, code unchanged |
+| `elgamal.go` | Rename package to priv, absorb ElGamal primitives from accountsigner |
 | `ecdlp.go` | Rename package to priv, code unchanged |
 | `backend.go` | Rename package to priv |
+
+### New `crypto/priv/schnorr.go`
+
+ElGamal Ristretto-Schnorr sign/verify extracted from `accountsigner/crypto.go` into dedicated file.
 
 ### `crypto/ed25519/uno_proofs_*.go`
 
 Low-level C bindings are **not renamed** (C function names do not affect the Go API). Go wrapper functions are re-exported through the `crypto/priv/` layer.
+
+### `accountsigner/crypto.go`
+
+Remove ElGamal signing/verification code (moved to `crypto/priv/`). Remove `SignerTypeElgamal` from all switch statements.
 
 ---
 
 ## File Change Summary
 
 ```
-New (11+ files):
+New (12+ files):
   core/types/priv_transfer_tx.go        — PrivTransferTx type + TxData interface impl
   core/priv/types.go                    — Ciphertext, AccountState
   core/priv/state.go                    — Storage slot read/write, PrivNonce
+  core/priv/signature.go                — ElGamal Ristretto-Schnorr sign/verify
   core/priv/context.go                  — Merlin transcript context
-  core/priv/verify.go                   — Proof verification
-  core/priv/proofs.go                   — Proof decoding
-  core/priv/signer.go                   — ElGamal signer validation
+  core/priv/verify.go                   — VerifyCiphertextValidityProof, VerifyCommitmentEqProof, VerifyRangeProof
+  core/priv/proofs.go                   — Proof size constants and decoding for each proof type
   core/priv/errors.go                   — Error definitions
   core/priv/prover.go                   — Proof generation (client-side)
+  crypto/priv/schnorr.go                — Schnorr primitives (from accountsigner)
   core/priv_tx_pool.go                  — Dedicated private transaction pool
   core/priv_tx_noncer.go                — PrivNonce management
 
 Delete:
   core/uno/                             — entire directory
-  core/uno/codec.go                     — Envelope encode/decode (no longer needed)
-  core/uno/protocol_constants.go        — "GTOSUNO1" prefix (no longer needed)
 
 Modify (~15 files):
   core/types/transaction.go             — Add PrivTransferTxType, extend encode/decode
@@ -557,6 +751,7 @@ Modify (~15 files):
   core/parallel/analyze.go              — Analyze by tx.Type()
   core/genesis.go                       — Rename GenesisAccount fields
   core/gen_genesis_account.go           — Regenerate
+  accountsigner/crypto.go              — Remove ElGamal support from public tx signing
   internal/tosapi/api.go                — Rename RPCs + remove Shield/Unshield
   cmd/toskey/uno_tx.go → priv_tx.go     — Rename CLI
   miner/worker.go                       — Integrate PrivTxPool
@@ -589,7 +784,7 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 
 ## Verification Strategy
 
-- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct
+- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext (commitment + sender_handle + receiver_handle) round-trip works; separated proofs (CtValidityProof + CommitmentEqProof + RangeProof) verify correctly; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType
 - **Phase 2**: Genesis allocates PrivBalance, chain boots, `priv_getBalance` returns correct ciphertext
 - **Phase 3**: PrivTxPool orders by PrivNonce, does not interfere with TxPool; P2P routes correctly by type
 - **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change
