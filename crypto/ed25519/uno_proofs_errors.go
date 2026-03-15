@@ -11,4 +11,6 @@ var (
 	ErrUNOInvalidProof = errors.New("ed25519: invalid UNO proof")
 	// ErrUNOOperationFailed indicates non-proof UNO crypto operation failed.
 	ErrUNOOperationFailed = errors.New("ed25519: UNO crypto operation failed")
+	// ErrUNOAuthFailed indicates AEAD authentication failed during decryption.
+	ErrUNOAuthFailed = errors.New("ed25519: AEAD authentication failed")
 )

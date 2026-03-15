@@ -11,6 +11,9 @@ package ed25519
 #include "at_uno_proofs.h"
 #include "at_merlin.h"
 #include "at_elgamal.h"
+#include "at_schnorr.h"
+#include "at_chacha20_poly1305.h"
+#include "at_x25519.h"
 
 #include "./libed25519/at_ristretto255.c"
 #include "./libed25519/at_schnorr.c"
@@ -19,6 +22,7 @@ package ed25519
 #include "./libed25519/at_elgamal.c"
 #include "./libed25519/at_rangeproofs.c"
 #include "./libed25519/at_uno_proofs.c"
+#include "./libed25519/at_x25519.c"
 
 // gtos_uno_transcript_append_ctx appends canonical chain context bytes to an
 // already-initialised Merlin transcript. This binds the proof to the specific
@@ -1398,4 +1402,152 @@ func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
 		return "", ErrUNOOperationFailed
 	}
 	return s, nil
+}
+
+// ElgamalSchnorrSign creates a TOS Ristretto-Schnorr signature over message
+// using the given private key. It returns two 32-byte scalars (s, e).
+func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s [32]byte, e [32]byte, err error) {
+	// Derive the public key from the private key.
+	var pubkey [32]byte
+	if C.at_schnorr_public_key_from_private(
+		(*C.uchar)(unsafe.Pointer(&pubkey[0])),
+		(*C.uchar)(unsafe.Pointer(&privkey[0])),
+	) == nil {
+		return s, e, ErrUNOOperationFailed
+	}
+
+	var sig C.at_schnorr_signature_t
+	var msgPtr unsafe.Pointer
+	var msgLen C.ulong
+	if len(message) > 0 {
+		msgPtr = unsafe.Pointer(&message[0])
+		msgLen = C.ulong(len(message))
+	}
+	if C.at_schnorr_sign(
+		&sig,
+		(*C.uchar)(unsafe.Pointer(&privkey[0])),
+		(*C.uchar)(unsafe.Pointer(&pubkey[0])),
+		msgPtr,
+		msgLen,
+	) == nil {
+		return s, e, ErrUNOOperationFailed
+	}
+
+	copy(s[:], C.GoBytes(unsafe.Pointer(&sig.s[0]), 32))
+	copy(e[:], C.GoBytes(unsafe.Pointer(&sig.e[0]), 32))
+	return s, e, nil
+}
+
+// ElgamalSchnorrVerify verifies a TOS Ristretto-Schnorr signature.
+// Returns true if the signature (s, e) is valid for message under pubkey.
+func ElgamalSchnorrVerify(pubkey [32]byte, message []byte, s [32]byte, e [32]byte) bool {
+	var sig C.at_schnorr_signature_t
+	copy((*[32]byte)(unsafe.Pointer(&sig.s[0]))[:], s[:])
+	copy((*[32]byte)(unsafe.Pointer(&sig.e[0]))[:], e[:])
+
+	var msgPtr unsafe.Pointer
+	var msgLen C.ulong
+	if len(message) > 0 {
+		msgPtr = unsafe.Pointer(&message[0])
+		msgLen = C.ulong(len(message))
+	}
+	return C.at_schnorr_verify(
+		&sig,
+		(*C.uchar)(unsafe.Pointer(&pubkey[0])),
+		msgPtr,
+		msgLen,
+	) == 1
+}
+
+// ChaCha20Poly1305Encrypt encrypts plaintext using ChaCha20-Poly1305 AEAD.
+// The returned ciphertext includes the 16-byte authentication tag appended.
+func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext []byte, aad []byte) ([]byte, error) {
+	outLen := len(plaintext) + 16
+	out := make([]byte, outLen)
+
+	var ptPtr *C.uchar
+	if len(plaintext) > 0 {
+		ptPtr = (*C.uchar)(unsafe.Pointer(&plaintext[0]))
+	}
+	var aadPtr *C.uchar
+	if len(aad) > 0 {
+		aadPtr = (*C.uchar)(unsafe.Pointer(&aad[0]))
+	}
+
+	if C.at_chacha20_poly1305_encrypt(
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		(*C.uchar)(unsafe.Pointer(&key[0])),
+		(*C.uchar)(unsafe.Pointer(&nonce[0])),
+		aadPtr,
+		C.ulong(len(aad)),
+		ptPtr,
+		C.ulong(len(plaintext)),
+	) == nil {
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+// ChaCha20Poly1305Decrypt decrypts ciphertext using ChaCha20-Poly1305 AEAD.
+// The ciphertext must include the 16-byte authentication tag at the end.
+// Returns the plaintext or an error if authentication fails.
+func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aad []byte) ([]byte, error) {
+	if len(ciphertext) < 16 {
+		return nil, ErrUNOInvalidInput
+	}
+	ptLen := len(ciphertext) - 16
+	out := make([]byte, ptLen)
+
+	var aadPtr *C.uchar
+	if len(aad) > 0 {
+		aadPtr = (*C.uchar)(unsafe.Pointer(&aad[0]))
+	}
+
+	// For zero-length plaintext, we still need a valid output pointer for the C call.
+	var outPtr *C.uchar
+	if ptLen > 0 {
+		outPtr = (*C.uchar)(unsafe.Pointer(&out[0]))
+	}
+
+	rc := C.at_chacha20_poly1305_decrypt(
+		outPtr,
+		(*C.uchar)(unsafe.Pointer(&key[0])),
+		(*C.uchar)(unsafe.Pointer(&nonce[0])),
+		aadPtr,
+		C.ulong(len(aad)),
+		(*C.uchar)(unsafe.Pointer(&ciphertext[0])),
+		C.ulong(len(ciphertext)),
+	)
+	if rc != 0 {
+		if rc == -2 {
+			return nil, ErrUNOAuthFailed
+		}
+		return nil, ErrUNOOperationFailed
+	}
+	return out, nil
+}
+
+// X25519Exchange computes a shared secret using X25519 ECDH.
+// Returns the 32-byte shared secret or an error if the peer public key is invalid.
+func X25519Exchange(privkey [32]byte, peerPubkey [32]byte) ([32]byte, error) {
+	var shared [32]byte
+	if C.at_x25519_exchange(
+		(*C.uchar)(unsafe.Pointer(&shared[0])),
+		(*C.uchar)(unsafe.Pointer(&privkey[0])),
+		(*C.uchar)(unsafe.Pointer(&peerPubkey[0])),
+	) == nil {
+		return shared, ErrUNOOperationFailed
+	}
+	return shared, nil
+}
+
+// X25519Public derives the X25519 public key from a private key.
+// Returns the 32-byte public key.
+func X25519Public(privkey [32]byte) ([32]byte, error) {
+	var pub [32]byte
+	C.at_x25519_public(
+		(*C.uchar)(unsafe.Pointer(&pub[0])),
+		(*C.uchar)(unsafe.Pointer(&privkey[0])),
+	)
+	return pub, nil
 }

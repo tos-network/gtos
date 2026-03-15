@@ -18,6 +18,7 @@ package core
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	coreuno "github.com/tos-network/gtos/core/uno"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rlp"
@@ -186,6 +188,12 @@ type GenesisAccount struct {
 	UNOCommitment []byte `json:"uno_ct_commitment,omitempty"`
 	UNOHandle     []byte `json:"uno_ct_handle,omitempty"`
 	UNOVersion    uint64 `json:"uno_version,omitempty"`
+
+	// Private balance fields (new — will replace UNO fields after migration)
+	PrivCommitment []byte `json:"priv_commitment,omitempty"`
+	PrivHandle     []byte `json:"priv_handle,omitempty"`
+	PrivVersion    uint64 `json:"priv_version,omitempty"`
+	PrivNonce      uint64 `json:"priv_nonce,omitempty"`
 }
 
 // field type overrides for gencodec
@@ -207,7 +215,9 @@ type genesisAccountMarshaling struct {
 	Nonce      math.HexOrDecimal64
 	Storage    map[storageJSON]storageJSON
 	PrivateKey hexutil.Bytes
-	UNOVersion math.HexOrDecimal64
+	UNOVersion  math.HexOrDecimal64
+	PrivVersion math.HexOrDecimal64
+	PrivNonce   math.HexOrDecimal64
 }
 
 func applyExtendedGenesisAccount(statedb *state.StateDB, addr common.Address, account GenesisAccount) error {
@@ -223,20 +233,43 @@ func applyExtendedGenesisAccount(statedb *state.StateDB, addr common.Address, ac
 	}
 
 	hasUNO := len(account.UNOCommitment) > 0 || len(account.UNOHandle) > 0 || account.UNOVersion != 0
-	if !hasUNO {
-		return nil
+	if hasUNO {
+		if len(account.UNOCommitment) != coreuno.CiphertextSize || len(account.UNOHandle) != coreuno.CiphertextSize {
+			return fmt.Errorf("genesis alloc %s: uno_ct_commitment/uno_ct_handle must be %d bytes", addr.Hex(), coreuno.CiphertextSize)
+		}
+		if _, err := coreuno.RequireElgamalSigner(statedb, addr); err != nil {
+			return fmt.Errorf("genesis alloc %s: uno account requires elgamal signer metadata: %w", addr.Hex(), err)
+		}
+		var st coreuno.AccountState
+		copy(st.Ciphertext.Commitment[:], account.UNOCommitment)
+		copy(st.Ciphertext.Handle[:], account.UNOHandle)
+		st.Version = account.UNOVersion
+		coreuno.SetAccountState(statedb, addr, st)
 	}
-	if len(account.UNOCommitment) != coreuno.CiphertextSize || len(account.UNOHandle) != coreuno.CiphertextSize {
-		return fmt.Errorf("genesis alloc %s: uno_ct_commitment/uno_ct_handle must be %d bytes", addr.Hex(), coreuno.CiphertextSize)
+
+	// Handle new Priv fields
+	hasPriv := len(account.PrivCommitment) > 0 || len(account.PrivHandle) > 0
+	if hasPriv {
+		if len(account.PrivCommitment) != 32 || len(account.PrivHandle) != 32 {
+			return fmt.Errorf("genesis alloc %s: priv_commitment/priv_handle must be 32 bytes", addr.Hex())
+		}
+		// Write to storage slots using the new priv slot keys
+		commitmentSlot := crypto.Keccak256Hash([]byte("gtos.priv.commitment"))
+		handleSlot := crypto.Keccak256Hash([]byte("gtos.priv.handle"))
+		versionSlot := crypto.Keccak256Hash([]byte("gtos.priv.version"))
+		nonceSlot := crypto.Keccak256Hash([]byte("gtos.priv.nonce"))
+
+		statedb.SetState(addr, commitmentSlot, common.BytesToHash(account.PrivCommitment))
+		statedb.SetState(addr, handleSlot, common.BytesToHash(account.PrivHandle))
+
+		var versionWord common.Hash
+		binary.BigEndian.PutUint64(versionWord[24:], account.PrivVersion)
+		statedb.SetState(addr, versionSlot, versionWord)
+
+		var nonceWord common.Hash
+		binary.BigEndian.PutUint64(nonceWord[24:], account.PrivNonce)
+		statedb.SetState(addr, nonceSlot, nonceWord)
 	}
-	if _, err := coreuno.RequireElgamalSigner(statedb, addr); err != nil {
-		return fmt.Errorf("genesis alloc %s: uno account requires elgamal signer metadata: %w", addr.Hex(), err)
-	}
-	var st coreuno.AccountState
-	copy(st.Ciphertext.Commitment[:], account.UNOCommitment)
-	copy(st.Ciphertext.Handle[:], account.UNOHandle)
-	st.Version = account.UNOVersion
-	coreuno.SetAccountState(statedb, addr, st)
 	return nil
 }
 

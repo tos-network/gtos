@@ -242,3 +242,46 @@ func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
 	_ = mainnet
 	return "", ErrUNOBackendUnavailable
 }
+
+func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s [32]byte, e [32]byte, err error) {
+	_ = privkey
+	_ = message
+	return s, e, ErrUNOBackendUnavailable
+}
+
+func ElgamalSchnorrVerify(pubkey [32]byte, message []byte, s [32]byte, e [32]byte) bool {
+	_ = pubkey
+	_ = message
+	_ = s
+	_ = e
+	return false
+}
+
+func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext []byte, aad []byte) ([]byte, error) {
+	_ = key
+	_ = nonce
+	_ = plaintext
+	_ = aad
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aad []byte) ([]byte, error) {
+	_ = key
+	_ = nonce
+	_ = ciphertext
+	_ = aad
+	return nil, ErrUNOBackendUnavailable
+}
+
+func X25519Exchange(privkey [32]byte, peerPubkey [32]byte) ([32]byte, error) {
+	_ = privkey
+	_ = peerPubkey
+	var zero [32]byte
+	return zero, ErrUNOBackendUnavailable
+}
+
+func X25519Public(privkey [32]byte) ([32]byte, error) {
+	_ = privkey
+	var zero [32]byte
+	return zero, ErrUNOBackendUnavailable
+}

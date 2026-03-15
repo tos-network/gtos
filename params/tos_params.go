@@ -139,6 +139,12 @@ const (
 	UNOMaxProofBytes          = 96 * 1024
 )
 
+// Private transfer fee constants
+const (
+	PrivBaseFee       uint64 = 10_000 // base fee per private transfer (in TOS smallest unit)
+	PrivMaxProofBytes        = 96 * 1024
+)
+
 // TxPriceWei is the protocol-fixed tx price for GTOS transactions.
 // 10 gwei = 10,000,000,000 wei.
 const TxPriceWei int64 = 10_000_000_000

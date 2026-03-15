@@ -50,7 +50,8 @@ func signatureValuesPresent(v, r, s *big.Int) bool {
 
 // Transaction types.
 const (
-	SignerTxType = iota
+	SignerTxType       = iota // 0x00
+	PrivTransferTxType        // 0x01
 )
 
 // Transaction is an TOS transaction.
@@ -95,7 +96,7 @@ type TxData interface {
 
 // EncodeRLP implements rlp.Encoder
 func (tx *Transaction) EncodeRLP(w io.Writer) error {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != PrivTransferTxType {
 		return ErrTxTypeNotSupported
 	}
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
@@ -114,9 +115,9 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 }
 
 // MarshalBinary returns the canonical encoding of the transaction.
-// For SignerTx transactions, it returns the type and payload.
+// For SignerTx and PrivTransferTx transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
-	if tx.Type() != SignerTxType {
+	if tx.Type() != SignerTxType && tx.Type() != PrivTransferTxType {
 		return nil, ErrTxTypeNotSupported
 	}
 	var buf bytes.Buffer
@@ -204,6 +205,10 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 			}
 		}
 		return &inner, nil
+	case PrivTransferTxType:
+		var inner PrivTransferTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
