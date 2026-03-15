@@ -101,6 +101,12 @@ struct TransferPayload {
 | **Proofs** | Per-transfer CiphertextValidityProof + per-asset CommitmentEqProof + aggregated RangeProof | CiphertextValidityProof + CommitmentEqProof + RangeProof (separated) |
 | **Nonce** | `nonce: u64` | `PrivNonce: uint64` |
 | **Fees** | `fee: u64` + `fee_limit: u64` (plaintext, from encrypted balance) | `Fee: uint64` + `FeeLimit: uint64` (plaintext, from encrypted balance) |
+| **Encrypted memo** | ChaCha20Poly1305 with ECDH shared key, sender/receiver handles, max 1024B | ChaCha20Poly1305 with ECDH shared key, sender/receiver handles, max 1024B |
+| **Zero balance** | Identity point ciphertext `(O, O)` | Identity point ciphertext `(O, O)` |
+| **Signing** | Sign serialized unsigned tx bytes with Schnorr | Sign RLP of all fields except S/E with Schnorr |
+| **Transcript binding** | Fee, fee_limit, nonce, source_pubkey bound to Merlin transcript | Fee, FeeLimit, PrivNonce, ChainID, From, To bound to Merlin transcript |
+| **Reference field** | `Reference { hash, topoheight }` — binds proof to balance at specific block | Not needed — GTOS linear chain + nonce ordering provides equivalent guarantee |
+| **Multi-asset** | `source_commitments: Vec<SourceCommitment>` with asset hash per entry | Single asset (native TOS only) — no asset field needed |
 
 **Key benefits of pubkey-as-address**:
 - Signature verification uses From field directly — zero storage IO
@@ -177,9 +183,21 @@ type PrivTransferTx struct {
     CommitmentEqProof []byte  // CommitmentEqProof (~192B): proves source commitment equals new balance
     RangeProof        []byte  // Aggregated Bulletproof (~672B): proves all amounts in [0, 2^64)
 
-    EncryptedMemo     []byte  // optional encrypted metadata
+    // Encrypted memo (aligned with X protocol ExtraData)
+    // Encrypted via ECDH + ChaCha20Poly1305:
+    //   1. Generate random PedersenOpening r_memo
+    //   2. Derive shared key: SHA3-256(r_memo * H)
+    //   3. Encrypt plaintext with ChaCha20Poly1305 using shared key
+    //   4. Include sender_memo_handle (sender_PK * r_memo) and
+    //      receiver_memo_handle (receiver_PK * r_memo) for decryption
+    // Both sender and receiver can decrypt using their private key + handle.
+    // Max size: 1024 bytes per transfer.
+    EncryptedMemo       []byte  // encrypted payload (ChaCha20Poly1305 ciphertext)
+    MemoSenderHandle    [32]byte // decrypt handle for sender: sender_PK * r_memo
+    MemoReceiverHandle  [32]byte // decrypt handle for receiver: receiver_PK * r_memo
 
     // ElGamal Ristretto-Schnorr signature (fixed, no SignerType field)
+    // Signs the RLP encoding of all fields above (everything except S, E).
     S [32]byte               // Schnorr s scalar
     E [32]byte               // Schnorr e scalar
 }
@@ -243,6 +261,25 @@ func VerifyPrivTransferSignature(tx *PrivTransferTx, txHash common.Hash) bool {
 }
 ```
 
+**Transaction signing** (aligned with X protocol):
+The signature covers the RLP encoding of all fields **except** S and E themselves. This is the same pattern as X where `UnsignedTransaction.to_bytes()` is signed. The signing flow:
+
+```go
+// 1. RLP-encode all fields except S, E
+unsignedBytes := rlp.Encode(PrivTransferTx{...without S, E...})
+
+// 2. Hash the encoding
+txHash := keccak256(unsignedBytes)
+
+// 3. Sign with ElGamal Ristretto-Schnorr
+S, E := priv.SignSchnorr(privateKey, txHash)
+
+// 4. Verification reconstructs the same hash and checks:
+//    H * s + From * (-e) == R, then e == hash(From, txHash, R)
+```
+
+The transcript context (Merlin) for proof generation also binds: ChainID, PrivNonce, Fee, FeeLimit, From, To — preventing proof reuse across chains or with different fee parameters.
+
 ### 1b. Remove ElGamal from SignerTxType
 
 **Modify** `accountsigner/crypto.go`:
@@ -275,6 +312,20 @@ type AccountState struct {
 ```
 
 Note: `Envelope`, `ActionID`, `TransferPayload` types are no longer needed — payload is embedded directly in the `PrivTransferTx` struct. Only `Ciphertext` and `AccountState` are retained for state management. `RequireElgamalSigner()` is no longer needed — the pubkey is directly in the transaction.
+
+**Zero balance initialization** (aligned with X protocol):
+New priv accounts start with `Ciphertext::Zero()` — both commitment and handle set to the Ristretto255 identity point. This represents an encryption of 0. When receiving a first transfer, the receiver's balance is updated via homomorphic addition: `zero + encrypted(amount) = encrypted(amount)`.
+
+```go
+// ZeroCiphertext returns the identity-point ciphertext representing encrypted(0).
+func ZeroCiphertext() Ciphertext {
+    // Identity point = compressed Ristretto encoding of the neutral element
+    var zero Ciphertext
+    copy(zero.Commitment[:], ristretto255.NewIdentityElement().Bytes())
+    copy(zero.Handle[:], ristretto255.NewIdentityElement().Bytes())
+    return zero
+}
+```
 
 **New file** `core/priv/state.go`:
 ```go
@@ -683,7 +734,9 @@ type RPCPrivTransferArgs struct {
     CtValidityProof     hexutil.Bytes    // ~160B
     CommitmentEqProof   hexutil.Bytes    // ~192B
     RangeProof          hexutil.Bytes    // ~672B
-    EncryptedMemo       hexutil.Bytes
+    EncryptedMemo       hexutil.Bytes    // ChaCha20Poly1305 ciphertext (max 1024B)
+    MemoSenderHandle    hexutil.Bytes    // 32B
+    MemoReceiverHandle  hexutil.Bytes    // 32B
     // Signature provided separately or signed server-side
 }
 
@@ -779,6 +832,8 @@ New (12+ files):
   core/priv/proofs.go                   — Proof size constants and decoding for each proof type
   core/priv/errors.go                   — Error definitions
   core/priv/prover.go                   — Proof generation (client-side)
+  core/priv/memo.go                     — EncryptedMemo ECDH + ChaCha20Poly1305 encrypt/decrypt
+  core/priv/zero.go                     — ZeroCiphertext (identity point initialization)
   crypto/priv/schnorr.go                — Schnorr primitives (from accountsigner)
   core/priv_tx_pool.go                  — Dedicated private transaction pool
   core/priv_tx_noncer.go                — PrivNonce management
