@@ -22,14 +22,14 @@ const (
 	GasLimitBoundDivisor uint64 = 1024               // The bound divisor of the gas limit, used in update calculations.
 	MinGasLimit          uint64 = 5000               // Minimum the gas limit may ever be.
 	MaxGasLimit          uint64 = 0x7fffffffffffffff // Maximum the gas limit (2^63-1).
-	GenesisGasLimit      uint64 = 4712388            // Gas limit of the Genesis block.
+	GenesisGasLimit      uint64 = 30000000           // Gas limit of the Genesis block.
 
-	MaximumExtraDataSize      uint64 = 32    // Maximum size extra data may be after Genesis.
-	TxGas                     uint64 = 3000  // Per transaction not creating a contract.
-	TxGasContractCreation     uint64 = 53000 // Per transaction that creates a contract.
-	TxDataZeroGas             uint64 = 4     // Per byte of transaction data that equals zero.
-	TxDataNonZeroGasFrontier  uint64 = 68    // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.
-	TxDataNonZeroGasReduced   uint64 = 16    // Per byte of non-zero data attached to a transaction (reduced rate)
+	MaximumExtraDataSize     uint64 = 32      // Maximum size extra data may be after Genesis.
+	TxGas                    uint64 = 3000    // Per transaction not creating a contract.
+	TxGasContractCreation    uint64 = 5300000 // Per transaction that creates a contract.
+	TxDataZeroGas            uint64 = 4       // Per byte of transaction data that equals zero.
+	TxDataNonZeroGasFrontier uint64 = 68      // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.
+	TxDataNonZeroGasReduced  uint64 = 16      // Per byte of non-zero data attached to a transaction (reduced rate)
 	// GTOS uses flat gas costs for all storage accesses (gasSLoad=100, gasSStore=5000
 	// in core/lvm/lvm.go) regardless of whether an address/slot appears in the transaction
 	// access list.  There is no warm/cold gas distinction, so including an AccessList
@@ -39,7 +39,7 @@ const (
 	TxAccessListStorageKeyGas uint64 = 0 // Per storage key specified in a transaction access list (no warm/cold in GTOS)
 
 	InitialBaseFee = 1000000000 // Initial base fee for dynamic-fee blocks.
-	MaxCodeSize = 512 * 1024  // Maximum .tor package size permitted for TOL contract deployment.
+	MaxCodeSize    = 512 * 1024 // Maximum .tor package size permitted for TOL contract deployment.
 
 	// RefundQuotient caps how much used gas can be refunded after a transaction.
 	// The legacy cap was gasUsed/2; the stricter cap is gasUsed/5 to prevent

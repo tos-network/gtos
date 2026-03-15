@@ -53,10 +53,10 @@ func TestCreateValueInsufficientFunds(t *testing.T) {
 
 	twoTOS := new(big.Int).Mul(big.NewInt(2), new(big.Int).SetUint64(params.TOS))
 	txPrice := big.NewInt(1e9)
-	gasLimit := uint64(1_000_000)
+	gasLimit := uint64(6_000_000)
 
 	// Fund sender with exactly enough for gas but NOT for the 2 TOS value transfer.
-	gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), txPrice) // 1e15
+	gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), txPrice)
 	st := newSecState(t, map[common.Address]*big.Int{from: gasCost})
 
 	// gasFeeCap=nil → buyGas uses only gas*txPrice for the balance check, so preCheck passes.
@@ -260,7 +260,7 @@ func TestNonceNotIncrementedOnIntrinsicGasFailure(t *testing.T) {
 	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
 
 	txPrice := big.NewInt(1e9)
-	// Use a gas limit below TxGasContractCreation (53000) so IntrinsicGas check fails,
+	// Use a gas limit below TxGasContractCreation (5300000) so IntrinsicGas check fails,
 	// but above zero so buyGas succeeds when gasFeeCap=nil (only checks gas*txPrice).
 	gasLimit := uint64(100)
 
@@ -269,7 +269,7 @@ func TestNonceNotIncrementedOnIntrinsicGasFailure(t *testing.T) {
 	st := newSecState(t, map[common.Address]*big.Int{from: gasCost})
 
 	// CREATE with gasFeeCap=nil: buyGas only checks balance >= gas*txPrice.
-	// IntrinsicGas (53000 for CREATE) > gas (100) → must return hard error.
+	// IntrinsicGas (5300000 for CREATE) > gas (100) → must return hard error.
 	msg := types.NewMessage(from, nil, 0, big.NewInt(0), gasLimit, txPrice, nil, big.NewInt(0), nil, nil, false)
 	gp := new(GasPool).AddGas(msg.Gas())
 
