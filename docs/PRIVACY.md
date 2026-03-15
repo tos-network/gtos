@@ -46,7 +46,7 @@
 
 **Core Principles**:
 - Full public/private isolation. PrivBalance is allocated only at genesis; afterwards only PrivTransfer (private-to-private) is supported
-- Gas is paid from the public Balance
+- Fees are plaintext `uint64` values deducted from the encrypted balance via homomorphic subtraction (aligned with X protocol). No gas model, no public Balance needed for fee payment
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions have a dedicated PrivTxPool, fully separate from the public TxPool
 
@@ -100,7 +100,7 @@ struct TransferPayload {
 | **Ciphertext** | commitment + sender_handle + receiver_handle (3x32B) | commitment + sender_handle + receiver_handle (3x32B) |
 | **Proofs** | Per-transfer CiphertextValidityProof + per-asset CommitmentEqProof + aggregated RangeProof | CiphertextValidityProof + CommitmentEqProof + RangeProof (separated) |
 | **Nonce** | `nonce: u64` | `PrivNonce: uint64` |
-| **Fees** | `fee: u64` (flat amount) | `Gas + GasPrice` (gas model) |
+| **Fees** | `fee: u64` + `fee_limit: u64` (plaintext, from encrypted balance) | `Fee: uint64` + `FeeLimit: uint64` (plaintext, from encrypted balance) |
 
 **Key benefits of pubkey-as-address**:
 - Signature verification uses From field directly — zero storage IO
@@ -143,6 +143,12 @@ package types
 // From and To are compressed ElGamal public keys (Ristretto255), NOT hashed addresses.
 // The signature is always ElGamal Ristretto-Schnorr (s, e) — no SignerType field needed.
 //
+// Fee model aligned with X protocol:
+//   - Fee and FeeLimit are plaintext uint64 values (publicly visible)
+//   - Deducted from encrypted balance via homomorphic subtraction
+//   - FeeLimit is locked at build time; excess refunded after execution
+//   - No gas model, no public Balance needed
+//
 // Ciphertext and proof structure aligned with X protocol:
 //   - Transfer ciphertext: 1 shared commitment + 2 handles (sender/receiver) = 3x32B
 //   - Source commitment: sender's new balance commitment = 32B
@@ -150,8 +156,8 @@ package types
 type PrivTransferTx struct {
     ChainID   *big.Int
     PrivNonce uint64           // independent nonce for private txs
-    Gas       uint64
-    GasPrice  *big.Int         // gas paid from public Balance (looked up via pubkey-derived address)
+    Fee       uint64           // plaintext fee paid to validators (publicly visible)
+    FeeLimit  uint64           // max fee sender is willing to pay (locked at build time)
 
     From      [32]byte         // sender ElGamal compressed public key = identity
     To        [32]byte         // receiver ElGamal compressed public key = identity
@@ -181,15 +187,15 @@ type PrivTransferTx struct {
 // Implements TxData interface
 func (tx *PrivTransferTx) txType() byte        { return PrivTransferTxType }
 func (tx *PrivTransferTx) chainID() *big.Int    { return tx.ChainID }
-func (tx *PrivTransferTx) gas() uint64          { return tx.Gas }
-func (tx *PrivTransferTx) txPrice() *big.Int    { return tx.GasPrice }
+func (tx *PrivTransferTx) gas() uint64          { return 0 }            // no gas model
+func (tx *PrivTransferTx) txPrice() *big.Int    { return common.Big0 }  // fee via Fee/FeeLimit fields
 func (tx *PrivTransferTx) value() *big.Int      { return common.Big0 }  // always 0
 func (tx *PrivTransferTx) nonce() uint64        { return tx.PrivNonce }
 func (tx *PrivTransferTx) to() *common.Address  { /* derive address from To pubkey */ }
 func (tx *PrivTransferTx) data() []byte         { return nil }
 func (tx *PrivTransferTx) accessList() AccessList { return nil }
-func (tx *PrivTransferTx) gasTipCap() *big.Int  { return tx.GasPrice }
-func (tx *PrivTransferTx) gasFeeCap() *big.Int  { return tx.GasPrice }
+func (tx *PrivTransferTx) gasTipCap() *big.Int  { return common.Big0 }
+func (tx *PrivTransferTx) gasFeeCap() *big.Int  { return common.Big0 }
 func (tx *PrivTransferTx) copy() TxData         { ... }
 
 // Signature methods — convert between [32]byte scalars and *big.Int for TxData interface
@@ -202,8 +208,8 @@ func (tx *PrivTransferTx) setSignatureValues(chainID, v, r, s *big.Int) { ... }
 func (tx *PrivTransferTx) FromPubkey() [32]byte { return tx.From }
 func (tx *PrivTransferTx) ToPubkey() [32]byte   { return tx.To }
 
-// FromAddress derives the common.Address for gas payment lookup.
-// This is Keccak256(From) — used only for public Balance deduction and state trie access.
+// FromAddress derives the common.Address for state trie access.
+// This is Keccak256(From) — used for priv storage slot lookup (PrivNonce, encrypted balance).
 func (tx *PrivTransferTx) FromAddress() common.Address {
     return common.BytesToAddress(crypto.Keccak256(tx.From[:]))
 }
@@ -300,7 +306,7 @@ func SignSchnorr(privkey [32]byte, message []byte) (s, e [32]byte, err error)
 | Original core/uno/ file | → core/priv/ file | Changes |
 |---|---|---|
 | `state.go` | `state.go` | Rename slots to gtos.priv.*, add NonceSlot |
-| `context.go` | `context.go` | Keep only BuildPrivTransferTranscriptContext |
+| `context.go` | `context.go` | Keep only BuildPrivTransferTranscriptContext; bind Fee/FeeLimit to transcript |
 | `verify.go` | `verify.go` | Separate verifiers: VerifyCiphertextValidityProof, VerifyCommitmentEqProof, VerifyRangeProof |
 | `proofs.go` | `proofs.go` | Separate proof decoding for each proof type |
 | `errors.go` | `errors.go` | Unchanged |
@@ -323,7 +329,7 @@ UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas
 UNOMaxPayloadBytes, UNOMaxProofBytes
 
 // Add
-PrivTransferGas     uint64 = 650_000    // uniform gas
+PrivBaseFee         uint64 = 10_000     // base fee per private transfer (in TOS smallest unit)
 PrivMaxProofBytes          = 96 * 1024
 ```
 
@@ -347,18 +353,39 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 }
 
 // applyPrivTransfer() — reads directly from tx fields, no Envelope decoding, no signer lookup
+//
+// Fee model (aligned with X protocol):
+//   - Fee and FeeLimit are plaintext uint64 values
+//   - At tx build time, sender locks FeeLimit into the SourceCommitment:
+//       new_balance = old_balance - fee_limit - transfer_amount
+//   - At execution time, validator computes required_fee and determines refund:
+//       refund = fee_limit - actual_fee_paid
+//   - Refund is added back to sender's encrypted balance via homomorphic addition
+//   - No public Balance is touched — fees come entirely from encrypted balance
 func (st *StateTransition) applyPrivTransfer() error {
     ptx := st.msg.inner.(*types.PrivTransferTx)
 
-    // 1. Derive addresses from pubkeys (for state trie access and gas payment)
+    // 1. Derive addresses from pubkeys (for state trie access)
     fromAddr := ptx.FromAddress()  // Keccak256(From pubkey)
     toAddr := ptx.ToAddress()      // Keccak256(To pubkey)
 
     // 2. Verify ElGamal Schnorr signature using From pubkey directly
     //    (already done in tx validation, but double-check here)
 
-    // 3. Charge gas: PrivTransferGas (deducted from public Balance at fromAddr)
-    if !st.useGas(params.PrivTransferGas) { return ErrOutOfGas }
+    // 3. Validate and compute fee
+    requiredFee := priv.EstimateRequiredFee(ptx)
+    if requiredFee > ptx.FeeLimit {
+        return ErrInsufficientFee
+    }
+    var feePaid, refund uint64
+    if requiredFee > ptx.Fee {
+        // Fee field too low, but FeeLimit covers it
+        feePaid = requiredFee
+        refund = ptx.FeeLimit - requiredFee
+    } else {
+        feePaid = ptx.Fee
+        refund = ptx.FeeLimit - ptx.Fee
+    }
 
     // 4. Validate PrivNonce
     expectedNonce := priv.GetPrivNonce(st.state, fromAddr)
@@ -370,17 +397,19 @@ func (st *StateTransition) applyPrivTransfer() error {
 
     // 6. Verify proofs using ptx.From/To directly as ElGamal pubkeys — zero IO
     //
-    // Transfer ciphertext uses shared commitment with two handles:
-    //   sender_ct  = (Commitment, SenderHandle)
-    //   receiver_ct = (Commitment, ReceiverHandle)
+    // The sender built SourceCommitment with fee_limit already deducted:
+    //   source_new_balance = old_balance - fee_limit - transfer_amount
+    //   SourceCommitment = Pedersen(source_new_balance, opening)
+    //
+    // The verifier reconstructs the encrypted output:
+    //   output_ct = Scalar(fee_limit) + sender_ct
+    //   new_sender_balance_ct = old_sender_ct - output_ct
     //
     // Proof verification (3 separate proofs, aligned with X protocol):
     //   a) CiphertextValidityProof: proves commitment & handles are valid
-    //      for both sender and receiver pubkeys
-    //   b) CommitmentEqProof: proves SourceCommitment equals sender's
-    //      new balance (old_balance - transfer_ct)
-    //   c) RangeProof: aggregated Bulletproof over SourceCommitment +
-    //      transfer Commitment, proving all values in [0, 2^64)
+    //   b) CommitmentEqProof: proves SourceCommitment matches new_sender_balance_ct
+    //   c) RangeProof: aggregated Bulletproof proving all amounts in [0, 2^64)
+
     senderCt := ptx.SenderCiphertext()
     receiverCt := ptx.ReceiverCiphertext()
 
@@ -390,8 +419,11 @@ func (st *StateTransition) applyPrivTransfer() error {
         return err
     }
 
-    // new_sender_balance_ct = old_sender_ct - sender_ct
-    newSenderBalanceCt := priv.SubCiphertexts(senderState.Ciphertext, senderCt)
+    // output = fee_limit (as scalar) + sender_ct (transfer ciphertext)
+    // new_sender_balance_ct = old_sender_ct - output
+    outputCt := priv.AddScalarToCiphertext(senderCt, ptx.FeeLimit)
+    newSenderBalanceCt := priv.SubCiphertexts(senderState.Ciphertext, outputCt)
+
     if err := priv.VerifyCommitmentEqProof(
         ptx.From, newSenderBalanceCt, ptx.SourceCommitment,
         ptx.CommitmentEqProof); err != nil {
@@ -404,22 +436,31 @@ func (st *StateTransition) applyPrivTransfer() error {
         return err
     }
 
-    // 7. Update state
-    //    Sender: set balance to SourceCommitment (new balance after transfer)
+    // 7. Update sender state
+    //    Start from SourceCommitment (which has fee_limit already deducted)
     senderState.Ciphertext = priv.Ciphertext{
         Commitment: ptx.SourceCommitment,
-        Handle:     newSenderBalanceCt.Handle,  // handle derived from subtraction
+        Handle:     newSenderBalanceCt.Handle,
     }
+
+    //    Refund excess fee back to sender's encrypted balance
+    if refund > 0 {
+        senderState.Ciphertext = priv.AddScalarToCiphertext(senderState.Ciphertext, refund)
+    }
+
     senderState.Version++
     priv.SetAccountState(st.state, fromAddr, senderState)
 
-    //    Receiver: add transfer ciphertext to existing balance
+    // 8. Update receiver state: add transfer ciphertext to existing balance
     receiverState.Ciphertext = priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
     receiverState.Version++
     priv.SetAccountState(st.state, toAddr, receiverState)
 
-    // 8. Increment PrivNonce
+    // 9. Increment PrivNonce
     priv.IncrementPrivNonce(st.state, fromAddr)
+
+    // 10. Record fee paid (for block reward distribution)
+    st.addPrivFee(feePaid)
 
     return nil
 }
@@ -535,10 +576,10 @@ type PrivTxPool struct {
     currentState  *state.StateDB
     pendingNonces *privTxNoncer     // uses PrivNonce
 
-    pending map[common.Address]*txList   // keyed by FromAddress()
+    pending map[common.Address]*txList   // keyed by FromAddress(), ordered by PrivNonce
     queue   map[common.Address]*txList
     all     *txLookup
-    priced  *txPricedList
+    priced  *txFeeList                   // sorted by Fee (not gas price)
 
     chainHeadCh  chan ChainHeadEvent      // shared chain head events
     chainHeadSub event.Subscription
@@ -574,7 +615,7 @@ func (txn *privTxNoncer) get(addr common.Address) uint64 {
 func (pool *PrivTxPool) validateTx(tx *types.Transaction) error {
     // 1. tx.Type() must be PrivTransferTxType
     // 2. Verify ElGamal Schnorr signature using From pubkey (zero IO)
-    // 3. Public Balance >= gas cost at FromAddress() (gas paid from public balance)
+    // 3. Fee >= PrivBaseFee and FeeLimit >= Fee
     // 4. PrivNonce validation (read from storage slot at FromAddress())
     // 5. Validate From/To are valid Ristretto255 compressed points
     // 6. Proof size validation: CtValidityProof (~160B), CommitmentEqProof (~192B), RangeProof (~672B)
@@ -585,11 +626,11 @@ func (pool *PrivTxPool) validateTx(tx *types.Transaction) error {
 
 Modify `miner/worker.go`:
 ```go
-// Pull transactions from both pools, sort by gas price
+// Pull transactions from both pools
 func (w *worker) commitWork() {
-    publicTxs := w.txPool.Pending()
-    privTxs   := w.privTxPool.Pending()
-    // Merge-sort and commit
+    publicTxs := w.txPool.Pending()       // sorted by gas price
+    privTxs   := w.privTxPool.Pending()   // sorted by fee
+    // Commit public txs first, then priv txs (or interleave by priority)
 }
 ```
 
@@ -633,8 +674,8 @@ type RPCPrivTransferArgs struct {
     From                hexutil.Bytes    // 32-byte ElGamal pubkey
     To                  hexutil.Bytes    // 32-byte ElGamal pubkey
     PrivNonce           *hexutil.Uint64
-    Gas                 *hexutil.Uint64
-    GasPrice            *hexutil.Big
+    Fee                 *hexutil.Uint64  // plaintext fee
+    FeeLimit            *hexutil.Uint64  // max fee willing to pay
     Commitment          hexutil.Bytes    // 32B: shared Pedersen commitment
     SenderHandle        hexutil.Bytes    // 32B: decrypt handle for sender
     ReceiverHandle      hexutil.Bytes    // 32B: decrypt handle for receiver
@@ -732,7 +773,8 @@ New (12+ files):
   core/priv/types.go                    — Ciphertext, AccountState
   core/priv/state.go                    — Storage slot read/write, PrivNonce
   core/priv/signature.go                — ElGamal Ristretto-Schnorr sign/verify
-  core/priv/context.go                  — Merlin transcript context
+  core/priv/context.go                  — Merlin transcript context (binds fee/fee_limit to proofs)
+  core/priv/fee.go                      — EstimateRequiredFee, fee validation, refund logic
   core/priv/verify.go                   — VerifyCiphertextValidityProof, VerifyCommitmentEqProof, VerifyRangeProof
   core/priv/proofs.go                   — Proof size constants and decoding for each proof type
   core/priv/errors.go                   — Error definitions
@@ -784,7 +826,7 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 
 ## Verification Strategy
 
-- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext (commitment + sender_handle + receiver_handle) round-trip works; separated proofs (CtValidityProof + CommitmentEqProof + RangeProof) verify correctly; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType
+- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType
 - **Phase 2**: Genesis allocates PrivBalance, chain boots, `priv_getBalance` returns correct ciphertext
 - **Phase 3**: PrivTxPool orders by PrivNonce, does not interfere with TxPool; P2P routes correctly by type
 - **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change
