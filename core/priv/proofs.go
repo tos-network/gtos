@@ -4,6 +4,7 @@ const (
 	CTValidityProofSizeT1 = 160
 	CommitmentEqProofSize = 192
 	RangeProofSingle64    = 672
+	ShieldProofSize       = 96
 )
 
 func decodeCTValidityProof(proof []byte) ([]byte, error) {
@@ -42,5 +43,18 @@ func ValidateCommitmentEqProofShape(proof []byte) error {
 // ValidateRangeProofShape validates range proof blob size.
 func ValidateRangeProofShape(proof []byte) error {
 	_, err := decodeRangeProof(proof)
+	return err
+}
+
+func decodeShieldProof(proof []byte) ([]byte, error) {
+	if len(proof) != ShieldProofSize {
+		return nil, ErrInvalidPayload
+	}
+	return append([]byte(nil), proof...), nil
+}
+
+// ValidateShieldProofShape validates shield proof blob size.
+func ValidateShieldProofShape(proof []byte) error {
+	_, err := decodeShieldProof(proof)
 	return err
 }

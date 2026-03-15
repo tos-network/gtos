@@ -52,6 +52,8 @@ func signatureValuesPresent(v, r, s *big.Int) bool {
 const (
 	SignerTxType       = iota // 0x00
 	PrivTransferTxType        // 0x01
+	ShieldTxType              // 0x02
+	UnshieldTxType            // 0x03
 )
 
 // Transaction is an TOS transaction.
@@ -96,7 +98,9 @@ type TxData interface {
 
 // EncodeRLP implements rlp.Encoder
 func (tx *Transaction) EncodeRLP(w io.Writer) error {
-	if tx.Type() != SignerTxType && tx.Type() != PrivTransferTxType {
+	switch tx.Type() {
+	case SignerTxType, PrivTransferTxType, ShieldTxType, UnshieldTxType:
+	default:
 		return ErrTxTypeNotSupported
 	}
 	buf := encodeBufferPool.Get().(*bytes.Buffer)
@@ -117,7 +121,9 @@ func (tx *Transaction) encodeTyped(w *bytes.Buffer) error {
 // MarshalBinary returns the canonical encoding of the transaction.
 // For SignerTx and PrivTransferTx transactions, it returns the type and payload.
 func (tx *Transaction) MarshalBinary() ([]byte, error) {
-	if tx.Type() != SignerTxType && tx.Type() != PrivTransferTxType {
+	switch tx.Type() {
+	case SignerTxType, PrivTransferTxType, ShieldTxType, UnshieldTxType:
+	default:
 		return nil, ErrTxTypeNotSupported
 	}
 	var buf bytes.Buffer
@@ -207,6 +213,14 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		return &inner, nil
 	case PrivTransferTxType:
 		var inner PrivTransferTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
+	case ShieldTxType:
+		var inner ShieldTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
+	case UnshieldTxType:
+		var inner UnshieldTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
 	default:
@@ -361,6 +375,62 @@ func (tx *Transaction) IsSponsored() bool {
 func (tx *Transaction) PrivTransferFrom() (common.Address, bool) {
 	if ptx, ok := tx.inner.(*PrivTransferTx); ok {
 		return ptx.FromAddress(), true
+	}
+	return common.Address{}, false
+}
+
+// PrivTransferInner returns the underlying PrivTransferTx, or nil otherwise.
+func (tx *Transaction) PrivTransferInner() *PrivTransferTx {
+	if ptx, ok := tx.inner.(*PrivTransferTx); ok {
+		return ptx
+	}
+	return nil
+}
+
+// ShieldFrom returns the derived address of the sender's ElGamal public key
+// when the transaction is a ShieldTx.
+func (tx *Transaction) ShieldFrom() (common.Address, bool) {
+	if stx, ok := tx.inner.(*ShieldTx); ok {
+		return stx.DerivedAddress(), true
+	}
+	return common.Address{}, false
+}
+
+// ShieldInner returns the underlying ShieldTx, or nil otherwise.
+func (tx *Transaction) ShieldInner() *ShieldTx {
+	if stx, ok := tx.inner.(*ShieldTx); ok {
+		return stx
+	}
+	return nil
+}
+
+// UnshieldFrom returns the derived address of the sender's ElGamal public key
+// when the transaction is an UnshieldTx.
+func (tx *Transaction) UnshieldFrom() (common.Address, bool) {
+	if utx, ok := tx.inner.(*UnshieldTx); ok {
+		return utx.DerivedAddress(), true
+	}
+	return common.Address{}, false
+}
+
+// UnshieldInner returns the underlying UnshieldTx, or nil otherwise.
+func (tx *Transaction) UnshieldInner() *UnshieldTx {
+	if utx, ok := tx.inner.(*UnshieldTx); ok {
+		return utx
+	}
+	return nil
+}
+
+// PrivTxFrom returns the derived address for any privacy transaction type
+// (PrivTransfer, Shield, or Unshield).
+func (tx *Transaction) PrivTxFrom() (common.Address, bool) {
+	switch inner := tx.inner.(type) {
+	case *PrivTransferTx:
+		return inner.FromAddress(), true
+	case *ShieldTx:
+		return inner.DerivedAddress(), true
+	case *UnshieldTx:
+		return inner.DerivedAddress(), true
 	}
 	return common.Address{}, false
 }
@@ -743,8 +813,10 @@ type Message struct {
 	data              []byte
 	accessList        AccessList
 	isFake            bool
-	txType            byte             // SignerTxType (default 0) or PrivTransferTxType
-	privTransferTx    *PrivTransferTx  // non-nil for PrivTransferTxType
+	txType            byte            // SignerTxType (default 0) or PrivTransferTxType/ShieldTxType/UnshieldTxType
+	privTransferTx    *PrivTransferTx // non-nil for PrivTransferTxType
+	shieldTx          *ShieldTx       // non-nil for ShieldTxType
+	unshieldTx        *UnshieldTx     // non-nil for UnshieldTxType
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, txPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
@@ -788,6 +860,12 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	}
 	if ptx, ok := tx.inner.(*PrivTransferTx); ok {
 		msg.privTransferTx = ptx
+	}
+	if stx, ok := tx.inner.(*ShieldTx); ok {
+		msg.shieldTx = stx
+	}
+	if utx, ok := tx.inner.(*UnshieldTx); ok {
+		msg.unshieldTx = utx
 	}
 	if sponsor, ok := tx.SponsorFrom(); ok {
 		msg.sponsor = sponsor
@@ -851,6 +929,28 @@ func (m Message) WithPrivTransferTx(ptx *PrivTransferTx) Message {
 // PrivTransferInner returns the underlying PrivTransferTx if this message was
 // derived from a PrivTransferTxType transaction, or nil otherwise.
 func (m Message) PrivTransferInner() *PrivTransferTx { return m.privTransferTx }
+
+// WithShieldTx returns a copy of the message with the ShieldTx set.
+func (m Message) WithShieldTx(stx *ShieldTx) Message {
+	m.shieldTx = stx
+	m.txType = ShieldTxType
+	return m
+}
+
+// ShieldInner returns the underlying ShieldTx if this message was
+// derived from a ShieldTxType transaction, or nil otherwise.
+func (m Message) ShieldInner() *ShieldTx { return m.shieldTx }
+
+// WithUnshieldTx returns a copy of the message with the UnshieldTx set.
+func (m Message) WithUnshieldTx(utx *UnshieldTx) Message {
+	m.unshieldTx = utx
+	m.txType = UnshieldTxType
+	return m
+}
+
+// UnshieldInner returns the underlying UnshieldTx if this message was
+// derived from an UnshieldTxType transaction, or nil otherwise.
+func (m Message) UnshieldInner() *UnshieldTx { return m.unshieldTx }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

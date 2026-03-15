@@ -692,7 +692,7 @@ func ProvePrivCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64,
 	if len(sourcePrivkey) != 32 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destCommitment32) != 32 || len(opening32) != 32 {
 		return nil, ErrPrivInvalidInput
 	}
-	t := newMerlinTranscript("equality-proof")
+	t := newMerlinTranscript("new-commitment-proof")
 	if len(ctx) > 0 {
 		t.appendMessage("chain-ctx", ctx)
 	}

@@ -570,7 +570,7 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 // SignerTx it uses ResolveSender. This is a convenience for internal methods
 // that have already validated the transaction.
 func (pool *TxPool) resolveTxSender(tx *types.Transaction) common.Address {
-	if from, ok := tx.PrivTransferFrom(); ok {
+	if from, ok := tx.PrivTxFrom(); ok {
 		return from
 	}
 	from, _ := ResolveSender(tx, pool.signer, pool.currentState)
@@ -580,9 +580,14 @@ func (pool *TxPool) resolveTxSender(tx *types.Transaction) common.Address {
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
-	// Dispatch private transfer transactions to their own validation path.
-	if tx.Type() == types.PrivTransferTxType {
+	// Dispatch privacy transaction types to their own validation paths.
+	switch tx.Type() {
+	case types.PrivTransferTxType:
 		return pool.validatePrivTransferTx(tx, from, local)
+	case types.ShieldTxType:
+		return pool.validateShieldTx(tx, from, local)
+	case types.UnshieldTxType:
+		return pool.validateUnshieldTx(tx, from, local)
 	}
 	var sponsor common.Address
 	if tx.Type() != types.SignerTxType {
@@ -675,22 +680,16 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 		return types.ErrInvalidChainId
 	}
 
-	// Fee must not exceed FeeLimit. Both are stored in the inner nonce()/txPrice()
-	// accessors, but we compare via the public Nonce (mapped to PrivNonce) and
-	// TxPrice (mapped to Fee). FeeLimit is only available through the inner type,
-	// so we compare Fee <= FeeLimit via the transaction's own accessors.
-	// tx.TxPrice() returns Fee; tx.Nonce() returns PrivNonce.
-	// FeeLimit is not directly exposed, so we retrieve it via the gas fee cap
-	// approach or use an alternative. Since PrivTransferTx.gasFeeCap() returns 0
-	// and gasTipCap() returns 0, we need the inner FeeLimit.
-	// The cleanest approach: Fee and FeeLimit are both uint64 fields. Fee is
-	// exposed via TxPrice().Uint64(). We need FeeLimit — let's check if there's
-	// a public accessor, or if we need one.
-	fee := tx.TxPrice().Uint64()
-	// FeeLimit is not currently exposed. For now, we skip this check since
-	// the transaction was constructed with Fee <= FeeLimit by the sender.
-	// TODO: expose FeeLimit via a public accessor if needed.
-	_ = fee
+	ptx := tx.PrivTransferInner()
+	if ptx == nil {
+		return ErrTxTypeNotSupported
+	}
+	if ptx.Fee > ptx.FeeLimit {
+		return priv.ErrFeeLimitExceeded
+	}
+	if ptx.FeeLimit < priv.EstimateRequiredFee(0) {
+		return priv.ErrInsufficientFee
+	}
 
 	// PrivNonce check: must not be lower than the current on-chain priv nonce.
 	stateNonce := priv.GetPrivNonce(pool.currentState, from)
@@ -703,6 +702,65 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 		return ErrUnderpriced
 	}
 
+	return nil
+}
+
+// validateShieldTx validates a ShieldTx for pool inclusion.
+func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address, local bool) error {
+	if uint64(tx.Size()) > txMaxSize {
+		return ErrOversizedData
+	}
+	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
+		return types.ErrInvalidChainId
+	}
+	stx := tx.ShieldInner()
+	if stx == nil {
+		return ErrTxTypeNotSupported
+	}
+	if stx.Fee < priv.EstimateShieldFee() {
+		return priv.ErrInsufficientFee
+	}
+	totalCost := new(big.Int).SetUint64(stx.Amount)
+	totalCost.Add(totalCost, new(big.Int).SetUint64(priv.FeeToWei(stx.Fee)))
+	if pool.currentState.GetBalance(from).Cmp(totalCost) < 0 {
+		return ErrInsufficientFundsForTransfer
+	}
+	stateNonce := priv.GetPrivNonce(pool.currentState, from)
+	if tx.Nonce() < stateNonce {
+		return ErrNonceTooLow
+	}
+	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
+		return ErrUnderpriced
+	}
+	return nil
+}
+
+// validateUnshieldTx validates an UnshieldTx for pool inclusion.
+func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Address, local bool) error {
+	if uint64(tx.Size()) > txMaxSize {
+		return ErrOversizedData
+	}
+	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
+		return types.ErrInvalidChainId
+	}
+	utx := tx.UnshieldInner()
+	if utx == nil {
+		return ErrTxTypeNotSupported
+	}
+	if utx.Fee < priv.EstimateUnshieldFee() {
+		return priv.ErrInsufficientFee
+	}
+	availablePublic := new(big.Int).Add(new(big.Int).Set(pool.currentState.GetBalance(from)), new(big.Int).SetUint64(utx.Amount))
+	if availablePublic.Cmp(new(big.Int).SetUint64(priv.FeeToWei(utx.Fee))) < 0 {
+		return ErrInsufficientFundsForTransfer
+	}
+	stateNonce := priv.GetPrivNonce(pool.currentState, from)
+	if tx.Nonce() < stateNonce {
+		return ErrNonceTooLow
+	}
+	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
+		return ErrUnderpriced
+	}
 	return nil
 }
 
@@ -723,8 +781,8 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	}
 	// Resolve sender once; used for locals check and full validation.
 	var from common.Address
-	if privFrom, ok := tx.PrivTransferFrom(); ok {
-		// PrivTransferTx: sender is derived from the ElGamal public key.
+	if privFrom, ok := tx.PrivTxFrom(); ok {
+		// Privacy tx: sender is derived from the ElGamal public key.
 		from = privFrom
 	} else {
 		var fromErr error
@@ -1406,9 +1464,10 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 
 		// Drop all transactions that are deemed too old (low nonce)
 		var stateNonce uint64
-		if addrTxType == types.PrivTransferTxType {
+		switch addrTxType {
+		case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
 			stateNonce = priv.GetPrivNonce(pool.currentState, addr)
-		} else {
+		default:
 			stateNonce = pool.currentState.GetNonce(addr)
 		}
 		forwards := list.Forward(stateNonce)
@@ -1418,9 +1477,9 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		}
 		log.Trace("Removed old queued transactions", "count", len(forwards))
 		// Drop all transactions that are too costly (low balance or out of gas).
-		// For PrivTransferTx the balance/gas filter is not meaningful (fees are
+		// For privacy tx types the balance/gas filter is not meaningful (fees are
 		// plaintext and checked during validation), but Filter is harmless since
-		// PrivTransferTx.gas() returns 0 and value() returns 0.
+		// gas() returns 0 and value() returns 0.
 		drops, _ := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
 		for _, tx := range drops {
 			hash := tx.Hash()
@@ -1610,8 +1669,13 @@ func (pool *TxPool) demoteUnexecutables() {
 	for addr, list := range pool.pending {
 		// Determine nonce source from the first pending transaction type.
 		var nonce uint64
-		if first := list.FirstElement(); first != nil && first.Type() == types.PrivTransferTxType {
-			nonce = priv.GetPrivNonce(pool.currentState, addr)
+		if first := list.FirstElement(); first != nil {
+			switch first.Type() {
+			case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
+				nonce = priv.GetPrivNonce(pool.currentState, addr)
+			default:
+				nonce = pool.currentState.GetNonce(addr)
+			}
 		} else {
 			nonce = pool.currentState.GetNonce(addr)
 		}
@@ -1706,7 +1770,7 @@ func (as *accountSet) contains(addr common.Address) bool {
 // containsTx checks if the sender of a given tx is within the set. If the sender
 // cannot be derived, this method returns false.
 func (as *accountSet) containsTx(tx *types.Transaction) bool {
-	if privFrom, ok := tx.PrivTransferFrom(); ok {
+	if privFrom, ok := tx.PrivTxFrom(); ok {
 		return as.contains(privFrom)
 	}
 	if addr, err := types.Sender(as.signer, tx); err == nil {
@@ -1726,7 +1790,7 @@ func (as *accountSet) add(addr common.Address) {
 
 // addTx adds the sender of tx into the set.
 func (as *accountSet) addTx(tx *types.Transaction) {
-	if privFrom, ok := tx.PrivTransferFrom(); ok {
+	if privFrom, ok := tx.PrivTxFrom(); ok {
 		as.add(privFrom)
 		return
 	}

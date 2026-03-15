@@ -48,6 +48,56 @@ func TestProveAndVerifyShieldCTAndBalanceWithContext(t *testing.T) {
 	}
 }
 
+func TestProveAndVerifyCommitmentEqProofWithAndWithoutContext(t *testing.T) {
+	senderPub, senderPriv, err := GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair(sender): %v", err)
+	}
+	opening, err := GenerateOpening()
+	if err != nil {
+		t.Fatalf("GenerateOpening: %v", err)
+	}
+	amount := uint64(29)
+	ctx := []byte("gtos-commitment-eq-context")
+
+	commitment, err := PedersenCommitmentWithOpening(opening, amount)
+	if err != nil {
+		t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+	}
+	handle, err := DecryptHandleWithOpening(senderPub, opening)
+	if err != nil {
+		t.Fatalf("DecryptHandleWithOpening: %v", err)
+	}
+	sourceCt := make([]byte, 64)
+	copy(sourceCt[:32], commitment)
+	copy(sourceCt[32:], handle)
+
+	proofCtx, err := ProveCommitmentEqProof(senderPriv, senderPub, sourceCt, commitment, opening, amount, ctx)
+	if err != nil {
+		t.Fatalf("ProveCommitmentEqProof(with ctx): %v", err)
+	}
+	if len(proofCtx) != 192 {
+		t.Fatalf("unexpected commitment-eq proof size: %d", len(proofCtx))
+	}
+	if err := VerifyCommitmentEqProofWithContext(proofCtx, senderPub, sourceCt, commitment, ctx); err != nil {
+		t.Fatalf("VerifyCommitmentEqProofWithContext: %v", err)
+	}
+	if err := VerifyCommitmentEqProofWithContext(proofCtx, senderPub, sourceCt, commitment, []byte("wrong-ctx")); err == nil {
+		t.Fatal("VerifyCommitmentEqProofWithContext should fail with wrong context")
+	}
+
+	proofNoCtx, err := ProveCommitmentEqProof(senderPriv, senderPub, sourceCt, commitment, opening, amount, nil)
+	if err != nil {
+		t.Fatalf("ProveCommitmentEqProof(no ctx): %v", err)
+	}
+	if err := VerifyCommitmentEqProof(proofNoCtx, senderPub, sourceCt, commitment); err != nil {
+		t.Fatalf("VerifyCommitmentEqProof: %v", err)
+	}
+	if err := VerifyCommitmentEqProofWithContext(proofNoCtx, senderPub, sourceCt, commitment, ctx); err == nil {
+		t.Fatal("VerifyCommitmentEqProofWithContext should fail for a no-context proof")
+	}
+}
+
 func TestProveAndVerifyRangeProof(t *testing.T) {
 	amount := uint64(42)
 	commitment, opening, err := CommitmentNew(amount)

@@ -2190,6 +2190,35 @@ type RPCPrivBalanceResult struct {
 	BlockNumber hexutil.Uint64 `json:"blockNumber"`
 }
 
+// RPCShieldArgs holds arguments for priv_shield RPC.
+type RPCShieldArgs struct {
+	Pubkey      hexutil.Bytes   `json:"pubkey"`      // 32-byte sender ElGamal pubkey
+	Recipient   hexutil.Bytes   `json:"recipient"`   // 32-byte recipient ElGamal pubkey
+	PrivNonce   *hexutil.Uint64 `json:"privNonce"`
+	Fee         *hexutil.Uint64 `json:"fee"`
+	Amount      *hexutil.Uint64 `json:"amount"`
+	Commitment  hexutil.Bytes   `json:"commitment"`  // 32B
+	Handle      hexutil.Bytes   `json:"handle"`      // 32B
+	ShieldProof hexutil.Bytes   `json:"shieldProof"` // 96B
+	RangeProof  hexutil.Bytes   `json:"rangeProof"`  // 672B
+	S           hexutil.Bytes   `json:"s"`           // 32B Schnorr sig
+	E           hexutil.Bytes   `json:"e"`           // 32B Schnorr sig
+}
+
+// RPCUnshieldArgs holds arguments for priv_unshield RPC.
+type RPCUnshieldArgs struct {
+	Pubkey            hexutil.Bytes   `json:"pubkey"`            // 32-byte sender ElGamal pubkey
+	Recipient         hexutil.Bytes   `json:"recipient"`         // 32-byte recipient address
+	PrivNonce         *hexutil.Uint64 `json:"privNonce"`
+	Fee               *hexutil.Uint64 `json:"fee"`
+	Amount            *hexutil.Uint64 `json:"amount"`
+	SourceCommitment  hexutil.Bytes   `json:"sourceCommitment"`  // 32B
+	CommitmentEqProof hexutil.Bytes   `json:"commitmentEqProof"` // 192B
+	RangeProof        hexutil.Bytes   `json:"rangeProof"`        // 672B
+	S                 hexutil.Bytes   `json:"s"`                 // 32B Schnorr sig
+	E                 hexutil.Bytes   `json:"e"`                 // 32B Schnorr sig
+}
+
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -3335,4 +3364,104 @@ func (s *TOSAPI) PrivGetNonce(ctx context.Context, pubkey hexutil.Bytes, blockNr
 	address := common.BytesToAddress(crypto.Keccak256(pubkey))
 	nonce := corepriv.GetPrivNonce(st, address)
 	return hexutil.Uint64(nonce), nil
+}
+
+// PrivShield submits a pre-signed ShieldTx to the transaction pool.
+func (s *TOSAPI) PrivShield(ctx context.Context, args RPCShieldArgs) (common.Hash, error) {
+	if len(args.Pubkey) != 32 {
+		return common.Hash{}, fmt.Errorf("pubkey must be 32-byte ElGamal pubkey")
+	}
+	if len(args.Recipient) != 32 {
+		return common.Hash{}, fmt.Errorf("recipient must be 32-byte ElGamal pubkey")
+	}
+	if len(args.S) != 32 || len(args.E) != 32 {
+		return common.Hash{}, fmt.Errorf("signature S and E must be 32 bytes each")
+	}
+	if args.PrivNonce == nil {
+		return common.Hash{}, fmt.Errorf("privNonce is required")
+	}
+	if args.Fee == nil {
+		return common.Hash{}, fmt.Errorf("fee is required")
+	}
+	if args.Amount == nil {
+		return common.Hash{}, fmt.Errorf("amount is required")
+	}
+	if len(args.Commitment) != 32 {
+		return common.Hash{}, fmt.Errorf("commitment must be 32 bytes")
+	}
+	if len(args.Handle) != 32 {
+		return common.Hash{}, fmt.Errorf("handle must be 32 bytes")
+	}
+	if len(args.ShieldProof) != 96 {
+		return common.Hash{}, fmt.Errorf("shieldProof must be 96 bytes")
+	}
+	if len(args.RangeProof) != 672 {
+		return common.Hash{}, fmt.Errorf("rangeProof must be 672 bytes")
+	}
+
+	stx := &types.ShieldTx{
+		ChainID:   s.b.ChainConfig().ChainID,
+		PrivNonce: uint64(*args.PrivNonce),
+		Fee:       uint64(*args.Fee),
+		Amount:    uint64(*args.Amount),
+	}
+	copy(stx.Pubkey[:], args.Pubkey)
+	copy(stx.Recipient[:], args.Recipient)
+	copy(stx.Commitment[:], args.Commitment)
+	copy(stx.Handle[:], args.Handle)
+	copy(stx.ShieldProof[:], args.ShieldProof)
+	copy(stx.RangeProof[:], args.RangeProof)
+	copy(stx.S[:], args.S)
+	copy(stx.E[:], args.E)
+
+	tx := types.NewTx(stx)
+	return tx.Hash(), s.b.SendTx(ctx, tx)
+}
+
+// PrivUnshield submits a pre-signed UnshieldTx to the transaction pool.
+func (s *TOSAPI) PrivUnshield(ctx context.Context, args RPCUnshieldArgs) (common.Hash, error) {
+	if len(args.Pubkey) != 32 {
+		return common.Hash{}, fmt.Errorf("pubkey must be 32-byte ElGamal pubkey")
+	}
+	if len(args.Recipient) != 32 {
+		return common.Hash{}, fmt.Errorf("recipient must be 32-byte address")
+	}
+	if len(args.S) != 32 || len(args.E) != 32 {
+		return common.Hash{}, fmt.Errorf("signature S and E must be 32 bytes each")
+	}
+	if args.PrivNonce == nil {
+		return common.Hash{}, fmt.Errorf("privNonce is required")
+	}
+	if args.Fee == nil {
+		return common.Hash{}, fmt.Errorf("fee is required")
+	}
+	if args.Amount == nil {
+		return common.Hash{}, fmt.Errorf("amount is required")
+	}
+	if len(args.SourceCommitment) != 32 {
+		return common.Hash{}, fmt.Errorf("sourceCommitment must be 32 bytes")
+	}
+	if len(args.CommitmentEqProof) != 192 {
+		return common.Hash{}, fmt.Errorf("commitmentEqProof must be 192 bytes")
+	}
+	if len(args.RangeProof) != 672 {
+		return common.Hash{}, fmt.Errorf("rangeProof must be 672 bytes")
+	}
+
+	utx := &types.UnshieldTx{
+		ChainID:   s.b.ChainConfig().ChainID,
+		PrivNonce: uint64(*args.PrivNonce),
+		Fee:       uint64(*args.Fee),
+		Amount:    uint64(*args.Amount),
+	}
+	copy(utx.Pubkey[:], args.Pubkey)
+	copy(utx.Recipient[:], args.Recipient)
+	copy(utx.SourceCommitment[:], args.SourceCommitment)
+	copy(utx.CommitmentEqProof[:], args.CommitmentEqProof)
+	copy(utx.RangeProof[:], args.RangeProof)
+	copy(utx.S[:], args.S)
+	copy(utx.E[:], args.E)
+
+	tx := types.NewTx(utx)
+	return tx.Hash(), s.b.SendTx(ctx, tx)
 }

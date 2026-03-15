@@ -4,8 +4,8 @@ import "testing"
 
 func TestEstimateRequiredFee(t *testing.T) {
 	fee := EstimateRequiredFee(0)
-	if fee != 10_000 {
-		t.Fatalf("EstimateRequiredFee: got %d want 10000", fee)
+	if fee != 42_000 {
+		t.Fatalf("EstimateRequiredFee: got %d want 42000", fee)
 	}
 
 	// Fee should be the same regardless of txSize for now.

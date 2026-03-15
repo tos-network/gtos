@@ -310,8 +310,13 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// no intrinsic-gas check, no refund, no gas-based miner fee.  The fee is
 	// handled entirely inside applyPrivTransfer() which credits coinbase
 	// directly.  Skip all gas-related pre-checks and post-processing.
-	if st.msg.Type() == types.PrivTransferTxType {
+	switch st.msg.Type() {
+	case types.PrivTransferTxType:
 		return st.transitionPrivTransfer()
+	case types.ShieldTxType:
+		return st.transitionShield()
+	case types.UnshieldTxType:
+		return st.transitionUnshield()
 	}
 
 	if err := st.preCheck(); err != nil {
@@ -753,18 +758,22 @@ func (st *StateTransition) applyPrivTransfer() error {
 	toAddr := ptx.ToAddress()
 
 	// 2. Validate and compute fee.
-	requiredFee := priv.EstimateRequiredFee(0)
+	// Fee, FeeLimit are in gas units. Encrypted balance stores Wei, so all
+	// homomorphic refund arithmetic and coinbase credit are in Wei.
+	if ptx.Fee > ptx.FeeLimit {
+		return priv.ErrFeeLimitExceeded
+	}
+	requiredFee := priv.EstimateRequiredFee(0) // gas units
 	if requiredFee > ptx.FeeLimit {
 		return priv.ErrInsufficientFee
 	}
-	var feePaid, feeRefund uint64
+	var feePaidGas, feeRefundGas uint64
 	if requiredFee > ptx.Fee {
-		// Fee field too low, but FeeLimit covers it.
-		feePaid = requiredFee
-		feeRefund = ptx.FeeLimit - requiredFee
+		feePaidGas = requiredFee
+		feeRefundGas = ptx.FeeLimit - requiredFee
 	} else {
-		feePaid = ptx.Fee
-		feeRefund = ptx.FeeLimit - ptx.Fee
+		feePaidGas = ptx.Fee
+		feeRefundGas = ptx.FeeLimit - ptx.Fee
 	}
 
 	// 3. Validate PrivNonce (cheap state check before expensive crypto).
@@ -825,9 +834,11 @@ func (st *StateTransition) applyPrivTransfer() error {
 	}
 
 	// 6c. Compute new sender balance ciphertext:
-	//     output = fee_limit (scalar) + sender_ct (transfer ciphertext)
+	//     output = fee_limit_wei (scalar) + sender_ct (transfer ciphertext)
 	//     new_sender_balance_ct = old_sender_ct - output
-	outputCt, err := priv.AddScalarToCiphertext(senderCt, ptx.FeeLimit)
+	// FeeLimit is in gas units; encrypted balance stores Wei.
+	feeLimitWei := priv.FeeToWei(ptx.FeeLimit)
+	outputCt, err := priv.AddScalarToCiphertext(senderCt, feeLimitWei)
 	if err != nil {
 		return err
 	}
@@ -861,9 +872,9 @@ func (st *StateTransition) applyPrivTransfer() error {
 		Commitment: ptx.SourceCommitment,
 		Handle:     newSenderBalanceCt.Handle,
 	}
-	//    Refund excess fee back to sender's encrypted balance.
-	if feeRefund > 0 {
-		refundedCt, err := priv.AddScalarToCiphertext(senderState.Ciphertext, feeRefund)
+	//    Refund excess fee (in Wei) back to sender's encrypted balance.
+	if feeRefundGas > 0 {
+		refundedCt, err := priv.AddScalarToCiphertext(senderState.Ciphertext, priv.FeeToWei(feeRefundGas))
 		if err != nil {
 			return err
 		}
@@ -885,7 +896,246 @@ func (st *StateTransition) applyPrivTransfer() error {
 	priv.IncrementPrivNonce(st.state, fromAddr)
 
 	// 10. Credit fee to coinbase as public TOS.
-	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feePaid))
+	// Fee is in gas units; multiply by protocol gas price for Wei.
+	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(priv.FeeToWei(feePaidGas)))
+
+	return nil
+}
+
+// transitionShield handles the full state transition for ShieldTx.
+func (st *StateTransition) transitionShield() (*ExecutionResult, error) {
+	var vmerr error
+	if st.ctxAborted() {
+		vmerr = ErrExecutionAborted
+	} else {
+		snap := st.state.Snapshot()
+		vmerr = st.applyShield()
+		if vmerr != nil {
+			st.state.RevertToSnapshot(snap)
+		}
+	}
+	return &ExecutionResult{
+		UsedGas:    0,
+		Err:        vmerr,
+		ReturnData: nil,
+	}, nil
+}
+
+// transitionUnshield handles the full state transition for UnshieldTx.
+func (st *StateTransition) transitionUnshield() (*ExecutionResult, error) {
+	var vmerr error
+	if st.ctxAborted() {
+		vmerr = ErrExecutionAborted
+	} else {
+		snap := st.state.Snapshot()
+		vmerr = st.applyUnshield()
+		if vmerr != nil {
+			st.state.RevertToSnapshot(snap)
+		}
+	}
+	return &ExecutionResult{
+		UsedGas:    0,
+		Err:        vmerr,
+		ReturnData: nil,
+	}, nil
+}
+
+// applyShield executes a ShieldTx: deducts Amount+Fee from sender's public
+// balance and adds (Commitment, Handle) to the recipient's encrypted balance.
+func (st *StateTransition) applyShield() error {
+	// 1. Extract the inner ShieldTx from the message.
+	tmsg, ok := st.msg.(types.Message)
+	if !ok {
+		return errors.New("priv: message is not types.Message")
+	}
+	stx := tmsg.ShieldInner()
+	if stx == nil {
+		return errors.New("priv: message does not contain ShieldTx")
+	}
+
+	senderAddr := stx.DerivedAddress()
+	recipientAddr := stx.RecipientAddress()
+
+	// 2. Validate Fee >= minimum.
+	requiredFee := priv.EstimateShieldFee()
+	if stx.Fee < requiredFee {
+		return priv.ErrInsufficientFee
+	}
+
+	// 3. Check sender's public balance >= Amount + Fee*GasPrice.
+	feeWei := priv.FeeToWei(stx.Fee)
+	totalCost := new(big.Int).SetUint64(stx.Amount)
+	totalCost.Add(totalCost, new(big.Int).SetUint64(feeWei))
+	if st.state.GetBalance(senderAddr).Cmp(totalCost) < 0 {
+		return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, senderAddr.Hex())
+	}
+
+	// 4. Validate PrivNonce (sender's nonce).
+	expectedNonce := priv.GetPrivNonce(st.state, senderAddr)
+	if stx.PrivNonce != expectedNonce {
+		return priv.ErrNonceMismatch
+	}
+
+	// 5. Verify Schnorr signature (sender authenticates).
+	sigHash := stx.SigningHash()
+	if !priv.VerifySchnorrSignature(stx.Pubkey, sigHash[:], stx.S, stx.E) {
+		return errors.New("priv: invalid Schnorr signature")
+	}
+
+	// 6. Get recipient's encrypted state, check version overflow.
+	recipientState := priv.GetAccountState(st.state, recipientAddr)
+	if recipientState.Version == math.MaxUint64 {
+		return priv.ErrVersionOverflow
+	}
+
+	// 7. Build transcript context (actionTag=0x11).
+	transcriptCtx := priv.BuildShieldTranscriptContext(
+		st.chainConfig.ChainID,
+		stx.PrivNonce,
+		stx.Fee,
+		stx.Amount,
+		senderAddr,
+		stx.Commitment,
+		stx.Handle,
+	)
+
+	// 8. Verify ShieldProof (C,D valid encryption of Amount under Recipient's key).
+	if err := priv.VerifyShieldProofWithContext(
+		stx.Commitment, stx.Handle, stx.Recipient,
+		stx.Amount, stx.ShieldProof[:], transcriptCtx,
+	); err != nil {
+		return err
+	}
+
+	// 9. Verify RangeProof on Commitment (single, batchLen=1).
+	if err := priv.VerifySingleRangeProof(stx.Commitment, stx.RangeProof[:]); err != nil {
+		return err
+	}
+
+	// 10. Deduct Amount+Fee from sender's public balance.
+	st.state.SubBalance(senderAddr, totalCost)
+
+	// 11. Add (Commitment, Handle) to recipient's encrypted balance.
+	depositCt := priv.Ciphertext{
+		Commitment: stx.Commitment,
+		Handle:     stx.Handle,
+	}
+	newCt, err := priv.AddCiphertexts(recipientState.Ciphertext, depositCt)
+	if err != nil {
+		return err
+	}
+	recipientState.Ciphertext = newCt
+	recipientState.Version++
+	priv.SetAccountState(st.state, recipientAddr, recipientState)
+	priv.IncrementPrivNonce(st.state, senderAddr)
+
+	// Credit fee (in Wei) to coinbase.
+	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feeWei))
+
+	return nil
+}
+
+// applyUnshield executes an UnshieldTx: verifies proofs, updates sender's
+// encrypted balance, and credits Amount to recipient's public balance.
+// Fee is deducted from the recipient's public balance after crediting Amount.
+func (st *StateTransition) applyUnshield() error {
+	// 1. Extract the inner UnshieldTx from the message.
+	tmsg, ok := st.msg.(types.Message)
+	if !ok {
+		return errors.New("priv: message is not types.Message")
+	}
+	utx := tmsg.UnshieldInner()
+	if utx == nil {
+		return errors.New("priv: message does not contain UnshieldTx")
+	}
+
+	senderAddr := utx.DerivedAddress()
+	recipientAddr := utx.Recipient
+
+	// 2. Validate Fee >= minimum.
+	requiredFee := priv.EstimateUnshieldFee()
+	if utx.Fee < requiredFee {
+		return priv.ErrInsufficientFee
+	}
+
+	// 3. Validate PrivNonce (sender's nonce).
+	expectedNonce := priv.GetPrivNonce(st.state, senderAddr)
+	if utx.PrivNonce != expectedNonce {
+		return priv.ErrNonceMismatch
+	}
+
+	// 4. The recipient must be able to cover the fee after receiving Amount.
+	feeWei := priv.FeeToWei(utx.Fee)
+	availablePublic := new(big.Int).Add(
+		new(big.Int).Set(st.state.GetBalance(recipientAddr)),
+		new(big.Int).SetUint64(utx.Amount),
+	)
+	if availablePublic.Cmp(new(big.Int).SetUint64(feeWei)) < 0 {
+		return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, recipientAddr.Hex())
+	}
+
+	// 5. Verify Schnorr signature (sender authenticates).
+	sigHash := utx.SigningHash()
+	if !priv.VerifySchnorrSignature(utx.Pubkey, sigHash[:], utx.S, utx.E) {
+		return errors.New("priv: invalid Schnorr signature")
+	}
+
+	// 6. Get sender's encrypted state, check version overflow.
+	accountState := priv.GetAccountState(st.state, senderAddr)
+	if accountState.Version == math.MaxUint64 {
+		return priv.ErrVersionOverflow
+	}
+
+	// 7. Compute amountCt = AddScalarToCiphertext(ZeroCiphertext(), Amount).
+	amountCt, err := priv.AddScalarToCiphertext(priv.ZeroCiphertext(), utx.Amount)
+	if err != nil {
+		return err
+	}
+
+	// 8. Compute zeroedCt = SubCiphertexts(encryptedBalance, amountCt).
+	zeroedCt, err := priv.SubCiphertexts(accountState.Ciphertext, amountCt)
+	if err != nil {
+		return err
+	}
+
+	// 9. Build transcript context (actionTag=0x12).
+	transcriptCtx := priv.BuildUnshieldTranscriptContext(
+		st.chainConfig.ChainID,
+		utx.PrivNonce,
+		utx.Fee,
+		utx.Amount,
+		senderAddr,
+		zeroedCt,
+		utx.SourceCommitment,
+	)
+
+	// 10. Verify CommitmentEqProof (SourceCommitment matches zeroedCt).
+	if err := priv.VerifyCommitmentEqProofWithContext(
+		utx.Pubkey, zeroedCt, utx.SourceCommitment,
+		utx.CommitmentEqProof[:], transcriptCtx,
+	); err != nil {
+		return err
+	}
+
+	// 11. Verify RangeProof on SourceCommitment.
+	if err := priv.VerifySingleRangeProof(utx.SourceCommitment, utx.RangeProof[:]); err != nil {
+		return err
+	}
+
+	// 12. Update sender's encrypted balance.
+	accountState.Ciphertext = priv.Ciphertext{
+		Commitment: utx.SourceCommitment,
+		Handle:     zeroedCt.Handle,
+	}
+	accountState.Version++
+	priv.SetAccountState(st.state, senderAddr, accountState)
+	priv.IncrementPrivNonce(st.state, senderAddr)
+
+	// 13. Credit Amount to recipient's public balance, deduct Fee, credit coinbase.
+	// Credit Amount first (recipient may have zero public balance).
+	st.state.AddBalance(recipientAddr, new(big.Int).SetUint64(utx.Amount))
+	st.state.SubBalance(recipientAddr, new(big.Int).SetUint64(feeWei))
+	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feeWei))
 
 	return nil
 }

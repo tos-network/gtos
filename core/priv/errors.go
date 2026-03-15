@@ -24,6 +24,9 @@ var (
 	// ErrInsufficientFee indicates the provided fee is below the required minimum.
 	ErrInsufficientFee = errors.New("priv: insufficient fee")
 
+	// ErrFeeLimitExceeded indicates the declared fee exceeds the sender's fee limit.
+	ErrFeeLimitExceeded = errors.New("priv: fee exceeds fee limit")
+
 	// ErrNonceMismatch indicates the transaction nonce does not match the account nonce.
 	ErrNonceMismatch = errors.New("priv: nonce mismatch")
 )

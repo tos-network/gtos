@@ -104,7 +104,7 @@ type environment struct {
 // txSenderHint returns a sender hint for non-consensus contexts.
 // It prefers cryptographic recovery and falls back to explicit SignerTx.from.
 func txSenderHint(signer types.Signer, tx *types.Transaction) common.Address {
-	if from, ok := tx.PrivTransferFrom(); ok {
+	if from, ok := tx.PrivTxFrom(); ok {
 		return from
 	}
 	if from, err := types.Sender(signer, tx); err == nil {
@@ -606,17 +606,20 @@ func (w *worker) mainLoop() {
 			// be automatically eliminated.
 			if !w.isRunning() && w.current != nil {
 				// If block is already full for regular txs, check whether
-				// any incoming tx is a PrivTransferTx (which skips gas
-				// accounting). Only abort if none are private transfers.
+				// any incoming tx is a privacy tx (which skips gas
+				// accounting). Only abort if none are privacy txs.
 				if gp := w.current.gasPool; gp != nil && gp.Gas() < params.TxGas {
-					hasPrivTransfer := false
+					hasPrivTx := false
 					for _, tx := range ev.Txs {
-						if tx.Type() == types.PrivTransferTxType {
-							hasPrivTransfer = true
+						switch tx.Type() {
+						case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
+							hasPrivTx = true
+						}
+						if hasPrivTx {
 							break
 						}
 					}
-					if !hasPrivTransfer {
+					if !hasPrivTx {
 						continue
 					}
 				}
@@ -868,7 +871,9 @@ func (w *worker) selectTransactions(
 			if tx == nil {
 				break
 			}
-			isPrivTransfer := tx.Type() == types.PrivTransferTxType
+			isPrivTransfer := tx.Type() == types.PrivTransferTxType ||
+				tx.Type() == types.ShieldTxType ||
+				tx.Type() == types.UnshieldTxType
 
 			// PrivTransferTx has gas=0 and skips block gas accounting,
 			// so the minimum-gas early exit only applies to regular txs.

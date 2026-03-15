@@ -115,3 +115,35 @@ func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byt
 		2,
 	))
 }
+
+// VerifySingleRangeProof verifies a range proof over a single commitment.
+func VerifySingleRangeProof(commitment [32]byte, proof []byte) error {
+	decoded, err := decodeRangeProof(proof)
+	if err != nil {
+		return err
+	}
+	return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
+		decoded,
+		commitment[:],
+		[]byte{64},
+		1,
+	))
+}
+
+// VerifyShieldProofWithContext verifies that (commitment, handle) is a valid
+// encryption of the given plaintext amount under the receiver's public key,
+// bound to the transcript context.
+func VerifyShieldProofWithContext(commitment, handle [32]byte, pubkey [32]byte, amount uint64, proof []byte, ctx []byte) error {
+	decoded, err := decodeShieldProof(proof)
+	if err != nil {
+		return err
+	}
+	return mapCryptoVerifyError(cryptopriv.VerifyShieldProofWithContext(
+		decoded,
+		commitment[:],
+		handle[:],
+		pubkey[:],
+		amount,
+		ctx,
+	))
+}

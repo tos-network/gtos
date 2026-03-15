@@ -35,14 +35,17 @@ func BuildTransferProofs(
 	ctValidityProof, commitmentEqProof, rangeProof []byte,
 	err error,
 ) {
-	// Verify sufficient balance
-	if senderBalance < amount+feeLimit {
+	// feeLimit is in gas units; convert to Wei for encrypted balance arithmetic.
+	feeLimitWei := FeeToWei(feeLimit)
+
+	// Verify sufficient balance (both amount and fee are in Wei)
+	if senderBalance < amount+feeLimitWei {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
-			nil, nil, nil, fmt.Errorf("insufficient balance: have %d, need %d (amount %d + fee_limit %d)",
-				senderBalance, amount+feeLimit, amount, feeLimit)
+			nil, nil, nil, fmt.Errorf("insufficient balance: have %d, need %d (amount %d + fee_limit_wei %d)",
+				senderBalance, amount+feeLimitWei, amount, feeLimitWei)
 	}
 
-	newBalance := senderBalance - amount - feeLimit
+	newBalance := senderBalance - amount - feeLimitWei
 
 	// 1. Generate transfer ciphertext (commitment + two handles)
 	//    Uses crypto backend to create Pedersen commitment with random opening.
@@ -90,11 +93,11 @@ func BuildTransferProofs(
 	// 4. Generate commitment equality proof.
 	//    Proves the source commitment commits to the same value as the sender's
 	//    updated ciphertext. We must compute the updated sender ciphertext as the
-	//    verifier would: newSenderCt = senderCiphertext - (transferCt + feeLimit).
+	//    verifier would: newSenderCt = senderCiphertext - (transferCt + feeLimitWei).
 	var transferCt Ciphertext
 	copy(transferCt.Commitment[:], commitmentBytes)
 	copy(transferCt.Handle[:], sHandle)
-	outputCt, err := AddScalarToCiphertext(transferCt, feeLimit)
+	outputCt, err := AddScalarToCiphertext(transferCt, feeLimitWei)
 	if err != nil {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
 			nil, nil, nil, fmt.Errorf("output ciphertext computation failed: %w", err)
@@ -125,6 +128,110 @@ func BuildTransferProofs(
 	if err != nil {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
 			nil, nil, nil, fmt.Errorf("range proof failed: %w", err)
+	}
+
+	return
+}
+
+// BuildShieldProofs generates the proofs required for a ShieldTx.
+// recipientPub is the ElGamal pubkey under which the deposit is encrypted.
+//
+// Returns:
+//   - commitment, handle: encrypted form of Amount under recipientPub
+//   - shieldProof: proves (commitment, handle) is valid encryption of amount
+//   - rangeProof: proves committed amount in [0, 2^64)
+func BuildShieldProofs(
+	recipientPub [32]byte,
+	amount uint64,
+	context []byte,
+) (
+	commitment, handle [32]byte,
+	shieldProof, rangeProof []byte,
+	err error,
+) {
+	// 1. Generate opening (randomness).
+	opening, err := cryptopriv.GenerateOpening()
+	if err != nil {
+		return commitment, handle, nil, nil, fmt.Errorf("opening generation failed: %w", err)
+	}
+
+	// 2. Generate shield proof (proves encryption under recipient's key).
+	shieldProof, commitmentBytes, handleBytes, err := cryptopriv.ProveShieldProofWithContext(
+		recipientPub[:], amount, opening, context,
+	)
+	if err != nil {
+		return commitment, handle, nil, nil, fmt.Errorf("shield proof failed: %w", err)
+	}
+	copy(commitment[:], commitmentBytes)
+	copy(handle[:], handleBytes)
+
+	// 3. Generate range proof (single commitment).
+	rangeProof, err = cryptopriv.ProveRangeProof(commitmentBytes, amount, opening)
+	if err != nil {
+		return commitment, handle, nil, nil, fmt.Errorf("range proof failed: %w", err)
+	}
+
+	return
+}
+
+// BuildUnshieldProofs generates the proofs required for an UnshieldTx.
+// This is a client-side operation requiring the sender's private key, plaintext
+// balance, and the current encrypted balance.
+//
+// Returns:
+//   - sourceCommitment: new encrypted balance commitment after withdrawal
+//   - commitmentEqProof: proves sourceCommitment matches the computed new balance
+//   - rangeProof: proves committed amount in [0, 2^64)
+func BuildUnshieldProofs(
+	senderPriv, senderPub [32]byte,
+	amount, senderBalance uint64,
+	senderCiphertext Ciphertext,
+	context []byte,
+) (
+	sourceCommitment [32]byte,
+	commitmentEqProof, rangeProof []byte,
+	err error,
+) {
+	if senderBalance < amount {
+		return sourceCommitment, nil, nil, fmt.Errorf("insufficient balance: have %d, need %d",
+			senderBalance, amount)
+	}
+
+	newBalance := senderBalance - amount
+
+	// 1. Compute zeroedCt = senderCiphertext - AddScalarToCiphertext(Zero(), amount)
+	amountCt, err := AddScalarToCiphertext(ZeroCiphertext(), amount)
+	if err != nil {
+		return sourceCommitment, nil, nil, fmt.Errorf("amount ciphertext computation failed: %w", err)
+	}
+	zeroedCt, err := SubCiphertexts(senderCiphertext, amountCt)
+	if err != nil {
+		return sourceCommitment, nil, nil, fmt.Errorf("zeroed ciphertext computation failed: %w", err)
+	}
+
+	// 2. Generate source commitment (new balance after withdrawal).
+	srcCommitmentBytes, srcOpening, err := cryptopriv.CommitmentNew(newBalance)
+	if err != nil {
+		return sourceCommitment, nil, nil, fmt.Errorf("source commitment generation failed: %w", err)
+	}
+	copy(sourceCommitment[:], srcCommitmentBytes)
+
+	// 3. Generate commitment equality proof.
+	zeroedCt64 := append(zeroedCt.Commitment[:], zeroedCt.Handle[:]...)
+	commitmentEqProof, err = cryptopriv.ProveCommitmentEqProof(
+		senderPriv[:], senderPub[:],
+		zeroedCt64,
+		srcCommitmentBytes, srcOpening,
+		newBalance, context,
+	)
+	if err != nil {
+		return sourceCommitment, nil, nil, fmt.Errorf("commitment eq proof failed: %w", err)
+	}
+
+	// 4. Generate single-commitment range proof.
+	rangeProof, err = cryptopriv.ProveRangeProof(srcCommitmentBytes, newBalance, srcOpening)
+	if err != nil {
+		return sourceCommitment, nil, nil, fmt.Errorf("range proof failed: %w", err)
 	}
 
 	return

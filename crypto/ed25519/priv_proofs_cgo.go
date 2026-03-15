@@ -606,7 +606,7 @@ static int gtos_priv_prove_commitment_eq(
     const unsigned char *ctx, size_t ctx_sz)
 {
     at_merlin_transcript_t transcript;
-    at_merlin_transcript_init(&transcript, (const unsigned char *)"equality-proof", 15);
+    at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_NEW_COMMITMENT_EQ_PROOF_DOMAIN));
     gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
     return gtos_priv_prove_commitment_eq_into(proof192_out,
         source_privkey32, source_pubkey32, source_ciphertext64,

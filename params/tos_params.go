@@ -131,7 +131,7 @@ const (
 
 // Private transfer fee constants
 const (
-	PrivBaseFee       uint64 = 10_000 // base fee per private transfer (in TOS smallest unit)
+	PrivBaseFee       uint64 = 42_000 // base fee per private tx (gas units); actual cost = PrivBaseFee * TxPriceWei = 2x plain transfer
 	PrivMaxProofBytes        = 96 * 1024
 )
 

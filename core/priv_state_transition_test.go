@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/params"
 )
@@ -38,6 +39,63 @@ func makePrivTransferMsg(fromPub, toPub [32]byte, ptx *types.PrivTransferTx, gas
 	return msg
 }
 
+func makeShieldMsg(pub [32]byte, stx *types.ShieldTx, gasLimit uint64) types.Message {
+	addr := common.BytesToAddress(crypto.Keccak256(pub[:]))
+	msg := types.NewMessage(
+		addr,
+		&addr,
+		stx.PrivNonce,
+		big.NewInt(0),
+		gasLimit,
+		big.NewInt(0),
+		big.NewInt(0),
+		big.NewInt(0),
+		nil,
+		nil,
+		true,
+	)
+	msg = msg.WithShieldTx(stx)
+	return msg
+}
+
+func makeUnshieldMsg(pub [32]byte, utx *types.UnshieldTx, gasLimit uint64) types.Message {
+	fromAddr := common.BytesToAddress(crypto.Keccak256(pub[:]))
+	toAddr := utx.Recipient
+	msg := types.NewMessage(
+		fromAddr,
+		&toAddr,
+		utx.PrivNonce,
+		big.NewInt(0),
+		gasLimit,
+		big.NewInt(0),
+		big.NewInt(0),
+		big.NewInt(0),
+		nil,
+		nil,
+		true,
+	)
+	msg = msg.WithUnshieldTx(utx)
+	return msg
+}
+
+func mustElgamalKeypair(t *testing.T) (pub, privkey [32]byte) {
+	t.Helper()
+
+	pubBytes, privBytes, err := cryptopriv.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	copy(pub[:], pubBytes)
+	copy(privkey[:], privBytes)
+	return pub, privkey
+}
+
+func bytesToArray32(in []byte) [32]byte {
+	var out [32]byte
+	copy(out[:], in)
+	return out
+}
+
 func TestApplyPrivTransfer_NonceMismatch(t *testing.T) {
 	st := newTTLDeterminismState(t)
 	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
@@ -63,8 +121,8 @@ func TestApplyPrivTransfer_NonceMismatch(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 3, // wrong — state expects 5
-		Fee:       20_000,
-		FeeLimit:  20_000,
+		Fee:       42_000,
+		FeeLimit:  42_000,
 		From:      fromPub,
 		To:        toPub,
 	}
@@ -114,8 +172,8 @@ func TestApplyPrivTransfer_InsufficientFee(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       requiredFee - 1,     // below required
-		FeeLimit:  requiredFee - 1,     // FeeLimit also below required
+		Fee:       requiredFee - 1, // below required
+		FeeLimit:  requiredFee - 1, // FeeLimit also below required
 		From:      fromPub,
 		To:        toPub,
 	}
@@ -176,8 +234,8 @@ func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:          big.NewInt(1337),
 		PrivNonce:        0,
-		Fee:              requiredFee / 2,     // below required
-		FeeLimit:         requiredFee * 2,     // above required — should pass fee check
+		Fee:              requiredFee / 2, // below required
+		FeeLimit:         requiredFee * 2, // above required — should pass fee check
 		From:             fromPub,
 		To:               toPub,
 		Commitment:       idBytes,
@@ -211,5 +269,348 @@ func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 	// The error should be a Schnorr signature error.
 	if res.Err.Error() != "priv: invalid Schnorr signature" {
 		t.Fatalf("expected Schnorr signature error, got %v", res.Err)
+	}
+}
+
+func TestApplyPrivTransfer_FeeExceedsFeeLimit(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	fromPub := [32]byte{}
+	copy(fromPub[:], ristretto255.NewGeneratorElement().Bytes())
+	toPub := [32]byte{}
+	copy(toPub[:], ristretto255.NewIdentityElement().Add(
+		ristretto255.NewGeneratorElement(),
+		ristretto255.NewGeneratorElement(),
+	).Bytes())
+
+	fromAddr := common.BytesToAddress(crypto.Keccak256(fromPub[:]))
+	priv.SetAccountState(st, fromAddr, priv.AccountState{
+		Ciphertext: priv.ZeroCiphertext(),
+		Nonce:      0,
+		Version:    0,
+	})
+
+	ptx := &types.PrivTransferTx{
+		ChainID:   big.NewInt(1337),
+		PrivNonce: 0,
+		Fee:       20_001,
+		FeeLimit:  20_000,
+		From:      fromPub,
+		To:        toPub,
+	}
+
+	msg := makePrivTransferMsg(fromPub, toPub, ptx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if !errors.Is(res.Err, priv.ErrFeeLimitExceeded) {
+		t.Fatalf("expected ErrFeeLimitExceeded, got %v", res.Err)
+	}
+	if got := priv.GetPrivNonce(st, fromAddr); got != 0 {
+		t.Fatalf("PrivNonce should still be 0, got %d", got)
+	}
+}
+
+func TestApplyShield_InsufficientFee(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	senderPub, _ := mustElgamalKeypair(t)
+	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	st.AddBalance(addr, new(big.Int).SetUint64(priv.FeeToWei(priv.EstimateShieldFee())+1))
+	priv.SetAccountState(st, addr, priv.AccountState{
+		Ciphertext: priv.ZeroCiphertext(),
+		Nonce:      0,
+		Version:    0,
+	})
+
+	stx := &types.ShieldTx{
+		ChainID:   big.NewInt(1337),
+		PrivNonce: 0,
+		Fee:       priv.EstimateShieldFee() - 1,
+		Pubkey:    senderPub,
+		Amount:    1,
+	}
+
+	msg := makeShieldMsg(senderPub, stx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if !errors.Is(res.Err, priv.ErrInsufficientFee) {
+		t.Fatalf("expected ErrInsufficientFee, got %v", res.Err)
+	}
+}
+
+func TestApplyShield_Success(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	senderPub, senderPriv := mustElgamalKeypair(t)
+	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	fee := priv.EstimateShieldFee()
+	feeWei := priv.FeeToWei(fee)
+	amount := feeWei * 5
+	initialPublic := amount + feeWei + 12345
+
+	st.AddBalance(addr, new(big.Int).SetUint64(initialPublic))
+	priv.SetAccountState(st, addr, priv.AccountState{
+		Ciphertext: priv.ZeroCiphertext(),
+		Nonce:      0,
+		Version:    0,
+	})
+
+	opening, err := cryptopriv.GenerateOpening()
+	if err != nil {
+		t.Fatalf("GenerateOpening: %v", err)
+	}
+	commitmentBytes, err := cryptopriv.PedersenCommitmentWithOpening(opening, amount)
+	if err != nil {
+		t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+	}
+	handleBytes, err := cryptopriv.DecryptHandleWithOpening(senderPub[:], opening)
+	if err != nil {
+		t.Fatalf("DecryptHandleWithOpening: %v", err)
+	}
+	commitment := bytesToArray32(commitmentBytes)
+	handle := bytesToArray32(handleBytes)
+	ctx := priv.BuildShieldTranscriptContext(cfg.ChainID, 0, fee, amount, addr, commitment, handle)
+	shieldProof, _, _, err := cryptopriv.ProveShieldProofWithContext(senderPub[:], amount, opening, ctx)
+	if err != nil {
+		t.Fatalf("ProveShieldProofWithContext: %v", err)
+	}
+	rangeProof, err := cryptopriv.ProveRangeProof(commitmentBytes, amount, opening)
+	if err != nil {
+		t.Fatalf("ProveRangeProof: %v", err)
+	}
+	if err := priv.VerifyShieldProofWithContext(commitment, handle, senderPub, amount, shieldProof, ctx); err != nil {
+		t.Fatalf("VerifyShieldProofWithContext: %v", err)
+	}
+	if err := priv.VerifySingleRangeProof(commitment, rangeProof); err != nil {
+		t.Fatalf("VerifySingleRangeProof: %v", err)
+	}
+
+	stx := &types.ShieldTx{
+		ChainID:    big.NewInt(1337),
+		PrivNonce:  0,
+		Fee:        fee,
+		Pubkey:     senderPub,
+		Recipient:  senderPub, // self-directed shield
+		Amount:     amount,
+		Commitment: commitment,
+		Handle:     handle,
+	}
+	copy(stx.ShieldProof[:], shieldProof)
+	copy(stx.RangeProof[:], rangeProof)
+	sigHash := stx.SigningHash()
+	stx.S, stx.E, err = priv.SignSchnorr(senderPriv, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+
+	msg := makeShieldMsg(senderPub, stx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if res.Err != nil {
+		t.Fatalf("expected successful shield, got %v", res.Err)
+	}
+
+	if got := st.GetBalance(addr).Uint64(); got != initialPublic-amount-feeWei {
+		t.Fatalf("public balance = %d, want %d", got, initialPublic-amount-feeWei)
+	}
+	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
+		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)
+	}
+	accountState := priv.GetAccountState(st, addr)
+	wantCt := priv.Ciphertext{Commitment: commitment, Handle: handle}
+	if accountState.Ciphertext != wantCt {
+		t.Fatalf("ciphertext mismatch after shield")
+	}
+	if accountState.Nonce != 1 {
+		t.Fatalf("priv nonce = %d, want 1", accountState.Nonce)
+	}
+	if accountState.Version != 1 {
+		t.Fatalf("version = %d, want 1", accountState.Version)
+	}
+}
+
+func TestApplyUnshield_InsufficientPublicForFee(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	senderPub, _ := mustElgamalKeypair(t)
+	fee := priv.EstimateUnshieldFee()
+	feeWei := priv.FeeToWei(fee)
+
+	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	utx := &types.UnshieldTx{
+		ChainID:   big.NewInt(1337),
+		PrivNonce: 0,
+		Fee:       fee,
+		Pubkey:    senderPub,
+		Recipient: senderAddr, // self-directed unshield
+		Amount:    feeWei - 1,
+	}
+
+	msg := makeUnshieldMsg(senderPub, utx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if !errors.Is(res.Err, ErrInsufficientFundsForTransfer) {
+		t.Fatalf("expected ErrInsufficientFundsForTransfer, got %v", res.Err)
+	}
+}
+
+func TestApplyUnshield_InsufficientFee(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	senderPub, _ := mustElgamalKeypair(t)
+
+	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	utx := &types.UnshieldTx{
+		ChainID:   big.NewInt(1337),
+		PrivNonce: 0,
+		Fee:       priv.EstimateUnshieldFee() - 1,
+		Pubkey:    senderPub,
+		Recipient: senderAddr,
+		Amount:    1,
+	}
+
+	msg := makeUnshieldMsg(senderPub, utx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if !errors.Is(res.Err, priv.ErrInsufficientFee) {
+		t.Fatalf("expected ErrInsufficientFee, got %v", res.Err)
+	}
+}
+
+func TestApplyUnshield_Success(t *testing.T) {
+	st := newTTLDeterminismState(t)
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+	coinbase := common.HexToAddress("0xC0FFEE")
+
+	senderPub, senderPriv := mustElgamalKeypair(t)
+	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	recipientAddr := common.HexToAddress("0xBEEF")
+	fee := priv.EstimateUnshieldFee()
+	feeWei := priv.FeeToWei(fee)
+	senderBalance := feeWei * 7
+	amount := feeWei * 5
+	newBalance := senderBalance - amount
+
+	opening, err := cryptopriv.GenerateOpening()
+	if err != nil {
+		t.Fatalf("GenerateOpening: %v", err)
+	}
+	senderCtBytes, err := cryptopriv.EncryptWithOpening(senderPub[:], senderBalance, opening)
+	if err != nil {
+		t.Fatalf("EncryptWithOpening: %v", err)
+	}
+	senderCt := priv.Ciphertext{
+		Commitment: bytesToArray32(senderCtBytes[:32]),
+		Handle:     bytesToArray32(senderCtBytes[32:]),
+	}
+	priv.SetAccountState(st, senderAddr, priv.AccountState{
+		Ciphertext: senderCt,
+		Nonce:      0,
+		Version:    0,
+	})
+
+	amountCt, err := priv.AddScalarToCiphertext(priv.ZeroCiphertext(), amount)
+	if err != nil {
+		t.Fatalf("AddScalarToCiphertext: %v", err)
+	}
+	zeroedCt, err := priv.SubCiphertexts(senderCt, amountCt)
+	if err != nil {
+		t.Fatalf("SubCiphertexts: %v", err)
+	}
+	sourceCommitmentBytes, sourceOpening, err := cryptopriv.CommitmentNew(newBalance)
+	if err != nil {
+		t.Fatalf("CommitmentNew: %v", err)
+	}
+	sourceCommitment := bytesToArray32(sourceCommitmentBytes)
+	ctx := priv.BuildUnshieldTranscriptContext(cfg.ChainID, 0, fee, amount, senderAddr, zeroedCt, sourceCommitment)
+	zeroedCt64 := append(append([]byte{}, zeroedCt.Commitment[:]...), zeroedCt.Handle[:]...)
+	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
+		senderPriv[:], senderPub[:],
+		zeroedCt64,
+		sourceCommitmentBytes, sourceOpening,
+		newBalance, ctx,
+	)
+	if err != nil {
+		t.Fatalf("ProveCommitmentEqProof: %v", err)
+	}
+	rangeProof, err := cryptopriv.ProveRangeProof(sourceCommitmentBytes, newBalance, sourceOpening)
+	if err != nil {
+		t.Fatalf("ProveRangeProof: %v", err)
+	}
+	if err := priv.VerifyCommitmentEqProofWithContext(senderPub, zeroedCt, sourceCommitment, commitmentEqProof, ctx); err != nil {
+		t.Fatalf("VerifyCommitmentEqProofWithContext: %v", err)
+	}
+	if err := priv.VerifySingleRangeProof(sourceCommitment, rangeProof); err != nil {
+		t.Fatalf("VerifySingleRangeProof: %v", err)
+	}
+
+	utx := &types.UnshieldTx{
+		ChainID:          big.NewInt(1337),
+		PrivNonce:        0,
+		Fee:              fee,
+		Pubkey:           senderPub,
+		Recipient:        recipientAddr,
+		Amount:           amount,
+		SourceCommitment: sourceCommitment,
+	}
+	copy(utx.CommitmentEqProof[:], commitmentEqProof)
+	copy(utx.RangeProof[:], rangeProof)
+	sigHash := utx.SigningHash()
+	utx.S, utx.E, err = priv.SignSchnorr(senderPriv, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+
+	msg := makeUnshieldMsg(senderPub, utx, 2_000_000)
+	gp := new(GasPool).AddGas(msg.Gas())
+	res, err := ApplyMessage(context.Background(), ttlBlockContext(1, coinbase), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("ApplyMessage precheck error: %v", err)
+	}
+	if res.Err != nil {
+		t.Fatalf("expected successful unshield, got %v", res.Err)
+	}
+
+	if got := st.GetBalance(recipientAddr).Uint64(); got != amount-feeWei {
+		t.Fatalf("recipient public balance = %d, want %d", got, amount-feeWei)
+	}
+	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
+		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)
+	}
+	accountState := priv.GetAccountState(st, senderAddr)
+	wantCt := priv.Ciphertext{Commitment: sourceCommitment, Handle: zeroedCt.Handle}
+	if accountState.Ciphertext != wantCt {
+		t.Fatalf("ciphertext mismatch after unshield")
+	}
+	if accountState.Nonce != 1 {
+		t.Fatalf("priv nonce = %d, want 1", accountState.Nonce)
+	}
+	if accountState.Version != 1 {
+		t.Fatalf("version = %d, want 1", accountState.Version)
 	}
 }
