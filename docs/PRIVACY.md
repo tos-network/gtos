@@ -6,14 +6,14 @@
 ┌──────────────────────────────────────────────────────┐
 │                     GTOS Node                         │
 │                                                        │
-│   ┌──────────────┐          ┌───────────────┐         │
-│   │   TxPool      │          │  PrivTxPool    │        │
-│   │  (public tx)  │          │ (private tx)   │        │
-│   │  SignerTxType  │          │ PrivTransferTx │        │
-│   │  uses Nonce   │          │ uses PrivNonce  │        │
-│   └──────┬───────┘          └───────┬────────┘        │
-│          │                           │                  │
-│          ▼                           ▼                  │
+│   ┌──────────────────────────────────────────┐        │
+│   │              TxPool (unified)              │       │
+│   │  SignerTxType     → uses account Nonce     │       │
+│   │  PrivTransferTx   → uses PrivNonce (slot)  │       │
+│   │  sorted by: gas price / fee respectively   │       │
+│   └─────────────────────┬────────────────────┘        │
+│                          │                              │
+│                          ▼                              │
 │   ┌───────────────────────────────────────────┐        │
 │   │           Block Assembly                   │       │
 │   │    public txs + private txs mixed          │       │
@@ -48,7 +48,7 @@
 - Full public/private isolation. PrivBalance is allocated only at genesis; afterwards only PrivTransfer (private-to-private) is supported
 - Fees are plaintext `uint64` values deducted from the encrypted balance via homomorphic subtraction (aligned with X protocol). No gas model, no public Balance needed for fee payment
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
-- Private transactions have a dedicated PrivTxPool, fully separate from the public TxPool
+- Private transactions reuse the existing TxPool. The pool dispatches by `tx.Type()` for nonce lookup and validation
 
 **Signature Type Separation**:
 - `PrivTransferTxType`: **ElGamal only**. From/To fields are ElGamal compressed public keys (32 bytes each). No `SignerType` field — the signature algorithm is implicit in the transaction type
@@ -623,90 +623,66 @@ Run gencodec to generate new MarshalJSON/UnmarshalJSON.
 
 ---
 
-## Phase 3: PrivTxPool — Dedicated Private Transaction Pool
+## Phase 3: TxPool Integration — Reuse Existing Pool
 
-### New file `core/priv_tx_pool.go`
+Instead of a dedicated PrivTxPool, PrivTransferTx reuses the existing `TxPool` with type-aware dispatch. This avoids duplicating the pool/queue/eviction/P2P infrastructure.
 
+### Key Modifications to `core/tx_pool.go`
+
+**Nonce dispatch by tx type:**
 ```go
-type PrivTxPool struct {
-    config      PrivTxPoolConfig
-    chainconfig *params.ChainConfig
-    chain       blockChain
-    mu          sync.RWMutex
-
-    currentState  *state.StateDB
-    pendingNonces *privTxNoncer     // uses PrivNonce
-
-    pending map[common.Address]*txList   // keyed by FromAddress(), ordered by PrivNonce
-    queue   map[common.Address]*txList
-    all     *txLookup
-    priced  *txFeeList                   // sorted by Fee (not gas price)
-
-    chainHeadCh  chan ChainHeadEvent      // shared chain head events
-    chainHeadSub event.Subscription
-
-    txFeed event.Feed                     // dedicated feed for miner subscription
-    scope  event.SubscriptionScope
-}
-```
-
-### New file `core/priv_tx_noncer.go`
-
-```go
-type privTxNoncer struct {
-    fallback *state.StateDB
-    nonces   map[common.Address]uint64
-    lock     sync.Mutex
-}
-
-func (txn *privTxNoncer) get(addr common.Address) uint64 {
+// txNoncer.get() dispatches based on tx type
+func (txn *txNoncer) get(addr common.Address, txType byte) uint64 {
     txn.lock.Lock()
     defer txn.lock.Unlock()
-    if _, ok := txn.nonces[addr]; !ok {
-        // Read PrivNonce from storage slot, not account.Nonce
-        txn.nonces[addr] = priv.GetPrivNonce(txn.fallback, addr)
+    key := nonceKey{addr, txType}
+    if _, ok := txn.nonces[key]; !ok {
+        switch txType {
+        case types.PrivTransferTxType:
+            // Read PrivNonce from storage slot
+            txn.nonces[key] = priv.GetPrivNonce(txn.fallback, addr)
+        default:
+            // Read account Nonce as before
+            txn.nonces[key] = txn.fallback.GetNonce(addr)
+        }
     }
-    return txn.nonces[addr]
+    return txn.nonces[key]
 }
 ```
 
-### Transaction Validation
-
+**Validation dispatch:**
 ```go
-func (pool *PrivTxPool) validateTx(tx *types.Transaction) error {
-    // 1. tx.Type() must be PrivTransferTxType
-    // 2. Verify ElGamal Schnorr signature using From pubkey (zero IO)
-    // 3. Fee >= PrivBaseFee and FeeLimit >= Fee
-    // 4. PrivNonce validation (read from storage slot at FromAddress())
-    // 5. Validate From/To are valid Ristretto255 compressed points
-    // 6. Proof size validation: CtValidityProof (~160B), CommitmentEqProof (~192B), RangeProof (~672B)
+func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+    switch tx.Type() {
+    case types.PrivTransferTxType:
+        return pool.validatePrivTransferTx(tx)
+    default:
+        return pool.validateSignerTx(tx, local)
+    }
+}
+
+func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction) error {
+    ptx := tx.inner.(*types.PrivTransferTx)
+    // 1. Verify ElGamal Schnorr signature using From pubkey (zero IO)
+    // 2. Fee >= PrivBaseFee and FeeLimit >= Fee
+    // 3. PrivNonce validation (from storage slot at FromAddress())
+    // 4. Validate From/To are valid Ristretto255 compressed points
+    // 5. Proof size validation: CtValidityProof (~160B), CommitmentEqProof (~192B), RangeProof (~672B)
 }
 ```
 
-### Block Assembly Integration
+**Pending/queue keying:**
+- `SignerTxType` transactions: keyed by `msg.From()`, ordered by account Nonce
+- `PrivTransferTxType` transactions: keyed by `ptx.FromAddress()`, ordered by PrivNonce
+- Both types coexist in the same `pending`/`queue` maps — different addresses cannot collide (ElGamal-derived addresses are disjoint from other signer types)
 
-Modify `miner/worker.go`:
-```go
-// Pull transactions from both pools
-func (w *worker) commitWork() {
-    publicTxs := w.txPool.Pending()       // sorted by gas price
-    privTxs   := w.privTxPool.Pending()   // sorted by fee
-    // Commit public txs first, then priv txs (or interleave by priority)
-}
-```
+**Price sorting:**
+- `SignerTxType`: sorted by `GasPrice` (existing `txPricedList`)
+- `PrivTransferTxType`: `txPrice()` returns `Fee` as `*big.Int` — same sorting interface, fee-based priority
 
-### P2P Broadcast
+**No separate P2P routing needed** — the existing transaction broadcast handles all types. Peers receiving a `PrivTransferTxType` transaction feed it into the same pool.
 
-Modify P2P layer to route by `tx.Type()`:
-- `SignerTxType` → broadcast to TxPool subscribers
-- `PrivTransferTxType` → broadcast to PrivTxPool subscribers
-
-### Node Startup
-
-Modify `cmd/gtos/` or `tos/backend.go`:
-```go
-privPool := core.NewPrivTxPool(privPoolConfig, chainConfig, eth.BlockChain())
-```
+**No separate node startup** — the existing TxPool handles both types after the modifications above.
 
 ---
 
@@ -727,7 +703,7 @@ privPool := core.NewPrivTxPool(privPoolConfig, chainConfig, eth.BlockChain())
 | `tos_unoDecryptBalance` | `priv_decryptBalance` | Client-side balance decryption |
 | `personal_unoBalance` | `priv_personalBalance` | Decrypt using keystore |
 | — | `priv_getNonce` | New: query on-chain PrivNonce by pubkey |
-| — | `priv_pendingNonce` | New: PrivTxPool virtual nonce |
+| — | `priv_pendingNonce` | New: TxPool virtual PrivNonce for pending priv txs |
 
 **RPC Structures**:
 ```go
@@ -760,7 +736,7 @@ type RPCPrivBalanceResult struct {
 }
 ```
 
-`priv_transfer` RPC builds a `PrivTransferTx`, signs with ElGamal Schnorr, and submits to `PrivTxPool`.
+`priv_transfer` RPC builds a `PrivTransferTx`, signs with ElGamal Schnorr, and submits to the unified `TxPool`.
 
 ---
 
@@ -795,7 +771,7 @@ type RPCPrivBalanceResult struct {
 - `core/types/priv_transfer_tx_test.go` — PrivTransferTx RLP encode/decode, ElGamal Schnorr sign/verify
 - `core/priv/signature_test.go` — Schnorr signature round-trip, invalid pubkey rejection
 - `core/priv/state_test.go` — PrivNonce increments independently, does not affect public Nonce
-- `core/priv_tx_pool_test.go` — PrivTxPool ordering by PrivNonce, gap handling, no conflict with TxPool
+- `core/tx_pool_priv_test.go` — TxPool handles PrivTransferTx: PrivNonce ordering, gap handling, coexists with SignerTx
 - `core/priv_state_transition_test.go` — End-to-end: genesis alloc → PrivTransferTx → verify balance change
 - `core/priv_isolation_test.go` — Public/private isolation: PrivTransfer does not change Balance, public transfer does not change PrivBalance
 - `accountsigner/crypto_test.go` — Verify ElGamal signer type is rejected for SignerTxType
@@ -915,8 +891,6 @@ New (12+ files):
   core/priv/memo.go                     — EncryptedMemo ECDH + ChaCha20Poly1305 encrypt/decrypt
   core/priv/zero.go                     — ZeroCiphertext (identity point initialization)
   crypto/priv/schnorr.go                — Schnorr primitives (from accountsigner)
-  core/priv_tx_pool.go                  — Dedicated private transaction pool
-  core/priv_tx_noncer.go                — PrivNonce management
 
 Delete:
   core/uno/                             — entire directory
@@ -931,9 +905,8 @@ Modify (~15 files):
   accountsigner/crypto.go              — Remove ElGamal support from public tx signing
   internal/tosapi/api.go                — Rename RPCs + remove Shield/Unshield
   cmd/toskey/uno_tx.go → priv_tx.go     — Rename CLI
-  miner/worker.go                       — Integrate PrivTxPool
-  tos/backend.go (or cmd/gtos/)         — Initialize PrivTxPool
-  tos/handler.go (P2P)                  — Route broadcast by tx.Type()
+  core/tx_pool.go                       — Add PrivTransferTx validation, PrivNonce dispatch in txNoncer
+  core/tx_noncer.go                     — Type-aware nonce lookup (account Nonce vs PrivNonce)
   internal/unotracker/                  — Rename to privtracker/
 ```
 
@@ -946,7 +919,7 @@ Phase 1 (PrivTransferTx type + core/priv package + state_transition)  ← first,
     │
 Phase 2 (Genesis update)                    ← ensure chain boots
     │
-Phase 3 (PrivTxPool + P2P routing)          ← dedicated mempool
+Phase 3 (TxPool integration)                ← type-aware nonce + validation in existing pool
     │
 Phase 4 (RPC)                               ← external interface
     │
@@ -963,6 +936,6 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 
 - **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType
 - **Phase 2**: Genesis allocates PrivBalance, chain boots, `priv_getBalance` returns correct ciphertext
-- **Phase 3**: PrivTxPool orders by PrivNonce, does not interfere with TxPool; P2P routes correctly by type
+- **Phase 3**: TxPool accepts PrivTransferTx alongside SignerTx; PrivNonce ordering correct; both types coexist without interference
 - **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change
 - **Phase 6**: All public/private isolation tests pass
