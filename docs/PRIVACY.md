@@ -45,10 +45,11 @@
 ```
 
 **Core Principles**:
-- Full public/private isolation. PrivBalance is allocated only at genesis; afterwards only PrivTransfer (private-to-private) is supported
-- Fees are plaintext `uint64` values deducted from the encrypted balance via homomorphic subtraction (aligned with X protocol). No gas model, no public Balance needed for fee payment
+- **V1 scope**: PrivBalance is allocated only at genesis; afterwards only PrivTransfer (private-to-private) is supported. Shield (public→private) and Unshield (private→public) are deferred to v2 — see "Future: Public/Private Bridge" section below
+- Fees are plaintext `uint64` values deducted from the encrypted balance via homomorphic subtraction (aligned with X protocol). No gas model, no public Balance needed for fee payment. Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions reuse the existing TxPool. The pool dispatches by `tx.Type()` for nonce lookup and validation
+- PrivTransferTx uses `gas() == 0` and a plaintext Fee/FeeLimit model instead of the gas model. Block assembly and miner gas-limit checks must skip gas accounting for PrivTransferTxType
 
 **Signature Type Separation**:
 - `PrivTransferTxType`: **ElGamal only**. From/To fields are ElGamal compressed public keys (32 bytes each). No `SignerType` field — the signature algorithm is implicit in the transaction type
@@ -63,6 +64,31 @@
 | **Reference field** | `Reference { hash, topoheight }` — binds proof to balance at specific block | Not needed | GTOS uses a linear chain with sequential block execution; nonce ordering guarantees the sender's balance state at proof time matches execution time |
 | **Serialization** | Custom binary `Writer`/`Reader` serialization | RLP encoding | Consistent with GTOS existing framework; all public transaction types use RLP |
 | **Dual-account model** | Pure privacy chain — all balances encrypted, no public balance | Dual: public `Balance` (Account trie) + private `PrivBalance` (storage slots) | GTOS supports both public and private economies on the same chain |
+
+---
+
+## Future: Public/Private Bridge (v2)
+
+V1 deliberately omits Shield (public→private) and Unshield (private→public) to keep the initial scope minimal. This section documents why the bridge is needed and how it should be added.
+
+**Why a bridge is necessary for a dual-economy chain:**
+
+XELIS is a pure privacy chain — all balances are encrypted, so no bridge is needed. GTOS is different: it has a public economy (validator rewards, agent payments, smart contracts, system actions) and a private economy. Without a bridge:
+
+- Validator block rewards (public TOS) can never enter the private economy
+- Agent income from sysactions (public TOS) cannot be made private
+- Private TOS cannot be used for smart contract interaction or escrow
+- The private economy is a closed system seeded only at genesis, with supply that can only decrease (via fees)
+- New users cannot obtain private TOS except by receiving a priv-transfer from an existing holder
+
+**Planned v2 additions:**
+
+| Action | TX Type | Description |
+|--------|---------|-------------|
+| **Shield** | `PrivShieldTxType` (0x02) | Sender burns public Balance, receives equivalent encrypted PrivBalance. Proof: commitment to shielded amount + range proof. Signed with the sender's public signer key (ed25519 etc), not ElGamal — because the sender is a public account. |
+| **Unshield** | `PrivUnshieldTxType` (0x03) | Sender deducts from encrypted PrivBalance, receives equivalent public Balance at a designated recipient address. Proof: balance proof (sufficient encrypted balance) + range proof. Signed with ElGamal Schnorr — because the sender is a priv account. |
+
+Shield and Unshield are structurally simpler than PrivTransfer (single party, no receiver ciphertext). They can be added after v1 stabilizes without changing the PrivTransferTx wire format or state model.
 
 ---
 
@@ -215,8 +241,8 @@ type PrivTransferTx struct {
 // Implements TxData interface
 func (tx *PrivTransferTx) txType() byte        { return PrivTransferTxType }
 func (tx *PrivTransferTx) chainID() *big.Int    { return tx.ChainID }
-func (tx *PrivTransferTx) gas() uint64          { return 0 }            // no gas model
-func (tx *PrivTransferTx) txPrice() *big.Int    { return common.Big0 }  // fee via Fee/FeeLimit fields
+func (tx *PrivTransferTx) gas() uint64          { return 0 }            // no gas model; miner skips gas-limit check for this type
+func (tx *PrivTransferTx) txPrice() *big.Int    { return new(big.Int).SetUint64(tx.Fee) } // used by TxPool priced list for priority sorting
 func (tx *PrivTransferTx) value() *big.Int      { return common.Big0 }  // always 0
 func (tx *PrivTransferTx) nonce() uint64        { return tx.PrivNonce }
 func (tx *PrivTransferTx) to() *common.Address  { /* derive address from To pubkey */ }
@@ -415,6 +441,12 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 // applyPrivTransfer() — reads directly from tx fields, no Envelope decoding, no signer lookup
 //
+// Gas handling: PrivTransferTx has gas()=0. The caller (TransitionDb) must skip:
+//   - intrinsicGas check (not applicable)
+//   - gas purchase / refund accounting
+//   - block gas limit deduction
+// Cost control is via Fee/FeeLimit only.
+//
 // Fee model (aligned with X protocol):
 //   - Fee and FeeLimit are plaintext uint64 values
 //   - At tx build time, sender locks FeeLimit into the SourceCommitment:
@@ -520,8 +552,11 @@ func (st *StateTransition) applyPrivTransfer() error {
     // 9. Increment PrivNonce
     priv.IncrementPrivNonce(st.state, fromAddr)
 
-    // 10. Record fee paid (for block reward distribution)
-    st.addPrivFee(feePaid)
+    // 10. Record fee paid — credited to block coinbase as public TOS
+    //     This converts private fee into public balance, same distribution
+    //     path as gas fees from SignerTxType transactions.
+    //     The coinbase validator receives: block_reward + sum(gas_fees) + sum(priv_fees)
+    st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).SetUint64(feePaid))
 
     return nil
 }
@@ -549,7 +584,31 @@ default:
 }
 ```
 
-### 1g. Remove ElGamal from `accountsigner/`
+### 1g. Update `miner/worker.go` — Gas-Free Block Assembly
+
+PrivTransferTx has `gas() == 0`, so the miner must not deduct gas from the block gas limit when including private transactions:
+
+```go
+func (w *worker) commitTransactions(txs *types.TransactionsByPriceAndNonce, ...) {
+    for {
+        tx := txs.Peek()
+        ...
+        // Skip gas limit check for private transactions
+        if tx.Type() == types.PrivTransferTxType {
+            // No gas accounting — cost controlled by Fee/FeeLimit
+            // Just execute and include
+        } else {
+            // Existing gas limit check
+            if w.current.gasPool.Gas() < tx.Gas() { break }
+        }
+        ...
+    }
+}
+```
+
+A per-block cap on the number of PrivTransferTx (e.g. `PrivMaxPerBlock = 200`) should be enforced to bound proof verification cost.
+
+### 1h. Remove ElGamal from `accountsigner/`
 
 **Modify** `accountsigner/crypto.go`:
 ```go
@@ -907,6 +966,7 @@ Modify (~15 files):
   cmd/toskey/uno_tx.go → priv_tx.go     — Rename CLI
   core/tx_pool.go                       — Add PrivTransferTx validation, PrivNonce dispatch in txNoncer
   core/tx_noncer.go                     — Type-aware nonce lookup (account Nonce vs PrivNonce)
+  miner/worker.go                       — Skip gas-limit deduction for PrivTransferTxType; enforce PrivMaxPerBlock cap
   internal/unotracker/                  — Rename to privtracker/
 ```
 
@@ -934,8 +994,8 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 
 ## Verification Strategy
 
-- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType
+- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; fee credited to coinbase as public TOS; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType; `TransitionDb()` skips gas purchase/refund for PrivTransferTxType
 - **Phase 2**: Genesis allocates PrivBalance, chain boots, `priv_getBalance` returns correct ciphertext
-- **Phase 3**: TxPool accepts PrivTransferTx alongside SignerTx; PrivNonce ordering correct; both types coexist without interference
-- **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change
-- **Phase 6**: All public/private isolation tests pass
+- **Phase 3**: TxPool accepts PrivTransferTx alongside SignerTx; PrivNonce ordering correct; `txPrice()` returns Fee for priced-list sorting; both types coexist without interference; miner includes PrivTransferTx without gas-limit deduction; PrivMaxPerBlock cap enforced
+- **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change; coinbase balance increases by fee amount
+- **Phase 6**: All public/private isolation tests pass; PrivTransfer does not change public Balance; public transfer does not change PrivBalance; fee flows to coinbase correctly
