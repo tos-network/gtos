@@ -308,6 +308,14 @@ func (st *StateTransition) preCheck() error {
 //  5. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
 //  6. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
+	// PrivTransferTx uses a completely separate fee model: gas=0, no buyGas,
+	// no intrinsic-gas check, no refund, no gas-based miner fee.  The fee is
+	// handled entirely inside applyPrivTransfer() which credits coinbase
+	// directly.  Skip all gas-related pre-checks and post-processing.
+	if st.msg.Type() == types.PrivTransferTxType {
+		return st.transitionPrivTransfer()
+	}
+
 	if err := st.preCheck(); err != nil {
 		return nil, err
 	}
@@ -889,6 +897,28 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	default:
 		return uno.ErrUnsupportedAction
 	}
+}
+
+// transitionPrivTransfer handles the full state transition for PrivTransferTx.
+// It bypasses the normal gas pipeline (preCheck/buyGas, intrinsicGas,
+// refundGas, gas-based miner fee) because PrivTransferTx uses a separate
+// plaintext fee model handled inside applyPrivTransfer().
+func (st *StateTransition) transitionPrivTransfer() (*ExecutionResult, error) {
+	var vmerr error
+	if st.ctxAborted() {
+		vmerr = ErrExecutionAborted
+	} else {
+		snap := st.state.Snapshot()
+		vmerr = st.applyPrivTransfer()
+		if vmerr != nil {
+			st.state.RevertToSnapshot(snap)
+		}
+	}
+	return &ExecutionResult{
+		UsedGas:    0,
+		Err:        vmerr,
+		ReturnData: nil,
+	}, nil
 }
 
 // applyPrivTransfer executes a PrivTransferTx: verifies proofs, updates

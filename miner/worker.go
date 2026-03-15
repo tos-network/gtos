@@ -29,6 +29,7 @@ import (
 	"github.com/tos-network/gtos/consensus"
 	"github.com/tos-network/gtos/consensus/misc"
 	"github.com/tos-network/gtos/core"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
@@ -103,6 +104,9 @@ type environment struct {
 // txSenderHint returns a sender hint for non-consensus contexts.
 // It prefers cryptographic recovery and falls back to explicit SignerTx.from.
 func txSenderHint(signer types.Signer, tx *types.Transaction) common.Address {
+	if from, ok := tx.PrivTransferFrom(); ok {
+		return from
+	}
 	if from, err := types.Sender(signer, tx); err == nil {
 		return from
 	}
@@ -601,9 +605,20 @@ func (w *worker) mainLoop() {
 			// already included in the current sealing block. These transactions will
 			// be automatically eliminated.
 			if !w.isRunning() && w.current != nil {
-				// If block is already full, abort
+				// If block is already full for regular txs, check whether
+				// any incoming tx is a PrivTransferTx (which skips gas
+				// accounting). Only abort if none are private transfers.
 				if gp := w.current.gasPool; gp != nil && gp.Gas() < params.TxGas {
-					continue
+					hasPrivTransfer := false
+					for _, tx := range ev.Txs {
+						if tx.Type() == types.PrivTransferTxType {
+							hasPrivTransfer = true
+							break
+						}
+					}
+					if !hasPrivTransfer {
+						continue
+					}
 				}
 				newTxs := make(map[common.Address]types.Transactions)
 				for _, tx := range ev.Txs {
@@ -849,19 +864,30 @@ func (w *worker) selectTransactions(
 			if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
 				return true
 			}
-			if remainingGas < params.TxGas {
-				log.Trace("Not enough gas for further transactions", "have", remainingGas, "want", params.TxGas)
-				break
-			}
 			tx := iter.Peek()
 			if tx == nil {
 				break
 			}
+			isPrivTransfer := tx.Type() == types.PrivTransferTxType
+
+			// PrivTransferTx has gas=0 and skips block gas accounting,
+			// so the minimum-gas early exit only applies to regular txs.
+			if !isPrivTransfer && remainingGas < params.TxGas {
+				log.Trace("Not enough gas for further transactions", "have", remainingGas, "want", params.TxGas)
+				break
+			}
+
 			from := txSenderHint(env.signer, tx)
 
+			// PrivTransferTx uses PrivNonce (stored in a separate state slot)
+			// instead of the regular account nonce.
 			expected, ok := nextNonce[from]
 			if !ok {
-				expected = env.state.GetNonce(from)
+				if isPrivTransfer {
+					expected = priv.GetPrivNonce(env.state, from)
+				} else {
+					expected = env.state.GetNonce(from)
+				}
 				nextNonce[from] = expected
 			}
 			if tx.Nonce() < expected {
@@ -874,10 +900,13 @@ func (w *worker) selectTransactions(
 				iter.Pop()
 				continue
 			}
-			if tx.Gas() > remainingGas {
-				log.Trace("Gas limit exceeded for current block", "sender", from)
-				iter.Pop()
-				continue
+			// PrivTransferTx: gas=0, skip block gas-limit check and deduction.
+			if !isPrivTransfer {
+				if tx.Gas() > remainingGas {
+					log.Trace("Gas limit exceeded for current block", "sender", from)
+					iter.Pop()
+					continue
+				}
 			}
 			msg, err := core.TxAsMessageWithAccountSigner(tx, env.signer, env.header.BaseFee, env.state)
 			if err != nil {
@@ -888,7 +917,9 @@ func (w *worker) selectTransactions(
 			selected = append(selected, tx)
 			msgs = append(msgs, msg)
 			nextNonce[from] = expected + 1
-			remainingGas -= tx.Gas()
+			if !isPrivTransfer {
+				remainingGas -= tx.Gas()
+			}
 			iter.Shift()
 		}
 		return false
