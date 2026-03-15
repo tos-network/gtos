@@ -27,7 +27,8 @@ func FuzzNormalizeSignerNoPanic(f *testing.F) {
 		if typ == "" || len(pub) == 0 {
 			t.Fatalf("normalized signer has empty type/pub")
 		}
-		if !SupportsCurrentTxSignatureType(typ) {
+		// ElGamal normalizes but is not supported for public tx signing
+		if typ != SignerTypeElgamal && !SupportsCurrentTxSignatureType(typ) {
 			t.Fatalf("normalized unsupported signer type %q", typ)
 		}
 		decoded, err := hexutil.Decode(canonicalValue)

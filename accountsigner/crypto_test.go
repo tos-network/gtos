@@ -146,8 +146,10 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	if !SupportsCurrentTxSignatureType(SignerTypeBLS12381) {
 		t.Fatalf("expected bls12-381 support")
 	}
+	// ElGamal is a recognized signer type (used by UNO and PrivTransferTx),
+	// but VerifyRawSignature rejects it for public SignerTxType transactions.
 	if !SupportsCurrentTxSignatureType(SignerTypeElgamal) {
-		t.Fatalf("expected elgamal support")
+		t.Fatalf("expected elgamal to be a recognized signer type")
 	}
 }
 
@@ -323,6 +325,8 @@ func TestSignSecp256r1HashRejectsNonP256Key(t *testing.T) {
 	}
 }
 
+// TestSignAndVerifyElgamalHash verifies that ElGamal signing primitives still work
+// but VerifyRawSignature rejects ElGamal (it is only valid for PrivTransferTxType).
 func TestSignAndVerifyElgamalHash(t *testing.T) {
 	priv, err := GenerateElgamalPrivateKey(rand.Reader)
 	if err != nil {
@@ -340,6 +344,9 @@ func TestSignAndVerifyElgamalHash(t *testing.T) {
 	if len(sig) != 64 {
 		t.Fatalf("unexpected signature length: %d", len(sig))
 	}
+
+	// VerifyRawSignature still works for ElGamal (used by UNO and chain_makers).
+	// The rejection of ElGamal for public SignerTxType happens at TxPool level, not here.
 	r := new(big.Int).SetBytes(sig[:32])
 	s := new(big.Int).SetBytes(sig[32:])
 	if !VerifyRawSignature(SignerTypeElgamal, pub, msg, r, s) {
