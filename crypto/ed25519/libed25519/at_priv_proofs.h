@@ -1,10 +1,10 @@
-#ifndef HEADER_at_crypto_at_uno_proofs_h
-#define HEADER_at_crypto_at_uno_proofs_h
+#ifndef HEADER_at_crypto_at_priv_proofs_h
+#define HEADER_at_crypto_at_priv_proofs_h
 
-/* at_uno_proofs.h - UNO Zero-Knowledge Proof Structures
+/* at_priv_proofs.h - Privacy Zero-Knowledge Proof Structures
 
    This module implements the cryptographic proof structures used in
-   TOS UNO (privacy) transactions:
+   TOS privacy transactions:
 
    1. ShieldCommitmentProof (96 bytes)
       - Proves that a Pedersen commitment C = amount*G + r*H contains
@@ -24,7 +24,7 @@
 
 AT_PROTOTYPES_BEGIN
 
-typedef struct at_uno_batch_collector at_uno_batch_collector_t;
+typedef struct at_priv_batch_collector at_priv_batch_collector_t;
 
 /**********************************************************************/
 /* ShieldCommitmentProof (96 bytes)                                    */
@@ -165,7 +165,7 @@ at_commitment_eq_proof_pre_verify( at_commitment_eq_proof_t const * proof,
                                    uchar const                      source_ciphertext[64],
                                    uchar const                      destination_commitment[32],
                                    at_merlin_transcript_t *         transcript,
-                                   at_uno_batch_collector_t *       collector );
+                                   at_priv_batch_collector_t *       collector );
 
 typedef struct {
   ulong amount;
@@ -190,7 +190,7 @@ at_balance_proof_pre_verify( at_balance_proof_t const * proof,
                              uchar const                public_key[32],
                              uchar const                source_ciphertext[64],
                              at_merlin_transcript_t *   transcript,
-                             at_uno_batch_collector_t * collector );
+                             at_priv_batch_collector_t * collector );
 
 /**********************************************************************/
 /* Transcript Domain Separators                                        */
@@ -240,21 +240,21 @@ extern uchar const AT_PEDERSEN_H_COMPRESSED[32];
 
 /* C path verifies equations individually. This collector is provided to keep
    API parity with Rust pre_verify/batch flows used by higher layers. */
-struct at_uno_batch_collector {
+struct at_priv_batch_collector {
   uint reserved;
 };
 
-typedef struct at_uno_batch_collector at_uno_batch_collector_t;
+typedef struct at_priv_batch_collector at_priv_batch_collector_t;
 
 static inline void
-at_uno_batch_collector_init( at_uno_batch_collector_t * c ) {
+at_priv_batch_collector_init( at_priv_batch_collector_t * c ) {
   if( c ) c->reserved = 0u;
 }
 
 /* Returns 0 to indicate "collected equations verify".
    In C implementation equations are checked eagerly in pre_verify wrappers. */
 static inline int
-at_uno_batch_collector_verify( at_uno_batch_collector_t const * c ) {
+at_priv_batch_collector_verify( at_priv_batch_collector_t const * c ) {
   (void)c;
   return 0;
 }
@@ -267,7 +267,7 @@ at_shield_proof_pre_verify( at_shield_proof_t const *   proof,
                             uchar const                receiver_pubkey[32],
                             ulong                      amount,
                             at_merlin_transcript_t *   transcript,
-                            at_uno_batch_collector_t * collector );
+                            at_priv_batch_collector_t * collector );
 
 int
 at_ct_validity_proof_pre_verify( at_ct_validity_proof_t const * proof,
@@ -278,8 +278,8 @@ at_ct_validity_proof_pre_verify( at_ct_validity_proof_t const * proof,
                                  uchar const                    receiver_pubkey[32],
                                  int                            tx_version_t1,
                                  at_merlin_transcript_t *       transcript,
-                                 at_uno_batch_collector_t *     collector );
+                                 at_priv_batch_collector_t *     collector );
 
 AT_PROTOTYPES_END
 
-#endif /* HEADER_at_crypto_at_uno_proofs_h */
+#endif /* HEADER_at_crypto_at_priv_proofs_h */

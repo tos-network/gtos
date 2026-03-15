@@ -10,7 +10,7 @@ import (
 const (
 	privContextVersion  byte = 1
 	privNativeAssetTag  byte = 0
-	privActionTransfer  byte = 0x10 // distinct from uno action IDs
+	privActionTransfer  byte = 0x10 // distinct from old action IDs
 )
 
 func appendU8(dst []byte, v byte) []byte {

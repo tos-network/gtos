@@ -2,26 +2,26 @@
 
 package ed25519
 
-func VerifyUNOShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64) error {
+func VerifyPrivShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64) error {
 	_ = proof96
 	_ = commitment
 	_ = receiverHandle
 	_ = receiverPubkey
 	_ = amount
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+func VerifyPrivShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
 	_ = proof96
 	_ = commitment
 	_ = receiverHandle
 	_ = receiverPubkey
 	_ = amount
 	_ = ctx
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
+func VerifyPrivCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
 	_ = proof
 	_ = commitment
 	_ = senderHandle
@@ -29,10 +29,10 @@ func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, s
 	_ = senderPubkey
 	_ = receiverPubkey
 	_ = txVersionT1
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
+func VerifyPrivCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
 	_ = proof
 	_ = commitment
 	_ = senderHandle
@@ -41,148 +41,148 @@ func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiv
 	_ = receiverPubkey
 	_ = txVersionT1
 	_ = ctx
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
 func ElgamalCTAddCompressed(a64, b64 []byte) ([]byte, error) {
 	_ = a64
 	_ = b64
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTSubCompressed(a64, b64 []byte) ([]byte, error) {
 	_ = a64
 	_ = b64
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTAddAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 	_ = in64
 	_ = amount
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTSubAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 	_ = in64
 	_ = amount
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTNormalizeCompressed(in64 []byte) ([]byte, error) {
 	_ = in64
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTZeroCompressed() ([]byte, error) {
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTAddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	_ = in64
 	_ = scalar32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTSubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	_ = in64
 	_ = scalar32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalCTMulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	_ = in64
 	_ = scalar32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
-func VerifyUNOCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
+func VerifyPrivCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
 	_ = proof192
 	_ = sourcePubkey
 	_ = sourceCiphertext64
 	_ = destinationCommitment
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func VerifyUNOBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
+func VerifyPrivBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	_ = proof
 	_ = publicKey
 	_ = sourceCiphertext64
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+func VerifyPrivBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
 	_ = proof
 	_ = publicKey
 	_ = sourceCiphertext64
 	_ = ctx
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
 	_ = receiverPubkey
 	_ = amount
 	_ = opening32
 	_ = ctx
-	return nil, nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
 	_ = receiverPubkey
 	_ = amount
 	_ = opening32
-	return nil, nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
 	_ = senderPubkey
 	_ = receiverPubkey
 	_ = amount
 	_ = opening32
 	_ = txVersionT1
 	_ = ctx
-	return nil, nil, nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, nil, nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
 	_ = senderPubkey
 	_ = receiverPubkey
 	_ = amount
 	_ = opening32
 	_ = txVersionT1
-	return nil, nil, nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, nil, nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
+func ProvePrivBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
 	_ = sourcePrivkey32
 	_ = sourceCiphertext64
 	_ = amount
 	_ = ctx
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
+func ProvePrivBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
 	_ = sourcePrivkey32
 	_ = sourceCiphertext64
 	_ = amount
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
-func VerifyUNORangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
+func VerifyPrivRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	_ = proof
 	_ = commitments
 	_ = bitLengths
 	_ = batchLen
-	return ErrUNOBackendUnavailable
+	return ErrPrivBackendUnavailable
 }
 
-func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
+func ProvePrivRangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
 	_ = commitment32
 	_ = value
 	_ = blinding32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
+func ProvePrivCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
 	_ = sourcePrivkey
 	_ = sourcePubkey
 	_ = sourceCiphertext64
@@ -190,81 +190,81 @@ func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, 
 	_ = opening32
 	_ = amount
 	_ = ctx
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
-func ProveUNOAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
+func ProvePrivAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
 	_ = commitments
 	_ = values
 	_ = blindings
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {
 	_ = priv32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalEncrypt(pub32 []byte, amount uint64) ([]byte, error) {
 	_ = pub32
 	_ = amount
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func PedersenOpeningGenerate() ([]byte, error) {
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func PedersenCommitmentNew(amount uint64) (commitment32 []byte, opening32 []byte, err error) {
 	_ = amount
-	return nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, ErrPrivBackendUnavailable
 }
 
 func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, error) {
 	_ = opening32
 	_ = amount
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalDecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
 	_ = pub32
 	_ = opening32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalEncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, error) {
 	_ = pub32
 	_ = amount
 	_ = opening32
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalEncryptWithGeneratedOpening(pub32 []byte, amount uint64) (ct64 []byte, opening32 []byte, err error) {
 	_ = pub32
 	_ = amount
-	return nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalKeypairGenerate() (pub32 []byte, priv32 []byte, err error) {
-	return nil, nil, ErrUNOBackendUnavailable
+	return nil, nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	_ = priv32
 	_ = ct64
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
 	_ = pub32
 	_ = mainnet
-	return "", ErrUNOBackendUnavailable
+	return "", ErrPrivBackendUnavailable
 }
 
 func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s [32]byte, e [32]byte, err error) {
 	_ = privkey
 	_ = message
-	return s, e, ErrUNOBackendUnavailable
+	return s, e, ErrPrivBackendUnavailable
 }
 
 func ElgamalSchnorrVerify(pubkey [32]byte, message []byte, s [32]byte, e [32]byte) bool {
@@ -280,7 +280,7 @@ func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext []byte, aad
 	_ = nonce
 	_ = plaintext
 	_ = aad
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aad []byte) ([]byte, error) {
@@ -288,18 +288,18 @@ func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aa
 	_ = nonce
 	_ = ciphertext
 	_ = aad
-	return nil, ErrUNOBackendUnavailable
+	return nil, ErrPrivBackendUnavailable
 }
 
 func X25519Exchange(privkey [32]byte, peerPubkey [32]byte) ([32]byte, error) {
 	_ = privkey
 	_ = peerPubkey
 	var zero [32]byte
-	return zero, ErrUNOBackendUnavailable
+	return zero, ErrPrivBackendUnavailable
 }
 
 func X25519Public(privkey [32]byte) ([32]byte, error) {
 	_ = privkey
 	var zero [32]byte
-	return zero, ErrUNOBackendUnavailable
+	return zero, ErrPrivBackendUnavailable
 }

@@ -168,13 +168,13 @@ func GenerateKeypair() (pub32 []byte, priv32 []byte, err error) {
 
 func mapBackendError(err error) error {
 	switch {
-	case errors.Is(err, ed25519.ErrUNOBackendUnavailable):
+	case errors.Is(err, ed25519.ErrPrivBackendUnavailable):
 		return ErrBackendUnavailable
-	case errors.Is(err, ed25519.ErrUNOInvalidInput):
+	case errors.Is(err, ed25519.ErrPrivInvalidInput):
 		return ErrInvalidInput
-	case errors.Is(err, ed25519.ErrUNOInvalidProof):
+	case errors.Is(err, ed25519.ErrPrivInvalidProof):
 		return ErrInvalidProof
-	case errors.Is(err, ed25519.ErrUNOOperationFailed):
+	case errors.Is(err, ed25519.ErrPrivOperationFailed):
 		return ErrOperationFailed
 	default:
 		return err

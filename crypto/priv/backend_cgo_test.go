@@ -85,7 +85,7 @@ func loadFixture(t *testing.T) deterministicFixture {
 
 func TestBackendEnabledWithCgo(t *testing.T) {
 	if !BackendEnabled() {
-		t.Fatal("expected UNO backend enabled with cgo build")
+		t.Fatal("expected priv backend enabled with cgo build")
 	}
 }
 

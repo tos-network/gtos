@@ -19,13 +19,13 @@ AUTO_FUND_AMOUNT="${AUTO_FUND_AMOUNT:-10}"
 CONFIRM_TIMEOUT_SEC="${CONFIRM_TIMEOUT_SEC:-120}"
 POLL_SEC="${POLL_SEC:-1}"
 MAX_BALANCE_SEARCH="${MAX_BALANCE_SEARCH:-1000000000}"
-OUT_DIR="${OUT_DIR:-/data/gtos/uno_e2e/run_$(date -u +%Y%m%d_%H%M%S)}"
+OUT_DIR="${OUT_DIR:-/data/gtos/priv_e2e/run_$(date -u +%Y%m%d_%H%M%S)}"
 
 usage() {
 	cat <<'EOF'
-Usage: scripts/uno_e2e_soak.sh --key-a <path> --key-b <path> [options]
+Usage: scripts/priv_e2e_soak.sh --key-a <path> --key-b <path> [options]
 
-Run repeated UNO e2e cycles on a live node:
+Run repeated priv e2e cycles on a live node:
   A shield -> A transfer to B -> B unshield to A
 
 Required:
@@ -45,7 +45,7 @@ Options:
   --auto-fund-amount <n>    public top-up amount per trigger, in TOS units (default: 10)
   --confirm-timeout <sec>   tx receipt timeout (default: 120)
   --poll <sec>              polling interval for receipts (default: 1)
-  --max-balance <n>         toskey uno-balance max-amount (default: 1000000000)
+  --max-balance <n>         toskey priv-balance max-amount (default: 1000000000)
   --out-dir <path>          output directory
   -h, --help                show this help
 
@@ -273,9 +273,9 @@ print(obj["Address"])
 PY
 }
 
-uno_balance_json() {
+priv_balance_json() {
 	local keyfile="$1"
-	"${TOSKEY_BIN}" uno-balance \
+	"${TOSKEY_BIN}" priv-balance \
 		--json \
 		--rpc "${RPC_URL}" \
 		--passwordfile "${PASSFILE}" \
@@ -316,7 +316,7 @@ PY
 	fail "timeout waiting receipt for ${txhash}"
 }
 
-submit_uno_tx() {
+submit_priv_tx() {
 	local mode="$1"
 	local keyfile="$2"
 	local to_addr="${3:-}"
@@ -326,13 +326,13 @@ submit_uno_tx() {
 
 	case "${mode}" in
 	shield)
-		out="$("${TOSKEY_BIN}" uno-shield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
+		out="$("${TOSKEY_BIN}" priv-shield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	transfer)
-		out="$("${TOSKEY_BIN}" uno-transfer --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
+		out="$("${TOSKEY_BIN}" priv-transfer --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	unshield)
-		out="$("${TOSKEY_BIN}" uno-unshield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
+		out="$("${TOSKEY_BIN}" priv-unshield --json --rpc "${RPC_URL}" --passwordfile "${PASSFILE}" --to "${to_addr}" --amount "${amount}" "${keyfile}" 2>&1)" || rc=$?
 		;;
 	*)
 		fail "unknown mode: ${mode}"
@@ -376,7 +376,7 @@ PY
 A_ADDR="$(address_from_keyfile "${KEY_A}")"
 B_ADDR="$(address_from_keyfile "${KEY_B}")"
 
-echo "==> UNO e2e soak"
+echo "==> priv e2e soak"
 echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "rpc: ${RPC_URL}"
 echo "unlock ipc: ${UNLOCK_IPC}"
@@ -426,20 +426,20 @@ PY
 		fi
 	fi
 
-	a_before_json="$(uno_balance_json "${KEY_A}")"
-	b_before_json="$(uno_balance_json "${KEY_B}")"
+	a_before_json="$(priv_balance_json "${KEY_A}")"
+	b_before_json="$(priv_balance_json "${KEY_B}")"
 	a_before="$(json_get "${a_before_json}" "balance")"
 	b_before="$(json_get "${b_before_json}" "balance")"
 
-	tx_shield="$(submit_uno_tx shield "${KEY_A}" "" "${SHIELD_AMOUNT}")"
+	tx_shield="$(submit_priv_tx shield "${KEY_A}" "" "${SHIELD_AMOUNT}")"
 	wait_receipt_ok "${tx_shield}" "${CONFIRM_TIMEOUT_SEC}"
-	tx_transfer="$(submit_uno_tx transfer "${KEY_A}" "${B_ADDR}" "${TRANSFER_AMOUNT}")"
+	tx_transfer="$(submit_priv_tx transfer "${KEY_A}" "${B_ADDR}" "${TRANSFER_AMOUNT}")"
 	wait_receipt_ok "${tx_transfer}" "${CONFIRM_TIMEOUT_SEC}"
-	tx_unshield="$(submit_uno_tx unshield "${KEY_B}" "${A_ADDR}" "${UNSHIELD_AMOUNT}")"
+	tx_unshield="$(submit_priv_tx unshield "${KEY_B}" "${A_ADDR}" "${UNSHIELD_AMOUNT}")"
 	wait_receipt_ok "${tx_unshield}" "${CONFIRM_TIMEOUT_SEC}"
 
-	a_after_json="$(uno_balance_json "${KEY_A}")"
-	b_after_json="$(uno_balance_json "${KEY_B}")"
+	a_after_json="$(priv_balance_json "${KEY_A}")"
+	b_after_json="$(priv_balance_json "${KEY_B}")"
 	a_after="$(json_get "${a_after_json}" "balance")"
 	b_after="$(json_get "${b_after_json}" "balance")"
 	block_now="$(rpc_block_number_dec)"
@@ -447,10 +447,10 @@ PY
 	expected_a=$((a_before + SHIELD_AMOUNT - TRANSFER_AMOUNT))
 	expected_b=$((b_before + TRANSFER_AMOUNT - UNSHIELD_AMOUNT))
 	if (( a_after != expected_a )); then
-		fail "iteration ${i}: A UNO balance mismatch, got=${a_after}, expected=${expected_a}"
+		fail "iteration ${i}: A priv balance mismatch, got=${a_after}, expected=${expected_a}"
 	fi
 	if (( b_after != expected_b )); then
-		fail "iteration ${i}: B UNO balance mismatch, got=${b_after}, expected=${expected_b}"
+		fail "iteration ${i}: B priv balance mismatch, got=${b_after}, expected=${expected_b}"
 	fi
 
 	echo "iteration ${i} ok: block=${block_now} A ${a_before}->${a_after} B ${b_before}->${b_after}"
@@ -458,7 +458,7 @@ PY
 done
 
 echo
-echo "UNO e2e soak completed successfully."
+echo "priv e2e soak completed successfully."
 echo "artifacts:"
 echo "  ${LOG_FILE}"
 echo "  ${CSV_FILE}"

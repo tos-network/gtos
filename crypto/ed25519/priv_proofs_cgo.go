@@ -8,7 +8,7 @@ package ed25519
 #cgo CFLAGS: -I${SRCDIR}/libed25519/include
 
 #include <stddef.h>
-#include "at_uno_proofs.h"
+#include "at_priv_proofs.h"
 #include "at_merlin.h"
 #include "at_elgamal.h"
 #include "at_schnorr.h"
@@ -21,14 +21,14 @@ package ed25519
 #include "./libed25519/at_merlin.c"
 #include "./libed25519/at_elgamal.c"
 #include "./libed25519/at_rangeproofs.c"
-#include "./libed25519/at_uno_proofs.c"
+#include "./libed25519/at_priv_proofs.c"
 #include "./libed25519/at_x25519.c"
 
-// gtos_uno_transcript_append_ctx appends canonical chain context bytes to an
+// gtos_priv_transcript_append_ctx appends canonical chain context bytes to an
 // already-initialised Merlin transcript. This binds the proof to the specific
 // chain, action type, sender, and receiver, preventing cross-chain and
 // cross-action replay. The label "chain-ctx" must match the prover.
-static void gtos_uno_transcript_append_ctx(at_merlin_transcript_t *t,
+static void gtos_priv_transcript_append_ctx(at_merlin_transcript_t *t,
                                            const unsigned char *ctx,
                                            size_t ctx_sz) {
   if (ctx && ctx_sz > 0) {
@@ -38,7 +38,7 @@ static void gtos_uno_transcript_append_ctx(at_merlin_transcript_t *t,
   }
 }
 
-static int gtos_uno_verify_shield_ctx(const unsigned char *proof96,
+static int gtos_priv_verify_shield_ctx(const unsigned char *proof96,
                                       const unsigned char *commitment,
                                       const unsigned char *receiver_handle,
                                       const unsigned char *receiver_pubkey,
@@ -51,11 +51,11 @@ static int gtos_uno_verify_shield_ctx(const unsigned char *proof96,
   }
   at_merlin_transcript_t transcript;
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_SHIELD_PROOF_DOMAIN));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   return at_shield_proof_verify(&proof, commitment, receiver_handle, receiver_pubkey, amount, &transcript);
 }
 
-static int gtos_uno_verify_ct_validity_ctx(const unsigned char *proof,
+static int gtos_priv_verify_ct_validity_ctx(const unsigned char *proof,
                                            size_t proof_sz,
                                            const unsigned char *commitment,
                                            const unsigned char *sender_handle,
@@ -75,11 +75,11 @@ static int gtos_uno_verify_ct_validity_ctx(const unsigned char *proof,
   }
   at_merlin_transcript_t transcript;
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_CT_VALIDITY_DOMAIN));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   return at_ct_validity_proof_verify(&parsed, commitment, sender_handle, receiver_handle, sender_pubkey, receiver_pubkey, tx_version_t1, &transcript);
 }
 
-static int gtos_uno_verify_balance_ctx(const unsigned char *proof,
+static int gtos_priv_verify_balance_ctx(const unsigned char *proof,
                                        size_t proof_sz,
                                        const unsigned char *public_key,
                                        const unsigned char *source_ciphertext64,
@@ -90,14 +90,14 @@ static int gtos_uno_verify_balance_ctx(const unsigned char *proof,
     return -1;
   }
   at_merlin_transcript_t transcript;
-  at_uno_batch_collector_t collector;
-  at_uno_batch_collector_init(&collector);
+  at_priv_batch_collector_t collector;
+  at_priv_batch_collector_init(&collector);
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL("balance_proof"));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   return at_balance_proof_pre_verify(&parsed, public_key, source_ciphertext64, &transcript, &collector);
 }
 
-static int gtos_uno_verify_shield(const unsigned char *proof96,
+static int gtos_priv_verify_shield(const unsigned char *proof96,
                                   const unsigned char *commitment,
                                   const unsigned char *receiver_handle,
                                   const unsigned char *receiver_pubkey,
@@ -111,7 +111,7 @@ static int gtos_uno_verify_shield(const unsigned char *proof96,
   return at_shield_proof_verify(&proof, commitment, receiver_handle, receiver_pubkey, amount, &transcript);
 }
 
-static int gtos_uno_verify_ct_validity(const unsigned char *proof,
+static int gtos_priv_verify_ct_validity(const unsigned char *proof,
                                        size_t proof_sz,
                                        const unsigned char *commitment,
                                        const unsigned char *sender_handle,
@@ -132,7 +132,7 @@ static int gtos_uno_verify_ct_validity(const unsigned char *proof,
   return at_ct_validity_proof_verify(&parsed, commitment, sender_handle, receiver_handle, sender_pubkey, receiver_pubkey, tx_version_t1, &transcript);
 }
 
-static int gtos_uno_verify_commitment_eq(const unsigned char *proof192,
+static int gtos_priv_verify_commitment_eq(const unsigned char *proof192,
                                          const unsigned char *source_pubkey,
                                          const unsigned char *source_ciphertext64,
                                          const unsigned char *destination_commitment) {
@@ -145,7 +145,7 @@ static int gtos_uno_verify_commitment_eq(const unsigned char *proof192,
   return at_commitment_eq_proof_verify(&proof, source_pubkey, source_ciphertext64, destination_commitment, &transcript);
 }
 
-static int gtos_uno_verify_balance(const unsigned char *proof,
+static int gtos_priv_verify_balance(const unsigned char *proof,
                                    size_t proof_sz,
                                    const unsigned char *public_key,
                                    const unsigned char *source_ciphertext64) {
@@ -387,7 +387,7 @@ static int gtos_elgamal_public_key_to_address(char *out,
   return at_elgamal_public_key_to_address(out, (ulong)out_sz, mainnet, &pub);
 }
 
-static int gtos_uno_verify_rangeproof(const unsigned char *proof,
+static int gtos_priv_verify_rangeproof(const unsigned char *proof,
                                       size_t proof_sz,
                                       const unsigned char *commitments,
                                       const unsigned char *bit_lengths,
@@ -454,7 +454,7 @@ static int gtos_uno_verify_rangeproof(const unsigned char *proof,
   return at_rangeproofs_verify(&range_proof, &ipp_proof, commitments, bit_lengths, batch_len, &transcript);
 }
 
-static int gtos_uno_prove_rangeproof(unsigned char *proof_out,
+static int gtos_priv_prove_rangeproof(unsigned char *proof_out,
                                      size_t proof_out_sz,
                                      const unsigned char *commitment32,
                                      unsigned long value,
@@ -462,14 +462,14 @@ static int gtos_uno_prove_rangeproof(unsigned char *proof_out,
   return at_rangeproofs_prove_single64(proof_out, proof_out_sz, commitment32, value, blinding32);
 }
 
-static void gtos_uno_u64_to_le_scalar(unsigned char out32[32], unsigned long amount) {
+static void gtos_priv_u64_to_le_scalar(unsigned char out32[32], unsigned long amount) {
   at_memset(out32, 0, 32);
   for (int i = 0; i < 8; i++) {
     out32[i] = (unsigned char)(amount >> (8 * i));
   }
 }
 
-static void gtos_uno_u64_to_be8(unsigned char out8[8], unsigned long amount) {
+static void gtos_priv_u64_to_be8(unsigned char out8[8], unsigned long amount) {
   out8[0] = (unsigned char)(amount >> 56);
   out8[1] = (unsigned char)(amount >> 48);
   out8[2] = (unsigned char)(amount >> 40);
@@ -480,7 +480,7 @@ static void gtos_uno_u64_to_be8(unsigned char out8[8], unsigned long amount) {
   out8[7] = (unsigned char)(amount);
 }
 
-static int gtos_uno_scalar_is_zero(const unsigned char s[32]) {
+static int gtos_priv_scalar_is_zero(const unsigned char s[32]) {
   unsigned char acc = 0;
   for (int i = 0; i < 32; i++) {
     acc |= s[i];
@@ -488,7 +488,7 @@ static int gtos_uno_scalar_is_zero(const unsigned char s[32]) {
   return acc == 0;
 }
 
-static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
+static int gtos_priv_prove_commitment_eq_into(unsigned char proof192_out[192],
                                              const unsigned char source_privkey32[32],
                                              const unsigned char source_pubkey32[32],
                                              const unsigned char source_ciphertext64[64],
@@ -499,7 +499,7 @@ static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
   if (!proof192_out || !source_privkey32 || !source_pubkey32 || !source_ciphertext64 || !destination_commitment32 || !opening32 || !transcript) {
     return -1;
   }
-  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_uno_scalar_is_zero(source_privkey32)) {
+  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_priv_scalar_is_zero(source_privkey32)) {
     return -1;
   }
   if (!at_curve25519_scalar_validate(opening32)) {
@@ -555,7 +555,7 @@ static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
   merlin_challenge_scalar(transcript, AT_PROOF_LABEL_CHALLENGE, c);
 
   unsigned char x_scalar[32];
-  gtos_uno_u64_to_le_scalar(x_scalar, amount);
+  gtos_priv_u64_to_le_scalar(x_scalar, amount);
   unsigned char z_s[32], z_x[32], z_r[32];
   at_curve25519_scalar_muladd(z_s, c, source_privkey32, y_s.bytes);
   at_curve25519_scalar_muladd(z_x, c, x_scalar, y_x.bytes);
@@ -576,7 +576,7 @@ static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
   return 0;
 }
 
-static int gtos_uno_prove_commitment_eq(
+static int gtos_priv_prove_commitment_eq(
     unsigned char proof192_out[192],
     const unsigned char source_privkey32[32],
     const unsigned char source_pubkey32[32],
@@ -588,13 +588,13 @@ static int gtos_uno_prove_commitment_eq(
 {
     at_merlin_transcript_t transcript;
     at_merlin_transcript_init(&transcript, (const unsigned char *)"equality-proof", 15);
-    gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
-    return gtos_uno_prove_commitment_eq_into(proof192_out,
+    gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
+    return gtos_priv_prove_commitment_eq_into(proof192_out,
         source_privkey32, source_pubkey32, source_ciphertext64,
         destination_commitment32, amount, opening32, &transcript);
 }
 
-static int gtos_uno_prove_shield_ctx(unsigned char proof96_out[96],
+static int gtos_priv_prove_shield_ctx(unsigned char proof96_out[96],
                                      unsigned char commitment32_out[32],
                                      unsigned char receiver_handle32_out[32],
                                      const unsigned char receiver_pubkey32[32],
@@ -636,7 +636,7 @@ static int gtos_uno_prove_shield_ctx(unsigned char proof96_out[96],
 
   at_merlin_transcript_t transcript;
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_SHIELD_PROOF_DOMAIN));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   at_merlin_transcript_append_message(&transcript,
     AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
     (unsigned char const *)AT_SHIELD_PROOF_DOMAIN,
@@ -661,7 +661,7 @@ static int gtos_uno_prove_shield_ctx(unsigned char proof96_out[96],
   return 0;
 }
 
-static int gtos_uno_prove_ct_validity_ctx(unsigned char *proof_out,
+static int gtos_priv_prove_ct_validity_ctx(unsigned char *proof_out,
                                           size_t proof_sz,
                                           unsigned char commitment32_out[32],
                                           unsigned char sender_handle32_out[32],
@@ -726,7 +726,7 @@ static int gtos_uno_prove_ct_validity_ctx(unsigned char *proof_out,
 
   at_merlin_transcript_t transcript;
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_CT_VALIDITY_DOMAIN));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   at_merlin_transcript_append_message(&transcript,
     AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
     (unsigned char const *)AT_CT_VALIDITY_DOMAIN,
@@ -744,7 +744,7 @@ static int gtos_uno_prove_ct_validity_ctx(unsigned char *proof_out,
 
   unsigned char c[32], z_r[32], z_x[32], x_scalar[32];
   at_curve25519_scalar_reduce(c, challenge);
-  gtos_uno_u64_to_le_scalar(x_scalar, amount);
+  gtos_priv_u64_to_le_scalar(x_scalar, amount);
   at_curve25519_scalar_muladd(z_r, c, opening32, y_r.bytes);
   at_curve25519_scalar_muladd(z_x, c, x_scalar, y_x.bytes);
 
@@ -765,7 +765,7 @@ static int gtos_uno_prove_ct_validity_ctx(unsigned char *proof_out,
   return 0;
 }
 
-static int gtos_uno_prove_balance_ctx(unsigned char proof200_out[200],
+static int gtos_priv_prove_balance_ctx(unsigned char proof200_out[200],
                                       const unsigned char source_privkey32[32],
                                       const unsigned char source_ciphertext64[64],
                                       unsigned long amount,
@@ -774,7 +774,7 @@ static int gtos_uno_prove_balance_ctx(unsigned char proof200_out[200],
   if (!proof200_out || !source_privkey32 || !source_ciphertext64) {
     return -1;
   }
-  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_uno_scalar_is_zero(source_privkey32)) {
+  if (!at_curve25519_scalar_validate(source_privkey32) || gtos_priv_scalar_is_zero(source_privkey32)) {
     return -1;
   }
 
@@ -804,19 +804,19 @@ static int gtos_uno_prove_balance_ctx(unsigned char proof200_out[200],
 
   at_merlin_transcript_t transcript;
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL("balance_proof"));
-  gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
   at_merlin_transcript_append_message(&transcript,
     AT_MERLIN_LITERAL(AT_PROOF_DOMAIN_SEP_LABEL),
     (unsigned char const *)AT_BALANCE_PROOF_DOMAIN,
     sizeof(AT_BALANCE_PROOF_DOMAIN) - 1);
 
   unsigned char amount_be[8];
-  gtos_uno_u64_to_be8(amount_be, amount);
+  gtos_priv_u64_to_be8(amount_be, amount);
   at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL("amount"), amount_be, 8);
   at_merlin_transcript_append_message(&transcript, AT_MERLIN_LITERAL("source_ct"), source_ciphertext64, 64);
 
   unsigned char eq_proof[192];
-  if (gtos_uno_prove_commitment_eq_into(
+  if (gtos_priv_prove_commitment_eq_into(
       eq_proof,
       source_privkey32,
       source_pub.bytes,
@@ -841,25 +841,25 @@ import (
 	"unsafe"
 )
 
-func VerifyUNOShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64) error {
+func VerifyPrivShieldProof(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64) error {
 	if len(proof96) != 96 || len(commitment) != 32 || len(receiverHandle) != 32 || len(receiverPubkey) != 32 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
-	if C.gtos_uno_verify_shield(
+	if C.gtos_priv_verify_shield(
 		(*C.uchar)(unsafe.Pointer(&proof96[0])),
 		(*C.uchar)(unsafe.Pointer(&commitment[0])),
 		(*C.uchar)(unsafe.Pointer(&receiverHandle[0])),
 		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
 		C.ulong(amount),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
+func VerifyPrivCTValidityProof(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool) error {
 	if len(proof) == 0 || len(commitment) != 32 || len(senderHandle) != 32 || len(receiverHandle) != 32 || len(senderPubkey) != 32 || len(receiverPubkey) != 32 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	wantLen := 128
 	t1 := C.int(0)
@@ -868,9 +868,9 @@ func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, s
 		t1 = 1
 	}
 	if len(proof) != wantLen {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
-	if C.gtos_uno_verify_ct_validity(
+	if C.gtos_priv_verify_ct_validity(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&commitment[0])),
@@ -880,20 +880,20 @@ func VerifyUNOCTValidityProof(proof, commitment, senderHandle, receiverHandle, s
 		(*C.uchar)(unsafe.Pointer(&receiverPubkey[0])),
 		t1,
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
+func VerifyPrivShieldProofWithContext(proof96, commitment, receiverHandle, receiverPubkey []byte, amount uint64, ctx []byte) error {
 	if len(proof96) != 96 || len(commitment) != 32 || len(receiverHandle) != 32 || len(receiverPubkey) != 32 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	var ctxPtr *C.uchar
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_verify_shield_ctx(
+	if C.gtos_priv_verify_shield_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof96[0])),
 		(*C.uchar)(unsafe.Pointer(&commitment[0])),
 		(*C.uchar)(unsafe.Pointer(&receiverHandle[0])),
@@ -902,14 +902,14 @@ func VerifyUNOShieldProofWithContext(proof96, commitment, receiverHandle, receiv
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
+func VerifyPrivCTValidityProofWithContext(proof, commitment, senderHandle, receiverHandle, senderPubkey, receiverPubkey []byte, txVersionT1 bool, ctx []byte) error {
 	if len(proof) == 0 || len(commitment) != 32 || len(senderHandle) != 32 || len(receiverHandle) != 32 || len(senderPubkey) != 32 || len(receiverPubkey) != 32 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	wantLen := 128
 	t1 := C.int(0)
@@ -918,13 +918,13 @@ func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiv
 		t1 = 1
 	}
 	if len(proof) != wantLen {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	var ctxPtr *C.uchar
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_verify_ct_validity_ctx(
+	if C.gtos_priv_verify_ct_validity_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&commitment[0])),
@@ -936,20 +936,20 @@ func VerifyUNOCTValidityProofWithContext(proof, commitment, senderHandle, receiv
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+func VerifyPrivBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
 	if len(proof) != 200 || len(publicKey) != 32 || len(sourceCiphertext64) != 64 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	var ctxPtr *C.uchar
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_verify_balance_ctx(
+	if C.gtos_priv_verify_balance_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&publicKey[0])),
@@ -957,14 +957,14 @@ func VerifyUNOBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byt
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivShieldProofWithContext(receiverPubkey []byte, amount uint64, opening32 []byte, ctx []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
 	if len(receiverPubkey) != 32 || len(opening32) != 32 {
-		return nil, nil, nil, ErrUNOInvalidInput
+		return nil, nil, nil, ErrPrivInvalidInput
 	}
 	proof96 = make([]byte, 96)
 	commitment32 = make([]byte, 32)
@@ -973,7 +973,7 @@ func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, openin
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_prove_shield_ctx(
+	if C.gtos_priv_prove_shield_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof96[0])),
 		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
 		(*C.uchar)(unsafe.Pointer(&receiverHandle32[0])),
@@ -983,18 +983,18 @@ func ProveUNOShieldProofWithContext(receiverPubkey []byte, amount uint64, openin
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return nil, nil, nil, ErrUNOOperationFailed
+		return nil, nil, nil, ErrPrivOperationFailed
 	}
 	return proof96, commitment32, receiverHandle32, nil
 }
 
-func ProveUNOShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
-	return ProveUNOShieldProofWithContext(receiverPubkey, amount, opening32, nil)
+func ProvePrivShieldProof(receiverPubkey []byte, amount uint64, opening32 []byte) (proof96 []byte, commitment32 []byte, receiverHandle32 []byte, err error) {
+	return ProvePrivShieldProofWithContext(receiverPubkey, amount, opening32, nil)
 }
 
-func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+func ProvePrivCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool, ctx []byte) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
 	if len(senderPubkey) != 32 || len(receiverPubkey) != 32 || len(opening32) != 32 {
-		return nil, nil, nil, nil, ErrUNOInvalidInput
+		return nil, nil, nil, nil, ErrPrivInvalidInput
 	}
 	proofLen := 128
 	t1 := C.int(0)
@@ -1010,7 +1010,7 @@ func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amo
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_prove_ct_validity_ctx(
+	if C.gtos_priv_prove_ct_validity_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
@@ -1024,25 +1024,25 @@ func ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey []byte, amo
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return nil, nil, nil, nil, ErrUNOOperationFailed
+		return nil, nil, nil, nil, ErrPrivOperationFailed
 	}
 	return proof, commitment32, senderHandle32, receiverHandle32, nil
 }
 
-func ProveUNOCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
-	return ProveUNOCTValidityProofWithContext(senderPubkey, receiverPubkey, amount, opening32, txVersionT1, nil)
+func ProvePrivCTValidityProof(senderPubkey, receiverPubkey []byte, amount uint64, opening32 []byte, txVersionT1 bool) (proof []byte, commitment32 []byte, senderHandle32 []byte, receiverHandle32 []byte, err error) {
+	return ProvePrivCTValidityProofWithContext(senderPubkey, receiverPubkey, amount, opening32, txVersionT1, nil)
 }
 
-func ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
+func ProvePrivBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64, ctx []byte) ([]byte, error) {
 	if len(sourcePrivkey32) != 32 || len(sourceCiphertext64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	proof := make([]byte, 200)
 	var ctxPtr *C.uchar
 	if len(ctx) > 0 {
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 	}
-	if C.gtos_uno_prove_balance_ctx(
+	if C.gtos_priv_prove_balance_ctx(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		(*C.uchar)(unsafe.Pointer(&sourcePrivkey32[0])),
 		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
@@ -1050,18 +1050,18 @@ func ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64 []byte,
 		ctxPtr,
 		C.size_t(len(ctx)),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return proof, nil
 }
 
-func ProveUNOBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
-	return ProveUNOBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64, amount, nil)
+func ProvePrivBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64) ([]byte, error) {
+	return ProvePrivBalanceProofWithContext(sourcePrivkey32, sourceCiphertext64, amount, nil)
 }
 
 func ElgamalCTAddCompressed(a64, b64 []byte) ([]byte, error) {
 	if len(a64) != 64 || len(b64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_add_compressed(
@@ -1069,14 +1069,14 @@ func ElgamalCTAddCompressed(a64, b64 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&a64[0])),
 		(*C.uchar)(unsafe.Pointer(&b64[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTSubCompressed(a64, b64 []byte) ([]byte, error) {
 	if len(a64) != 64 || len(b64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_sub_compressed(
@@ -1084,14 +1084,14 @@ func ElgamalCTSubCompressed(a64, b64 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&a64[0])),
 		(*C.uchar)(unsafe.Pointer(&b64[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTAddAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 	if len(in64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_add_amount_compressed(
@@ -1099,14 +1099,14 @@ func ElgamalCTAddAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 		C.ulong(amount),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTSubAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 	if len(in64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_sub_amount_compressed(
@@ -1114,21 +1114,21 @@ func ElgamalCTSubAmountCompressed(in64 []byte, amount uint64) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 		C.ulong(amount),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTNormalizeCompressed(in64 []byte) ([]byte, error) {
 	if len(in64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_normalize_compressed(
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
@@ -1138,14 +1138,14 @@ func ElgamalCTZeroCompressed() ([]byte, error) {
 	if C.gtos_elgamal_ct_zero_compressed(
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTAddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	if len(in64) != 64 || len(scalar32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_add_scalar_compressed(
@@ -1153,14 +1153,14 @@ func ElgamalCTAddScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTSubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	if len(in64) != 64 || len(scalar32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_sub_scalar_compressed(
@@ -1168,14 +1168,14 @@ func ElgamalCTSubScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalCTMulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 	if len(in64) != 64 || len(scalar32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_ct_mul_scalar_compressed(
@@ -1183,85 +1183,85 @@ func ElgamalCTMulScalarCompressed(in64, scalar32 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&in64[0])),
 		(*C.uchar)(unsafe.Pointer(&scalar32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
-func VerifyUNOCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
+func VerifyPrivCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte) error {
 	if len(proof192) != 192 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destinationCommitment) != 32 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
-	if C.gtos_uno_verify_commitment_eq(
+	if C.gtos_priv_verify_commitment_eq(
 		(*C.uchar)(unsafe.Pointer(&proof192[0])),
 		(*C.uchar)(unsafe.Pointer(&sourcePubkey[0])),
 		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
 		(*C.uchar)(unsafe.Pointer(&destinationCommitment[0])),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNOBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
+func VerifyPrivBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	if len(proof) != 200 || len(publicKey) != 32 || len(sourceCiphertext64) != 64 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
-	if C.gtos_uno_verify_balance(
+	if C.gtos_priv_verify_balance(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&publicKey[0])),
 		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-func VerifyUNORangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
+func VerifyPrivRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	if batchLen == 0 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
 	if len(commitments) != int(batchLen)*32 || len(bitLengths) != int(batchLen) || len(proof) == 0 {
-		return ErrUNOInvalidInput
+		return ErrPrivInvalidInput
 	}
-	if C.gtos_uno_verify_rangeproof(
+	if C.gtos_priv_verify_rangeproof(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(len(proof)),
 		(*C.uchar)(unsafe.Pointer(&commitments[0])),
 		(*C.uchar)(unsafe.Pointer(&bitLengths[0])),
 		C.uchar(batchLen),
 	) != 0 {
-		return ErrUNOInvalidProof
+		return ErrPrivInvalidProof
 	}
 	return nil
 }
 
-// ProveUNORangeProof generates a 672-byte Bulletproofs range proof for a
+// ProvePrivRangeProof generates a 672-byte Bulletproofs range proof for a
 // single 64-bit value, proving that the committed value is in [0, 2^64).
-func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
+func ProvePrivRangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([]byte, error) {
 	if len(commitment32) != 32 || len(blinding32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	proof := make([]byte, 672)
-	if C.gtos_uno_prove_rangeproof(
+	if C.gtos_priv_prove_rangeproof(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		C.size_t(672),
 		(*C.uchar)(unsafe.Pointer(&commitment32[0])),
 		C.ulong(value),
 		(*C.uchar)(unsafe.Pointer(&blinding32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return proof, nil
 }
 
-// ProveUNOCommitmentEqProof generates a 192-byte commitment equality proof
+// ProvePrivCommitmentEqProof generates a 192-byte commitment equality proof
 // proving that the source ciphertext and destination commitment encode the
 // same value under the given keys.
-func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
+func ProvePrivCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
 	if len(sourcePrivkey) != 32 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destCommitment32) != 32 || len(opening32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	proof := make([]byte, 192)
 	var ctxPtr *C.uchar
@@ -1270,7 +1270,7 @@ func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, 
 		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
 		ctxLen = C.size_t(len(ctx))
 	}
-	rc := C.gtos_uno_prove_commitment_eq(
+	rc := C.gtos_priv_prove_commitment_eq(
 		(*C.uchar)(unsafe.Pointer(&proof[0])),
 		(*C.uchar)(unsafe.Pointer(&sourcePrivkey[0])),
 		(*C.uchar)(unsafe.Pointer(&sourcePubkey[0])),
@@ -1281,21 +1281,21 @@ func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, 
 		ctxPtr, ctxLen,
 	)
 	if rc != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return proof, nil
 }
 
-// ProveUNOAggregatedRangeProof generates range proofs for multiple
+// ProvePrivAggregatedRangeProof generates range proofs for multiple
 // commitments by producing one 672-byte single64 proof per commitment
 // and concatenating them.
-func ProveUNOAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
+func ProvePrivAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
 	if len(commitments) != len(values) || len(commitments) != len(blindings) {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	var result []byte
 	for i := range commitments {
-		proof, err := ProveUNORangeProof(commitments[i], values[i], blindings[i])
+		proof, err := ProvePrivRangeProof(commitments[i], values[i], blindings[i])
 		if err != nil {
 			return nil, err
 		}
@@ -1306,21 +1306,21 @@ func ProveUNOAggregatedRangeProof(commitments [][]byte, values []uint64, blindin
 
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {
 	if len(priv32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 32)
 	if C.gtos_elgamal_public_key_from_private(
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		(*C.uchar)(unsafe.Pointer(&priv32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalEncrypt(pub32 []byte, amount uint64) ([]byte, error) {
 	if len(pub32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_encrypt(
@@ -1328,7 +1328,7 @@ func ElgamalEncrypt(pub32 []byte, amount uint64) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 		C.ulong(amount),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
@@ -1338,7 +1338,7 @@ func PedersenOpeningGenerate() ([]byte, error) {
 	if C.gtos_pedersen_opening_generate(
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
@@ -1351,14 +1351,14 @@ func PedersenCommitmentNew(amount uint64) (commitment32 []byte, opening32 []byte
 		(*C.uchar)(unsafe.Pointer(&opening32[0])),
 		C.ulong(amount),
 	) != 0 {
-		return nil, nil, ErrUNOOperationFailed
+		return nil, nil, ErrPrivOperationFailed
 	}
 	return commitment32, opening32, nil
 }
 
 func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, error) {
 	if len(opening32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 32)
 	if C.gtos_pedersen_commitment_with_opening(
@@ -1366,14 +1366,14 @@ func PedersenCommitmentWithOpening(opening32 []byte, amount uint64) ([]byte, err
 		C.ulong(amount),
 		(*C.uchar)(unsafe.Pointer(&opening32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalDecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
 	if len(pub32) != 32 || len(opening32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 32)
 	if C.gtos_elgamal_decrypt_handle_with_opening(
@@ -1381,14 +1381,14 @@ func ElgamalDecryptHandleWithOpening(pub32, opening32 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 		(*C.uchar)(unsafe.Pointer(&opening32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalEncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([]byte, error) {
 	if len(pub32) != 32 || len(opening32) != 32 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 64)
 	if C.gtos_elgamal_encrypt_with_opening(
@@ -1397,14 +1397,14 @@ func ElgamalEncryptWithOpening(pub32 []byte, amount uint64, opening32 []byte) ([
 		C.ulong(amount),
 		(*C.uchar)(unsafe.Pointer(&opening32[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalEncryptWithGeneratedOpening(pub32 []byte, amount uint64) (ct64 []byte, opening32 []byte, err error) {
 	if len(pub32) != 32 {
-		return nil, nil, ErrUNOInvalidInput
+		return nil, nil, ErrPrivInvalidInput
 	}
 	ct64 = make([]byte, 64)
 	opening32 = make([]byte, 32)
@@ -1414,7 +1414,7 @@ func ElgamalEncryptWithGeneratedOpening(pub32 []byte, amount uint64) (ct64 []byt
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 		C.ulong(amount),
 	) != 0 {
-		return nil, nil, ErrUNOOperationFailed
+		return nil, nil, ErrPrivOperationFailed
 	}
 	return ct64, opening32, nil
 }
@@ -1426,14 +1426,14 @@ func ElgamalKeypairGenerate() (pub32 []byte, priv32 []byte, err error) {
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 		(*C.uchar)(unsafe.Pointer(&priv32[0])),
 	) != 0 {
-		return nil, nil, ErrUNOOperationFailed
+		return nil, nil, ErrPrivOperationFailed
 	}
 	return pub32, priv32, nil
 }
 
 func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 	if len(priv32) != 32 || len(ct64) != 64 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	out := make([]byte, 32)
 	if C.gtos_elgamal_decrypt_to_point(
@@ -1441,14 +1441,14 @@ func ElgamalDecryptToPoint(priv32, ct64 []byte) ([]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&priv32[0])),
 		(*C.uchar)(unsafe.Pointer(&ct64[0])),
 	) != 0 {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
 
 func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
 	if len(pub32) != 32 {
-		return "", ErrUNOInvalidInput
+		return "", ErrPrivInvalidInput
 	}
 	out := make([]byte, 128)
 	net := C.int(0)
@@ -1461,11 +1461,11 @@ func ElgamalPublicKeyToAddress(pub32 []byte, mainnet bool) (string, error) {
 		net,
 		(*C.uchar)(unsafe.Pointer(&pub32[0])),
 	) != 0 {
-		return "", ErrUNOOperationFailed
+		return "", ErrPrivOperationFailed
 	}
 	s := C.GoString((*C.char)(unsafe.Pointer(&out[0])))
 	if strings.TrimSpace(s) == "" {
-		return "", ErrUNOOperationFailed
+		return "", ErrPrivOperationFailed
 	}
 	return s, nil
 }
@@ -1479,7 +1479,7 @@ func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s [32]byte, e [32]byt
 		(*C.uchar)(unsafe.Pointer(&pubkey[0])),
 		(*C.uchar)(unsafe.Pointer(&privkey[0])),
 	) == nil {
-		return s, e, ErrUNOOperationFailed
+		return s, e, ErrPrivOperationFailed
 	}
 
 	var sig C.at_schnorr_signature_t
@@ -1496,7 +1496,7 @@ func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s [32]byte, e [32]byt
 		msgPtr,
 		msgLen,
 	) == nil {
-		return s, e, ErrUNOOperationFailed
+		return s, e, ErrPrivOperationFailed
 	}
 
 	copy(s[:], C.GoBytes(unsafe.Pointer(&sig.s[0]), 32))
@@ -1549,7 +1549,7 @@ func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext []byte, aad
 		ptPtr,
 		C.ulong(len(plaintext)),
 	) == nil {
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
@@ -1559,7 +1559,7 @@ func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext []byte, aad
 // Returns the plaintext or an error if authentication fails.
 func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aad []byte) ([]byte, error) {
 	if len(ciphertext) < 16 {
-		return nil, ErrUNOInvalidInput
+		return nil, ErrPrivInvalidInput
 	}
 	ptLen := len(ciphertext) - 16
 	out := make([]byte, ptLen)
@@ -1586,9 +1586,9 @@ func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext []byte, aa
 	)
 	if rc != 0 {
 		if rc == -2 {
-			return nil, ErrUNOAuthFailed
+			return nil, ErrPrivAuthFailed
 		}
-		return nil, ErrUNOOperationFailed
+		return nil, ErrPrivOperationFailed
 	}
 	return out, nil
 }
@@ -1602,7 +1602,7 @@ func X25519Exchange(privkey [32]byte, peerPubkey [32]byte) ([32]byte, error) {
 		(*C.uchar)(unsafe.Pointer(&privkey[0])),
 		(*C.uchar)(unsafe.Pointer(&peerPubkey[0])),
 	) == nil {
-		return shared, ErrUNOOperationFailed
+		return shared, ErrPrivOperationFailed
 	}
 	return shared, nil
 }

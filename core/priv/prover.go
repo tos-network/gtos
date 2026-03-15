@@ -77,7 +77,7 @@ func BuildTransferProofs(
 	}
 	copy(sourceCommitment[:], srcCommitmentBytes)
 
-	// 3. Generate CT validity proof using the UNO-style backend.
+	// 3. Generate CT validity proof using the priv backend.
 	//    ProveCTValidityProofWithContext returns (proof, commitment32, senderHandle32, receiverHandle32, err).
 	ctValidityProof, _, _, _, err = cryptopriv.ProveCTValidityProofWithContext(
 		senderPub[:], receiverPub[:], amount, opening, true, context,

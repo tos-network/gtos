@@ -17,7 +17,7 @@ func TestProveAndVerifyShieldCTAndBalanceWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateOpening: %v", err)
 	}
-	ctx := []byte("gtos-uno-test-context")
+	ctx := []byte("gtos-priv-test-context")
 	amount := uint64(17)
 
 	shieldProof, shieldCommitment, shieldHandle, err := ProveShieldProofWithContext(senderPub, amount, opening, ctx)

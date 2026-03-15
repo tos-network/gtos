@@ -1,7 +1,7 @@
 #ifndef HEADER_at_crypto_at_elgamal_h
 #define HEADER_at_crypto_at_elgamal_h
 
-/* ElGamal and Pedersen helpers for UNO privacy primitives.
+/* ElGamal and Pedersen helpers for priv privacy primitives.
 
    This header provides:
    - Low-level compressed ciphertext arithmetic

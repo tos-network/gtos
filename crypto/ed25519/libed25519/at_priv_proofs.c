@@ -1,9 +1,9 @@
-/* at_uno_proofs.c - UNO Zero-Knowledge Proof Implementation
+/* at_priv_proofs.c - Privacy Zero-Knowledge Proof Implementation
 
    This module implements verification of ShieldCommitmentProof and
-   CiphertextValidityProof used in TOS UNO (privacy) transactions. */
+   CiphertextValidityProof used in TOS privacy transactions. */
 
-#include "at/crypto/at_uno_proofs.h"
+#include "at/crypto/at_priv_proofs.h"
 #include "at/crypto/at_curve25519.h"
 #include "at/crypto/at_elgamal.h"
 
@@ -35,7 +35,7 @@ merlin_challenge_scalar( at_merlin_transcript_t * transcript,
 }
 
 static inline ulong
-at_uno_be64_to_native( uchar const * p ) {
+at_priv_be64_to_native( uchar const * p ) {
   return (ulong)( ((ulong)p[0] << 56) | ((ulong)p[1] << 48) |
                   ((ulong)p[2] << 40) | ((ulong)p[3] << 32) |
                   ((ulong)p[4] << 24) | ((ulong)p[5] << 16) |
@@ -43,7 +43,7 @@ at_uno_be64_to_native( uchar const * p ) {
 }
 
 static inline void
-at_uno_native_to_be64( ulong v, uchar * p ) {
+at_priv_native_to_be64( ulong v, uchar * p ) {
   p[0] = (uchar)(v >> 56);
   p[1] = (uchar)(v >> 48);
   p[2] = (uchar)(v >> 40);
@@ -246,7 +246,7 @@ at_ct_validity_proof_parse( uchar const              * data,
    Given: C, D_sender, sender_pubkey
    Prove: C = x*G + r*H and D_sender = r*P_sender
 
-   For T1 (uno transfer - both handles):
+   For T1 (priv transfer - both handles):
    Given: C, D_sender, D_receiver, sender_pubkey, receiver_pubkey
    Prove: C = x*G + r*H and D_sender = r*P_sender and D_receiver = r*P_receiver
 */
@@ -502,7 +502,7 @@ at_commitment_eq_proof_pre_verify( at_commitment_eq_proof_t const * proof,
                                    uchar const                      source_ciphertext[64],
                                    uchar const                      destination_commitment[32],
                                    at_merlin_transcript_t *         transcript,
-                                   at_uno_batch_collector_t *       collector ) {
+                                   at_priv_batch_collector_t *       collector ) {
   (void)collector;
   return at_commitment_eq_proof_verify( proof,
                                         source_pubkey,
@@ -516,7 +516,7 @@ at_balance_proof_parse( uchar const *        data,
                         ulong                data_sz,
                         at_balance_proof_t * out ) {
   if( !data || !out || data_sz < AT_BALANCE_PROOF_SZ ) return -1;
-  out->amount = at_uno_be64_to_native( data );
+  out->amount = at_priv_be64_to_native( data );
   return at_commitment_eq_proof_parse( data + 8, data_sz - 8, &out->commitment_eq_proof );
 }
 
@@ -525,9 +525,9 @@ at_balance_proof_verify( at_balance_proof_t const * proof,
                          uchar const                public_key[32],
                          uchar const                source_ciphertext[64] ) {
   at_merlin_transcript_t transcript;
-  at_uno_batch_collector_t collector;
+  at_priv_batch_collector_t collector;
   at_merlin_transcript_init( &transcript, AT_MERLIN_LITERAL( "balance_proof" ) );
-  at_uno_batch_collector_init( &collector );
+  at_priv_batch_collector_init( &collector );
   return at_balance_proof_pre_verify( proof,
                                       public_key,
                                       source_ciphertext,
@@ -540,7 +540,7 @@ at_balance_proof_pre_verify( at_balance_proof_t const * proof,
                              uchar const                public_key[32],
                              uchar const                source_ciphertext[64],
                              at_merlin_transcript_t *   transcript,
-                             at_uno_batch_collector_t * collector ) {
+                             at_priv_batch_collector_t * collector ) {
   (void)collector;
   if( !proof || !public_key || !source_ciphertext ) return -1;
 
@@ -566,7 +566,7 @@ at_balance_proof_pre_verify( at_balance_proof_t const * proof,
     (uchar const *)AT_BALANCE_PROOF_DOMAIN,
     sizeof(AT_BALANCE_PROOF_DOMAIN)-1 );
   uchar amount_be[8];
-  at_uno_native_to_be64( proof->amount, amount_be );
+  at_priv_native_to_be64( proof->amount, amount_be );
   at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( "amount" ), amount_be, 8 );
   at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( "source_ct" ), source_ciphertext, 64 );
 
@@ -584,7 +584,7 @@ at_shield_proof_pre_verify( at_shield_proof_t const *   proof,
                             uchar const                receiver_pubkey[32],
                             ulong                      amount,
                             at_merlin_transcript_t *   transcript,
-                            at_uno_batch_collector_t * collector ) {
+                            at_priv_batch_collector_t * collector ) {
   (void)collector;
   return at_shield_proof_verify( proof,
                                  commitment,
@@ -603,7 +603,7 @@ at_ct_validity_proof_pre_verify( at_ct_validity_proof_t const * proof,
                                  uchar const                    receiver_pubkey[32],
                                  int                            tx_version_t1,
                                  at_merlin_transcript_t *       transcript,
-                                 at_uno_batch_collector_t *     collector ) {
+                                 at_priv_batch_collector_t *     collector ) {
   (void)collector;
   return at_ct_validity_proof_verify( proof,
                                       commitment,

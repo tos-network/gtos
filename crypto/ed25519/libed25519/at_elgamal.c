@@ -1,5 +1,5 @@
 #include "at/crypto/at_elgamal.h"
-#include "at/crypto/at_uno_proofs.h"
+#include "at/crypto/at_priv_proofs.h"
 #include <stdio.h>
 
 int

@@ -1,7 +1,7 @@
 #ifndef HEADER_at_crypto_at_human_readable_proof_h
 #define HEADER_at_crypto_at_human_readable_proof_h
 
-/* at_human_readable_proof.h - Shareable UNO proof envelope encoding.
+/* at_human_readable_proof.h - Shareable priv proof envelope encoding.
 
    Format (binary payload before Bech32):
    [kind:1][proof_sz:2][proof_bytes:*][asset:32][topoheight:8]

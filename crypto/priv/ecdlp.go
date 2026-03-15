@@ -14,7 +14,7 @@ import (
 // or (0, false, err) on a cryptographic backend error.
 func SolveDiscreteLog(msgPoint []byte, maxAmount uint64) (uint64, bool, error) {
 	if len(msgPoint) != 32 {
-		return 0, false, errors.New("uno: msgPoint must be 32 bytes")
+		return 0, false, errors.New("priv: msgPoint must be 32 bytes")
 	}
 
 	zeroCT, err := ZeroCiphertextCompressed()

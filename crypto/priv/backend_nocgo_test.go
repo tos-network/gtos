@@ -6,6 +6,6 @@ import "testing"
 
 func TestBackendDisabledWithoutCgo(t *testing.T) {
 	if BackendEnabled() {
-		t.Fatal("expected UNO backend disabled without cgo build")
+		t.Fatal("expected priv backend disabled without cgo build")
 	}
 }

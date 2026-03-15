@@ -375,7 +375,7 @@ choose_tx_signer_type() {
 	declare -A counts=()
 	for addr in "${!LOCAL_SIGNER_TYPE[@]}"; do
 		st="${LOCAL_SIGNER_TYPE[${addr}]}"
-		# Exclude UNO-only key type from plain transfer sender pool.
+		# Exclude priv-only key type from plain transfer sender pool.
 		if [[ "${st}" == "elgamal" ]]; then
 			continue
 		fi

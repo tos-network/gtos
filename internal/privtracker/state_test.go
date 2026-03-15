@@ -56,7 +56,7 @@ func TestValidate(t *testing.T) {
 
 func TestLoadSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "uno", "tracker.json")
+	path := filepath.Join(dir, "priv", "tracker.json")
 
 	if got, err := Load(path); err != nil || got != nil {
 		t.Fatalf("load empty expected (nil,nil), got (%v,%v)", got, err)
