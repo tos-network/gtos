@@ -767,13 +767,22 @@ func (st *StateTransition) applyPrivTransfer() error {
 		feeRefund = ptx.FeeLimit - ptx.Fee
 	}
 
-	// 3. Validate PrivNonce.
+	// 3. Validate PrivNonce (cheap state check before expensive crypto).
 	expectedNonce := priv.GetPrivNonce(st.state, fromAddr)
 	if ptx.PrivNonce != expectedNonce {
 		return priv.ErrNonceMismatch
 	}
 
-	// 4. Get sender/receiver AccountState.
+	// 4. Verify ElGamal Schnorr signature.
+	// The message is the signing hash (all fields except S and E), which
+	// covers ChainID, PrivNonce, Fee, FeeLimit, From, To, ciphertexts,
+	// commitments, proofs, and memo — preventing replay and tampering.
+	sigHash := ptx.SigningHash()
+	if !priv.VerifySchnorrSignature(ptx.From, sigHash[:], ptx.S, ptx.E) {
+		return errors.New("priv: invalid Schnorr signature")
+	}
+
+	// 5. Get sender/receiver AccountState.
 	senderState := priv.GetAccountState(st.state, fromAddr)
 	receiverState := priv.GetAccountState(st.state, toAddr)
 
@@ -781,7 +790,7 @@ func (st *StateTransition) applyPrivTransfer() error {
 		return priv.ErrVersionOverflow
 	}
 
-	// 5. Verify proofs using ptx.From/To directly as ElGamal pubkeys.
+	// 6. Verify proofs using ptx.From/To directly as ElGamal pubkeys.
 	//
 	// Build the transfer ciphertext from tx fields.
 	senderCt := priv.Ciphertext{
@@ -793,15 +802,29 @@ func (st *StateTransition) applyPrivTransfer() error {
 		Handle:     ptx.ReceiverHandle,
 	}
 
-	// 5a. CiphertextValidityProof: commitment & handles are valid encryptions.
-	if err := priv.VerifyCiphertextValidityProof(
+	// 6a. Build chain-bound transcript context for proof verification.
+	// This binds proofs to the specific chain, nonce, fee, addresses, and
+	// ciphertext values — preventing cross-chain / cross-tx proof replay.
+	transcriptCtx := priv.BuildPrivTransferTranscriptContext(
+		st.chainConfig.ChainID,
+		ptx.PrivNonce,
+		ptx.Fee,
+		ptx.FeeLimit,
+		fromAddr, toAddr,
+		senderCt, receiverCt,
+		ptx.SourceCommitment,
+	)
+
+	// 6b. CiphertextValidityProof: commitment & handles are valid encryptions.
+	if err := priv.VerifyCiphertextValidityProofWithContext(
 		ptx.Commitment, ptx.SenderHandle, ptx.ReceiverHandle,
 		ptx.From, ptx.To, ptx.CtValidityProof,
+		transcriptCtx,
 	); err != nil {
 		return err
 	}
 
-	// 5b. Compute new sender balance ciphertext:
+	// 6c. Compute new sender balance ciphertext:
 	//     output = fee_limit (scalar) + sender_ct (transfer ciphertext)
 	//     new_sender_balance_ct = old_sender_ct - output
 	outputCt, err := priv.AddScalarToCiphertext(senderCt, ptx.FeeLimit)
@@ -813,15 +836,18 @@ func (st *StateTransition) applyPrivTransfer() error {
 		return err
 	}
 
-	// 5c. CommitmentEqProof: SourceCommitment matches newSenderBalanceCt.
-	if err := priv.VerifyCommitmentEqProof(
+	// 6d. CommitmentEqProof: SourceCommitment matches newSenderBalanceCt.
+	if err := priv.VerifyCommitmentEqProofWithContext(
 		ptx.From, newSenderBalanceCt, ptx.SourceCommitment,
 		ptx.CommitmentEqProof,
+		transcriptCtx,
 	); err != nil {
 		return err
 	}
 
-	// 5d. RangeProof: committed amounts in [0, 2^64).
+	// 6e. RangeProof: committed amounts in [0, 2^64).
+	// Range proofs are not context-bound — they prove a pure mathematical
+	// property (value in [0, 2^64)) independent of chain context.
 	if err := priv.VerifyRangeProof(
 		ptx.SourceCommitment, ptx.Commitment,
 		ptx.RangeProof,
@@ -829,7 +855,7 @@ func (st *StateTransition) applyPrivTransfer() error {
 		return err
 	}
 
-	// 6. Update sender state.
+	// 7. Update sender state.
 	//    Start from SourceCommitment (fee_limit already deducted by sender).
 	senderState.Ciphertext = priv.Ciphertext{
 		Commitment: ptx.SourceCommitment,
@@ -846,7 +872,7 @@ func (st *StateTransition) applyPrivTransfer() error {
 	senderState.Version++
 	priv.SetAccountState(st.state, fromAddr, senderState)
 
-	// 7. Update receiver state: add transfer ciphertext to existing balance.
+	// 8. Update receiver state: add transfer ciphertext to existing balance.
 	newReceiverCt, err := priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
 	if err != nil {
 		return err
@@ -855,10 +881,10 @@ func (st *StateTransition) applyPrivTransfer() error {
 	receiverState.Version++
 	priv.SetAccountState(st.state, toAddr, receiverState)
 
-	// 8. Increment PrivNonce.
+	// 9. Increment PrivNonce.
 	priv.IncrementPrivNonce(st.state, fromAddr)
 
-	// 9. Credit fee to coinbase as public TOS.
+	// 10. Credit fee to coinbase as public TOS.
 	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feePaid))
 
 	return nil

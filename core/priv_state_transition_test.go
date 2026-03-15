@@ -141,8 +141,8 @@ func TestApplyPrivTransfer_InsufficientFee(t *testing.T) {
 
 func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 	// When Fee < requiredFee but FeeLimit >= requiredFee, the fee/nonce
-	// validation should pass. The tx will then fail at proof verification
-	// (ErrProofNotImplemented or ErrInvalidPayload), proving that the fee
+	// validation should pass. The tx will then fail at Schnorr signature
+	// verification (no valid signature on the test tx), proving that the fee
 	// logic correctly computed feePaid = requiredFee, refund = FeeLimit - requiredFee.
 	st := newTTLDeterminismState(t)
 	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
@@ -197,9 +197,10 @@ func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 		t.Fatalf("ApplyMessage precheck error: %v", err)
 	}
 	// Should NOT fail with ErrInsufficientFee or ErrNonceMismatch — those
-	// checks passed. Should fail at proof verification.
+	// checks passed. Should fail at Schnorr signature verification (no valid
+	// signature on the test tx).
 	if res.Err == nil {
-		t.Fatal("expected proof verification error, got nil")
+		t.Fatal("expected Schnorr signature error, got nil")
 	}
 	if errors.Is(res.Err, priv.ErrInsufficientFee) {
 		t.Fatal("should not fail with ErrInsufficientFee when FeeLimit >= requiredFee")
@@ -207,8 +208,8 @@ func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 	if errors.Is(res.Err, priv.ErrNonceMismatch) {
 		t.Fatal("should not fail with ErrNonceMismatch when nonce matches")
 	}
-	// The error should be a proof-level error.
-	if !errors.Is(res.Err, priv.ErrProofNotImplemented) && !errors.Is(res.Err, priv.ErrInvalidPayload) {
-		t.Fatalf("expected proof error (ErrProofNotImplemented or ErrInvalidPayload), got %v", res.Err)
+	// The error should be a Schnorr signature error.
+	if res.Err.Error() != "priv: invalid Schnorr signature" {
+		t.Fatalf("expected Schnorr signature error, got %v", res.Err)
 	}
 }

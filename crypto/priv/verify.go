@@ -37,6 +37,10 @@ func VerifyCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destina
 	return mapBackendError(ed25519.VerifyPrivCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment))
 }
 
+func VerifyCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, ctx []byte) error {
+	return mapBackendError(ed25519.VerifyPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment, ctx))
+}
+
 func VerifyBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	return mapBackendError(ed25519.VerifyPrivBalanceProof(proof, publicKey, sourceCiphertext64))
 }

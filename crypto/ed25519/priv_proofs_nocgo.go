@@ -103,6 +103,15 @@ func VerifyPrivCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, des
 	return ErrPrivBackendUnavailable
 }
 
+func VerifyPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, ctx []byte) error {
+	_ = proof192
+	_ = sourcePubkey
+	_ = sourceCiphertext64
+	_ = destinationCommitment
+	_ = ctx
+	return ErrPrivBackendUnavailable
+}
+
 func VerifyPrivBalanceProof(proof, publicKey, sourceCiphertext64 []byte) error {
 	_ = proof
 	_ = publicKey

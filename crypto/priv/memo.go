@@ -7,15 +7,14 @@ import (
 )
 
 const (
-	MemoMaxSize  = 1024           // max plaintext memo size per transfer
-	memoNonceStr = "gtos-priv-memo" // must be exactly 12 bytes for ChaCha20
+	MemoMaxSize = 1024 // max plaintext memo size per transfer
 )
 
-var memoNonce [12]byte
-
-func init() {
-	// Pad or truncate to exactly 12 bytes
-	copy(memoNonce[:], []byte(memoNonceStr))
+// memoNonceFromTxHash derives a 12-byte nonce from a transaction hash.
+func memoNonceFromTxHash(txHash [32]byte) [12]byte {
+	var nonce [12]byte
+	copy(nonce[:], txHash[:12])
+	return nonce
 }
 
 // deriveSharedKey computes SHA3-256(ECDH(priv, peerPub)) for memo encryption.
@@ -30,7 +29,7 @@ func deriveSharedKey(privkey [32]byte, peerPubkey [32]byte) ([32]byte, error) {
 // EncryptMemo encrypts a plaintext memo for a sender/receiver pair.
 // Returns (ciphertext, senderHandle, receiverHandle, error).
 // Both sender and receiver can decrypt using their private key + the other's handle.
-func EncryptMemo(senderPriv [32]byte, receiverPub [32]byte, plaintext []byte) (ciphertext []byte, err error) {
+func EncryptMemo(senderPriv [32]byte, receiverPub [32]byte, plaintext []byte, txHash [32]byte) (ciphertext []byte, err error) {
 	if len(plaintext) > MemoMaxSize {
 		return nil, fmt.Errorf("memo too large: %d > %d", len(plaintext), MemoMaxSize)
 	}
@@ -41,11 +40,12 @@ func EncryptMemo(senderPriv [32]byte, receiverPub [32]byte, plaintext []byte) (c
 	if err != nil {
 		return nil, fmt.Errorf("derive shared key: %w", err)
 	}
-	return ChaCha20Poly1305Encrypt(key, memoNonce, plaintext, nil)
+	nonce := memoNonceFromTxHash(txHash)
+	return ChaCha20Poly1305Encrypt(key, nonce, plaintext, nil)
 }
 
 // DecryptMemo decrypts a memo using the recipient's private key and the sender's public key.
-func DecryptMemo(recipientPriv [32]byte, senderPub [32]byte, ciphertext []byte) ([]byte, error) {
+func DecryptMemo(recipientPriv [32]byte, senderPub [32]byte, ciphertext []byte, txHash [32]byte) ([]byte, error) {
 	if len(ciphertext) == 0 {
 		return nil, nil
 	}
@@ -53,5 +53,6 @@ func DecryptMemo(recipientPriv [32]byte, senderPub [32]byte, ciphertext []byte) 
 	if err != nil {
 		return nil, fmt.Errorf("derive shared key: %w", err)
 	}
-	return ChaCha20Poly1305Decrypt(key, memoNonce, ciphertext, nil)
+	nonce := memoNonceFromTxHash(txHash)
+	return ChaCha20Poly1305Decrypt(key, nonce, ciphertext, nil)
 }

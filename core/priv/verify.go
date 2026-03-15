@@ -57,6 +57,46 @@ func VerifyCommitmentEqProof(pubkey [32]byte, ciphertext Ciphertext, sourceCommi
 	))
 }
 
+// VerifyCiphertextValidityProofWithContext is like VerifyCiphertextValidityProof
+// but binds the proof to a chain-specific transcript context, preventing
+// cross-chain/cross-nonce proof replay.
+func VerifyCiphertextValidityProofWithContext(commitment, senderHandle, receiverHandle [32]byte, senderPub, receiverPub [32]byte, proof []byte, ctx []byte) error {
+	decoded, err := decodeCTValidityProof(proof)
+	if err != nil {
+		return err
+	}
+	return mapCryptoVerifyError(cryptopriv.VerifyCTValidityProofWithContext(
+		decoded,
+		commitment[:],
+		senderHandle[:],
+		receiverHandle[:],
+		senderPub[:],
+		receiverPub[:],
+		true, // always T1 version in priv
+		ctx,
+	))
+}
+
+// VerifyCommitmentEqProofWithContext is like VerifyCommitmentEqProof but binds
+// the proof to a chain-specific transcript context, preventing cross-chain/
+// cross-nonce proof replay.
+func VerifyCommitmentEqProofWithContext(pubkey [32]byte, ciphertext Ciphertext, sourceCommitment [32]byte, proof []byte, ctx []byte) error {
+	decoded, err := decodeCommitmentEqProof(proof)
+	if err != nil {
+		return err
+	}
+	ct64 := make([]byte, 64)
+	copy(ct64[:32], ciphertext.Commitment[:])
+	copy(ct64[32:], ciphertext.Handle[:])
+	return mapCryptoVerifyError(cryptopriv.VerifyCommitmentEqProofWithContext(
+		decoded,
+		pubkey[:],
+		ct64,
+		sourceCommitment[:],
+		ctx,
+	))
+}
+
 // VerifyRangeProof verifies the aggregated Bulletproof range proof proving
 // that the committed amounts are in [0, 2^64).
 func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byte) error {

@@ -41,9 +41,9 @@ Privacy should not be treated as a narrow payment feature or an optional overlay
 TOS builds privacy in at the base layer through **Priv** — encrypted balances on-chain, no bridges, no L2.
 
 - Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
-- Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
-- Three operations: `PRIV_SHIELD` (public → private), `PRIV_TRANSFER` (private → private), `PRIV_UNSHIELD` (private → public)
-- Chain-bound proofs committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
+- Zero-knowledge proofs (Bulletproof range proofs, Schnorr sigma protocols) verify every transfer without revealing amounts
+- `PRIV_TRANSFER`: confidential transfer between two ElGamal accounts with chain-bound proofs
+- Proofs are committed to chain ID, sender, receiver, nonce, and fee — preventing cross-chain and replay attacks
 - Decrypt your own balance locally with `priv_personalBalance` — private key never leaves your machine
 
 Privacy extends beyond settlement into intent, routing metadata, and coordination patterns. The next generation of decentralized systems requires not merely private transactions, but a **privacy-ready application architecture** at every layer.

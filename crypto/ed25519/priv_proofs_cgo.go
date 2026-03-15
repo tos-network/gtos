@@ -145,6 +145,22 @@ static int gtos_priv_verify_commitment_eq(const unsigned char *proof192,
   return at_commitment_eq_proof_verify(&proof, source_pubkey, source_ciphertext64, destination_commitment, &transcript);
 }
 
+static int gtos_priv_verify_commitment_eq_ctx(const unsigned char *proof192,
+                                              const unsigned char *source_pubkey,
+                                              const unsigned char *source_ciphertext64,
+                                              const unsigned char *destination_commitment,
+                                              const unsigned char *ctx,
+                                              size_t ctx_sz) {
+  at_commitment_eq_proof_t proof;
+  if (at_commitment_eq_proof_parse(proof192, AT_COMMITMENT_EQ_PROOF_SZ, &proof) != 0) {
+    return -1;
+  }
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL(AT_NEW_COMMITMENT_EQ_PROOF_DOMAIN));
+  gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
+  return at_commitment_eq_proof_verify(&proof, source_pubkey, source_ciphertext64, destination_commitment, &transcript);
+}
+
 static int gtos_priv_verify_balance(const unsigned char *proof,
                                    size_t proof_sz,
                                    const unsigned char *public_key,
@@ -1197,6 +1213,27 @@ func VerifyPrivCommitmentEqProof(proof192, sourcePubkey, sourceCiphertext64, des
 		(*C.uchar)(unsafe.Pointer(&sourcePubkey[0])),
 		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
 		(*C.uchar)(unsafe.Pointer(&destinationCommitment[0])),
+	) != 0 {
+		return ErrPrivInvalidProof
+	}
+	return nil
+}
+
+func VerifyPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, ctx []byte) error {
+	if len(proof192) != 192 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destinationCommitment) != 32 {
+		return ErrPrivInvalidInput
+	}
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_priv_verify_commitment_eq_ctx(
+		(*C.uchar)(unsafe.Pointer(&proof192[0])),
+		(*C.uchar)(unsafe.Pointer(&sourcePubkey[0])),
+		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
+		(*C.uchar)(unsafe.Pointer(&destinationCommitment[0])),
+		ctxPtr,
+		C.size_t(len(ctx)),
 	) != 0 {
 		return ErrPrivInvalidProof
 	}

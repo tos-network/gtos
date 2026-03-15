@@ -5,6 +5,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/rlp"
 )
 
 // PrivTransferTx is a confidential transfer between two ElGamal accounts.
@@ -112,4 +113,32 @@ func (tx *PrivTransferTx) FromAddress() common.Address {
 // ToAddress derives an Ethereum-style address from the receiver's ElGamal public key.
 func (tx *PrivTransferTx) ToAddress() common.Address {
 	return common.BytesToAddress(crypto.Keccak256(tx.To[:]))
+}
+
+// SigningHash returns the hash that the ElGamal Schnorr signature (S, E) signs.
+// It covers all transaction fields except S and E themselves.
+func (tx *PrivTransferTx) SigningHash() common.Hash {
+	sha := crypto.NewKeccakState()
+	sha.Write([]byte{PrivTransferTxType})
+	rlp.Encode(sha, []interface{}{
+		tx.ChainID,
+		tx.PrivNonce,
+		tx.Fee,
+		tx.FeeLimit,
+		tx.From,
+		tx.To,
+		tx.Commitment,
+		tx.SenderHandle,
+		tx.ReceiverHandle,
+		tx.SourceCommitment,
+		tx.CtValidityProof,
+		tx.CommitmentEqProof,
+		tx.RangeProof,
+		tx.EncryptedMemo,
+		tx.MemoSenderHandle,
+		tx.MemoReceiverHandle,
+	})
+	var h common.Hash
+	sha.Read(h[:])
+	return h
 }
