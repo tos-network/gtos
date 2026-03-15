@@ -3,17 +3,17 @@ package priv
 import (
 	"errors"
 
-	cryptouno "github.com/tos-network/gtos/crypto/uno"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 )
 
 func mapCryptoVerifyError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, cryptouno.ErrBackendUnavailable) {
+	if errors.Is(err, cryptopriv.ErrBackendUnavailable) {
 		return ErrProofNotImplemented
 	}
-	if errors.Is(err, cryptouno.ErrInvalidInput) || errors.Is(err, cryptouno.ErrInvalidProof) || errors.Is(err, cryptouno.ErrOperationFailed) {
+	if errors.Is(err, cryptopriv.ErrInvalidInput) || errors.Is(err, cryptopriv.ErrInvalidProof) || errors.Is(err, cryptopriv.ErrOperationFailed) {
 		return ErrInvalidPayload
 	}
 	return err
@@ -27,7 +27,7 @@ func VerifyCiphertextValidityProof(commitment, senderHandle, receiverHandle [32]
 	if err != nil {
 		return err
 	}
-	return mapCryptoVerifyError(cryptouno.VerifyCTValidityProof(
+	return mapCryptoVerifyError(cryptopriv.VerifyCTValidityProof(
 		decoded,
 		commitment[:],
 		senderHandle[:],
@@ -49,7 +49,7 @@ func VerifyCommitmentEqProof(pubkey [32]byte, ciphertext Ciphertext, sourceCommi
 	ct64 := make([]byte, 64)
 	copy(ct64[:32], ciphertext.Commitment[:])
 	copy(ct64[32:], ciphertext.Handle[:])
-	return mapCryptoVerifyError(cryptouno.VerifyCommitmentEqProof(
+	return mapCryptoVerifyError(cryptopriv.VerifyCommitmentEqProof(
 		decoded,
 		pubkey[:],
 		ct64,
@@ -68,7 +68,7 @@ func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byt
 	commitments := make([]byte, 64)
 	copy(commitments[:32], sourceCommitment[:])
 	copy(commitments[32:], transferCommitment[:])
-	return mapCryptoVerifyError(cryptouno.VerifyRangeProof(
+	return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
 		decoded,
 		commitments,
 		[]byte{64, 64},

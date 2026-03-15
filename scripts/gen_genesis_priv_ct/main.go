@@ -43,7 +43,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
-	cryptouno "github.com/tos-network/gtos/crypto/uno"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 )
 
 func main() {
@@ -67,7 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ct64, err := cryptouno.Encrypt(pub32, amount)
+	ct64, err := cryptopriv.Encrypt(pub32, amount)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: Encrypt failed: %v\n", err)
 		os.Exit(1)

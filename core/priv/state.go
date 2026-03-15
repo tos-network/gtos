@@ -9,7 +9,7 @@ import (
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/crypto/ristretto255"
-	cryptouno "github.com/tos-network/gtos/crypto/uno"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 )
 
 var (
@@ -66,9 +66,9 @@ func IncrementVersion(db vm.StateDB, account common.Address) (uint64, error) {
 }
 
 func AddCiphertexts(a, b Ciphertext) (Ciphertext, error) {
-	if out64, err := cryptouno.AddCompressedCiphertexts(ciphertextToCompressed(a), ciphertextToCompressed(b)); err == nil {
+	if out64, err := cryptopriv.AddCompressedCiphertexts(ciphertextToCompressed(a), ciphertextToCompressed(b)); err == nil {
 		return compressedToCiphertext(out64)
-	} else if !errors.Is(err, cryptouno.ErrBackendUnavailable) {
+	} else if !errors.Is(err, cryptopriv.ErrBackendUnavailable) {
 		return Ciphertext{}, ErrInvalidPayload
 	}
 
@@ -98,9 +98,9 @@ func AddCiphertexts(a, b Ciphertext) (Ciphertext, error) {
 }
 
 func SubCiphertexts(a, b Ciphertext) (Ciphertext, error) {
-	if out64, err := cryptouno.SubCompressedCiphertexts(ciphertextToCompressed(a), ciphertextToCompressed(b)); err == nil {
+	if out64, err := cryptopriv.SubCompressedCiphertexts(ciphertextToCompressed(a), ciphertextToCompressed(b)); err == nil {
 		return compressedToCiphertext(out64)
-	} else if !errors.Is(err, cryptouno.ErrBackendUnavailable) {
+	} else if !errors.Is(err, cryptopriv.ErrBackendUnavailable) {
 		return Ciphertext{}, ErrInvalidPayload
 	}
 
@@ -134,9 +134,9 @@ func SubCiphertexts(a, b Ciphertext) (Ciphertext, error) {
 // scalar and added to the commitment component only (handle unchanged since
 // scalar addition uses the generator point, not the recipient's public key).
 func AddScalarToCiphertext(ct Ciphertext, amount uint64) (Ciphertext, error) {
-	if out64, err := cryptouno.AddAmountCompressed(ciphertextToCompressed(ct), amount); err == nil {
+	if out64, err := cryptopriv.AddAmountCompressed(ciphertextToCompressed(ct), amount); err == nil {
 		return compressedToCiphertext(out64)
-	} else if !errors.Is(err, cryptouno.ErrBackendUnavailable) {
+	} else if !errors.Is(err, cryptopriv.ErrBackendUnavailable) {
 		return Ciphertext{}, ErrInvalidPayload
 	}
 
