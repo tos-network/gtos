@@ -1024,26 +1024,26 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **Phase 7d-e: CGO + nocgo stubs** | 6 new CGO functions + 6 nocgo stubs | DONE |
 | **Message type propagation** | `core/types/transaction.go` (Type(), WithTxType(), PrivTransferInner(), PrivTransferFrom()), `core/state_processor.go` | DONE |
 | **Phase 7b: crypto/priv/ package** | `crypto/priv/` (elgamal.go, verify.go, prove.go, ecdlp.go, backend.go + tests); `core/priv/` imports updated | DONE |
+| **Phase 7c: crypto/priv/ wrappers** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | DONE |
+| **core/priv/signature.go** | ElGamal Ristretto-Schnorr sign/verify wrappers | DONE |
+| **core/priv/prover.go** | BuildTransferProofs (CommitmentEqProof + aggregated RangeProof stubbed pending C backend) | DONE |
+| **core/priv/memo.go** | EncryptMemo/DecryptMemo wrappers | DONE |
+| **Miner PrivTransferTx handling** | `miner/worker.go` (gas-limit skip, PrivNonce sender, low-gas-pool), `core/state_transition.go` (transitionPrivTransfer bypass) | DONE |
 
 ### Not Yet Implemented
 
 | Item | Files | Reason |
 |------|-------|--------|
-| **Phase 7c: crypto/priv/ new files** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | High-level Go wrappers for CGO bindings. CGO bindings exist (7a done); wrappers not yet created. |
-| **core/priv/signature.go** | ElGamal Ristretto-Schnorr sign/verify in core/priv | Deferred; signing currently via `accountsigner.SignElgamalHash()`, verification via `accountsigner.VerifyRawSignature()`. Will move when crypto/priv/ is created. |
-| **core/priv/prover.go** | Client-side proof generation | Deferred; requires CGO backend. Proof generation is client-side and not needed for validator execution. |
-| **core/priv/memo.go** | EncryptedMemo ECDH + ChaCha20Poly1305 | Deferred to crypto/priv/ rename. CGO primitives exist. |
-| **Delete core/uno/** | Entire directory | Deferred until all references migrated and crypto/priv/ created. |
-| **Delete old UNO RPCs** | `internal/tosapi/api.go` (UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext) | Deferred until core/uno/ deleted. |
-| **Rename internal/unotracker/** | → `internal/privtracker/` | Deferred until core/uno/ deleted. |
-| **miner/worker.go** | Skip gas-limit deduction for PrivTransferTxType; PrivMaxPerBlock cap | Not yet implemented. |
-| **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` (currently placeholder) | Requires client-side prover (core/priv/prover.go). |
+| **Delete core/uno/** | Entire directory | Deferred until old UNO RPCs/CLI removed |
+| **Delete old UNO RPCs** | `internal/tosapi/api.go` (UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext) | Deferred until core/uno/ deleted |
+| **Rename internal/unotracker/** | → `internal/privtracker/` | Deferred until core/uno/ deleted |
+| **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` (currently placeholder) | Requires C backend prover for CommitmentEqProof and aggregated RangeProof |
+| **C backend: ProveCommitmentEqProof** | `crypto/ed25519/libed25519/at_uno_proofs.c` | Not exposed as standalone prover; currently embedded in balance proof only |
+| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/libed25519/at_rangeproofs.c` | Existing prover handles single commitment; aggregated 2-commitment form needed |
 
 ### Summary
 
-**Core v1 functionality: ~90% complete.** The validator execution path (state transition, TxPool, parallel analysis, genesis, RPC) is fully implemented and tested. The remaining items are:
-- Package rename (`crypto/uno/` → `crypto/priv/`) and associated cleanup
-- High-level Go wrapper files in `crypto/priv/`
-- Client-side proof generation (prover, memo encryption)
-- Miner gas-limit handling for PrivTransferTxType
-- Old UNO code deletion
+**Core v1 functionality: ~95% complete.** All validator execution paths, TxPool, miner, genesis, RPC, CLI, and crypto layers are implemented and tested. The remaining items are:
+- Old UNO code cleanup (deletion of core/uno/, old RPCs, unotracker rename)
+- Two C backend prover functions need standalone exposure (CommitmentEqProof, aggregated RangeProof)
+- CLI proof generation (blocked on above C backend work)
