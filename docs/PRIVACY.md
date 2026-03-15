@@ -1023,13 +1023,13 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **Phase 7a: CGO bindings** | `crypto/ed25519/uno_proofs_cgo.go`, `uno_proofs_nocgo.go` (ElgamalSchnorrSign/Verify, ChaCha20Poly1305, X25519) | DONE |
 | **Phase 7d-e: CGO + nocgo stubs** | 6 new CGO functions + 6 nocgo stubs | DONE |
 | **Message type propagation** | `core/types/transaction.go` (Type(), WithTxType(), PrivTransferInner(), PrivTransferFrom()), `core/state_processor.go` | DONE |
+| **Phase 7b: crypto/priv/ package** | `crypto/priv/` (elgamal.go, verify.go, prove.go, ecdlp.go, backend.go + tests); `core/priv/` imports updated | DONE |
 
 ### Not Yet Implemented
 
 | Item | Files | Reason |
 |------|-------|--------|
-| **Phase 7b: crypto/uno/ → crypto/priv/ rename** | `crypto/priv/verify.go`, `prove.go`, `elgamal.go`, `ecdlp.go`, `backend.go` | Package rename deferred; `core/priv/` currently imports `crypto/uno/` directly. Rename after UNO deletion. |
-| **Phase 7c: crypto/priv/ new files** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | High-level Go wrappers for CGO bindings. CGO bindings exist (7a done); wrappers deferred to crypto/priv/ rename. |
+| **Phase 7c: crypto/priv/ new files** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | High-level Go wrappers for CGO bindings. CGO bindings exist (7a done); wrappers not yet created. |
 | **core/priv/signature.go** | ElGamal Ristretto-Schnorr sign/verify in core/priv | Deferred; signing currently via `accountsigner.SignElgamalHash()`, verification via `accountsigner.VerifyRawSignature()`. Will move when crypto/priv/ is created. |
 | **core/priv/prover.go** | Client-side proof generation | Deferred; requires CGO backend. Proof generation is client-side and not needed for validator execution. |
 | **core/priv/memo.go** | EncryptedMemo ECDH + ChaCha20Poly1305 | Deferred to crypto/priv/ rename. CGO primitives exist. |
