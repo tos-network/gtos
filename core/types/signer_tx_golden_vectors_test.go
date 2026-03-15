@@ -10,7 +10,6 @@ import (
 	"os"
 	"testing"
 
-	blst "github.com/supranational/blst/bindings/go"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/crypto"
@@ -125,9 +124,7 @@ func verifyRawByType(signerType string, pub []byte, hash common.Hash, r, s *big.
 	case "ed25519":
 		return ed25519.Verify(ed25519.PublicKey(pub), hash[:], rsBytes(r, s, 32))
 	case "bls12-381":
-		sig := rsBytes(r, s, 48)
-		var dummy blst.P2Affine
-		return dummy.VerifyCompressed(sig, true, pub, true, hash[:], []byte("GTOS_BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_"))
+		return verifyBLS12381GoldenRaw(pub, hash, r, s)
 	default:
 		return false
 	}
@@ -184,6 +181,9 @@ func TestSignerTxGoldenVectorsValid(t *testing.T) {
 			pubRaw, err := hexutil.Decode(tc.PubKey)
 			if err != nil {
 				t.Fatalf("invalid pubkey hex: %v", err)
+			}
+			if canonical == "bls12-381" && !supportsBLS12381GoldenVerify() {
+				t.Skip("BLS12-381 backend requires cgo/blst in this build")
 			}
 			if !verifyRawByType(canonical, pubRaw, signHash, r, s) {
 				t.Fatalf("raw signature verify failed for %s", canonical)

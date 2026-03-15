@@ -17,6 +17,13 @@ import (
 	"github.com/tos-network/gtos/crypto"
 )
 
+func requireBLS12381Backend(t *testing.T) {
+	t.Helper()
+	if !supportsBLS12381Backend() {
+		t.Skip("BLS12-381 backend requires cgo/blst in this build")
+	}
+}
+
 func TestNormalizeSignerExtendedTypes(t *testing.T) {
 	secpKey, err := crypto.GenerateKey()
 	if err != nil {
@@ -25,15 +32,6 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 	btcecPriv, _ := btcec.PrivKeyFromBytes(crypto.FromECDSA(secpKey))
 	schnorrPub := btcschnorr.SerializePubKey(btcecPriv.PubKey())
 	secpCompressed := crypto.CompressPubkey(&secpKey.PublicKey)
-
-	blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate bls private key: %v", err)
-	}
-	blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
-	if err != nil {
-		t.Fatalf("failed to derive bls public key: %v", err)
-	}
 	elgamalPriv, err := GenerateElgamalPrivateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate elgamal private key: %v", err)
@@ -59,19 +57,36 @@ func TestNormalizeSignerExtendedTypes(t *testing.T) {
 			wantValue:    hexutil.Encode(schnorrPub),
 		},
 		{
-			name:         "bls12381 alias canonicalizes",
-			signerType:   "BLS12381",
-			signerValue:  hexutil.Encode(blsPub),
-			wantType:     SignerTypeBLS12381,
-			wantValueLen: 48,
-		},
-		{
 			name:         "elgamal canonicalizes",
 			signerType:   " ELGAMAL ",
 			signerValue:  hexutil.Encode(elgamalPub),
 			wantType:     SignerTypeElgamal,
 			wantValueLen: 32,
 		},
+	}
+	if supportsBLS12381Backend() {
+		blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate bls private key: %v", err)
+		}
+		blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
+		if err != nil {
+			t.Fatalf("failed to derive bls public key: %v", err)
+		}
+		tests = append(tests, struct {
+			name         string
+			signerType   string
+			signerValue  string
+			wantType     string
+			wantValueLen int
+			wantValue    string
+		}{
+			name:         "bls12381 alias canonicalizes",
+			signerType:   "BLS12381",
+			signerValue:  hexutil.Encode(blsPub),
+			wantType:     SignerTypeBLS12381,
+			wantValueLen: 48,
+		})
 	}
 
 	for _, tc := range tests {
@@ -143,8 +158,8 @@ func TestSupportsCurrentTxSignatureType(t *testing.T) {
 	if !SupportsCurrentTxSignatureType(SignerTypeEd25519) {
 		t.Fatalf("expected ed25519 support")
 	}
-	if !SupportsCurrentTxSignatureType(SignerTypeBLS12381) {
-		t.Fatalf("expected bls12-381 support")
+	if got := SupportsCurrentTxSignatureType(SignerTypeBLS12381); got != supportsBLS12381Backend() {
+		t.Fatalf("unexpected bls12-381 support flag: %v", got)
 	}
 	// ElGamal is a recognized signer type (used by priv and PrivTransferTx),
 	// but VerifyRawSignature rejects it for public SignerTxType transactions.
@@ -182,6 +197,7 @@ func TestSignAndVerifySchnorrHash(t *testing.T) {
 }
 
 func TestSignAndVerifyBLS12381Hash(t *testing.T) {
+	requireBLS12381Backend(t)
 	priv, err := GenerateBLS12381PrivateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate bls private key: %v", err)
@@ -212,6 +228,7 @@ func TestSignAndVerifyBLS12381Hash(t *testing.T) {
 }
 
 func TestBLS12381FastAggregate(t *testing.T) {
+	requireBLS12381Backend(t)
 	msg := common.HexToHash("0x7777")
 	var (
 		pubs [][]byte
@@ -375,14 +392,6 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate ed25519 key: %v", err)
 	}
-	blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate bls private key: %v", err)
-	}
-	blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
-	if err != nil {
-		t.Fatalf("failed to derive bls public key: %v", err)
-	}
 	elgamalPriv, err := GenerateElgamalPrivateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("failed to generate elgamal private key: %v", err)
@@ -401,8 +410,26 @@ func TestSignatureMetaRoundTripSupportedSigners(t *testing.T) {
 		{name: "schnorr", signerType: SignerTypeSchnorr, pub: append([]byte(nil), schnorrPub...)},
 		{name: "secp256r1", signerType: SignerTypeSecp256r1, pub: elliptic.Marshal(elliptic.P256(), secp256r1Key.X, secp256r1Key.Y)},
 		{name: "ed25519", signerType: SignerTypeEd25519, pub: append([]byte(nil), edPub...)},
-		{name: "bls12-381", signerType: SignerTypeBLS12381, pub: append([]byte(nil), blsPub...)},
 		{name: "elgamal", signerType: SignerTypeElgamal, pub: append([]byte(nil), elgamalPub...)},
+	}
+	if supportsBLS12381Backend() {
+		blsPriv, err := GenerateBLS12381PrivateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate bls private key: %v", err)
+		}
+		blsPub, err := PublicKeyFromBLS12381Private(blsPriv)
+		if err != nil {
+			t.Fatalf("failed to derive bls public key: %v", err)
+		}
+		tests = append(tests, struct {
+			name       string
+			signerType string
+			pub        []byte
+		}{
+			name:       "bls12-381",
+			signerType: SignerTypeBLS12381,
+			pub:        append([]byte(nil), blsPub...),
+		})
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

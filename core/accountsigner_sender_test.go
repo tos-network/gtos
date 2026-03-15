@@ -356,6 +356,9 @@ func TestResolveSenderElgamal(t *testing.T) {
 }
 
 func TestResolveSenderBLS12381(t *testing.T) {
+	if !accountsigner.SupportsCurrentTxSignatureType(accountsigner.SignerTypeBLS12381) {
+		t.Skip("BLS12-381 backend requires cgo/blst in this build")
+	}
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	to := common.HexToAddress("0xeac52341916d0d8400c65c3ffb828f2d20c3c8cb6a9d4d7caf50e695f5ed0ec1")
@@ -408,6 +411,9 @@ func TestResolveSenderBLS12381(t *testing.T) {
 }
 
 func TestResolveSenderBLS12381FastAggregate(t *testing.T) {
+	if !accountsigner.SupportsCurrentTxSignatureType(accountsigner.SignerTypeBLS12381) {
+		t.Skip("BLS12-381 backend requires cgo/blst in this build")
+	}
 	st := newSenderTestState(t)
 	chainSigner := types.LatestSignerForChainID(big.NewInt(1))
 	to := common.HexToAddress("0x2164da9507f83b9d6aafe5e79fe6afb86bfe8b47ebc84c703aa0d36b323a05e0")

@@ -8,7 +8,6 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
-	"github.com/tos-network/gtos/crypto/ed25519"
 	"io"
 	"math/big"
 	"strings"
@@ -16,10 +15,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	btcschnorr "github.com/btcsuite/btcd/btcec/v2/schnorr"
-	blst "github.com/supranational/blst/bindings/go"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/crypto/ed25519"
 	"github.com/tos-network/gtos/crypto/ristretto255"
 	"golang.org/x/crypto/sha3"
 )
@@ -41,18 +40,19 @@ const (
 )
 
 var (
-	ErrUnknownSignerType      = errors.New("accountsigner: unknown signer type")
-	ErrInvalidSignerValue     = errors.New("accountsigner: invalid signer value")
-	ErrInvalidSignatureMeta   = errors.New("accountsigner: invalid signature metadata")
-	ErrSignerNotSupportedByTx = errors.New("accountsigner: signer type not supported by current tx signature format")
-	ErrInvalidSignerKey       = errors.New("accountsigner: invalid signer private key")
-	signatureMetaPrefix       = []byte("GTOSSIG1")
-	signatureMetaAlgSecp256k1 = byte(1)
-	signatureMetaAlgSecp256r1 = byte(2)
-	signatureMetaAlgEd25519   = byte(3)
-	signatureMetaAlgBLS12381  = byte(4)
-	signatureMetaAlgElgamal   = byte(5)
-	signatureMetaAlgSchnorr   = byte(6)
+	ErrUnknownSignerType        = errors.New("accountsigner: unknown signer type")
+	ErrInvalidSignerValue       = errors.New("accountsigner: invalid signer value")
+	ErrInvalidSignatureMeta     = errors.New("accountsigner: invalid signature metadata")
+	ErrSignerNotSupportedByTx   = errors.New("accountsigner: signer type not supported by current tx signature format")
+	ErrInvalidSignerKey         = errors.New("accountsigner: invalid signer private key")
+	ErrSignerBackendUnavailable = errors.New("accountsigner: signer backend unavailable in this build")
+	signatureMetaPrefix         = []byte("GTOSSIG1")
+	signatureMetaAlgSecp256k1   = byte(1)
+	signatureMetaAlgSecp256r1   = byte(2)
+	signatureMetaAlgEd25519     = byte(3)
+	signatureMetaAlgBLS12381    = byte(4)
+	signatureMetaAlgElgamal     = byte(5)
+	signatureMetaAlgSchnorr     = byte(6)
 )
 
 var bls12381SignDst = []byte("GTOS_BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_")
@@ -89,8 +89,10 @@ func CanonicalSignerType(signerType string) (string, error) {
 
 func SupportsCurrentTxSignatureType(signerType string) bool {
 	switch signerType {
-	case SignerTypeSecp256k1, SignerTypeSchnorr, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381, SignerTypeElgamal:
+	case SignerTypeSecp256k1, SignerTypeSchnorr, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeElgamal:
 		return true
+	case SignerTypeBLS12381:
+		return supportsBLS12381Backend()
 	default:
 		return false
 	}
@@ -154,17 +156,6 @@ func normalizeSchnorrPubkey(raw []byte) ([]byte, error) {
 	default:
 		return nil, ErrInvalidSignerValue
 	}
-}
-
-func normalizeBLS12381Pubkey(raw []byte) ([]byte, error) {
-	if len(raw) != bls12381PubkeyLen {
-		return nil, ErrInvalidSignerValue
-	}
-	pk := new(blst.P1Affine).Uncompress(raw)
-	if pk == nil || !pk.KeyValidate() {
-		return nil, ErrInvalidSignerValue
-	}
-	return pk.Compress(), nil
 }
 
 func normalizeElgamalPubkey(raw []byte) ([]byte, error) {
@@ -300,17 +291,6 @@ func bls12381SignatureToRS(sig []byte) (*big.Int, *big.Int, error) {
 		return nil, nil, ErrInvalidSignerValue
 	}
 	return new(big.Int).SetBytes(sig[:bls12381PubkeyLen]), new(big.Int).SetBytes(sig[bls12381PubkeyLen:]), nil
-}
-
-func bls12381SecretKeyFromBytes(priv []byte) (*blst.SecretKey, error) {
-	if len(priv) != bls12381PrivateKeyLen {
-		return nil, ErrInvalidSignerKey
-	}
-	sk := new(blst.SecretKey).Deserialize(priv)
-	if sk == nil || !sk.Valid() {
-		return nil, ErrInvalidSignerKey
-	}
-	return sk, nil
 }
 
 func elgamalGeneratorH() (*ristretto255.Element, error) {
@@ -465,79 +445,6 @@ func verifyElgamalSignature(pub, sig []byte, txHash common.Hash) bool {
 	return eScalar.Equal(calculatedE) == 1
 }
 
-func verifyBLS12381Signature(pub, sig []byte, txHash common.Hash) bool {
-	if len(pub) != bls12381PubkeyLen || len(sig) != bls12381SignatureLen {
-		return false
-	}
-	var dummy blst.P2Affine
-	return dummy.VerifyCompressed(sig, true, pub, true, txHash[:], bls12381SignDst)
-}
-
-// GenerateBLS12381PrivateKey creates a new BLS12-381 secret key compatible with blst.
-func GenerateBLS12381PrivateKey(r io.Reader) ([]byte, error) {
-	ikm := make([]byte, bls12381PrivateKeyLen)
-	if _, err := io.ReadFull(r, ikm); err != nil {
-		return nil, err
-	}
-	sk := blst.KeyGen(ikm)
-	if sk == nil {
-		return nil, ErrInvalidSignerKey
-	}
-	out := append([]byte(nil), sk.Serialize()...)
-	sk.Zeroize()
-	return out, nil
-}
-
-// PublicKeyFromBLS12381Private derives compressed G1 public key bytes from a BLS12-381 secret key.
-func PublicKeyFromBLS12381Private(priv []byte) ([]byte, error) {
-	sk, err := bls12381SecretKeyFromBytes(priv)
-	if err != nil {
-		return nil, err
-	}
-	return new(blst.P1Affine).From(sk).Compress(), nil
-}
-
-// SignBLS12381Hash signs tx hash with BLS12-381 and returns compressed G2 signature bytes.
-func SignBLS12381Hash(priv []byte, txHash common.Hash) ([]byte, error) {
-	sk, err := bls12381SecretKeyFromBytes(priv)
-	if err != nil {
-		return nil, err
-	}
-	return new(blst.P2Affine).Sign(sk, txHash[:], bls12381SignDst).Compress(), nil
-}
-
-// AggregateBLS12381PublicKeys aggregates compressed BLS12-381 public keys into one compressed public key.
-func AggregateBLS12381PublicKeys(pubkeys [][]byte) ([]byte, error) {
-	if len(pubkeys) == 0 {
-		return nil, ErrInvalidSignerValue
-	}
-	agg := new(blst.P1Aggregate)
-	if !agg.AggregateCompressed(pubkeys, true) {
-		return nil, ErrInvalidSignerValue
-	}
-	out := agg.ToAffine()
-	if out == nil || !out.KeyValidate() {
-		return nil, ErrInvalidSignerValue
-	}
-	return out.Compress(), nil
-}
-
-// AggregateBLS12381Signatures aggregates compressed BLS12-381 signatures into one compressed signature.
-func AggregateBLS12381Signatures(signatures [][]byte) ([]byte, error) {
-	if len(signatures) == 0 {
-		return nil, ErrInvalidSignerValue
-	}
-	agg := new(blst.P2Aggregate)
-	if !agg.AggregateCompressed(signatures, true) {
-		return nil, ErrInvalidSignerValue
-	}
-	out := agg.ToAffine()
-	if out == nil || !out.SigValidate(false) {
-		return nil, ErrInvalidSignerValue
-	}
-	return out.Compress(), nil
-}
-
 // SplitBLS12381Signature splits compressed BLS12-381 signature bytes into tx R/S bigint components.
 func SplitBLS12381Signature(sig []byte) (*big.Int, *big.Int, error) {
 	return bls12381SignatureToRS(sig)
@@ -546,15 +453,6 @@ func SplitBLS12381Signature(sig []byte) (*big.Int, *big.Int, error) {
 // JoinBLS12381Signature rebuilds compressed BLS12-381 signature bytes from tx R/S bigint components.
 func JoinBLS12381Signature(r, s *big.Int) ([]byte, error) {
 	return bls12381SignatureFromRS(r, s)
-}
-
-// VerifyBLS12381FastAggregate verifies an aggregated BLS signature against a list of signers for one message.
-func VerifyBLS12381FastAggregate(pubkeys [][]byte, signature []byte, txHash common.Hash) bool {
-	aggPub, err := AggregateBLS12381PublicKeys(pubkeys)
-	if err != nil {
-		return false
-	}
-	return verifyBLS12381Signature(aggPub, signature, txHash)
 }
 
 type ecdsaASN1Signature struct {

@@ -1,3 +1,6 @@
+//go:build cgo
+// +build cgo
+
 package secp256k1
 
 import (
