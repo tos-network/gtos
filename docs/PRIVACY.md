@@ -73,7 +73,7 @@ V1 deliberately omits Shield (public→private) and Unshield (private→public) 
 
 **Why a bridge is necessary for a dual-economy chain:**
 
-XELIS is a pure privacy chain — all balances are encrypted, so no bridge is needed. GTOS is different: it has a public economy (validator rewards, agent payments, smart contracts, system actions) and a private economy. Without a bridge:
+A pure privacy chain does not need a bridge because all balances are encrypted. GTOS is different: it has a public economy (validator rewards, agent payments, smart contracts, system actions) and a private economy. Without a bridge:
 
 - Validator block rewards (public TOS) can never enter the private economy
 - Agent income from sysactions (public TOS) cannot be made private

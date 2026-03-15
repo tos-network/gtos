@@ -16,7 +16,7 @@ var (
 	// ValidatorRegistryAddress stores on-chain DPoS validator state via storage slots.
 	ValidatorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000003")
 
-	// PrivacyRouterAddress is the dedicated recipient for UNO private-balance transactions.
+	// PrivacyRouterAddress is the dedicated recipient for private-balance transactions.
 	PrivacyRouterAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000004")
 
 	// LVMSerialAddress is a sentinel write-address injected by AnalyzeTx for
@@ -127,16 +127,6 @@ const (
 	LeaseRefundNumerator         uint64 = 80
 	LeaseRefundDenominator       uint64 = 100
 	LeasePruneBudgetPerSweep     uint64 = 4096
-)
-
-// UNO private-balance gas and payload bounds (MVP).
-const (
-	UNOBaseGas         uint64 = 150_000
-	UNOShieldGas       uint64 = 300_000
-	UNOTransferGas     uint64 = 500_000
-	UNOUnshieldGas     uint64 = 300_000
-	UNOMaxPayloadBytes        = 128 * 1024
-	UNOMaxProofBytes          = 96 * 1024
 )
 
 // Private transfer fee constants

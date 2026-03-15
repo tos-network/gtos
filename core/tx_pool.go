@@ -15,7 +15,6 @@ import (
 	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -620,10 +619,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local
 	if tx.GasFeeCapIntCmp(tx.GasTipCap()) < 0 {
 		return ErrTipAboveFeeCap
 	}
-	extraGas, err := validateUNOTxPrecheck(tx, from, pool.currentState)
-	if err != nil {
-		return err
-	}
 	// Drop non-local transactions under our own minimal accepted tx price or tip
 	if !local && tx.GasTipCapIntCmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
@@ -663,14 +658,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local
 	}
 	if tx.Gas() < intrGas {
 		return ErrIntrinsicGas
-	}
-	if extraGas > 0 {
-		if math.MaxUint64-intrGas < extraGas {
-			return ErrGasUintOverflow
-		}
-		if tx.Gas() < intrGas+extraGas {
-			return ErrIntrinsicGas
-		}
 	}
 	return nil
 }
@@ -717,80 +704,6 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 	}
 
 	return nil
-}
-
-func validateUNOTxPrecheck(tx *types.Transaction, from common.Address, statedb *state.StateDB) (uint64, error) {
-	to := tx.To()
-	if to == nil || *to != params.PrivacyRouterAddress {
-		return 0, nil
-	}
-	if tx.Value().Sign() != 0 {
-		return 0, ErrContractNotSupported
-	}
-	data := tx.Data()
-	if len(data) == 0 || len(data) > params.UNOMaxPayloadBytes {
-		return 0, ErrContractNotSupported
-	}
-	env, err := uno.DecodeEnvelope(data)
-	if err != nil {
-		return 0, err
-	}
-	if _, err := uno.RequireElgamalSigner(statedb, from); err != nil {
-		return 0, err
-	}
-	switch env.Action {
-	case uno.ActionShield:
-		payload, err := uno.DecodeShieldPayload(env.Body)
-		if err != nil {
-			return 0, err
-		}
-		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
-			return 0, uno.ErrVersionOverflow
-		}
-		shieldWei := new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS))
-		shieldCost := new(big.Int).Add(tx.Cost(), shieldWei)
-		if statedb.GetBalance(from).Cmp(shieldCost) < 0 {
-			return 0, ErrInsufficientFundsForTransfer
-		}
-		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, uno.ErrInvalidPayload
-		}
-		return params.UNOBaseGas + params.UNOShieldGas, nil
-	case uno.ActionTransfer:
-		payload, err := uno.DecodeTransferPayload(env.Body)
-		if err != nil {
-			return 0, err
-		}
-		if payload.To == from {
-			return 0, uno.ErrInvalidPayload
-		}
-		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, uno.ErrInvalidPayload
-		}
-		if _, err := uno.RequireElgamalSigner(statedb, payload.To); err != nil {
-			return 0, err
-		}
-		senderState := uno.GetAccountState(statedb, from)
-		receiverState := uno.GetAccountState(statedb, payload.To)
-		if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
-			return 0, uno.ErrVersionOverflow
-		}
-		return params.UNOBaseGas + params.UNOTransferGas, nil
-	case uno.ActionUnshield:
-		payload, err := uno.DecodeUnshieldPayload(env.Body)
-		if err != nil {
-			return 0, err
-		}
-		if len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return 0, uno.ErrInvalidPayload
-		}
-		if uno.GetAccountState(statedb, from).Version == math.MaxUint64 {
-			return 0, uno.ErrVersionOverflow
-		}
-		return params.UNOBaseGas + params.UNOUnshieldGas, nil
-	default:
-		return 0, ErrContractNotSupported
-	}
 }
 
 // add validates a transaction and inserts it into the non-executable queue for later

@@ -26,10 +26,6 @@ func init() {
 		commandChangePassphrase,
 		commandSignMessage,
 		commandVerifyMessage,
-		commandUnoBalance,
-		commandUnoShield,
-		commandUnoTransfer,
-		commandUnoUnshield,
 		commandPrivTransfer,
 	}
 }

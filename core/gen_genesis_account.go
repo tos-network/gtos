@@ -24,9 +24,6 @@ func (g GenesisAccount) MarshalJSON() ([]byte, error) {
 		PrivateKey    hexutil.Bytes               `json:"secretKey,omitempty"`
 		SignerType    string                      `json:"signerType,omitempty"`
 		SignerValue   string                      `json:"signerValue,omitempty"`
-		UNOCommitment  hexutil.Bytes               `json:"uno_ct_commitment,omitempty"`
-		UNOHandle      hexutil.Bytes               `json:"uno_ct_handle,omitempty"`
-		UNOVersion     math.HexOrDecimal64         `json:"uno_version,omitempty"`
 		PrivCommitment hexutil.Bytes               `json:"priv_commitment,omitempty"`
 		PrivHandle     hexutil.Bytes               `json:"priv_handle,omitempty"`
 		PrivVersion    math.HexOrDecimal64         `json:"priv_version,omitempty"`
@@ -45,9 +42,6 @@ func (g GenesisAccount) MarshalJSON() ([]byte, error) {
 	enc.PrivateKey = g.PrivateKey
 	enc.SignerType = g.SignerType
 	enc.SignerValue = g.SignerValue
-	enc.UNOCommitment = g.UNOCommitment
-	enc.UNOHandle = g.UNOHandle
-	enc.UNOVersion = math.HexOrDecimal64(g.UNOVersion)
 	enc.PrivCommitment = g.PrivCommitment
 	enc.PrivHandle = g.PrivHandle
 	enc.PrivVersion = math.HexOrDecimal64(g.PrivVersion)
@@ -65,9 +59,6 @@ func (g *GenesisAccount) UnmarshalJSON(input []byte) error {
 		PrivateKey    *hexutil.Bytes              `json:"secretKey,omitempty"`
 		SignerType    *string                     `json:"signerType,omitempty"`
 		SignerValue   *string                     `json:"signerValue,omitempty"`
-		UNOCommitment  *hexutil.Bytes              `json:"uno_ct_commitment,omitempty"`
-		UNOHandle      *hexutil.Bytes              `json:"uno_ct_handle,omitempty"`
-		UNOVersion     *math.HexOrDecimal64        `json:"uno_version,omitempty"`
 		PrivCommitment *hexutil.Bytes              `json:"priv_commitment,omitempty"`
 		PrivHandle     *hexutil.Bytes              `json:"priv_handle,omitempty"`
 		PrivVersion    *math.HexOrDecimal64        `json:"priv_version,omitempty"`
@@ -101,15 +92,6 @@ func (g *GenesisAccount) UnmarshalJSON(input []byte) error {
 	}
 	if dec.SignerValue != nil {
 		g.SignerValue = *dec.SignerValue
-	}
-	if dec.UNOCommitment != nil {
-		g.UNOCommitment = *dec.UNOCommitment
-	}
-	if dec.UNOHandle != nil {
-		g.UNOHandle = *dec.UNOHandle
-	}
-	if dec.UNOVersion != nil {
-		g.UNOVersion = uint64(*dec.UNOVersion)
 	}
 	if dec.PrivCommitment != nil {
 		g.PrivCommitment = *dec.PrivCommitment

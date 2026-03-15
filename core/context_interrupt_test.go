@@ -11,9 +11,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/rawdb"
-	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/crypto/ristretto255"
 	"github.com/tos-network/gtos/params"
 	lvm "github.com/tos-network/gtos/core/vm"
 )
@@ -137,61 +135,7 @@ func TestSystemActionContextCancel(t *testing.T) {
 	}
 }
 
-// ── Test 3: UNO branch skipped when context is pre-cancelled ─────────────────
-
-// TestUNOContextCancel verifies that when the Go context is already cancelled,
-// the UNO branch (PrivacyRouterAddress) returns ErrExecutionAborted without
-// attempting proof verification.
-func TestUNOContextCancel(t *testing.T) {
-	from := common.HexToAddress("0xA003")
-	to := params.PrivacyRouterAddress
-
-	st := newInterruptState(t, from)
-	pub := ristretto255.NewGeneratorElement().Bytes()
-	setupElgamalSigner(t, st, from, pub)
-
-	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
-
-	// Build a valid UNO shield envelope so we pass the early decode checks
-	// and reach the proof verification gate (where ctxAborted fires).
-	payload, err := coreuno.EncodeShieldPayload(coreuno.ShieldPayload{
-		Amount:      1,
-		NewSender:   makeValidCiphertext(ristretto255.NewGeneratorElement().Bytes(), ristretto255.NewIdentityElement().Bytes()),
-		ProofBundle: make([]byte, coreuno.ShieldProofSize),
-	})
-	if err != nil {
-		t.Fatalf("EncodeShieldPayload: %v", err)
-	}
-	data, err := coreuno.EncodeEnvelope(coreuno.ActionShield, payload)
-	if err != nil {
-		t.Fatalf("EncodeEnvelope: %v", err)
-	}
-
-	msg := types.NewMessage(from, &to, 0, big.NewInt(0), 2_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), data, nil, true)
-	gp := new(GasPool).AddGas(msg.Gas())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	start := time.Now()
-	result, applyErr := ApplyMessage(ctx, interruptBlockCtx(), cfg, msg, gp, st)
-	elapsed := time.Since(start)
-
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("UNO cancel took too long: %v", elapsed)
-	}
-	var execErr error
-	if applyErr != nil {
-		execErr = applyErr
-	} else if result != nil {
-		execErr = result.Err
-	}
-	if !errors.Is(execErr, ErrExecutionAborted) {
-		t.Fatalf("expected ErrExecutionAborted, got: %v", execErr)
-	}
-}
-
-// ── Test 4: DoCall error classification (DeadlineExceeded vs Canceled) ────────
+// ── Test 3: DoCall error classification (DeadlineExceeded vs Canceled) ────────
 
 // TestDoCallAbortErrorMessages verifies that context.DeadlineExceeded and
 // context.Canceled produce distinct error messages.  This exercises the

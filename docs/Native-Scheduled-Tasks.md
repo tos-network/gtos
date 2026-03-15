@@ -24,11 +24,10 @@ and `referral/`:
 Design derived from:
 - `~/memo/15-New-Features/07-Scheduled-Tasks.md`
 - `~/memo/02-VM-Smart-Contracts/SCHEDULED_EXECUTION_IMPLEMENTATION_PLAN.md` (TAKO/OFFERCALL)
-- `~/memo/02-VM-Smart-Contracts/xelis-scheduled-execution.md` (XELIS origin)
 
-### Adaptation Decisions (gtos vs. XELIS/TAKO)
+### Adaptation Decisions (gtos vs. prior systems)
 
-| Aspect | XELIS / TAKO | gtos |
+| Aspect | Prior systems | gtos |
 |--------|-------------|------|
 | Storage backend | RocksDB three-column priority index | keccak256 state slots (consistent with agent/, kyc/) |
 | VM | TAKO eBPF + Rust | LVM (Lua VM) |

@@ -9,7 +9,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
@@ -40,56 +39,6 @@ func sysActionMsg(from common.Address, nonce uint64) types.Message {
 	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
 		params.TxGas+params.SysActionGas, params.TxPrice(), params.TxPrice(), params.TxPrice(),
 		[]byte(`{"action":"VALIDATOR_REGISTER"}`), nil, true)
-}
-
-func unoCipher(seed byte) uno.Ciphertext {
-	var out uno.Ciphertext
-	for i := 0; i < uno.CiphertextSize; i++ {
-		out.Commitment[i] = seed + byte(i)
-		out.Handle[i] = seed + 0x20 + byte(i)
-	}
-	return out
-}
-
-func unoMsg(from common.Address, nonce uint64) types.Message {
-	dst := params.PrivacyRouterAddress
-	shieldBody, _ := uno.EncodeShieldPayload(uno.ShieldPayload{
-		Amount:      1,
-		NewSender:   unoCipher(0x01),
-		ProofBundle: []byte{0x01},
-	})
-	wire, _ := uno.EncodeEnvelope(uno.ActionShield, shieldBody)
-	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
-		wire, nil, true)
-}
-
-func unoTransferMsg(from, to common.Address, nonce uint64) types.Message {
-	dst := params.PrivacyRouterAddress
-	body, _ := uno.EncodeTransferPayload(uno.TransferPayload{
-		To:            to,
-		NewSender:     unoCipher(0x11),
-		ReceiverDelta: unoCipher(0x21),
-		ProofBundle:   []byte{0x01},
-	})
-	wire, _ := uno.EncodeEnvelope(uno.ActionTransfer, body)
-	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
-		wire, nil, true)
-}
-
-func unoUnshieldMsg(from, to common.Address, nonce uint64) types.Message {
-	dst := params.PrivacyRouterAddress
-	body, _ := uno.EncodeUnshieldPayload(uno.UnshieldPayload{
-		To:          to,
-		Amount:      1,
-		NewSender:   unoCipher(0x31),
-		ProofBundle: []byte{0x01},
-	})
-	wire, _ := uno.EncodeEnvelope(uno.ActionUnshield, body)
-	return types.NewMessage(from, &dst, nonce, big.NewInt(0),
-		1_000_000, params.TxPrice(), params.TxPrice(), params.TxPrice(),
-		wire, nil, true)
 }
 
 // ─── AccessSet.Conflicts ─────────────────────────────────────────────────────
@@ -234,65 +183,6 @@ func TestAnalyzeTxCrossSenderNoConflict(t *testing.T) {
 	b := AnalyzeTx(plainMsg(addr("0xA200"), addr("0xB200"), 0, 10), nil)
 	if a.Conflicts(&b) {
 		t.Error("independent transfers should not conflict")
-	}
-}
-
-func TestAnalyzeTxUNO(t *testing.T) {
-	sender := addr("0x71")
-	msg := unoMsg(sender, 0)
-	as := AnalyzeTx(msg, nil)
-
-	if _, ok := as.WriteAddrs[sender]; !ok {
-		t.Error("sender should be in WriteAddrs for UNO")
-	}
-	if _, ok := as.WriteAddrs[params.PrivacyRouterAddress]; !ok {
-		t.Error("PrivacyRouterAddress should be in WriteAddrs for UNO")
-	}
-}
-
-func TestAnalyzeTxUNOSerializedAcrossSenders(t *testing.T) {
-	a := AnalyzeTx(unoMsg(addr("0x7201"), 0), nil)
-	b := AnalyzeTx(unoMsg(addr("0x7202"), 0), nil)
-	if !a.Conflicts(&b) {
-		t.Error("UNO txs should conflict via shared PrivacyRouterAddress")
-	}
-}
-
-func TestAnalyzeTxUNOTransferIncludesRecipient(t *testing.T) {
-	recipient := addr("0x7210")
-	as := AnalyzeTx(unoTransferMsg(addr("0x720F"), recipient, 0), nil)
-
-	if _, ok := as.WriteAddrs[recipient]; !ok {
-		t.Fatal("UNO transfer recipient must be in WriteAddrs")
-	}
-	if _, ok := as.ReadAddrs[recipient]; !ok {
-		t.Fatal("UNO transfer recipient must be in ReadAddrs")
-	}
-	if _, ok := as.ReadAddrs[params.LVMSerialAddress]; !ok {
-		t.Fatal("UNO transfer must read LVMSerialAddress")
-	}
-}
-
-func TestUNOUnshieldConflictsWithPlainTransfer(t *testing.T) {
-	recipient := addr("0x7220")
-	unoSet := AnalyzeTx(unoUnshieldMsg(addr("0x7221"), recipient, 0), nil)
-	plainSet := AnalyzeTx(plainMsg(addr("0x7222"), recipient, 0, 1), nil)
-
-	if !unoSet.Conflicts(&plainSet) {
-		t.Fatal("UNO unshield must conflict with plain transfer to the same recipient")
-	}
-}
-
-func TestUNOUnshieldConflictsWithLVMCall(t *testing.T) {
-	db := newTestStateDB(t)
-	contract := addr("0x7230")
-	db.SetCode(contract, []byte{0x01})
-
-	unoSet := AnalyzeTx(unoUnshieldMsg(addr("0x7231"), addr("0x7232"), 0), db)
-	lvmSet := AnalyzeTx(plainMsg(addr("0x7233"), contract, 0, 0), db)
-
-	if !unoSet.Conflicts(&lvmSet) {
-		t.Fatal("UNO unshield must conflict with LVM calls via LVMSerialAddress")
 	}
 }
 

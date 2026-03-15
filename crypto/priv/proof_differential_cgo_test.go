@@ -53,7 +53,7 @@ func diffCtx() []byte {
 //
 // Run:
 //
-//	go test -tags cgo,ed25519c ./crypto/uno/... -run TestProofContextBindingAllTypes -v
+//	go test -tags cgo,ed25519c ./crypto/priv/... -run TestProofContextBindingAllTypes -v
 func TestProofContextBindingAllTypes(t *testing.T) {
 	t.Parallel()
 	senderPub, senderPriv, receiverPub, opening, amount := fixedDiffInputs(t)
@@ -141,7 +141,7 @@ func TestProofContextBindingAllTypes(t *testing.T) {
 //
 // Run:
 //
-//	go test -tags cgo,ed25519c ./crypto/uno/... -run TestNoContextProofNotValidWithContext -v
+//	go test -tags cgo,ed25519c ./crypto/priv/... -run TestNoContextProofNotValidWithContext -v
 func TestNoContextProofNotValidWithContext(t *testing.T) {
 	t.Parallel()
 	senderPub, _, _, opening, amount := fixedDiffInputs(t)
@@ -196,7 +196,7 @@ func TestNoContextProofNotValidWithContext(t *testing.T) {
 //
 // Run:
 //
-//	go test -tags cgo,ed25519c ./crypto/uno/... -run TestProofDeterminismFixedInputs -v
+//	go test -tags cgo,ed25519c ./crypto/priv/... -run TestProofDeterminismFixedInputs -v
 func TestProofDeterminismFixedInputs(t *testing.T) {
 	t.Parallel()
 	senderPub, senderPriv, receiverPub, opening, amount := fixedDiffInputs(t)

@@ -45,15 +45,15 @@ type deterministicFixture struct {
 	CtOps       ctOpsVectorCase     `json:"ct_ops"`
 }
 
-func loadXelisCtOpsFixture(t *testing.T) ctOpsVectorCase {
+func loadLegacyInteropCtOpsFixture(t *testing.T) ctOpsVectorCase {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/xelis_vectors.json")
+	raw, err := os.ReadFile("testdata/legacy_interop_vectors.json")
 	if err != nil {
-		t.Fatalf("read xelis fixture: %v", err)
+		t.Fatalf("read legacy interop fixture: %v", err)
 	}
 	var fx ctOpsVectorCase
 	if err := json.Unmarshal(raw, &fx); err != nil {
-		t.Fatalf("unmarshal xelis fixture: %v", err)
+		t.Fatalf("unmarshal legacy interop fixture: %v", err)
 	}
 	return fx
 }
@@ -325,8 +325,8 @@ func TestDeterministicCiphertextOpsVectors(t *testing.T) {
 	}
 }
 
-func TestXelisDifferentialCiphertextOpsVectors(t *testing.T) {
-	fx := loadXelisCtOpsFixture(t)
+func TestLegacyInteropCiphertextOpsVectors(t *testing.T) {
+	fx := loadLegacyInteropCtOpsFixture(t)
 	priv := mustDecodeHex(t, fx.PrivHex)
 	wantPub := mustDecodeHex(t, fx.PubHex)
 	opening1 := mustDecodeHex(t, fx.Opening1Hex)

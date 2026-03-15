@@ -3,7 +3,6 @@ package parallel
 import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/sysaction"
@@ -33,7 +32,7 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	as.WriteAddrs[sender] = struct{}{}
 
 	// PrivTransferTx: read/write both sender and receiver priv-account addresses.
-	// Serialized in MVP via PrivacyRouterAddress (same as UNO) for deterministic
+	// Serialized in MVP via PrivacyRouterAddress for deterministic
 	// proof/state handling.
 	if msg.Type() == types.PrivTransferTxType {
 		toAddr := msg.To()
@@ -42,7 +41,7 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 			as.WriteAddrs[*toAddr] = struct{}{}
 			as.ReadAddrs[*toAddr] = struct{}{}
 		}
-		// Serialize with other privacy txs and UNO txs.
+		// Serialize with other privacy txs.
 		as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
 		as.ReadAddrs[params.LVMSerialAddress] = struct{}{}
 		return as
@@ -79,32 +78,6 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 		// SlashIndicator evidence submission mutates a single fixed storage account
 		// and is serialized with other evidence submissions.
 		as.WriteAddrs[params.CheckpointSlashIndicatorAddress] = struct{}{}
-
-	case params.PrivacyRouterAddress:
-		// UNO transactions are serialized in MVP for deterministic proof/state handling.
-		// They also read the LVM sentinel because UNO unshield/transfer can write
-		// arbitrary recipient accounts that overlap with dynamic LVM balance writes.
-		as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
-		as.ReadAddrs[params.LVMSerialAddress] = struct{}{}
-
-		env, err := uno.DecodeEnvelope(msg.Data())
-		if err != nil {
-			break
-		}
-		switch env.Action {
-		case uno.ActionTransfer:
-			payload, err := uno.DecodeTransferPayload(env.Body)
-			if err == nil {
-				as.WriteAddrs[payload.To] = struct{}{}
-				as.ReadAddrs[payload.To] = struct{}{}
-			}
-		case uno.ActionUnshield:
-			payload, err := uno.DecodeUnshieldPayload(env.Body)
-			if err == nil {
-				as.WriteAddrs[payload.To] = struct{}{}
-				as.ReadAddrs[payload.To] = struct{}{}
-			}
-		}
 
 	default:
 		// Plain TOS transfer: writes recipient balance.

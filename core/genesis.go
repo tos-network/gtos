@@ -33,7 +33,6 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
-	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/params"
@@ -184,12 +183,7 @@ type GenesisAccount struct {
 	SignerType  string `json:"signerType,omitempty"`
 	SignerValue string `json:"signerValue,omitempty"`
 
-	// Optional UNO initial ciphertext state.
-	UNOCommitment []byte `json:"uno_ct_commitment,omitempty"`
-	UNOHandle     []byte `json:"uno_ct_handle,omitempty"`
-	UNOVersion    uint64 `json:"uno_version,omitempty"`
-
-	// Private balance fields (new — will replace UNO fields after migration)
+	// Private balance fields
 	PrivCommitment []byte `json:"priv_commitment,omitempty"`
 	PrivHandle     []byte `json:"priv_handle,omitempty"`
 	PrivVersion    uint64 `json:"priv_version,omitempty"`
@@ -215,7 +209,6 @@ type genesisAccountMarshaling struct {
 	Nonce      math.HexOrDecimal64
 	Storage    map[storageJSON]storageJSON
 	PrivateKey hexutil.Bytes
-	UNOVersion  math.HexOrDecimal64
 	PrivVersion math.HexOrDecimal64
 	PrivNonce   math.HexOrDecimal64
 }
@@ -232,22 +225,7 @@ func applyExtendedGenesisAccount(statedb *state.StateDB, addr common.Address, ac
 		accountsigner.Set(statedb, addr, canonicalType, canonicalValue)
 	}
 
-	hasUNO := len(account.UNOCommitment) > 0 || len(account.UNOHandle) > 0 || account.UNOVersion != 0
-	if hasUNO {
-		if len(account.UNOCommitment) != coreuno.CiphertextSize || len(account.UNOHandle) != coreuno.CiphertextSize {
-			return fmt.Errorf("genesis alloc %s: uno_ct_commitment/uno_ct_handle must be %d bytes", addr.Hex(), coreuno.CiphertextSize)
-		}
-		if _, err := coreuno.RequireElgamalSigner(statedb, addr); err != nil {
-			return fmt.Errorf("genesis alloc %s: uno account requires elgamal signer metadata: %w", addr.Hex(), err)
-		}
-		var st coreuno.AccountState
-		copy(st.Ciphertext.Commitment[:], account.UNOCommitment)
-		copy(st.Ciphertext.Handle[:], account.UNOHandle)
-		st.Version = account.UNOVersion
-		coreuno.SetAccountState(statedb, addr, st)
-	}
-
-	// Handle new Priv fields
+	// Handle Priv fields
 	hasPriv := len(account.PrivCommitment) > 0 || len(account.PrivHandle) > 0
 	if hasPriv {
 		if len(account.PrivCommitment) != 32 || len(account.PrivHandle) != 32 {

@@ -318,7 +318,7 @@ at_rangeproofs_verify(
 
 /* ---------- Range proof PROVER (single 64-bit value) ----------
    Implements the Bulletproofs proving algorithm for a single commitment.
-   Compatible with the Rust bulletproofs crate v5.0.2 (XELIS fork).
+   Compatible with the Rust bulletproofs crate v5.0.2 fork used by legacy interoperability vectors.
 
    Reference: https://eprint.iacr.org/2017/1066.pdf §4.2
    Input:  value (u64), opening (blinding scalar, 32 bytes)

@@ -28,7 +28,6 @@ import (
 	"github.com/tos-network/gtos/consensus/slashindicator"
 	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/types"
-	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/lease"
@@ -119,7 +118,7 @@ var ErrContractNotSupported = errors.New("smart contract execution not supported
 
 // ErrExecutionAborted is returned when a transaction is interrupted by context
 // cancellation or timeout before or during execution of a non-LVM branch
-// (SystemAction, UNO). The LVM branch signals interruption via the Lua VM
+// (SystemAction). The LVM branch signals interruption via the Lua VM
 // interrupt channel and surfaces its own error; this sentinel covers the rest.
 var ErrExecutionAborted = errors.New("execution aborted")
 
@@ -304,9 +303,8 @@ func (st *StateTransition) preCheck() error {
 //  2. System action address (params.SystemActionAddress): execute via sysaction.Execute
 //  3. Checkpoint SlashIndicator address (params.CheckpointSlashIndicatorAddress):
 //     execute native evidence submission handler
-//  4. UNO privacy router (params.PrivacyRouterAddress): parse tx.Data and execute UNO action
-//  5. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
-//  6. Transactions with non-empty data to other non-system addresses: rejected
+//  4. Plain TOS transfer (To != nil, empty data, no code at destination): transfer value
+//  5. Transactions with non-empty data to other non-system addresses: rejected
 func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// PrivTransferTx uses a completely separate fee model: gas=0, no buyGas,
 	// no intrinsic-gas check, no refund, no gas-based miner fee.  The fee is
@@ -393,10 +391,8 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	st.gas -= gas
 
 	// Clause 6 — unified CanTransfer check covering all transaction types (CREATE,
-	// CALL, SystemAction, PrivacyRouter).  Mirrors geth's single check before the
-	// CREATE/CALL branch.  applyUNO also rejects non-zero value internally, but
-	// the check here ensures consistent ErrInsufficientFundsForTransfer semantics
-	// regardless of destination.
+	// CALL, SystemAction).  Mirrors geth's single check before the CREATE/CALL
+	// branch.
 	if msg.Value().Sign() > 0 && !st.blockCtx.CanTransfer(st.state, msg.From(), msg.Value()) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
 	}
@@ -475,16 +471,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 				gasUsed, execErr := slashindicator.Execute(msg, st.state, st.blockCtx.BlockNumber, st.chainConfig)
 				st.gas -= gasUsed
 				vmerr = execErr
-				if vmerr != nil {
-					st.state.RevertToSnapshot(snap)
-				}
-			}
-		} else if toAddr == params.PrivacyRouterAddress {
-			if st.ctxAborted() {
-				vmerr = ErrExecutionAborted
-			} else {
-				snap := st.state.Snapshot()
-				vmerr = st.applyUNO(msg)
 				if vmerr != nil {
 					st.state.RevertToSnapshot(snap)
 				}
@@ -716,187 +702,6 @@ func (st *StateTransition) validateAccountContract(txHash common.Hash, sig []byt
 	st.validationGas = gasUsed // included in st.gasUsed() for consistent accounting
 
 	return nil
-}
-
-func (st *StateTransition) applyUNO(msg Message) error {
-	if msg.Value() != nil && msg.Value().Sign() != 0 {
-		return ErrContractNotSupported
-	}
-	if len(st.data) == 0 || len(st.data) > params.UNOMaxPayloadBytes {
-		return ErrContractNotSupported
-	}
-	env, err := uno.DecodeEnvelope(st.data)
-	if err != nil {
-		return err
-	}
-	senderPubkey, err := uno.RequireElgamalSigner(st.state, msg.From())
-	if err != nil {
-		return err
-	}
-
-	switch env.Action {
-	case uno.ActionShield:
-		chargeGas := params.UNOBaseGas + params.UNOShieldGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
-
-		payload, err := uno.DecodeShieldPayload(env.Body)
-		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return uno.ErrInvalidPayload
-		}
-		if err := uno.ValidateShieldProofBundleShape(payload.ProofBundle); err != nil {
-			return err
-		}
-
-		senderState := uno.GetAccountState(st.state, msg.From())
-		if senderState.Version == math.MaxUint64 {
-			return uno.ErrVersionOverflow
-		}
-
-		amount := new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS))
-		if !st.blockCtx.CanTransfer(st.state, msg.From(), amount) {
-			return fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From().Hex())
-		}
-		shieldCtx := uno.BuildUNOShieldTranscriptContext(
-			st.chainConfig.ChainID,
-			msg.From(),
-			msg.Nonce(),
-			payload.Amount,
-			senderState.Ciphertext,
-			payload.NewSender,
-		)
-		if st.ctxAborted() {
-			return ErrExecutionAborted
-		}
-		if err := uno.VerifyShieldProofBundleWithContext(
-			payload.ProofBundle,
-			payload.NewSender.Commitment[:],
-			payload.NewSender.Handle[:],
-			senderPubkey,
-			payload.Amount,
-			shieldCtx,
-		); err != nil {
-			return err
-		}
-
-		nextSenderCiphertext, err := uno.AddCiphertexts(senderState.Ciphertext, payload.NewSender)
-		if err != nil {
-			return err
-		}
-
-		st.state.SubBalance(msg.From(), amount)
-		senderState.Ciphertext = nextSenderCiphertext
-		senderState.Version++
-		uno.SetAccountState(st.state, msg.From(), senderState)
-		return nil
-	case uno.ActionTransfer:
-		chargeGas := params.UNOBaseGas + params.UNOTransferGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
-
-		payload, err := uno.DecodeTransferPayload(env.Body)
-		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return uno.ErrInvalidPayload
-		}
-		if err := uno.ValidateTransferProofBundleShape(payload.ProofBundle); err != nil {
-			return err
-		}
-		if payload.To == msg.From() {
-			return uno.ErrInvalidPayload
-		}
-		receiverPubkey, err := uno.RequireElgamalSigner(st.state, payload.To)
-		if err != nil {
-			return err
-		}
-
-		senderState := uno.GetAccountState(st.state, msg.From())
-		receiverState := uno.GetAccountState(st.state, payload.To)
-		if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
-			return uno.ErrVersionOverflow
-		}
-		senderDelta, err := uno.SubCiphertexts(senderState.Ciphertext, payload.NewSender)
-		if err != nil {
-			return err
-		}
-		transferCtx := uno.BuildUNOTransferTranscriptContext(
-			st.chainConfig.ChainID,
-			msg.From(),
-			payload.To,
-			msg.Nonce(),
-			senderState.Ciphertext,
-			payload.NewSender,
-			receiverState.Ciphertext,
-			payload.ReceiverDelta,
-		)
-		if st.ctxAborted() {
-			return ErrExecutionAborted
-		}
-		if err := uno.VerifyTransferProofBundleWithContext(payload.ProofBundle, senderDelta, payload.ReceiverDelta, senderPubkey, receiverPubkey, transferCtx); err != nil {
-			return err
-		}
-		nextReceiverCiphertext, err := uno.AddCiphertexts(receiverState.Ciphertext, payload.ReceiverDelta)
-		if err != nil {
-			return err
-		}
-
-		senderState.Ciphertext = payload.NewSender
-		senderState.Version++
-		receiverState.Ciphertext = nextReceiverCiphertext
-		receiverState.Version++
-		uno.SetAccountState(st.state, msg.From(), senderState)
-		uno.SetAccountState(st.state, payload.To, receiverState)
-		return nil
-	case uno.ActionUnshield:
-		chargeGas := params.UNOBaseGas + params.UNOUnshieldGas
-		if st.gas < chargeGas {
-			return ErrIntrinsicGas
-		}
-		st.gas -= chargeGas
-
-		payload, err := uno.DecodeUnshieldPayload(env.Body)
-		if err != nil || len(payload.ProofBundle) == 0 || len(payload.ProofBundle) > params.UNOMaxProofBytes {
-			return uno.ErrInvalidPayload
-		}
-		if err := uno.ValidateUnshieldProofBundleShape(payload.ProofBundle); err != nil {
-			return err
-		}
-
-		senderState := uno.GetAccountState(st.state, msg.From())
-		if senderState.Version == math.MaxUint64 {
-			return uno.ErrVersionOverflow
-		}
-		senderDelta, err := uno.SubCiphertexts(senderState.Ciphertext, payload.NewSender)
-		if err != nil {
-			return err
-		}
-		unshieldCtx := uno.BuildUNOUnshieldTranscriptContext(
-			st.chainConfig.ChainID,
-			msg.From(),
-			payload.To,
-			msg.Nonce(),
-			payload.Amount,
-			senderState.Ciphertext,
-			payload.NewSender,
-		)
-		if st.ctxAborted() {
-			return ErrExecutionAborted
-		}
-		if err := uno.VerifyUnshieldProofBundleWithContext(payload.ProofBundle, senderDelta, senderPubkey, payload.Amount, unshieldCtx); err != nil {
-			return err
-		}
-
-		senderState.Ciphertext = payload.NewSender
-		senderState.Version++
-		uno.SetAccountState(st.state, msg.From(), senderState)
-		st.state.AddBalance(payload.To, new(big.Int).Mul(new(big.Int).SetUint64(payload.Amount), new(big.Int).SetUint64(params.TOS)))
-		return nil
-	default:
-		return uno.ErrUnsupportedAction
-	}
 }
 
 // transitionPrivTransfer handles the full state transition for PrivTransferTx.
