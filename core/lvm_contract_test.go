@@ -2879,12 +2879,12 @@ func runLvmTxWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Addr
 // per-opcode VM gas:
 //   - Each primitive charges at least its defined constant worth of gas.
 //   - A script that calls an expensive primitive OOGs when the gas budget is
-//     only marginally above the intrinsic tx cost (params.TxGas = 3000).
+//     only marginally above the intrinsic tx cost (params.TxGas = 21000).
 //   - tos.gasleft() accounts for both VM opcodes and primitive charges.
 //
 // Gas budget arithmetic (all values approximate):
 //
-//	st.gas = gasLimit - params.TxGas (3000) - zero_data_cost (0)
+//	st.gas = gasLimit - params.TxGas (21000) - zero_data_cost (0)
 func TestLvmContractPrimGas(t *testing.T) {
 	// tightOOG verifies that a tight gasLimit causes OOG, and a comfortable one
 	// succeeds.  oogLimit must result in st.gas < primCost; okLimit must give
@@ -2904,43 +2904,43 @@ func TestLvmContractPrimGas(t *testing.T) {
 		}
 	}
 
-	// params.TxGas = 3000; st.gas = gasLimit - 3000.
+	// params.TxGas = 21000; st.gas = gasLimit - 21000.
 
 	t.Run("tos_sload_charges_sload", func(t *testing.T) {
 		// luaGasSLoad = 100.  st.gas=99 (<100) → OOG; st.gas=300 → success.
-		tightOOG(t, `tos.sload("k")`, 3099, 3300)
+		tightOOG(t, `tos.sload("k")`, 21099, 21300)
 	})
 
 	t.Run("tos_sstore_charges_sstore", func(t *testing.T) {
 		// luaGasSStore = 5000.  st.gas=100 (<5000) → OOG; st.gas=6000 → success.
-		tightOOG(t, `tos.sstore("k", 1)`, 3100, 9000)
+		tightOOG(t, `tos.sstore("k", 1)`, 21100, 27000)
 	})
 
 	t.Run("tos_arrLen_charges_sload", func(t *testing.T) {
 		// luaGasSLoad = 100.  Same budget as tos.sload.
-		tightOOG(t, `tos.arrLen("a")`, 3099, 3300)
+		tightOOG(t, `tos.arrLen("a")`, 21099, 21300)
 	})
 
 	t.Run("tos_arrGet_charges_2x_sload", func(t *testing.T) {
 		// 2 × luaGasSLoad = 200.  st.gas=199 → OOG; st.gas=400 → success.
-		tightOOG(t, `tos.arrGet("a", 1)`, 3199, 3500)
+		tightOOG(t, `tos.arrGet("a", 1)`, 21199, 21500)
 	})
 
 	t.Run("tos_emit_charges_log_base", func(t *testing.T) {
 		// luaGasLogBase = 375.  st.gas=374 → OOG; st.gas=600 → success.
-		tightOOG(t, `tos.emit("Ping")`, 3374, 4000)
+		tightOOG(t, `tos.emit("Ping")`, 21374, 22000)
 	})
 
 	t.Run("tos_emit_indexed_charges_log_topic", func(t *testing.T) {
 		// luaGasLogBase(375) + luaGasLogTopic(375) = 750.
 		// st.gas=749 → OOG; st.gas=1000 → success.
-		tightOOG(t, `tos.emit("X", "uint256 indexed", 1)`, 3749, 4500)
+		tightOOG(t, `tos.emit("X", "uint256 indexed", 1)`, 21749, 22500)
 	})
 
 	t.Run("tos_setStr_charges_per_chunk", func(t *testing.T) {
 		// "hello" = 5 bytes → numChunks=1 → 2 × luaGasSStore = 10000.
 		// st.gas=100 → OOG; st.gas=12000 → success.
-		tightOOG(t, `tos.setStr("k", "hello")`, 3100, 15000)
+		tightOOG(t, `tos.setStr("k", "hello")`, 21100, 33000)
 	})
 
 	t.Run("gasleft_reflects_prim_charges", func(t *testing.T) {
