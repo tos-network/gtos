@@ -1,13 +1,13 @@
 # Privacy Roadmap: Gap Analysis & Path to First-Class Privacy
 
 **Last updated**: 2026-03-15
-**Current progress**: ~58% toward "Privacy as a first-class property"
+**Current progress**: ~62% toward practical privacy target (~85%)
 
 ---
 
 ## Current State
 
-GTOS has a working confidential transfer pipeline (Level 1) and a complete Shield/Unshield consensus path (Level 2). The privacy surface covers amount hiding for transfers and bidirectional public↔private fund flow. Transaction graph privacy (sender/receiver linkability) remains the primary gap.
+GTOS has a working confidential transfer pipeline (Level 1) and a complete Shield/Unshield consensus path (Level 2). The privacy surface covers amount hiding for transfers and bidirectional public↔private fund flow. Network-layer privacy (P2P encryption + Dandelion++) and contract-level homomorphic operations are the remaining practical targets. Transaction graph privacy (sender/receiver unlinkability) has been deprioritized — stealth addresses and ring signatures are UTXO-model concepts incompatible with GTOS's account model.
 
 ### What Works
 
@@ -23,12 +23,12 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Homomorphic ciphertext arithmetic | Add / Sub / AddScalar | Pure-Go + CGO |
 | Encrypted balance state storage | 4 slots per account | commitment, handle, version, nonce in StateDB |
 | RPC endpoints | privTransfer / privShield / privUnshield / privGetBalance / privGetNonce | Functional |
-| TxPool handling | Size, chainID, nonce, fee, funds validation | Correct priv nonce source dispatch; PrivTransfer FeeLimit enforced; Shield/Unshield public-balance coverage enforced |
+| TxPool handling | Size, chainID, nonce, fee, funds, proof-shape, signature validation | Correct priv nonce source dispatch; PrivTransfer FeeLimit enforced; Shield/Unshield public-balance coverage enforced; malformed proofs and bad Schnorr signatures rejected at pool admission |
 | Fee model | Gas units × TxPriceWei | PrivBaseFee = 42,000 gas (2× plain transfer); `FeeToWei()` converts to Wei on-chain |
 | EncryptedMemo | ECDH + ChaCha20-Poly1305 | Per-tx nonce from txHash; integrity-protected by Schnorr signature |
 | Genesis seeding | Full support | Helper script generates encrypted balances for genesis accounts |
 | Miner/Worker | All priv tx types gas bypass | Correct zero-gas handling in block assembly for PrivTransfer/Shield/Unshield |
-| CLI tooling | priv-transfer / priv-shield / priv-unshield | Proof generation and transaction construction |
+| CLI tooling | priv-keygen / priv-balance / priv-transfer / priv-shield / priv-unshield | Key generation, ciphertext decryption, proof generation, and transaction construction |
 
 ### Exists but Not Usable
 
@@ -40,11 +40,9 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 | Dimension | What's Missing |
 |---|---|
-| Transaction graph privacy | No stealth addresses, no decoy/mixin outputs, no ring signatures — sender/receiver fully linkable |
 | P2P encryption | No encrypted peer-to-peer communication — transaction payloads visible to network observers |
 | Network-layer anonymity | No Dandelion++, no Tor, no mixnet — standard gossip broadcast, transaction origin IP is traceable |
-| Contract privacy | LVM executes publicly, no encrypted storage, no homomorphic operations in contracts |
-| Key management CLI | No keygen or balance-decrypt subcommands (shield/unshield now exist) |
+| Contract privacy | LVM executes publicly, no homomorphic operations in contracts |
 | RPC access control | commitment/handle/version readable by anyone — account activity frequency is observable |
 
 ---
@@ -53,11 +51,9 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Level 5: Contract privacy (FHE/MPC)        │  MISSING
+│  Level 4: Contract HE ops (ciphertext arith)│  PLANNED
 ├─────────────────────────────────────────────┤
-│  Level 4: Network privacy (encrypt+anon)    │  MISSING
-├─────────────────────────────────────────────┤
-│  Level 3: Graph privacy (stealth/decoy)     │  MISSING
+│  Level 3: Network privacy (encrypt+anon)    │  MISSING
 ├─────────────────────────────────────────────┤
 │  Level 2: Liquidity (Shield/Unshield)       │  DONE (consensus + RPC + CLI)
 ├─────────────────────────────────────────────┤
@@ -92,67 +88,33 @@ Resolved in commit `f358af8`. Full details:
 
 ## Remaining Work
 
-### Phase 1b: Key management CLI (~60%)
+### Phase 1b: Key management CLI (~60%) ✅ Mostly done
 
 **Goal**: End users can generate keys and check encrypted balances from the command line.
 
 **Effort**: 1–2 days
 
 **Tasks**:
-- [ ] `toskey priv-keygen` — generate ElGamal keypair, output pubkey + privkey (optionally encrypted with passphrase)
-- [ ] `toskey priv-balance` — take privkey + on-chain ciphertext (via `--rpc` or `--ct` flag), decrypt via ECDLP baby-step-giant-step, display plaintext balance
+- [x] `toskey priv-keygen` — generate ElGamal keypair, output pubkey + privkey (optionally encrypted with passphrase)
+- [x] `toskey priv-balance` — take privkey + on-chain ciphertext (via `--rpc` or `--ct` flag), decrypt via ECDLP baby-step-giant-step, display plaintext balance
 - [ ] `toskey priv-history` (optional) — scan PrivNonce range and decrypt each version's balance
 
-### Phase 1c: TxPool pre-validation hardening (~62%)
+### Phase 1c: TxPool pre-validation hardening (~62%) ✅ Mostly done
 
 **Goal**: Reject obviously invalid priv transactions at pool admission before they consume consensus resources.
 
 **Effort**: 1–2 days
 
 **Tasks**:
-- [ ] Proof shape/size pre-validation — reject transactions with wrong proof sizes at `validatePrivTransferTx` / `validateShieldTx` / `validateUnshieldTx` (check `len(CtValidityProof)==160`, `len(ShieldProof)==96`, etc.)
-- [ ] Schnorr signature pre-check — verify `VerifySchnorrSignature(pubkey, sigHash, S, E)` at pool admission (currently only checked during consensus execution)
+- [x] Proof shape/size pre-validation — reject transactions with wrong proof sizes at `validatePrivTransferTx` / `validateShieldTx` / `validateUnshieldTx` (check `len(CtValidityProof)==160`, `len(ShieldProof)==96`, etc.)
+- [x] Schnorr signature pre-check — verify `VerifySchnorrSignature(pubkey, sigHash, S, E)` at pool admission (currently only checked during consensus execution)
 - [ ] ShieldProof/RangeProof pre-verification (optional, expensive) — only if DoS proves to be a real concern
 
-### Phase 2: Stealth addresses — receiver unlinkability (~72%)
+### ~~Phase 2: Stealth addresses~~ ABANDONED
 
-**Goal**: Each PrivTransfer generates a one-time recipient address. Observers cannot link multiple payments to the same recipient. This is the single highest-impact privacy improvement remaining.
+Stealth addresses (DKSAP) are incompatible with the account model. Each one-time address creates a new state entry (commitment/handle/version/nonce slots), causing unbounded state growth. Stealth addresses are a UTXO-model concept (Monero) and do not map cleanly to account-based chains. XELIS (our reference implementation) also does not implement stealth addresses for the same reason. Receiver unlinkability on an account model remains an open research problem.
 
-**Effort**: 2–4 weeks
-
-**What it protects against**: An observer sees `From → StealthAddr1`, `From → StealthAddr2` and cannot determine that both payments went to the same person.
-
-**Protocol**: DKSAP (Dual-Key Stealth Address Protocol)
-- Each recipient publishes a **stealth meta-address** (spend pubkey + view pubkey)
-- Sender derives a one-time stealth address per transaction using an ephemeral keypair
-- Recipient scans the chain using their view private key to detect payments
-
-**Tasks**:
-- [ ] **Crypto layer** (`crypto/priv/stealth.go`):
-  - `GenerateStealthMetaAddress(spendPriv, viewPriv) → (spendPub, viewPub)`
-  - `DeriveStealthAddress(metaAddr, ephemeralPriv) → (stealthPub, ephemeralPub)`
-  - `ScanStealthPayment(viewPriv, ephemeralPub, stealthPub) → bool`
-  - `RecoverStealthPrivKey(spendPriv, viewPriv, ephemeralPub) → stealthPriv`
-- [ ] **Transaction changes** (`core/types/priv_transfer_tx.go`):
-  - Add `EphemeralPubkey [32]byte` field to PrivTransferTx
-  - `To` becomes the one-time stealth address (not the long-lived pubkey)
-  - Update SigningHash to cover EphemeralPubkey
-  - Update transcript context to include EphemeralPubkey
-- [ ] **State changes** (`core/priv/state.go`):
-  - Stealth meta-address storage slots per account (spendPub + viewPub)
-  - RPC to register/query stealth meta-addresses
-- [ ] **Consensus changes** (`core/state_transition.go`):
-  - `applyPrivTransfer()` validates that `To` is a properly derived stealth address (optional — can be enforced client-side only)
-- [ ] **Scanner** (`internal/privtracker/` or new package):
-  - Background scanner: iterate new blocks, try `ScanStealthPayment` for each known view key
-  - RPC endpoint: `privScanPayments(viewKey, fromBlock, toBlock) → []Payment`
-- [ ] **CLI**:
-  - `toskey priv-stealth-keygen` — generate stealth meta-address
-  - `toskey priv-stealth-scan` — scan chain for incoming payments
-  - Update `priv-transfer` to accept stealth meta-address and auto-derive one-time address
-- [ ] **Tests**: Unit tests for crypto primitives, integration test for full send→scan→recover flow
-
-### Phase 3: Network-layer privacy (~80%)
+### Phase 3: Network-layer privacy
 
 **Goal**: Break the link between transaction origin and network identity. An observer monitoring the P2P network cannot determine which node originated a transaction.
 
@@ -172,65 +134,26 @@ Resolved in commit `f358af8`. Full details:
 - [ ] Intercept only `PrivTransferTx`, `ShieldTx`, `UnshieldTx` for stem phase; regular transactions use standard gossip
 - [ ] **Files**: `p2p/dandelion.go` — stem routing table, phase tracking, timeout management
 
-### Phase 4: Decoy outputs — sender unlinkability (~90%)
+### ~~Phase 4: Decoy outputs / ring signatures~~ ABANDONED
 
-**Goal**: Observers cannot determine which account is the true sender of a transaction. Combined with Phase 2 (stealth addresses), this makes both sender and receiver unlinkable.
+Ring signatures and decoy outputs are fundamentally incompatible with the account model. In an account model, the validator must know the real sender to debit their encrypted balance — this breaks the ring's purpose. These are UTXO-model concepts (Monero) where each "output" is independently spendable. XELIS (our reference implementation) does not implement sender unlinkability for the same reason. Sender unlinkability on an account model would require a fundamentally different approach (e.g., ZK-SNARK membership proofs + nullifiers, similar to Tornado Cash), which is out of scope.
 
-**Effort**: 3–6 weeks
+### Phase 5: Contract homomorphic operations
 
-**What it protects against**: Without decoys, the `From` field directly identifies the sender. With decoys, `From` is hidden among a set of plausible senders.
+**Goal**: Contracts can store and manipulate encrypted values without decrypting them, enabling confidential token balances and private voting.
 
-**Approach options** (choose one):
+**Effort**: 2–4 weeks
 
-#### Option A: Ring signatures (Monero-style)
-- Each transaction includes the true sender plus N decoy signers (ring size = N+1)
-- Verifier can confirm "one of these N+1 accounts signed" but not which one
-- Requires: Linkable ring signatures over Ristretto255, key images to prevent double-spend
-- **Tasks**:
-  - [ ] Ring signature crypto (`crypto/priv/ring.go`): `RingSign()`, `RingVerify()`, `KeyImage()`
-  - [ ] Key image set in state (prevents double-spend without revealing sender)
-  - [ ] Decoy selection algorithm (recent outputs, age distribution matching)
-  - [ ] PrivTransferTx: replace `From [32]byte` with `Ring [][32]byte` + `KeyImage [32]byte`
-  - [ ] Update consensus verification to ring-verify instead of Schnorr-verify
-
-#### Option B: Spend authorization proofs (lighter)
-- Sender proves "I own one of these N accounts" via a ZK membership proof
-- Lighter than full ring signatures but provides same unlinkability
-- **Tasks**:
-  - [ ] ZK membership proof (`crypto/priv/membership.go`)
-  - [ ] Nullifier/key-image mechanism
-  - [ ] Decoy selection and ring construction
-
-**Shared tasks** (either option):
-- [ ] Decoy selection RPC: `privGetDecoys(count, excludeAddr) → []Pubkey`
-- [ ] Update TxPool validation for ring/membership proofs
-- [ ] Update transcript context to cover ring members
-- [ ] Integration tests: send with decoys → verify → confirm no sender leakage
-
-### Phase 5: Contract privacy (~100%)
-
-**Goal**: Smart contract state and computation are confidential. Observers cannot read contract storage or infer contract logic from execution traces.
-
-**Effort**: Months to years (research frontier)
-
-**Staged approach**:
-
-#### Phase 5a: Homomorphic operations in contracts (near-term)
+**Tasks**:
 - [ ] Expose `Ciphertext` as an opaque type in LVM contract language
 - [ ] Support homomorphic operations: `ct_add(a, b)`, `ct_add_scalar(ct, n)`, `ct_sub(a, b)`
 - [ ] Contracts can store and manipulate encrypted values without decrypting
 - [ ] Use case: confidential token balances managed by a contract
 
-#### Phase 5b: Encrypted contract storage (medium-term)
-- [ ] Contract storage slots optionally encrypted under contract-specific keys
-- [ ] Read-access requires decryption proof or authorized viewkey
-- [ ] Encrypted event logs for private contract notifications
+#### ~~Phase 5b: Encrypted contract storage~~ ABANDONED
+#### ~~Phase 5c: Confidential computation (FHE/MPC/TEE)~~ ABANDONED
 
-#### Phase 5c: Confidential computation (long-term, research)
-- [ ] FHE integration for arbitrary encrypted computation
-- [ ] Or MPC-based execution across validator committee
-- [ ] Or TEE (Trusted Execution Environment) based contract execution
-- [ ] This is an active research area with no production-ready solution
+Encrypted storage and confidential computation (FHE/MPC/TEE) are active research areas with no production-ready solution. Homomorphic operations on Twisted ElGamal ciphertexts (Phase 5a above) provide practical contract privacy for the near term. FHE/MPC/TEE may be revisited if the research landscape matures.
 
 ---
 
@@ -240,22 +163,29 @@ Resolved in commit `f358af8`. Full details:
 |---|---|---|---|---|
 | ~~**Phase 0**~~ | ~~CGO dependency~~ | ✅ DONE | Privacy works on default builds | ~40% |
 | ~~**Phase 1**~~ | ~~Shield/Unshield~~ | ✅ DONE | Public ↔ private flow | ~58% |
-| **Phase 1b** | Key management CLI | 1–2 days | End-user tooling | ~60% |
-| **Phase 1c** | TxPool hardening | 1–2 days | DoS resistance | ~62% |
-| **Phase 2** | Stealth addresses | 2–4 weeks | **Receiver unlinkability** | **~72%** |
-| **Phase 3** | P2P encrypt + Dandelion++ | 1–2 weeks | Network privacy | ~80% |
-| **Phase 4** | Decoy outputs / ring sig | 3–6 weeks | **Sender unlinkability** | **~90%** |
-| **Phase 5a** | Contract ciphertext ops | 2–4 weeks | Confidential tokens | ~93% |
-| **Phase 5b** | Encrypted storage | 4–8 weeks | Private contract state | ~96% |
-| **Phase 5c** | FHE/MPC/TEE | Months–years | Full-stack privacy | 100% |
+| ~~**Phase 1b**~~ | ~~Key management CLI~~ | ✅ DONE | End-user tooling | ~60% |
+| ~~**Phase 1c**~~ | ~~TxPool hardening~~ | ✅ DONE | DoS resistance | ~62% |
+| ~~**Phase 2**~~ | ~~Stealth addresses~~ | ABANDONED | Incompatible with account model | — |
+| **Phase 3** | P2P encrypt + Dandelion++ | 1–2 weeks | Network privacy | ~75% |
+| ~~**Phase 4**~~ | ~~Decoy outputs / ring sig~~ | ABANDONED | Incompatible with account model | — |
+| **Phase 5** | Contract ciphertext ops | 2–4 weeks | Confidential tokens | ~85% |
+| ~~**Phase 5b**~~ | ~~Encrypted storage~~ | ABANDONED | No production-ready solution | — |
+| ~~**Phase 5c**~~ | ~~FHE/MPC/TEE~~ | ABANDONED | No production-ready solution | — |
+
+### Abandoned phases and rationale
+
+| Phase | Reason |
+|---|---|
+| **Phase 2: Stealth addresses** | DKSAP creates unbounded state growth (new slots per one-time address). This is a UTXO-model concept; XELIS also does not implement it. |
+| **Phase 4: Ring signatures / decoys** | Account model requires validator to know the real sender for balance debit — breaks ring anonymity. XELIS also does not implement sender unlinkability. |
+| **Phase 5b-c: Encrypted storage / FHE / MPC / TEE** | Active research frontier with no production-ready solution. May revisit if landscape matures. |
 
 ### Privacy milestones
 
 | Milestone | Phases required | What it means |
 |---|---|---|
-| **Minimally viable** | 0 + 1 | ← **We are here** (~58%). Amounts hidden, funds flow freely, but transaction graph fully exposed |
-| **Meaningfully private** | + 2 | (~72%). Receiver unlinkable — chain analysis can no longer trivially map payment recipients |
-| **Strongly private** | + 2 + 3 + 4 | (~90%). Both sender and receiver unlinkable, network layer anonymized |
-| **First-class property** | + 2 + 3 + 4 + 5 | (100%). Full-stack privacy including confidential smart contracts |
+| **Minimally viable** | 0 + 1 + 1b + 1c | ← **We are here** (~62%). Amounts hidden, funds flow freely, key/decrypt tooling exists, malformed priv txs are filtered early |
+| **Network-hardened** | + 3 | (~75%). P2P encrypted, transaction origin IP anonymized via Dandelion++ |
+| **Contract-ready** | + 3 + 5 | (~85%). Contracts can manipulate encrypted values (confidential tokens, private voting) |
 
-**Next priority: Phase 1b + 1c (quick wins), then Phase 2 (stealth addresses) as the highest-impact single improvement.**
+**Next priority: Phase 3 (P2P encryption + Dandelion++) as the highest-impact improvement — low implementation cost, high practical privacy gain.**

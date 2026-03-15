@@ -25,6 +25,8 @@
 │   │  switch tx.Type() {                        │       │
 │   │    case SignerTxType:       applyPublic()  │       │
 │   │    case PrivTransferTxType: applyPriv()    │       │
+│   │    case ShieldTxType:       applyShield()  │       │
+│   │    case UnshieldTxType:     applyUnshield()│       │
 │   │  }                                         │       │
 │   └──────────────────┬────────────────────────┘        │
 │                      │                                  │
@@ -45,8 +47,8 @@
 ```
 
 **Core Principles**:
-- **V1 scope**: PrivBalance is allocated only at genesis; afterwards only PrivTransfer (private-to-private) is supported. Shield (public→private) and Unshield (private→public) are deferred to v2 — see "Future: Public/Private Bridge" section below
-- Fees are plaintext `uint64` values deducted from the encrypted balance via homomorphic subtraction (aligned with X protocol). No gas model, no public Balance needed for fee payment. Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
+- **Supported tx types**: PrivTransfer (private-to-private), Shield (public→private, `ShieldTxType=0x02`), and Unshield (private→public, `UnshieldTxType=0x03`) — all three are implemented and wired into consensus (see PRIVACY-ROADMAP.md for details)
+- Fees are `uint64` values denominated in gas units, converted to Wei on-chain via `FeeToWei(feeGasUnits) = feeGasUnits × params.TxPriceWei`. PrivBaseFee = 42,000 gas (2× plain transfer). Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions reuse the existing TxPool. The pool dispatches by `tx.Type()` for nonce lookup and validation
 - PrivTransferTx uses `gas() == 0` and a plaintext Fee/FeeLimit model instead of the gas model. Block assembly and miner gas-limit checks must skip gas accounting for PrivTransferTxType
@@ -66,29 +68,6 @@
 | **Dual-account model** | Pure privacy chain — all balances encrypted, no public balance | Dual: public `Balance` (Account trie) + private `PrivBalance` (storage slots) | GTOS supports both public and private economies on the same chain |
 
 ---
-
-## Future: Public/Private Bridge (v2)
-
-V1 deliberately omits Shield (public→private) and Unshield (private→public) to keep the initial scope minimal. This section documents why the bridge is needed and how it should be added.
-
-**Why a bridge is necessary for a dual-economy chain:**
-
-A pure privacy chain does not need a bridge because all balances are encrypted. GTOS is different: it has a public economy (validator rewards, agent payments, smart contracts, system actions) and a private economy. Without a bridge:
-
-- Validator block rewards (public TOS) can never enter the private economy
-- Agent income from sysactions (public TOS) cannot be made private
-- Private TOS cannot be used for smart contract interaction or escrow
-- The private economy is a closed system seeded only at genesis, with supply that can only decrease (via fees)
-- New users cannot obtain private TOS except by receiving a priv-transfer from an existing holder
-
-**Planned v2 additions:**
-
-| Action | TX Type | Description |
-|--------|---------|-------------|
-| **Shield** | `PrivShieldTxType` (0x02) | Sender burns public Balance, receives equivalent encrypted PrivBalance. Proof: commitment to shielded amount + range proof. Signed with the sender's public signer key (ed25519 etc), not ElGamal — because the sender is a public account. |
-| **Unshield** | `PrivUnshieldTxType` (0x03) | Sender deducts from encrypted PrivBalance, receives equivalent public Balance at a designated recipient address. Proof: balance proof (sufficient encrypted balance) + range proof. Signed with ElGamal Schnorr — because the sender is a priv account. |
-
-Shield and Unshield are structurally simpler than PrivTransfer (single party, no receiver ciphertext). They can be added after v1 stabilizes without changing the PrivTransferTx wire format or state model.
 
 ---
 
