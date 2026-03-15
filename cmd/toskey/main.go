@@ -30,6 +30,7 @@ func init() {
 		commandUnoShield,
 		commandUnoTransfer,
 		commandUnoUnshield,
+		commandPrivTransfer,
 	}
 }
 

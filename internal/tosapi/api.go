@@ -24,6 +24,7 @@ import (
 	"github.com/tos-network/gtos/core"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	corepriv "github.com/tos-network/gtos/core/priv"
 	coreuno "github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
@@ -2321,6 +2322,37 @@ type RPCUNODecryptResult struct {
 	BlockNumber hexutil.Uint64 `json:"blockNumber"`
 }
 
+// RPCPrivTransferArgs holds arguments for priv_transfer RPC.
+type RPCPrivTransferArgs struct {
+	From                hexutil.Bytes   `json:"from"`                // 32-byte ElGamal pubkey
+	To                  hexutil.Bytes   `json:"to"`                  // 32-byte ElGamal pubkey
+	PrivNonce           *hexutil.Uint64 `json:"privNonce"`
+	Fee                 *hexutil.Uint64 `json:"fee"`
+	FeeLimit            *hexutil.Uint64 `json:"feeLimit"`
+	Commitment          hexutil.Bytes   `json:"commitment"`          // 32B
+	SenderHandle        hexutil.Bytes   `json:"senderHandle"`        // 32B
+	ReceiverHandle      hexutil.Bytes   `json:"receiverHandle"`      // 32B
+	SourceCommitment    hexutil.Bytes   `json:"sourceCommitment"`    // 32B
+	CtValidityProof     hexutil.Bytes   `json:"ctValidityProof"`
+	CommitmentEqProof   hexutil.Bytes   `json:"commitmentEqProof"`
+	RangeProof          hexutil.Bytes   `json:"rangeProof"`
+	EncryptedMemo       hexutil.Bytes   `json:"encryptedMemo,omitempty"`
+	MemoSenderHandle    hexutil.Bytes   `json:"memoSenderHandle,omitempty"`
+	MemoReceiverHandle  hexutil.Bytes   `json:"memoReceiverHandle,omitempty"`
+	S                   hexutil.Bytes   `json:"s"`                   // 32B Schnorr sig
+	E                   hexutil.Bytes   `json:"e"`                   // 32B Schnorr sig
+}
+
+// RPCPrivBalanceResult holds the result for priv_getBalance RPC.
+type RPCPrivBalanceResult struct {
+	Pubkey      hexutil.Bytes  `json:"pubkey"`
+	Commitment  hexutil.Bytes  `json:"commitment"`
+	Handle      hexutil.Bytes  `json:"handle"`
+	Version     hexutil.Uint64 `json:"version"`
+	PrivNonce   hexutil.Uint64 `json:"privNonce"`
+	BlockNumber hexutil.Uint64 `json:"blockNumber"`
+}
+
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -3653,4 +3685,129 @@ func (s *TOSAPI) UnoDecryptBalance(
 		Version:     hexutil.Uint64(accountState.Version),
 		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
 	}, nil
+}
+
+// PrivTransfer submits a pre-signed PrivTransferTx to the transaction pool.
+func (s *TOSAPI) PrivTransfer(ctx context.Context, args RPCPrivTransferArgs) (common.Hash, error) {
+	if len(args.From) != 32 || len(args.To) != 32 {
+		return common.Hash{}, fmt.Errorf("from and to must be 32-byte ElGamal pubkeys")
+	}
+	if len(args.S) != 32 || len(args.E) != 32 {
+		return common.Hash{}, fmt.Errorf("signature S and E must be 32 bytes each")
+	}
+	if args.PrivNonce == nil {
+		return common.Hash{}, fmt.Errorf("privNonce is required")
+	}
+	if args.Fee == nil {
+		return common.Hash{}, fmt.Errorf("fee is required")
+	}
+	if args.FeeLimit == nil {
+		return common.Hash{}, fmt.Errorf("feeLimit is required")
+	}
+	if len(args.Commitment) != 32 {
+		return common.Hash{}, fmt.Errorf("commitment must be 32 bytes")
+	}
+	if len(args.SenderHandle) != 32 {
+		return common.Hash{}, fmt.Errorf("senderHandle must be 32 bytes")
+	}
+	if len(args.ReceiverHandle) != 32 {
+		return common.Hash{}, fmt.Errorf("receiverHandle must be 32 bytes")
+	}
+	if len(args.SourceCommitment) != 32 {
+		return common.Hash{}, fmt.Errorf("sourceCommitment must be 32 bytes")
+	}
+	if len(args.CtValidityProof) == 0 {
+		return common.Hash{}, fmt.Errorf("ctValidityProof is required")
+	}
+	if len(args.CommitmentEqProof) == 0 {
+		return common.Hash{}, fmt.Errorf("commitmentEqProof is required")
+	}
+	if len(args.RangeProof) == 0 {
+		return common.Hash{}, fmt.Errorf("rangeProof is required")
+	}
+
+	ptx := &types.PrivTransferTx{
+		ChainID:   s.b.ChainConfig().ChainID,
+		PrivNonce: uint64(*args.PrivNonce),
+		Fee:       uint64(*args.Fee),
+		FeeLimit:  uint64(*args.FeeLimit),
+	}
+	copy(ptx.From[:], args.From)
+	copy(ptx.To[:], args.To)
+	copy(ptx.Commitment[:], args.Commitment)
+	copy(ptx.SenderHandle[:], args.SenderHandle)
+	copy(ptx.ReceiverHandle[:], args.ReceiverHandle)
+	copy(ptx.SourceCommitment[:], args.SourceCommitment)
+	ptx.CtValidityProof = common.CopyBytes(args.CtValidityProof)
+	ptx.CommitmentEqProof = common.CopyBytes(args.CommitmentEqProof)
+	ptx.RangeProof = common.CopyBytes(args.RangeProof)
+	ptx.EncryptedMemo = common.CopyBytes(args.EncryptedMemo)
+	if len(args.MemoSenderHandle) == 32 {
+		copy(ptx.MemoSenderHandle[:], args.MemoSenderHandle)
+	}
+	if len(args.MemoReceiverHandle) == 32 {
+		copy(ptx.MemoReceiverHandle[:], args.MemoReceiverHandle)
+	}
+	copy(ptx.S[:], args.S)
+	copy(ptx.E[:], args.E)
+
+	tx := types.NewTx(ptx)
+	return tx.Hash(), s.b.SendTx(ctx, tx)
+}
+
+// PrivGetBalance returns the encrypted balance for a priv account identified
+// by its 32-byte ElGamal pubkey.
+func (s *TOSAPI) PrivGetBalance(ctx context.Context, pubkey hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCPrivBalanceResult, error) {
+	if len(pubkey) != 32 {
+		return nil, newRPCInvalidParamsError("pubkey", "must be exactly 32 bytes")
+	}
+	if s == nil || s.b == nil {
+		return nil, newRPCNotImplementedError("tos_privGetBalance")
+	}
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return nil, err
+	}
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	if st == nil || header == nil {
+		return nil, &rpcAPIError{code: rpcErrNotFound, message: "priv state not found"}
+	}
+	address := common.BytesToAddress(crypto.Keccak256(pubkey))
+	accountState := corepriv.GetAccountState(st, address)
+	return &RPCPrivBalanceResult{
+		Pubkey:      hexutil.Bytes(pubkey),
+		Commitment:  hexutil.Bytes(accountState.Ciphertext.Commitment[:]),
+		Handle:      hexutil.Bytes(accountState.Ciphertext.Handle[:]),
+		Version:     hexutil.Uint64(accountState.Version),
+		PrivNonce:   hexutil.Uint64(accountState.Nonce),
+		BlockNumber: hexutil.Uint64(header.Number.Uint64()),
+	}, nil
+}
+
+// PrivGetNonce returns the on-chain PrivNonce for a priv account identified
+// by its 32-byte ElGamal pubkey.
+func (s *TOSAPI) PrivGetNonce(ctx context.Context, pubkey hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+	if len(pubkey) != 32 {
+		return 0, newRPCInvalidParamsError("pubkey", "must be exactly 32 bytes")
+	}
+	if s == nil || s.b == nil {
+		return 0, newRPCNotImplementedError("tos_privGetNonce")
+	}
+	resolved := resolveBlockArg(blockNrOrHash)
+	if err := enforceHistoryRetentionByBlockArg(s.b, resolved); err != nil {
+		return 0, err
+	}
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, resolved)
+	if err != nil {
+		return 0, err
+	}
+	if st == nil || header == nil {
+		return 0, &rpcAPIError{code: rpcErrNotFound, message: "priv state not found"}
+	}
+	address := common.BytesToAddress(crypto.Keccak256(pubkey))
+	nonce := corepriv.GetPrivNonce(st, address)
+	return hexutil.Uint64(nonce), nil
 }
