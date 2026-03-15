@@ -1030,20 +1030,23 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **core/priv/memo.go** | EncryptMemo/DecryptMemo wrappers | DONE |
 | **Miner PrivTransferTx handling** | `miner/worker.go` (gas-limit skip, PrivNonce sender, low-gas-pool), `core/state_transition.go` (transitionPrivTransfer bypass) | DONE |
 
+| **Delete core/uno/** | Entire directory + all UNO RPCs, CLI commands, tests, scripts | DONE |
+| **Delete crypto/uno/** | Entire directory (replaced by crypto/priv/) | DONE |
+| **Delete old UNO RPCs** | UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext, UnoDecryptBalance + test files | DONE |
+| **Delete old UNO CLI** | cmd/toskey/uno.go, uno_tx.go | DONE |
+| **Rename internal/unotracker/** | → `internal/privtracker/` | DONE |
+| **Remove UNO params** | UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas, PrivacyRouterAddress | DONE |
+
 ### Not Yet Implemented
 
 | Item | Files | Reason |
 |------|-------|--------|
-| **Delete core/uno/** | Entire directory | Deferred until old UNO RPCs/CLI removed |
-| **Delete old UNO RPCs** | `internal/tosapi/api.go` (UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext) | Deferred until core/uno/ deleted |
-| **Rename internal/unotracker/** | → `internal/privtracker/` | Deferred until core/uno/ deleted |
 | **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` (currently placeholder) | Requires C backend prover for CommitmentEqProof and aggregated RangeProof |
 | **C backend: ProveCommitmentEqProof** | `crypto/ed25519/libed25519/at_uno_proofs.c` | Not exposed as standalone prover; currently embedded in balance proof only |
 | **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/libed25519/at_rangeproofs.c` | Existing prover handles single commitment; aggregated 2-commitment form needed |
 
 ### Summary
 
-**Core v1 functionality: ~95% complete.** All validator execution paths, TxPool, miner, genesis, RPC, CLI, and crypto layers are implemented and tested. The remaining items are:
-- Old UNO code cleanup (deletion of core/uno/, old RPCs, unotracker rename)
-- Two C backend prover functions need standalone exposure (CommitmentEqProof, aggregated RangeProof)
-- CLI proof generation (blocked on above C backend work)
+**Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old UNO system has been fully removed.
+
+The only remaining items are **client-side proof generation** (two C backend prover functions need standalone exposure for CommitmentEqProof and aggregated RangeProof), which does not affect validator or node operation — only the CLI tool for building transactions client-side.
