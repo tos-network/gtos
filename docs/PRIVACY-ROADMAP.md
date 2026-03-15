@@ -1,13 +1,13 @@
 # Privacy Roadmap: Gap Analysis & Path to First-Class Privacy
 
 **Last updated**: 2026-03-15
-**Current progress**: ~30-35% toward "Privacy as a first-class property"
+**Current progress**: ~40-45% toward "Privacy as a first-class property"
 
 ---
 
 ## Current State
 
-GTOS has a working confidential transfer pipeline (Level 1) with real cryptographic primitives, but the privacy surface is narrow: only transfer amounts are hidden, only with CGO builds, and the private economy is sealed — no public-to-private or private-to-public flow exists at the consensus level.
+GTOS has a working confidential transfer pipeline (Level 1) with real cryptographic primitives that work on **all builds** (CGO and pure-Go). The privacy surface is narrow: only transfer amounts are hidden, and the private economy is sealed — no public-to-private or private-to-public flow exists at the consensus level.
 
 ### What Works
 
@@ -16,8 +16,9 @@ GTOS has a working confidential transfer pipeline (Level 1) with real cryptograp
 | PrivTransfer consensus path | Full 10-step pipeline | Fee → Nonce → Schnorr → Context → 3 ZK proofs → State update |
 | Schnorr signature verification | Wired into consensus | Authenticates sender via ElGamal Ristretto-Schnorr |
 | Chain-bound proof context | 235-byte Merlin transcript | Binds proofs to chainID, nonce, fee, addresses, ciphertexts |
-| ZK proof verification | CTValidity + CommitmentEq + RangeProof | CGO only — delegates to C backend via FFI |
-| Homomorphic ciphertext arithmetic | Add / Sub / AddScalar | **Has pure-Go fallback** (only crypto op that works without CGO) |
+| ZK proof verification | CTValidity + CommitmentEq + RangeProof | CGO + pure-Go — both backends fully functional |
+| ZK proof generation | Shield + CTValidity + Balance + RangeProof | CGO + pure-Go — prove→verify round-trips pass |
+| Homomorphic ciphertext arithmetic | Add / Sub / AddScalar | Pure-Go + CGO |
 | Encrypted balance state storage | 4 slots per account | commitment, handle, version, nonce in StateDB |
 | RPC endpoints | privTransfer / privGetBalance / privGetNonce | Functional |
 | TxPool handling | Size, chainID, nonce, fee validation | Correct nonce source dispatch for PrivTransferTx |
@@ -29,7 +30,6 @@ GTOS has a working confidential transfer pipeline (Level 1) with real cryptograp
 
 | Capability | Issue |
 |---|---|
-| nocgo build | All 43 crypto functions return stub errors/false — **PrivTransfer fails on default Go builds** |
 | Shield/Unshield crypto | Proof primitives exist in `crypto/priv` but **no consensus execution path** (no `applyPrivShield`/`applyPrivUnshield`) |
 | EncryptedMemo consumption | Memo is carried in tx and covered by Schnorr signature, but **execution path does not read or validate it** |
 | TxPool FeeLimit check | Fee vs FeeLimit validation is marked TODO |
@@ -59,7 +59,7 @@ GTOS has a working confidential transfer pipeline (Level 1) with real cryptograp
 ├─────────────────────────────────────────────┤
 │  Level 2: Liquidity (Shield/Unshield)       │  Crypto exists, consensus path missing
 ├─────────────────────────────────────────────┤
-│  Level 1: Amount privacy (CT transfer)      │  DONE (CGO only)
+│  Level 1: Amount privacy (CT transfer)      │  DONE (CGO + pure-Go)
 ├─────────────────────────────────────────────┤
 │  Level 0: Infrastructure (state/genesis/RPC)│  DONE
 └─────────────────────────────────────────────┘
@@ -69,16 +69,9 @@ GTOS has a working confidential transfer pipeline (Level 1) with real cryptograp
 
 ## Critical Gaps (Priority Order)
 
-### P0: Default build produces non-functional privacy
+### ~~P0: Default build produces non-functional privacy~~ ✅ DONE
 
-**Problem**: Go's default build mode is without CGO. All 43 cryptographic functions in `crypto/ed25519/priv_proofs_nocgo.go` return `ErrPrivBackendUnavailable` or `false`. Every PrivTransferTx fails at Schnorr signature verification on a default build.
-
-**Options**:
-1. Implement pure-Go fallbacks for all crypto operations (large effort, performance penalty)
-2. Make `CGO_ENABLED=1` + `-tags ed25519c` the required build configuration and document it
-3. Hybrid: pure-Go for verification (slower but correct), CGO for proving (client-side only)
-
-**Impact**: Without this, privacy is not a deployable feature.
+Resolved in commit `415d63c`. All 43 cryptographic functions now have pure-Go implementations using `crypto/ristretto255` and `golang.org/x/crypto`. `PrivBackendEnabled()` returns `true` on all builds. Prove→verify round-trips, context-binding mutation tests, and determinism tests all pass under `CGO_ENABLED=0`.
 
 ### P1: No Shield/Unshield consensus path
 
@@ -157,7 +150,7 @@ The LVM executes all contracts with fully public state. No encrypted storage, no
 
 | Phase | Work | Unlocks |
 |---|---|---|
-| **Phase 0** | Resolve CGO dependency (P0) | Privacy works on default builds |
+| ~~**Phase 0**~~ | ~~Resolve CGO dependency (P0)~~ | ✅ **DONE** — Privacy works on default builds |
 | **Phase 1** | Shield/Unshield consensus paths (P1) | Public ↔ private flow, usable economy |
 | **Phase 1b** | Key management CLI (S2) | End-user tooling |
 | **Phase 1c** | TxPool hardening (S3) | DoS resistance |
@@ -166,6 +159,6 @@ The LVM executes all contracts with fully public state. No encrypted storage, no
 | **Phase 4** | Decoy outputs | Sender unlinkability |
 | **Phase 5** | Contract privacy (S5) | Full-stack privacy |
 
-Completing Phases 0-1 brings privacy from "demo" (~30%) to "minimally viable" (~55%).
-Completing Phases 0-2 reaches "meaningfully private" (~70%).
+**Phase 0 is complete.** Completing Phase 1 brings privacy from "functional crypto" (~40%) to "minimally viable" (~55%).
+Completing Phases 1-2 reaches "meaningfully private" (~70%).
 Phases 3-5 are required for "first-class property" status.
