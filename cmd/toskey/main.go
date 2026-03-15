@@ -31,6 +31,7 @@ func init() {
 		commandPrivTransfer,
 		commandPrivShield,
 		commandPrivUnshield,
+		commandPrivGenerateTable,
 	}
 }
 

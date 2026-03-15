@@ -3,6 +3,8 @@ package priv
 import (
 	"errors"
 	"math"
+
+	"github.com/tos-network/gtos/crypto/priv/ecdlptable"
 )
 
 // SolveDiscreteLog finds m ∈ [0, maxAmount] such that m*G equals the message
@@ -62,4 +64,14 @@ func SolveDiscreteLog(msgPoint []byte, maxAmount uint64) (uint64, bool, error) {
 		}
 	}
 	return 0, false, nil
+}
+
+// SolveDiscreteLogWithTable finds m ∈ [0, maxAmount] such that m*G equals
+// the message point using a precomputed BSGS table for dramatically faster
+// lookup.  Falls back to SolveDiscreteLog if table is nil.
+func SolveDiscreteLogWithTable(table *ecdlptable.Table, msgPoint []byte, maxAmount uint64) (uint64, bool, error) {
+	if table == nil {
+		return SolveDiscreteLog(msgPoint, maxAmount)
+	}
+	return table.Decode(msgPoint, maxAmount)
 }

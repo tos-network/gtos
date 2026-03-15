@@ -16,6 +16,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	cryptopriv "github.com/tos-network/gtos/crypto/priv"
+	"github.com/tos-network/gtos/crypto/priv/ecdlptable"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/urfave/cli/v2"
 )
@@ -29,6 +30,10 @@ var (
 		Name:  "max-balance",
 		Usage: "maximum plaintext balance to search when decrypting via baby-step giant-step",
 		Value: 1_000_000,
+	}
+	privTableFlag = &cli.StringFlag{
+		Name:  "table",
+		Usage: "path to a precomputed BSGS table file (from priv-generate-table)",
 	}
 )
 
@@ -193,6 +198,7 @@ reports that the balance exceeds the current search window.
 		rpcURLFlag,
 		privCiphertextFlag,
 		privMaxBalanceFlag,
+		privTableFlag,
 	},
 	Action: func(ctx *cli.Context) error {
 		keyfilePath := ctx.Args().First()
@@ -236,7 +242,16 @@ reports that the balance exceeds the current search window.
 			return fmt.Errorf("failed to decrypt ciphertext: %w", err)
 		}
 		maxBalance := ctx.Uint64(privMaxBalanceFlag.Name)
-		plaintextBalance, ok, err := cryptopriv.SolveDiscreteLog(msgPoint, maxBalance)
+
+		var table *ecdlptable.Table
+		if tablePath := ctx.String(privTableFlag.Name); tablePath != "" {
+			table, err = ecdlptable.Load(tablePath)
+			if err != nil {
+				return fmt.Errorf("failed to load BSGS table: %w", err)
+			}
+		}
+
+		plaintextBalance, ok, err := cryptopriv.SolveDiscreteLogWithTable(table, msgPoint, maxBalance)
 		if err != nil {
 			return fmt.Errorf("failed to solve plaintext balance: %w", err)
 		}
