@@ -54,6 +54,16 @@
 - `PrivTransferTxType`: **ElGamal only**. From/To fields are ElGamal compressed public keys (32 bytes each). No `SignerType` field — the signature algorithm is implicit in the transaction type
 - `SignerTxType` (public): **No longer supports ElGamal**. Only secp256k1, ed25519, schnorr, secp256r1, bls12-381
 
+**Deliberate Differences from X Protocol**:
+
+| Difference | X Protocol | GTOS | Reason |
+|------------|-----------|------|--------|
+| **Transfers per tx** | `Vec<TransferPayload>` — multiple transfers per tx | Single transfer per tx | Simpler implementation, reduced proof complexity; batching can be added later |
+| **Multi-asset** | `source_commitments` with asset hash per entry; supports arbitrary tokens | Single asset (native TOS only) — no asset field needed | GTOS priv transfers are native-TOS-only; private tokens are a future extension |
+| **Reference field** | `Reference { hash, topoheight }` — binds proof to balance at specific block | Not needed | GTOS uses a linear chain with sequential block execution; nonce ordering guarantees the sender's balance state at proof time matches execution time |
+| **Serialization** | Custom binary `Writer`/`Reader` serialization | RLP encoding | Consistent with GTOS existing framework; all public transaction types use RLP |
+| **Dual-account model** | Pure privacy chain — all balances encrypted, no public balance | Dual: public `Balance` (Account trie) + private `PrivBalance` (storage slots) | GTOS supports both public and private economies on the same chain |
+
 ---
 
 ## Design Decisions: Pubkey-as-Address Model
