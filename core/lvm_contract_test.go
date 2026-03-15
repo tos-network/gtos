@@ -100,6 +100,7 @@ func lvmTestSetup2(t *testing.T, codeA, codeB string) (bc *BlockChain, contractA
 	gspec := &Genesis{
 		Config:    config,
 		ExtraData: testDPoSGenesisExtra(),
+		GasLimit:  20_000_000,
 		Alloc: GenesisAlloc{
 			addr1:         {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr:  {Balance: new(big.Int).Mul(big.NewInt(1), big.NewInt(params.TOS)), Code: []byte(codeA)},
@@ -134,6 +135,7 @@ func lvmTestSetup(t *testing.T, luaCode string) (bc *BlockChain, contractAddr co
 	gspec := &Genesis{
 		Config:    config,
 		ExtraData: testDPoSGenesisExtra(),
+		GasLimit:  20_000_000,
 		Alloc: GenesisAlloc{
 			addr1: {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr: {
@@ -168,6 +170,7 @@ func lvmTestSetupCodeBytes(t *testing.T, code []byte) (bc *BlockChain, contractA
 	gspec := &Genesis{
 		Config:    config,
 		ExtraData: testDPoSGenesisExtra(),
+		GasLimit:  20_000_000,
 		Alloc: GenesisAlloc{
 			addr1: {Balance: new(big.Int).Mul(big.NewInt(10), big.NewInt(params.TOS))},
 			contractAddr: {
@@ -194,10 +197,17 @@ func lvmTestSetupBytecode(t *testing.T, luaCode string) (bc *BlockChain, contrac
 	return lvmTestSetupCodeBytes(t, bytecode)
 }
 
+const lvmDefaultTxGasLimit uint64 = 500_000
+
 // runLvmTx sends one tx (no calldata) and asserts Lua executed successfully.
 func runLvmTx(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int) {
 	t.Helper()
-	runLvmTxWithData(t, bc, contractAddr, value, nil)
+	runLvmTxWithDataAndGasLimit(t, bc, contractAddr, value, nil, lvmDefaultTxGasLimit)
+}
+
+func runLvmTxWithGasLimitAndData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte, gasLimit uint64) {
+	t.Helper()
+	runLvmTxWithDataAndGasLimit(t, bc, contractAddr, value, data, gasLimit)
 }
 
 // runLvmTxExpectFail sends one tx expecting the Lua script to fail (revert/OOG).
@@ -206,7 +216,7 @@ func runLvmTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Addres
 	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), nil)
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, lvmDefaultTxGasLimit, big.NewInt(1), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,12 +242,17 @@ func runLvmTxExpectFail(t *testing.T, bc *BlockChain, contractAddr common.Addres
 // Builds on top of the current canonical head so sequential calls accumulate state.
 func runLvmTxWithData(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) {
 	t.Helper()
+	runLvmTxWithDataAndGasLimit(t, bc, contractAddr, value, data, lvmDefaultTxGasLimit)
+}
+
+func runLvmTxWithDataAndGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte, gasLimit uint64) {
+	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	addr1 := crypto.PubkeyToAddress(key1.PublicKey)
 	signer := types.LatestSigner(bc.Config())
 	state, _ := bc.State()
 	nonce := state.GetNonce(addr1)
-	tx, err := signTestSignerTx(signer, key1, nonce, contractAddr, value, 500_000, big.NewInt(1), data)
+	tx, err := signTestSignerTx(signer, key1, nonce, contractAddr, value, gasLimit, big.NewInt(1), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,9 +898,14 @@ func TestLvmContractABIEdgeCases(t *testing.T) {
 // callers can inspect logs, status, etc.
 func runLvmTxGetReceipt(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
 	t.Helper()
+	return runLvmTxGetReceiptWithGasLimit(t, bc, contractAddr, value, data, lvmDefaultTxGasLimit)
+}
+
+func runLvmTxGetReceiptWithGasLimit(t *testing.T, bc *BlockChain, contractAddr common.Address, value *big.Int, data []byte, gasLimit uint64) *types.Receipt {
+	t.Helper()
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	signer := types.LatestSigner(bc.Config())
-	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, 500_000, big.NewInt(1), data)
+	tx, err := signTestSignerTx(signer, key1, 0, contractAddr, value, gasLimit, big.NewInt(1), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3508,6 +3528,8 @@ func TestLvmContractAddressUtils(t *testing.T) {
 }
 
 func TestLvmContractDeploy(t *testing.T) {
+	const createHeavyGasLimit uint64 = 8_000_000
+
 	// childCode is a minimal contract used as the deployed child in most subtests.
 	const childCode = `
 		tos.oncreate(function()
@@ -3527,7 +3549,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`, childCode, want.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("deployed_code_is_callable", func(t *testing.T) {
@@ -3541,7 +3563,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("successive_deploys_differ", func(t *testing.T) {
@@ -3553,7 +3575,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("second_address_matches_nonce1", func(t *testing.T) {
@@ -3568,7 +3590,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`, want1.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("deploy_with_value_transfers_balance", func(t *testing.T) {
@@ -3585,7 +3607,7 @@ func TestLvmContractDeploy(t *testing.T) {
 		`, halfTOS.String(), halfTOS.String())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("empty_code_reverts", func(t *testing.T) {
@@ -3633,6 +3655,7 @@ func TestLvmContractDeploy(t *testing.T) {
 }
 
 func TestLvmContractCreate2(t *testing.T) {
+	const createHeavyGasLimit uint64 = 8_000_000
 	const childCode = `tos.sstore("ping", 42)`
 
 	// contractAddr is fixed by lvmTestSetup.
@@ -3658,7 +3681,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		_ = addr
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("address_matches_go_side_computation", func(t *testing.T) {
@@ -3672,7 +3695,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		`, childCode, salt, want.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("different_salts_give_different_addresses", func(t *testing.T) {
@@ -3683,7 +3706,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		`, childCode, childCode)
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("same_code_same_salt_collides", func(t *testing.T) {
@@ -3711,7 +3734,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		`, childCode, saltNum, want.Hex())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("deployed_child_is_callable", func(t *testing.T) {
@@ -3724,7 +3747,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		`, childCode)
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 
 		// Verify child state: ping=42.
 		salt := "0x42"
@@ -3746,7 +3769,7 @@ func TestLvmContractCreate2(t *testing.T) {
 		`, `tos.sstore([[x]],1)`, halfTOS.String(), halfTOS.String())
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 	})
 
 	t.Run("create2_in_staticcall_reverts", func(t *testing.T) {
@@ -4238,6 +4261,7 @@ func TestLvmContractTOS20(t *testing.T) {
 }
 
 func TestLvmContractBytecode(t *testing.T) {
+	const createHeavyGasLimit uint64 = 8_000_000
 	t.Run("precompiled_bytecode_executes", func(t *testing.T) {
 		code := `
 			tos.sstore("counter", 2)
@@ -4305,7 +4329,7 @@ func TestLvmContractBytecode(t *testing.T) {
 		bc, addr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		_ = addr
-		runLvmTx(t, bc, addr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, addr, big.NewInt(0), nil, createHeavyGasLimit)
 
 		state, _ := bc.State()
 		pingSlot := state.GetState(childAddr, lvm.StorageSlot("ping"))
@@ -4342,8 +4366,8 @@ func TestLvmContractBytecode(t *testing.T) {
 		binBC, _, binCleanup := lvmTestSetup(t, bcnCode)
 		defer binCleanup()
 
-		runLvmTx(t, srcBC, contractAddr, big.NewInt(0))
-		runLvmTx(t, binBC, contractAddr, big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, srcBC, contractAddr, big.NewInt(0), nil, createHeavyGasLimit)
+		runLvmTxWithGasLimitAndData(t, binBC, contractAddr, big.NewInt(0), nil, createHeavyGasLimit)
 
 		srcState, _ := srcBC.State()
 		binState, _ := binBC.State()
@@ -4615,6 +4639,7 @@ func TestLvmContractTOS721(t *testing.T) {
 //	contractAddrB (0xBBBB…) — impl    (codeB), 2 TOS balance
 //	addr1                   — tx sender,        10 TOS balance
 func TestLvmContractDelegatecall(t *testing.T) {
+	const createHeavyGasLimit uint64 = 8_000_000
 	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -4653,7 +4678,7 @@ func TestLvmContractDelegatecall(t *testing.T) {
 		`, addrB)
 		bc, contractAddr, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
 		defer cleanup()
-		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil, createHeavyGasLimit)
 		state, _ := bc.State()
 
 		// proxy.x must be 99
@@ -4802,10 +4827,10 @@ func TestLvmContractDelegatecall(t *testing.T) {
 		}
 
 		// Tx 2: send 0x01 → deploy v2, write its address to proxy."impl".
-		runLvmTxWithData(t, bc, common.HexToAddress(addrA), big.NewInt(0), []byte{0x01})
+		runLvmTxWithDataAndGasLimit(t, bc, common.HexToAddress(addrA), big.NewInt(0), []byte{0x01}, createHeavyGasLimit)
 
 		// Tx 3: no data → delegate to v2 → proxy.version = 2.
-		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+		runLvmTxWithGasLimitAndData(t, bc, common.HexToAddress(addrA), big.NewInt(0), nil, createHeavyGasLimit)
 		state, _ = bc.State()
 		v = state.GetState(contractAddr, lvm.StorageSlot("version"))
 		if new(big.Int).SetBytes(v[:]).Int64() != 2 {

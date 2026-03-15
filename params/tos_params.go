@@ -108,14 +108,16 @@ const SysActionGas uint64 = 100_000
 // Lease-contract constants.
 const (
 	// Separate gas schedule for native lease deployment via LEASE_DEPLOY.
-	LeaseDeployBaseGas uint64 = 48_000
+	LeaseDeployBaseGas uint64 = 0
 	LeaseDeployByteGas uint64 = 100
 
-	// Separate gas schedules for in-contract lease deployment.
-	LeaseCreateXBaseGas  uint64 = 36_000
-	LeaseCreateXByteGas  uint64 = 120
-	LeaseCreate2XBaseGas uint64 = 40_000
-	LeaseCreate2XByteGas uint64 = 120
+	// Separate gas schedules for in-contract lease deployment. These keep the
+	// same CREATE/CREATE2 base shape as the permanent VM primitives while using
+	// a discounted lease-specific code-install price.
+	LeaseCreateXBaseGas  uint64 = 32_000
+	LeaseCreateXByteGas  uint64 = 100
+	LeaseCreate2XBaseGas uint64 = 32_000
+	LeaseCreate2XByteGas uint64 = 100
 
 	// Deposit / lifecycle policy defaults.
 	LeaseDepositReferenceByteGas uint64 = 200

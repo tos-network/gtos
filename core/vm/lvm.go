@@ -35,18 +35,18 @@ import (
 // Charged in addition to the per-opcode VM gas (1 gas per opcode).
 // Modelled loosely after EVM gas schedule but simplified for TOS.
 const (
-	gasSLoad       uint64 = 100   // per StateDB slot read
-	gasSStore      uint64 = 5000  // per StateDB slot write
-	gasBalance     uint64 = 400   // balance query
-	gasCodeSize    uint64 = 700   // external code size check
-	gasTransfer    uint64 = 2300  // value transfer base
-	gasLogBase     uint64 = 375   // log emission base
-	gasLogTopic    uint64 = 375   // per indexed topic (topics[1..3])
-	gasLogByte     uint64 = 8     // per byte of log data
-	gasDeploy      uint64 = 32000 // CREATE base (mirrors EVM CREATE opcode cost)
-	gasDeployByte  uint64 = 200   // per byte of deployed code
-	gasCompileBase uint64 = 5000  // tos.compileBytecode base (parse + IR + encode)
-	gasCompileByte uint64 = 50    // per byte of Lua source compiled
+	gasSLoad       uint64 = 100     // per StateDB slot read
+	gasSStore      uint64 = 5000    // per StateDB slot write
+	gasBalance     uint64 = 400     // balance query
+	gasCodeSize    uint64 = 700     // external code size check
+	gasTransfer    uint64 = 2300    // value transfer base
+	gasLogBase     uint64 = 375     // log emission base
+	gasLogTopic    uint64 = 375     // per indexed topic (topics[1..3])
+	gasLogByte     uint64 = 8       // per byte of log data
+	gasDeploy      uint64 = 3200000 // CREATE base for legacy create/create2 deployment
+	gasDeployByte  uint64 = 200     // per byte of deployed code
+	gasCompileBase uint64 = 5000    // tos.compileBytecode base (parse + IR + encode)
+	gasCompileByte uint64 = 50      // per byte of Lua source compiled
 )
 
 // maxCallDepth caps tos.call nesting to prevent stack-overflow DoS.
@@ -158,7 +158,7 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 	if l.Context.BlockNumber != nil {
 		currentBlock = l.Context.BlockNumber.Uint64()
 	}
-	if err := lease.CheckCallable(l.StateDB, addr, currentBlock); err != nil {
+	if err := lease.CheckCallable(l.StateDB, addr, currentBlock, l.chainConfig); err != nil {
 		return nil, gas, err
 	}
 
@@ -270,6 +270,15 @@ func SplitDeployDataAndConstructorArgs(data []byte) (pkgBytes []byte, ctorArgs [
 // Only .tor packages are accepted; raw .toc bytecode deployment is rejected.
 // nonce must be the pre-tx sender nonce (msg.Nonce()).
 func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	return l.createPackage(caller, pkgBytes, constructorArgs, gas, value, nonce, gasDeployByte)
+}
+
+// CreateLease deploys a .tor package archive using the lease-specific code-install gas schedule.
+func (l *LVM) CreateLease(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
+	return l.createPackage(caller, pkgBytes, constructorArgs, gas, value, nonce, params.LeaseDeployByteGas)
+}
+
+func (l *LVM) createPackage(caller ContractRef, pkgBytes []byte, constructorArgs []byte, gas uint64, value *big.Int, nonce uint64, codeGasPerByte uint64) (contractAddr common.Address, leftOverGas uint64, err error) {
 	if l.depth > callCreateDepth {
 		return common.Address{}, gas, ErrDepth
 	}
@@ -363,7 +372,7 @@ func (l *LVM) Create(caller ContractRef, pkgBytes []byte, constructorArgs []byte
 	}
 
 	// Charge code storage gas based on full deploy package size.
-	codeGas := uint64(len(pkgBytes)) * gasDeployByte
+	codeGas := uint64(len(pkgBytes)) * codeGasPerByte
 	if gas < codeGas {
 		return common.Address{}, 0, ErrGasLimitExceeded
 	}
@@ -2755,7 +2764,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if blockCtx.BlockNumber != nil {
 			currentBlock = blockCtx.BlockNumber.Uint64()
 		}
-		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock); err != nil {
+		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock, chainConfig); err != nil {
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2
@@ -2898,7 +2907,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if blockCtx.BlockNumber != nil {
 			currentBlock = blockCtx.BlockNumber.Uint64()
 		}
-		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock); err != nil {
+		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock, chainConfig); err != nil {
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2
@@ -3012,7 +3021,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if blockCtx.BlockNumber != nil {
 			currentBlock = blockCtx.BlockNumber.Uint64()
 		}
-		if err := lease.CheckCallable(stateDB, implAddr, currentBlock); err != nil {
+		if err := lease.CheckCallable(stateDB, implAddr, currentBlock, chainConfig); err != nil {
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2
@@ -3096,6 +3105,72 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Contract deployment ────────────────────────────────────────────────────
 
+	deriveRawDeployAddress := func(op string, code []byte, salt *[32]byte) (uint64, common.Address) {
+		deployerNonce := stateDB.GetNonce(contractAddr)
+		if deployerNonce+1 < deployerNonce {
+			L.RaiseError("%s: deployer nonce overflow", op)
+			return 0, common.Address{}
+		}
+
+		var newAddr common.Address
+		if salt == nil {
+			newAddr = crypto.CreateAddress(contractAddr, deployerNonce)
+		} else {
+			newAddr = crypto.CreateAddress2(contractAddr, *salt, crypto.Keccak256(code))
+		}
+		if lease.HasTombstone(stateDB, newAddr) || stateDB.GetNonce(newAddr) != 0 || len(stateDB.GetCode(newAddr)) != 0 {
+			L.RaiseError("%s: address collision at %s", op, newAddr.Hex())
+			return 0, common.Address{}
+		}
+		return deployerNonce, newAddr
+	}
+
+	deployRawContract := func(op string, deployerNonce uint64, newAddr common.Address, code []byte, deployValue *big.Int, deposit *big.Int, leaseOwner common.Address, leaseBlocks uint64) {
+		if deployValue == nil {
+			deployValue = new(big.Int)
+		}
+		if deposit == nil {
+			deposit = new(big.Int)
+		}
+
+		totalCost := new(big.Int).Set(deployValue)
+		totalCost.Add(totalCost, deposit)
+		if stateDB.GetBalance(contractAddr).Cmp(totalCost) < 0 {
+			if deposit.Sign() > 0 {
+				L.RaiseError("%s: insufficient balance for lease deposit and value transfer", op)
+			} else {
+				L.RaiseError("%s: insufficient balance for value transfer", op)
+			}
+			return
+		}
+
+		snapshot := stateDB.Snapshot()
+		stateDB.SetNonce(contractAddr, deployerNonce+1)
+		if deposit.Sign() > 0 {
+			stateDB.SubBalance(contractAddr, deposit)
+			stateDB.AddBalance(params.LeaseRegistryAddress, deposit)
+		}
+		if deployValue.Sign() > 0 {
+			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
+		}
+
+		stateDB.CreateAccount(newAddr)
+		stateDB.SetNonce(newAddr, 1)
+		stateDB.SetCode(newAddr, common.CopyBytes(code))
+
+		if leaseOwner != (common.Address{}) {
+			currentBlock := uint64(0)
+			if blockCtx.BlockNumber != nil {
+				currentBlock = blockCtx.BlockNumber.Uint64()
+			}
+			if _, err := lease.Activate(stateDB, newAddr, leaseOwner, currentBlock, leaseBlocks, uint64(len(code)), deposit, chainConfig); err != nil {
+				stateDB.RevertToSnapshot(snapshot)
+				L.RaiseError("%s: %v", op, err)
+				return
+			}
+		}
+	}
+
 	// tos.create(code [, value]) → string
 	//   Deploys a new Lua contract and returns its address as "0x..." hex.
 	//   Analogous to EVM CREATE.
@@ -3109,7 +3184,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	//   code:  Lua source string (must not be empty)
 	//   value: optional TOS wei to transfer to the new contract on creation
 	//
-	//   Gas: gasDeploy (32 000 base) + gasDeployByte (200) × len(code)
+	//   Gas: gasDeploy (3 200 000 base) + gasDeployByte (200) × len(code)
 	//
 	//   Reverts on: staticcall context, call-depth exceeded, empty code,
 	//               insufficient balance for value transfer.
@@ -3154,38 +3229,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		// Gas: base + per-byte of code (mirrors EVM CREATE cost model).
 		chargePrimGas(gasDeploy + gasDeployByte*uint64(len(code)))
 
-		// Derive new address from the deployer's current nonce (CREATE semantics).
-		nonce := stateDB.GetNonce(contractAddr)
-		// LVM-2: nonce overflow guard (mirrors LVM.Create check).
-		if nonce+1 < nonce {
-			L.RaiseError("tos.create: deployer nonce overflow")
-			return 0
-		}
-		newAddr := crypto.CreateAddress(contractAddr, nonce)
-
-		// LVM-1: address collision check (mirrors LVM.Create check).
-		existingCode := stateDB.GetCode(newAddr)
-		existingNonce := stateDB.GetNonce(newAddr)
-		if lease.HasTombstone(stateDB, newAddr) || existingNonce != 0 || len(existingCode) != 0 {
-			L.RaiseError("tos.create: address collision at %s", newAddr.Hex())
-			return 0
-		}
-
-		// Guard check before any state mutation.
-		if deployValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
-			L.RaiseError("tos.create: insufficient balance for value transfer")
-			return 0
-		}
-
-		stateDB.SetNonce(contractAddr, nonce+1)
-		if deployValue.Sign() > 0 {
-			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
-		}
-
-		// Initialize new contract account before writing code.
-		stateDB.CreateAccount(newAddr)
-		stateDB.SetNonce(newAddr, 1)
-		stateDB.SetCode(newAddr, []byte(code))
+		codeBytes := []byte(code)
+		deployerNonce, newAddr := deriveRawDeployAddress("tos.create", codeBytes, nil)
+		deployRawContract("tos.create", deployerNonce, newAddr, codeBytes, deployValue, nil, common.Address{}, 0)
 
 		L.Push(lua.LString(newAddr.Hex()))
 		return 1
@@ -3209,7 +3255,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	//          To use a text label, pass tos.keccak256("label") as the salt.
 	//   value: optional TOS wei to send to the new contract.
 	//
-	//   Gas: gasDeploy (32 000) + gasDeployByte (200) × len(code)
+	//   Gas: gasDeploy (3 200 000) + gasDeployByte (200) × len(code)
 	//
 	//   Reverts on: staticcall context, call-depth exceeded, empty code,
 	//               invalid/oversized salt, address already has code,
@@ -3274,33 +3320,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		// Gas: same model as tos.create.
 		chargePrimGas(gasDeploy + gasDeployByte*uint64(len(code)))
 
-		// Deterministic address: keccak256(0xff ++ deployer ++ salt ++ keccak256(code)).
-		codeHash := crypto.Keccak256([]byte(code))
-		newAddr := crypto.CreateAddress2(contractAddr, salt, codeHash)
-
-		// Reject collisions — CREATE2 to an address that already has code or nonce is an error.
-		// Mirrors EVM CREATE2 collision check (LVM-1 fix).
-		if lease.HasTombstone(stateDB, newAddr) || stateDB.GetNonce(newAddr) != 0 || len(stateDB.GetCode(newAddr)) > 0 {
-			L.RaiseError("tos.create2: address collision at %s", newAddr.Hex())
-			return 0
-		}
-
-		// Increment deployer nonce (mirrors CREATE behavior for both create and create2).
-		deployerNonce := stateDB.GetNonce(contractAddr)
-		stateDB.SetNonce(contractAddr, deployerNonce+1)
-		// Value transfer before code store (matches EVM CREATE2 order).
-		if deployValue.Sign() > 0 {
-			if !blockCtx.CanTransfer(stateDB, contractAddr, deployValue) {
-				L.RaiseError("tos.create2: insufficient balance for value transfer")
-				return 0
-			}
-			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
-		}
-
-		// Initialize new contract account before writing code.
-		stateDB.CreateAccount(newAddr)
-		stateDB.SetNonce(newAddr, 1)
-		stateDB.SetCode(newAddr, []byte(code))
+		codeBytes := []byte(code)
+		deployerNonce, newAddr := deriveRawDeployAddress("tos.create2", codeBytes, &salt)
+		deployRawContract("tos.create2", deployerNonce, newAddr, codeBytes, deployValue, nil, common.Address{}, 0)
 
 		L.Push(lua.LString(newAddr.Hex()))
 		return 1
@@ -3356,7 +3378,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			deployValue = new(big.Int)
 		}
 
-		deployGas, err := lease.CreateXGas(uint64(len(code)))
+		deployGas, err := lease.CreateXGas(uint64(len(code)), leaseBlocks)
 		if err != nil {
 			L.RaiseError("tos.createx: %v", err)
 			return 0
@@ -3369,45 +3391,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 
-		totalCost := new(big.Int).Set(deposit)
-		totalCost.Add(totalCost, deployValue)
-		if stateDB.GetBalance(contractAddr).Cmp(totalCost) < 0 {
-			L.RaiseError("tos.createx: insufficient balance for lease deposit and value transfer")
-			return 0
-		}
-
-		nonce := stateDB.GetNonce(contractAddr)
-		if nonce+1 < nonce {
-			L.RaiseError("tos.createx: deployer nonce overflow")
-			return 0
-		}
-		newAddr := crypto.CreateAddress(contractAddr, nonce)
-		if lease.HasTombstone(stateDB, newAddr) || stateDB.GetNonce(newAddr) != 0 || len(stateDB.GetCode(newAddr)) != 0 {
-			L.RaiseError("tos.createx: address collision at %s", newAddr.Hex())
-			return 0
-		}
-
-		stateDB.SetNonce(contractAddr, nonce+1)
-		if deposit.Sign() > 0 {
-			stateDB.SubBalance(contractAddr, deposit)
-			stateDB.AddBalance(params.LeaseRegistryAddress, deposit)
-		}
-		if deployValue.Sign() > 0 {
-			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
-		}
-
-		stateDB.CreateAccount(newAddr)
-		stateDB.SetNonce(newAddr, 1)
-		stateDB.SetCode(newAddr, []byte(code))
-
-		currentBlock := uint64(0)
-		if blockCtx.BlockNumber != nil {
-			currentBlock = blockCtx.BlockNumber.Uint64()
-		}
-		if _, err := lease.Activate(stateDB, newAddr, leaseOwner, currentBlock, leaseBlocks, uint64(len(code)), deposit, chainConfig); err != nil {
-			L.RaiseError("tos.createx: %v", err)
-			return 0
-		}
+		codeBytes := []byte(code)
+		deployerNonce, newAddr := deriveRawDeployAddress("tos.createx", codeBytes, nil)
+		deployRawContract("tos.createx", deployerNonce, newAddr, codeBytes, deployValue, deposit, leaseOwner, leaseBlocks)
 
 		L.Push(lua.LString(newAddr.Hex()))
 		return 1
@@ -3481,7 +3467,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			deployValue = new(big.Int)
 		}
 
-		deployGas, err := lease.Create2XGas(uint64(len(code)))
+		deployGas, err := lease.Create2XGas(uint64(len(code)), leaseBlocks)
 		if err != nil {
 			L.RaiseError("tos.create2x: %v", err)
 			return 0
@@ -3494,42 +3480,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 
-		totalCost := new(big.Int).Set(deposit)
-		totalCost.Add(totalCost, deployValue)
-		if stateDB.GetBalance(contractAddr).Cmp(totalCost) < 0 {
-			L.RaiseError("tos.create2x: insufficient balance for lease deposit and value transfer")
-			return 0
-		}
-
-		codeHash := crypto.Keccak256([]byte(code))
-		newAddr := crypto.CreateAddress2(contractAddr, salt, codeHash)
-		if lease.HasTombstone(stateDB, newAddr) || stateDB.GetNonce(newAddr) != 0 || len(stateDB.GetCode(newAddr)) > 0 {
-			L.RaiseError("tos.create2x: address collision at %s", newAddr.Hex())
-			return 0
-		}
-
-		deployerNonce := stateDB.GetNonce(contractAddr)
-		stateDB.SetNonce(contractAddr, deployerNonce+1)
-		if deposit.Sign() > 0 {
-			stateDB.SubBalance(contractAddr, deposit)
-			stateDB.AddBalance(params.LeaseRegistryAddress, deposit)
-		}
-		if deployValue.Sign() > 0 {
-			blockCtx.Transfer(stateDB, contractAddr, newAddr, deployValue)
-		}
-
-		stateDB.CreateAccount(newAddr)
-		stateDB.SetNonce(newAddr, 1)
-		stateDB.SetCode(newAddr, []byte(code))
-
-		currentBlock := uint64(0)
-		if blockCtx.BlockNumber != nil {
-			currentBlock = blockCtx.BlockNumber.Uint64()
-		}
-		if _, err := lease.Activate(stateDB, newAddr, leaseOwner, currentBlock, leaseBlocks, uint64(len(code)), deposit, chainConfig); err != nil {
-			L.RaiseError("tos.create2x: %v", err)
-			return 0
-		}
+		codeBytes := []byte(code)
+		deployerNonce, newAddr := deriveRawDeployAddress("tos.create2x", codeBytes, &salt)
+		deployRawContract("tos.create2x", deployerNonce, newAddr, codeBytes, deployValue, deposit, leaseOwner, leaseBlocks)
 
 		L.Push(lua.LString(newAddr.Hex()))
 		return 1
@@ -4381,7 +4334,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if blockCtx.BlockNumber != nil {
 			currentBlock = blockCtx.BlockNumber.Uint64()
 		}
-		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock); err != nil {
+		if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock, chainConfig); err != nil {
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2

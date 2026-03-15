@@ -23,6 +23,9 @@ func EpochLength(chainConfig *params.ChainConfig) uint64 {
 
 // GraceBlocks returns the effective grace window for lease contracts.
 func GraceBlocks(chainConfig *params.ChainConfig) uint64 {
+	if chainConfig != nil && chainConfig.DPoS != nil && chainConfig.DPoS.Epoch > 0 {
+		return chainConfig.DPoS.Epoch
+	}
 	return params.LeaseGraceBlocks
 }
 
@@ -63,13 +66,41 @@ func NativeDeployGas(codeBytes uint64) (uint64, error) {
 }
 
 // CreateXGas computes the separate gas schedule for tos.createx.
-func CreateXGas(codeBytes uint64) (uint64, error) {
-	return addScaledGas(params.LeaseCreateXBaseGas, params.LeaseCreateXByteGas, codeBytes)
+func CreateXGas(codeBytes uint64, leaseBlocks uint64) (uint64, error) {
+	return addLeaseScaledGas(params.LeaseCreateXBaseGas, params.LeaseCreateXByteGas, codeBytes, leaseBlocks)
 }
 
 // Create2XGas computes the separate gas schedule for tos.create2x.
-func Create2XGas(codeBytes uint64) (uint64, error) {
-	return addScaledGas(params.LeaseCreate2XBaseGas, params.LeaseCreate2XByteGas, codeBytes)
+func Create2XGas(codeBytes uint64, leaseBlocks uint64) (uint64, error) {
+	return addLeaseScaledGas(params.LeaseCreate2XBaseGas, params.LeaseCreate2XByteGas, codeBytes, leaseBlocks)
+}
+
+func addLeaseScaledGas(base uint64, perByte uint64, codeBytes uint64, leaseBlocks uint64) (uint64, error) {
+	adjustedBase, err := leaseDurationAdjustedBaseGas(base, leaseBlocks)
+	if err != nil {
+		return 0, err
+	}
+	return addScaledGas(adjustedBase, perByte, codeBytes)
+}
+
+func leaseDurationAdjustedBaseGas(base uint64, leaseBlocks uint64) (uint64, error) {
+	if err := ValidateLeaseBlocks(leaseBlocks); err != nil {
+		return 0, err
+	}
+	denom := new(big.Int).SetUint64(params.LeaseReferenceBlocks)
+	numerator := new(big.Int).SetUint64(base)
+	numerator.Mul(numerator, new(big.Int).SetUint64(leaseBlocks))
+	// Round up so any positive lease duration pays at least 1 extra base gas unit.
+	numerator.Add(numerator, new(big.Int).Sub(denom, big.NewInt(1)))
+	scaled := numerator.Div(numerator, denom)
+	if !scaled.IsUint64() {
+		return 0, fmt.Errorf("lease: gas overflows")
+	}
+	baseSurcharge := scaled.Uint64()
+	if base > math.MaxUint64-baseSurcharge {
+		return 0, fmt.Errorf("lease: gas overflows")
+	}
+	return base + baseSurcharge, nil
 }
 
 func addScaledGas(base uint64, perByte uint64, codeBytes uint64) (uint64, error) {

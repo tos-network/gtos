@@ -1006,7 +1006,7 @@ If `nonce == math.MaxUint64`, `nonce+1` silently wraps to 0. Subsequent `tos.cre
 
 #### Reach
 
-`gasDeploy = 32 000` gas per create; block gas limits make reaching `MaxUint64` nonces across even billions of blocks impossible in practice. This is a latent correctness gap, not a practical threat.
+`gasDeploy = 3 200 000` gas per create; block gas limits make reaching `MaxUint64` nonces across even billions of blocks impossible in practice. This is a latent correctness gap, not a practical threat.
 
 #### Fix
 

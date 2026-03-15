@@ -55,7 +55,7 @@ func (h *handler) handleRenew(ctx *sysaction.Context, sa *sysaction.SysAction) e
 	if ctx.BlockNumber != nil {
 		currentBlock = ctx.BlockNumber.Uint64()
 	}
-	switch EffectiveStatus(meta, currentBlock) {
+	switch EffectiveStatus(meta, currentBlock, ctx.ChainConfig) {
 	case StatusActive, StatusFrozen:
 	default:
 		return ErrLeaseExpired

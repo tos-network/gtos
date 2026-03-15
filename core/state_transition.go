@@ -513,9 +513,9 @@ func stateWordToUint64(h common.Hash) uint64 {
 
 func (st *StateTransition) ensureLeaseCallable(addr common.Address) error {
 	if st.blockCtx.BlockNumber == nil {
-		return lease.CheckCallable(st.state, addr, 0)
+		return lease.CheckCallable(st.state, addr, 0, st.chainConfig)
 	}
-	return lease.CheckCallable(st.state, addr, st.blockCtx.BlockNumber.Uint64())
+	return lease.CheckCallable(st.state, addr, st.blockCtx.BlockNumber.Uint64(), st.chainConfig)
 }
 
 func (st *StateTransition) rejectTombstonedAddress(addr common.Address) error {
@@ -546,15 +546,6 @@ func (st *StateTransition) executeLeaseDeploy(sa *sysaction.SysAction) error {
 		deployPkgBytes = payload.Code
 		ctorArgs = nil
 	}
-	leaseGas, err := lease.NativeDeployGas(uint64(len(deployPkgBytes)))
-	if err != nil {
-		return err
-	}
-	if st.gas < leaseGas {
-		st.gas = 0
-		return vm.ErrOutOfGas
-	}
-	st.gas -= leaseGas
 
 	deposit, err := lease.DepositFor(uint64(len(deployPkgBytes)), payload.LeaseBlocks)
 	if err != nil {
@@ -574,7 +565,7 @@ func (st *StateTransition) executeLeaseDeploy(sa *sysaction.SysAction) error {
 		st.state.AddBalance(params.LeaseRegistryAddress, deposit)
 	}
 
-	contractAddr, leftOverGas, createErr := st.lvm.Create(
+	contractAddr, leftOverGas, createErr := st.lvm.CreateLease(
 		vm.ContractAccount(st.msg.From()),
 		deployPkgBytes,
 		ctorArgs,

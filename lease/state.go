@@ -2,6 +2,7 @@ package lease
 
 import (
 	"encoding/binary"
+	"math"
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
@@ -29,6 +30,16 @@ func epochEntrySlot(epoch uint64, seq uint64) common.Hash {
 	binary.BigEndian.PutUint64(buf[:8], epoch)
 	binary.BigEndian.PutUint64(buf[8:], seq)
 	return common.BytesToHash(crypto.Keccak256(append([]byte("lease\x00expiry_entry\x00"), buf[:]...)))
+}
+
+func epochCursorSlot(epoch uint64) common.Hash {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], epoch)
+	return common.BytesToHash(crypto.Keccak256(append([]byte("lease\x00expiry_cursor\x00"), buf[:]...)))
+}
+
+func pruneHeadEpochSlot() common.Hash {
+	return common.BytesToHash(crypto.Keccak256([]byte("lease\x00prune_head_epoch")))
 }
 
 func tombstoneSlot(addr common.Address, field string) common.Hash {
@@ -123,8 +134,23 @@ func ClearMeta(db vmtypes.StateDB, addr common.Address) {
 	}
 }
 
+// PruneEligibleBlock returns the first block at which the lease becomes prunable.
+func PruneEligibleBlock(meta Meta, chainConfig *params.ChainConfig) uint64 {
+	epochLength := EpochLength(chainConfig)
+	if meta.ScheduledPruneEpoch == 0 || epochLength == 0 {
+		return 0
+	}
+	if meta.ScheduledPruneEpoch > math.MaxUint64/epochLength {
+		return math.MaxUint64
+	}
+	return meta.ScheduledPruneEpoch * epochLength
+}
+
 // EffectiveStatus derives the runtime lifecycle state at the given block.
-func EffectiveStatus(meta Meta, blockNumber uint64) Status {
+func EffectiveStatus(meta Meta, blockNumber uint64, chainConfig *params.ChainConfig) Status {
+	if pruneAt := PruneEligibleBlock(meta, chainConfig); pruneAt != 0 && blockNumber >= pruneAt && blockNumber >= meta.GraceUntilBlock {
+		return StatusPrunable
+	}
 	if blockNumber < meta.ExpireAtBlock {
 		return StatusActive
 	}
@@ -135,7 +161,7 @@ func EffectiveStatus(meta Meta, blockNumber uint64) Status {
 }
 
 // CheckCallable rejects calls to frozen, expired, or tombstoned lease contracts.
-func CheckCallable(db vmtypes.StateDB, addr common.Address, blockNumber uint64) error {
+func CheckCallable(db vmtypes.StateDB, addr common.Address, blockNumber uint64, chainConfig *params.ChainConfig) error {
 	if HasTombstone(db, addr) {
 		return ErrLeaseTombstoned
 	}
@@ -143,7 +169,7 @@ func CheckCallable(db vmtypes.StateDB, addr common.Address, blockNumber uint64) 
 	if !ok {
 		return nil
 	}
-	switch EffectiveStatus(meta, blockNumber) {
+	switch EffectiveStatus(meta, blockNumber, chainConfig) {
 	case StatusActive:
 		return nil
 	case StatusFrozen:
@@ -200,6 +226,26 @@ func ReadPruneEntryCount(db vmtypes.StateDB, epoch uint64) uint64 {
 	return readUint64(db, epochCountSlot(epoch))
 }
 
+// ReadPruneCursor returns the next unprocessed index for an epoch queue.
+func ReadPruneCursor(db vmtypes.StateDB, epoch uint64) uint64 {
+	return readUint64(db, epochCursorSlot(epoch))
+}
+
+// WritePruneCursor persists the next unprocessed index for an epoch queue.
+func WritePruneCursor(db vmtypes.StateDB, epoch uint64, cursor uint64) {
+	writeUint64(db, epochCursorSlot(epoch), cursor)
+}
+
+// ReadPruneHeadEpoch returns the earliest epoch that may still have pending work.
+func ReadPruneHeadEpoch(db vmtypes.StateDB) uint64 {
+	return readUint64(db, pruneHeadEpochSlot())
+}
+
+// WritePruneHeadEpoch persists the earliest epoch that may still have pending work.
+func WritePruneHeadEpoch(db vmtypes.StateDB, epoch uint64) {
+	writeUint64(db, pruneHeadEpochSlot(), epoch)
+}
+
 // ReadPruneEntry returns the address stored at the given epoch/seq position.
 func ReadPruneEntry(db vmtypes.StateDB, epoch uint64, seq uint64) common.Address {
 	return readAddress(db, epochEntrySlot(epoch, seq))
@@ -208,6 +254,7 @@ func ReadPruneEntry(db vmtypes.StateDB, epoch uint64, seq uint64) common.Address
 // ClearPruneEpoch resets the queue length after a deterministic sweep.
 func ClearPruneEpoch(db vmtypes.StateDB, epoch uint64) {
 	db.SetState(params.LeaseRegistryAddress, epochCountSlot(epoch), common.Hash{})
+	db.SetState(params.LeaseRegistryAddress, epochCursorSlot(epoch), common.Hash{})
 }
 
 // ScheduleMeta appends the current lease metadata to the prune queue and records its cursor.
@@ -216,6 +263,10 @@ func ScheduleMeta(db vmtypes.StateDB, addr common.Address, meta *Meta, chainConf
 	seq := AppendPruneCandidate(db, epoch, addr)
 	meta.ScheduledPruneEpoch = epoch
 	meta.ScheduledPruneSeq = seq
+	head := ReadPruneHeadEpoch(db)
+	if head == 0 || epoch < head {
+		WritePruneHeadEpoch(db, epoch)
+	}
 }
 
 // Activate creates and persists a fresh lease metadata entry.
