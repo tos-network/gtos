@@ -841,6 +841,13 @@ func (m Message) WithTxType(txType byte) Message {
 	return m
 }
 
+// WithPrivTransferTx returns a copy of the message with the PrivTransferTx set.
+func (m Message) WithPrivTransferTx(ptx *PrivTransferTx) Message {
+	m.privTransferTx = ptx
+	m.txType = PrivTransferTxType
+	return m
+}
+
 // PrivTransferInner returns the underlying PrivTransferTx if this message was
 // derived from a PrivTransferTxType transaction, or nil otherwise.
 func (m Message) PrivTransferInner() *PrivTransferTx { return m.privTransferTx }
