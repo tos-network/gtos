@@ -355,6 +355,16 @@ func (tx *Transaction) IsSponsored() bool {
 	return false
 }
 
+// PrivTransferFrom returns the derived address of the sender's ElGamal public
+// key when the transaction is a PrivTransferTx. The second return value
+// indicates whether the transaction is indeed a PrivTransferTx.
+func (tx *Transaction) PrivTransferFrom() (common.Address, bool) {
+	if ptx, ok := tx.inner.(*PrivTransferTx); ok {
+		return ptx.FromAddress(), true
+	}
+	return common.Address{}, false
+}
+
 // Data returns the input data of the transaction.
 func (tx *Transaction) Data() []byte { return tx.inner.data() }
 
@@ -733,6 +743,8 @@ type Message struct {
 	data              []byte
 	accessList        AccessList
 	isFake            bool
+	txType            byte             // SignerTxType (default 0) or PrivTransferTxType
+	privTransferTx    *PrivTransferTx  // non-nil for PrivTransferTxType
 }
 
 func NewMessage(from common.Address, to *common.Address, nonce uint64, amount *big.Int, gasLimit uint64, txPrice, gasFeeCap, gasTipCap *big.Int, data []byte, accessList AccessList, isFake bool) Message {
@@ -772,6 +784,10 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 		data:       tx.Data(),
 		accessList: tx.AccessList(),
 		isFake:     false,
+		txType:     tx.Type(),
+	}
+	if ptx, ok := tx.inner.(*PrivTransferTx); ok {
+		msg.privTransferTx = ptx
 	}
 	if sponsor, ok := tx.SponsorFrom(); ok {
 		msg.sponsor = sponsor
@@ -817,6 +833,17 @@ func (m Message) IsSponsored() bool              { return m.sponsor != (common.A
 func (m Message) Data() []byte                   { return m.data }
 func (m Message) AccessList() AccessList         { return m.accessList }
 func (m Message) IsFake() bool                   { return m.isFake }
+func (m Message) Type() byte                     { return m.txType }
+
+// WithTxType returns a copy of the message with the given transaction type set.
+func (m Message) WithTxType(txType byte) Message {
+	m.txType = txType
+	return m
+}
+
+// PrivTransferInner returns the underlying PrivTransferTx if this message was
+// derived from a PrivTransferTxType transaction, or nil otherwise.
+func (m Message) PrivTransferInner() *PrivTransferTx { return m.privTransferTx }
 
 // copyAddressPtr copies an address.
 func copyAddressPtr(a *common.Address) *common.Address {

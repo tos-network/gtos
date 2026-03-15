@@ -202,7 +202,7 @@ func TxAsMessageWithAccountSigner(tx *types.Transaction, signer types.Signer, ba
 		tx.Data(),
 		tx.AccessList(),
 		false,
-	)
+	).WithTxType(tx.Type())
 	if tx.IsSponsored() {
 		sponsor, err := ResolveSponsor(tx, signer, statedb)
 		if err != nil {

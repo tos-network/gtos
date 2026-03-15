@@ -89,7 +89,7 @@ func CanonicalSignerType(signerType string) (string, error) {
 
 func SupportsCurrentTxSignatureType(signerType string) bool {
 	switch signerType {
-	case SignerTypeSecp256k1, SignerTypeSchnorr, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381, SignerTypeElgamal:
+	case SignerTypeSecp256k1, SignerTypeSchnorr, SignerTypeSecp256r1, SignerTypeEd25519, SignerTypeBLS12381:
 		return true
 	default:
 		return false
@@ -208,7 +208,7 @@ func NormalizeSigner(signerType, signerValue string) (string, []byte, string, er
 	case SignerTypeBLS12381:
 		normalizedPub, err = normalizeBLS12381Pubkey(raw)
 	case SignerTypeElgamal:
-		normalizedPub, err = normalizeElgamalPubkey(raw)
+		return "", nil, "", fmt.Errorf("elgamal signer type is not supported for public transactions; use PrivTransferTx instead")
 	default:
 		err = ErrUnknownSignerType
 	}
@@ -252,11 +252,7 @@ func AddressFromSigner(signerType string, signerPub []byte) (common.Address, err
 		}
 		return common.BytesToAddress(crypto.Keccak256(signerPub)), nil
 	case SignerTypeElgamal:
-		normalized, err := normalizeElgamalPubkey(signerPub)
-		if err != nil {
-			return common.Address{}, err
-		}
-		return common.BytesToAddress(crypto.Keccak256(normalized)), nil
+		return common.Address{}, fmt.Errorf("elgamal address derivation not supported for public transactions")
 	default:
 		return common.Address{}, ErrUnknownSignerType
 	}
@@ -666,11 +662,7 @@ func VerifyRawSignature(signerType string, signerPub []byte, txHash common.Hash,
 		}
 		return verifyBLS12381Signature(signerPub, sig, txHash)
 	case SignerTypeElgamal:
-		sig, err := rsSignatureBytes(r, s)
-		if err != nil {
-			return false
-		}
-		return verifyElgamalSignature(signerPub, sig, txHash)
+		return false
 	default:
 		return false
 	}

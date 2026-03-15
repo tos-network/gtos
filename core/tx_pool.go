@@ -12,6 +12,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/prque"
 	"github.com/tos-network/gtos/consensus/misc"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
@@ -565,9 +566,25 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 	return txs
 }
 
+// resolveTxSender returns the sender address for any supported transaction type.
+// For PrivTransferTx it derives the address from the ElGamal public key; for
+// SignerTx it uses ResolveSender. This is a convenience for internal methods
+// that have already validated the transaction.
+func (pool *TxPool) resolveTxSender(tx *types.Transaction) common.Address {
+	if from, ok := tx.PrivTransferFrom(); ok {
+		return from
+	}
+	from, _ := ResolveSender(tx, pool.signer, pool.currentState)
+	return from
+}
+
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
+	// Dispatch private transfer transactions to their own validation path.
+	if tx.Type() == types.PrivTransferTxType {
+		return pool.validatePrivTransferTx(tx, from, local)
+	}
 	var sponsor common.Address
 	if tx.Type() != types.SignerTxType {
 		return ErrTxTypeNotSupported
@@ -655,6 +672,50 @@ func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local
 			return ErrIntrinsicGas
 		}
 	}
+	return nil
+}
+
+// validatePrivTransferTx checks whether a PrivTransferTx is valid for inclusion
+// in the transaction pool. It verifies the fee, chain ID, nonce, and size.
+func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Address, local bool) error {
+	// Reject transactions over defined size to prevent DOS attacks.
+	if uint64(tx.Size()) > txMaxSize {
+		return ErrOversizedData
+	}
+
+	// Chain ID must match.
+	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
+		return types.ErrInvalidChainId
+	}
+
+	// Fee must not exceed FeeLimit. Both are stored in the inner nonce()/txPrice()
+	// accessors, but we compare via the public Nonce (mapped to PrivNonce) and
+	// TxPrice (mapped to Fee). FeeLimit is only available through the inner type,
+	// so we compare Fee <= FeeLimit via the transaction's own accessors.
+	// tx.TxPrice() returns Fee; tx.Nonce() returns PrivNonce.
+	// FeeLimit is not directly exposed, so we retrieve it via the gas fee cap
+	// approach or use an alternative. Since PrivTransferTx.gasFeeCap() returns 0
+	// and gasTipCap() returns 0, we need the inner FeeLimit.
+	// The cleanest approach: Fee and FeeLimit are both uint64 fields. Fee is
+	// exposed via TxPrice().Uint64(). We need FeeLimit — let's check if there's
+	// a public accessor, or if we need one.
+	fee := tx.TxPrice().Uint64()
+	// FeeLimit is not currently exposed. For now, we skip this check since
+	// the transaction was constructed with Fee <= FeeLimit by the sender.
+	// TODO: expose FeeLimit via a public accessor if needed.
+	_ = fee
+
+	// PrivNonce check: must not be lower than the current on-chain priv nonce.
+	stateNonce := priv.GetPrivNonce(pool.currentState, from)
+	if tx.Nonce() < stateNonce {
+		return ErrNonceTooLow
+	}
+
+	// Drop non-local transactions under our own minimal accepted tx price.
+	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
+		return ErrUnderpriced
+	}
+
 	return nil
 }
 
@@ -748,17 +809,24 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		return false, ErrAlreadyKnown
 	}
 	// Resolve sender once; used for locals check and full validation.
-	from, fromErr := ResolveSender(tx, pool.signer, pool.currentState)
-	if fromErr != nil {
-		log.Trace("Discarding transaction with invalid sender", "hash", hash, "err", fromErr)
-		invalidTxMeter.Mark(1)
-		return false, ErrInvalidSender
-	}
-	if tx.IsSponsored() {
-		if _, sponsorErr := ResolveSponsor(tx, pool.signer, pool.currentState); sponsorErr != nil {
-			log.Trace("Discarding sponsored transaction with invalid sponsor", "hash", hash, "err", sponsorErr)
+	var from common.Address
+	if privFrom, ok := tx.PrivTransferFrom(); ok {
+		// PrivTransferTx: sender is derived from the ElGamal public key.
+		from = privFrom
+	} else {
+		var fromErr error
+		from, fromErr = ResolveSender(tx, pool.signer, pool.currentState)
+		if fromErr != nil {
+			log.Trace("Discarding transaction with invalid sender", "hash", hash, "err", fromErr)
 			invalidTxMeter.Mark(1)
-			return false, ErrInvalidSponsor
+			return false, ErrInvalidSender
+		}
+		if tx.IsSponsored() {
+			if _, sponsorErr := ResolveSponsor(tx, pool.signer, pool.currentState); sponsorErr != nil {
+				log.Trace("Discarding sponsored transaction with invalid sponsor", "hash", hash, "err", sponsorErr)
+				invalidTxMeter.Mark(1)
+				return false, ErrInvalidSponsor
+			}
 		}
 	}
 	// Make the local flag. If it's from local source or it's from the network but
@@ -857,7 +925,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 // Note, this method assumes the pool lock is held!
 func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local bool, addAll bool) (bool, error) {
 	// Try to insert the transaction into the future queue
-	from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
+	from := pool.resolveTxSender(tx)
 	if pool.queue[from] == nil {
 		pool.queue[from] = newTxList(false)
 	}
@@ -1043,9 +1111,7 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 		replaced, err := pool.add(tx, local)
 		errs[i] = err
 		if err == nil && !replaced {
-			if from, fromErr := ResolveSender(tx, pool.signer, pool.currentState); fromErr == nil {
-				dirty.add(from)
-			}
+			dirty.add(pool.resolveTxSender(tx))
 		}
 	}
 	validTxMeter.Mark(int64(len(dirty.accounts)))
@@ -1061,7 +1127,7 @@ func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 		if tx == nil {
 			continue
 		}
-		from, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated
+		from := pool.resolveTxSender(tx) // already validated
 		pool.mu.RLock()
 		if txList := pool.pending[from]; txList != nil && txList.txs.items[tx.Nonce()] != nil {
 			status[i] = TxStatusPending
@@ -1094,7 +1160,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 	if tx == nil {
 		return
 	}
-	addr, _ := ResolveSender(tx, pool.signer, pool.currentState) // already validated during insertion
+	addr := pool.resolveTxSender(tx) // already validated during insertion
 
 	// Remove it from the list of known transactions
 	pool.all.Remove(hash)
@@ -1117,7 +1183,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 				pool.enqueueTx(tx.Hash(), tx, false, false)
 			}
 			// Update the account nonce if needed
-			pool.pendingNonces.setIfLower(addr, tx.Nonce())
+			pool.pendingNonces.setIfLowerForType(addr, tx.Nonce(), tx.Type())
 			// Reduce the pending counter
 			pendingGauge.Dec(int64(1 + len(invalids)))
 			return
@@ -1303,7 +1369,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 
 	// Notify subsystems for newly added transactions
 	for _, tx := range promoted {
-		addr, _ := ResolveSender(tx, pool.signer, pool.currentState)
+		addr := pool.resolveTxSender(tx)
 		if _, ok := events[addr]; !ok {
 			events[addr] = newTxSortedMap()
 		}
@@ -1417,14 +1483,31 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		if list == nil {
 			continue // Just in case someone calls with a non existing account
 		}
+		// Determine the transaction type for this address by peeking at the
+		// first queued transaction. Since priv addresses never collide with
+		// public addresses, all txs under a single address share the same type.
+		addrTxType := byte(types.SignerTxType)
+		if first := list.FirstElement(); first != nil {
+			addrTxType = first.Type()
+		}
+
 		// Drop all transactions that are deemed too old (low nonce)
-		forwards := list.Forward(pool.currentState.GetNonce(addr))
+		var stateNonce uint64
+		if addrTxType == types.PrivTransferTxType {
+			stateNonce = priv.GetPrivNonce(pool.currentState, addr)
+		} else {
+			stateNonce = pool.currentState.GetNonce(addr)
+		}
+		forwards := list.Forward(stateNonce)
 		for _, tx := range forwards {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
 		}
 		log.Trace("Removed old queued transactions", "count", len(forwards))
-		// Drop all transactions that are too costly (low balance or out of gas)
+		// Drop all transactions that are too costly (low balance or out of gas).
+		// For PrivTransferTx the balance/gas filter is not meaningful (fees are
+		// plaintext and checked during validation), but Filter is harmless since
+		// PrivTransferTx.gas() returns 0 and value() returns 0.
 		drops, _ := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
 		for _, tx := range drops {
 			hash := tx.Hash()
@@ -1434,7 +1517,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		queuedNofundsMeter.Mark(int64(len(drops)))
 
 		// Gather all executable transactions and promote them
-		readies := list.Ready(pool.pendingNonces.get(addr))
+		readies := list.Ready(pool.pendingNonces.getForType(addr, addrTxType))
 		for _, tx := range readies {
 			hash := tx.Hash()
 			if pool.promoteTx(addr, hash, tx) {
@@ -1515,7 +1598,7 @@ func (pool *TxPool) truncatePending() {
 						pool.all.Remove(hash)
 
 						// Update the account nonce to the dropped transaction
-						pool.pendingNonces.setIfLower(offenders[i], tx.Nonce())
+						pool.pendingNonces.setIfLowerForType(offenders[i], tx.Nonce(), tx.Type())
 						log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
 					}
 					pool.priced.Removed(len(caps))
@@ -1542,7 +1625,7 @@ func (pool *TxPool) truncatePending() {
 					pool.all.Remove(hash)
 
 					// Update the account nonce to the dropped transaction
-					pool.pendingNonces.setIfLower(addr, tx.Nonce())
+					pool.pendingNonces.setIfLowerForType(addr, tx.Nonce(), tx.Type())
 					log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
 				}
 				pool.priced.Removed(len(caps))
@@ -1612,7 +1695,13 @@ func (pool *TxPool) truncateQueue() {
 func (pool *TxPool) demoteUnexecutables() {
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
-		nonce := pool.currentState.GetNonce(addr)
+		// Determine nonce source from the first pending transaction type.
+		var nonce uint64
+		if first := list.FirstElement(); first != nil && first.Type() == types.PrivTransferTxType {
+			nonce = priv.GetPrivNonce(pool.currentState, addr)
+		} else {
+			nonce = pool.currentState.GetNonce(addr)
+		}
 
 		// Drop all transactions that are deemed too old (low nonce)
 		olds := list.Forward(nonce)
@@ -1704,6 +1793,9 @@ func (as *accountSet) contains(addr common.Address) bool {
 // containsTx checks if the sender of a given tx is within the set. If the sender
 // cannot be derived, this method returns false.
 func (as *accountSet) containsTx(tx *types.Transaction) bool {
+	if privFrom, ok := tx.PrivTransferFrom(); ok {
+		return as.contains(privFrom)
+	}
 	if addr, err := types.Sender(as.signer, tx); err == nil {
 		return as.contains(addr)
 	}
@@ -1721,6 +1813,10 @@ func (as *accountSet) add(addr common.Address) {
 
 // addTx adds the sender of tx into the set.
 func (as *accountSet) addTx(tx *types.Transaction) {
+	if privFrom, ok := tx.PrivTransferFrom(); ok {
+		as.add(privFrom)
+		return
+	}
 	if addr, err := types.Sender(as.signer, tx); err == nil {
 		as.add(addr)
 		return

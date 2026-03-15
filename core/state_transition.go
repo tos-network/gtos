@@ -26,6 +26,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/slashindicator"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/uno"
 	"github.com/tos-network/gtos/core/vm"
@@ -78,6 +79,7 @@ type Message interface {
 	IsFake() bool
 	Data() []byte
 	AccessList() types.AccessList
+	Type() byte
 }
 
 // ExecutionResult includes all output after executing a given message.
@@ -415,7 +417,18 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 
 		toAddr := st.to()
 
-		if toAddr == params.SystemActionAddress {
+		// Check if this is a PrivTransferTx
+		if st.msg.Type() == types.PrivTransferTxType {
+			if st.ctxAborted() {
+				vmerr = ErrExecutionAborted
+			} else {
+				snap := st.state.Snapshot()
+				vmerr = st.applyPrivTransfer()
+				if vmerr != nil {
+					st.state.RevertToSnapshot(snap)
+				}
+			}
+		} else if toAddr == params.SystemActionAddress {
 			if st.ctxAborted() {
 				vmerr = ErrExecutionAborted
 			} else {
@@ -876,6 +889,144 @@ func (st *StateTransition) applyUNO(msg Message) error {
 	default:
 		return uno.ErrUnsupportedAction
 	}
+}
+
+// applyPrivTransfer executes a PrivTransferTx: verifies proofs, updates
+// sender/receiver encrypted balances, increments PrivNonce, and credits the
+// fee to the block coinbase.
+//
+// Fee model (aligned with X protocol):
+//   - Fee and FeeLimit are plaintext uint64 values
+//   - At build time the sender locks FeeLimit into SourceCommitment:
+//     new_balance = old_balance - fee_limit - transfer_amount
+//   - At execution the validator computes required_fee and refund:
+//     refund = fee_limit - actual_fee_paid
+//   - Refund is added back via homomorphic scalar addition
+func (st *StateTransition) applyPrivTransfer() error {
+	// Extract the inner PrivTransferTx from the message.
+	tmsg, ok := st.msg.(types.Message)
+	if !ok {
+		return errors.New("priv: message is not types.Message")
+	}
+	ptx := tmsg.PrivTransferInner()
+	if ptx == nil {
+		return errors.New("priv: message does not contain PrivTransferTx")
+	}
+
+	// 1. Derive addresses from pubkeys (for state trie access).
+	fromAddr := ptx.FromAddress()
+	toAddr := ptx.ToAddress()
+
+	// 2. Validate and compute fee.
+	requiredFee := priv.EstimateRequiredFee(0)
+	if requiredFee > ptx.FeeLimit {
+		return priv.ErrInsufficientFee
+	}
+	var feePaid, feeRefund uint64
+	if requiredFee > ptx.Fee {
+		// Fee field too low, but FeeLimit covers it.
+		feePaid = requiredFee
+		feeRefund = ptx.FeeLimit - requiredFee
+	} else {
+		feePaid = ptx.Fee
+		feeRefund = ptx.FeeLimit - ptx.Fee
+	}
+
+	// 3. Validate PrivNonce.
+	expectedNonce := priv.GetPrivNonce(st.state, fromAddr)
+	if ptx.PrivNonce != expectedNonce {
+		return priv.ErrNonceMismatch
+	}
+
+	// 4. Get sender/receiver AccountState.
+	senderState := priv.GetAccountState(st.state, fromAddr)
+	receiverState := priv.GetAccountState(st.state, toAddr)
+
+	if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
+		return priv.ErrVersionOverflow
+	}
+
+	// 5. Verify proofs using ptx.From/To directly as ElGamal pubkeys.
+	//
+	// Build the transfer ciphertext from tx fields.
+	senderCt := priv.Ciphertext{
+		Commitment: ptx.Commitment,
+		Handle:     ptx.SenderHandle,
+	}
+	receiverCt := priv.Ciphertext{
+		Commitment: ptx.Commitment,
+		Handle:     ptx.ReceiverHandle,
+	}
+
+	// 5a. CiphertextValidityProof: commitment & handles are valid encryptions.
+	if err := priv.VerifyCiphertextValidityProof(
+		ptx.Commitment, ptx.SenderHandle, ptx.ReceiverHandle,
+		ptx.From, ptx.To, ptx.CtValidityProof,
+	); err != nil {
+		return err
+	}
+
+	// 5b. Compute new sender balance ciphertext:
+	//     output = fee_limit (scalar) + sender_ct (transfer ciphertext)
+	//     new_sender_balance_ct = old_sender_ct - output
+	outputCt, err := priv.AddScalarToCiphertext(senderCt, ptx.FeeLimit)
+	if err != nil {
+		return err
+	}
+	newSenderBalanceCt, err := priv.SubCiphertexts(senderState.Ciphertext, outputCt)
+	if err != nil {
+		return err
+	}
+
+	// 5c. CommitmentEqProof: SourceCommitment matches newSenderBalanceCt.
+	if err := priv.VerifyCommitmentEqProof(
+		ptx.From, newSenderBalanceCt, ptx.SourceCommitment,
+		ptx.CommitmentEqProof,
+	); err != nil {
+		return err
+	}
+
+	// 5d. RangeProof: committed amounts in [0, 2^64).
+	if err := priv.VerifyRangeProof(
+		ptx.SourceCommitment, ptx.Commitment,
+		ptx.RangeProof,
+	); err != nil {
+		return err
+	}
+
+	// 6. Update sender state.
+	//    Start from SourceCommitment (fee_limit already deducted by sender).
+	senderState.Ciphertext = priv.Ciphertext{
+		Commitment: ptx.SourceCommitment,
+		Handle:     newSenderBalanceCt.Handle,
+	}
+	//    Refund excess fee back to sender's encrypted balance.
+	if feeRefund > 0 {
+		refundedCt, err := priv.AddScalarToCiphertext(senderState.Ciphertext, feeRefund)
+		if err != nil {
+			return err
+		}
+		senderState.Ciphertext = refundedCt
+	}
+	senderState.Version++
+	priv.SetAccountState(st.state, fromAddr, senderState)
+
+	// 7. Update receiver state: add transfer ciphertext to existing balance.
+	newReceiverCt, err := priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
+	if err != nil {
+		return err
+	}
+	receiverState.Ciphertext = newReceiverCt
+	receiverState.Version++
+	priv.SetAccountState(st.state, toAddr, receiverState)
+
+	// 8. Increment PrivNonce.
+	priv.IncrementPrivNonce(st.state, fromAddr)
+
+	// 9. Credit fee to coinbase as public TOS.
+	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feePaid))
+
+	return nil
 }
 
 func (st *StateTransition) refundGas(refundQuotient uint64) {

@@ -222,6 +222,16 @@ func (m *txSortedMap) Flatten() types.Transactions {
 	return txs
 }
 
+// FirstElement returns the first element of a flattened list, thus, the
+// transaction with the lowest nonce. Returns nil if the map is empty.
+func (m *txSortedMap) FirstElement() *types.Transaction {
+	cache := m.flatten()
+	if len(cache) == 0 {
+		return nil
+	}
+	return cache[0]
+}
+
 // LastElement returns the last element of a flattened list, thus, the
 // transaction with the highest nonce
 func (m *txSortedMap) LastElement() *types.Transaction {
@@ -396,6 +406,12 @@ func (l *txList) Empty() bool {
 // it's requested again before any modifications are made to the contents.
 func (l *txList) Flatten() types.Transactions {
 	return l.txs.Flatten()
+}
+
+// FirstElement returns the first element of a flattened list, thus, the
+// transaction with the lowest nonce. Returns nil if the list is empty.
+func (l *txList) FirstElement() *types.Transaction {
+	return l.txs.FirstElement()
 }
 
 // LastElement returns the last element of a flattened list, thus, the

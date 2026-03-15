@@ -32,6 +32,22 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	// All tx types write sender balance and nonce.
 	as.WriteAddrs[sender] = struct{}{}
 
+	// PrivTransferTx: read/write both sender and receiver priv-account addresses.
+	// Serialized in MVP via PrivacyRouterAddress (same as UNO) for deterministic
+	// proof/state handling.
+	if msg.Type() == types.PrivTransferTxType {
+		toAddr := msg.To()
+		as.ReadAddrs[sender] = struct{}{}
+		if toAddr != nil {
+			as.WriteAddrs[*toAddr] = struct{}{}
+			as.ReadAddrs[*toAddr] = struct{}{}
+		}
+		// Serialize with other privacy txs and UNO txs.
+		as.WriteAddrs[params.PrivacyRouterAddress] = struct{}{}
+		as.ReadAddrs[params.LVMSerialAddress] = struct{}{}
+		return as
+	}
+
 	to := msg.To()
 	if to == nil {
 		// CREATE: derive the deterministic contract address (sender, nonce) so that

@@ -4,7 +4,9 @@ import (
 	"sync"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/core/types"
 )
 
 // txNoncer is a tiny virtual state database to manage the executable nonces of
@@ -55,6 +57,44 @@ func (txn *txNoncer) setIfLower(addr common.Address, nonce uint64) {
 
 	if _, ok := txn.nonces[addr]; !ok {
 		txn.nonces[addr] = txn.fallback.GetNonce(addr)
+	}
+	if txn.nonces[addr] <= nonce {
+		return
+	}
+	txn.nonces[addr] = nonce
+}
+
+// getForType returns the current nonce of an account, using the appropriate
+// nonce source based on the transaction type. For PrivTransferTxType the nonce
+// is read from the priv storage slot; for all other types the regular account
+// nonce is used.
+func (txn *txNoncer) getForType(addr common.Address, txType byte) uint64 {
+	txn.lock.Lock()
+	defer txn.lock.Unlock()
+
+	if _, ok := txn.nonces[addr]; !ok {
+		if txType == types.PrivTransferTxType {
+			txn.nonces[addr] = priv.GetPrivNonce(txn.fallback, addr)
+		} else {
+			txn.nonces[addr] = txn.fallback.GetNonce(addr)
+		}
+	}
+	return txn.nonces[addr]
+}
+
+// setIfLowerForType updates a new virtual nonce if the new one is lower,
+// using the appropriate nonce source based on the transaction type for the
+// fallback read.
+func (txn *txNoncer) setIfLowerForType(addr common.Address, nonce uint64, txType byte) {
+	txn.lock.Lock()
+	defer txn.lock.Unlock()
+
+	if _, ok := txn.nonces[addr]; !ok {
+		if txType == types.PrivTransferTxType {
+			txn.nonces[addr] = priv.GetPrivNonce(txn.fallback, addr)
+		} else {
+			txn.nonces[addr] = txn.fallback.GetNonce(addr)
+		}
 	}
 	if txn.nonces[addr] <= nonce {
 		return
