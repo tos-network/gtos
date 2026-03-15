@@ -999,3 +999,51 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 - **Phase 3**: TxPool accepts PrivTransferTx alongside SignerTx; PrivNonce ordering correct; `txPrice()` returns Fee for priced-list sorting; both types coexist without interference; miner includes PrivTransferTx without gas-limit deduction; PrivMaxPerBlock cap enforced
 - **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change; coinbase balance increases by fee amount
 - **Phase 6**: All public/private isolation tests pass; PrivTransfer does not change public Balance; public transfer does not change PrivBalance; fee flows to coinbase correctly
+
+---
+
+## Implementation Status
+
+### Completed
+
+| Item | Files | Status |
+|------|-------|--------|
+| **Phase 1a: PrivTransferTx type** | `core/types/priv_transfer_tx.go`, `core/types/transaction.go` | DONE |
+| **Phase 1b: core/priv/ package** | `core/priv/types.go`, `state.go`, `errors.go`, `zero.go`, `verify.go`, `proofs.go`, `context.go`, `fee.go` | DONE |
+| **Phase 1c: params update** | `params/tos_params.go` (PrivBaseFee, PrivMaxProofBytes added) | DONE |
+| **Phase 1d: state_transition** | `core/state_transition.go` (applyPrivTransfer + tx.Type() routing) | DONE |
+| **Phase 1e: parallel analysis** | `core/parallel/analyze.go` (PrivTransferTxType handler) | DONE |
+| **Phase 1f: accountsigner** | `accountsigner/crypto.go` (ElGamal kept for UNO compat; VerifyRawSignature works) | DONE |
+| **Phase 2: Genesis** | `core/genesis.go`, `core/gen_genesis_account.go` (PrivCommitment/Handle/Version/Nonce fields) | DONE |
+| **Phase 3: TxPool integration** | `core/tx_pool.go`, `core/tx_noncer.go`, `core/tx_list.go` (type-aware nonce, validatePrivTransferTx) | DONE |
+| **Phase 4: RPC** | `internal/tosapi/api.go` (PrivTransfer, PrivGetBalance, PrivGetNonce) | DONE |
+| **Phase 5: CLI** | `cmd/toskey/priv_tx.go` (priv-transfer command, placeholder) | DONE |
+| **Phase 5: Genesis script** | `scripts/gen_genesis_priv_ct/main.go` | DONE |
+| **Phase 6: Tests** | 32 tests across `core/priv/*_test.go`, `core/types/priv_transfer_tx_test.go`, `core/priv_state_transition_test.go`, `core/priv_isolation_test.go` | DONE |
+| **Phase 7a: CGO bindings** | `crypto/ed25519/uno_proofs_cgo.go`, `uno_proofs_nocgo.go` (ElgamalSchnorrSign/Verify, ChaCha20Poly1305, X25519) | DONE |
+| **Phase 7d-e: CGO + nocgo stubs** | 6 new CGO functions + 6 nocgo stubs | DONE |
+| **Message type propagation** | `core/types/transaction.go` (Type(), WithTxType(), PrivTransferInner(), PrivTransferFrom()), `core/state_processor.go` | DONE |
+
+### Not Yet Implemented
+
+| Item | Files | Reason |
+|------|-------|--------|
+| **Phase 7b: crypto/uno/ → crypto/priv/ rename** | `crypto/priv/verify.go`, `prove.go`, `elgamal.go`, `ecdlp.go`, `backend.go` | Package rename deferred; `core/priv/` currently imports `crypto/uno/` directly. Rename after UNO deletion. |
+| **Phase 7c: crypto/priv/ new files** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | High-level Go wrappers for CGO bindings. CGO bindings exist (7a done); wrappers deferred to crypto/priv/ rename. |
+| **core/priv/signature.go** | ElGamal Ristretto-Schnorr sign/verify in core/priv | Deferred; signing currently via `accountsigner.SignElgamalHash()`, verification via `accountsigner.VerifyRawSignature()`. Will move when crypto/priv/ is created. |
+| **core/priv/prover.go** | Client-side proof generation | Deferred; requires CGO backend. Proof generation is client-side and not needed for validator execution. |
+| **core/priv/memo.go** | EncryptedMemo ECDH + ChaCha20Poly1305 | Deferred to crypto/priv/ rename. CGO primitives exist. |
+| **Delete core/uno/** | Entire directory | Deferred until all references migrated and crypto/priv/ created. |
+| **Delete old UNO RPCs** | `internal/tosapi/api.go` (UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext) | Deferred until core/uno/ deleted. |
+| **Rename internal/unotracker/** | → `internal/privtracker/` | Deferred until core/uno/ deleted. |
+| **miner/worker.go** | Skip gas-limit deduction for PrivTransferTxType; PrivMaxPerBlock cap | Not yet implemented. |
+| **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` (currently placeholder) | Requires client-side prover (core/priv/prover.go). |
+
+### Summary
+
+**Core v1 functionality: ~90% complete.** The validator execution path (state transition, TxPool, parallel analysis, genesis, RPC) is fully implemented and tested. The remaining items are:
+- Package rename (`crypto/uno/` → `crypto/priv/`) and associated cleanup
+- High-level Go wrapper files in `crypto/priv/`
+- Client-side proof generation (prover, memo encryption)
+- Miner gas-limit handling for PrivTransferTxType
+- Old UNO code deletion
