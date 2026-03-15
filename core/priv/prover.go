@@ -89,24 +89,38 @@ func BuildTransferProofs(
 
 	// 4. Generate commitment equality proof.
 	//    Proves the source commitment commits to the same value as the sender's
-	//    updated ciphertext. No prover-side function exists in the crypto backend
-	//    yet, so this returns ErrProofNotImplemented.
-	commitmentEqProof, err = proveCommitmentEqProofStub(
-		senderPriv[:], senderCiphertext, srcCommitmentBytes, srcOpening, newBalance, context,
+	//    updated ciphertext. We must compute the updated sender ciphertext as the
+	//    verifier would: newSenderCt = senderCiphertext - (transferCt + feeLimit).
+	var transferCt Ciphertext
+	copy(transferCt.Commitment[:], commitmentBytes)
+	copy(transferCt.Handle[:], sHandle)
+	outputCt, err := AddScalarToCiphertext(transferCt, feeLimit)
+	if err != nil {
+		return commitment, senderHandle, receiverHandle, sourceCommitment,
+			nil, nil, nil, fmt.Errorf("output ciphertext computation failed: %w", err)
+	}
+	newSenderBalanceCt, err := SubCiphertexts(senderCiphertext, outputCt)
+	if err != nil {
+		return commitment, senderHandle, receiverHandle, sourceCommitment,
+			nil, nil, nil, fmt.Errorf("updated sender ciphertext computation failed: %w", err)
+	}
+	updatedCt64 := append(newSenderBalanceCt.Commitment[:], newSenderBalanceCt.Handle[:]...)
+	commitmentEqProof, err = cryptopriv.ProveCommitmentEqProof(
+		senderPriv[:], senderPub[:],
+		updatedCt64,
+		srcCommitmentBytes, srcOpening,
+		newBalance, context,
 	)
 	if err != nil {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
 			nil, nil, nil, fmt.Errorf("commitment eq proof failed: %w", err)
 	}
 
-	// 5. Generate range proof (aggregated over source commitment + transfer commitment).
-	//    The crypto backend currently only supports single-commitment range proofs.
-	//    Until an aggregated prover is available, this returns ErrProofNotImplemented.
-	rangeProof, err = proveAggregatedRangeProofStub(
-		[]uint64{newBalance, amount},
+	// 5. Generate aggregated range proof over source commitment + transfer commitment.
+	rangeProof, err = cryptopriv.ProveAggregatedRangeProof(
 		[][]byte{srcCommitmentBytes, commitmentBytes},
+		[]uint64{newBalance, amount},
 		[][]byte{srcOpening, opening},
-		context,
 	)
 	if err != nil {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
@@ -114,22 +128,4 @@ func BuildTransferProofs(
 	}
 
 	return
-}
-
-// proveCommitmentEqProofStub is a placeholder for the commitment equality
-// proof prover. Returns ErrProofNotImplemented until the crypto backend
-// exposes ProveCommitmentEqProof.
-func proveCommitmentEqProofStub(
-	_ []byte, _ Ciphertext, _, _ []byte, _ uint64, _ []byte,
-) ([]byte, error) {
-	return nil, ErrProofNotImplemented
-}
-
-// proveAggregatedRangeProofStub is a placeholder for the aggregated
-// Bulletproofs range proof prover. Returns ErrProofNotImplemented until
-// the crypto backend exposes an aggregated ProveRangeProof variant.
-func proveAggregatedRangeProofStub(
-	_ []uint64, _ [][]byte, _ [][]byte, _ []byte,
-) ([]byte, error) {
-	return nil, ErrProofNotImplemented
 }

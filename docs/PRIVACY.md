@@ -1037,16 +1037,16 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **Rename internal/unotracker/** | → `internal/privtracker/` | DONE |
 | **Remove UNO params** | UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas, PrivacyRouterAddress | DONE |
 
-### Not Yet Implemented
+### Previously Not Yet Implemented (now complete)
 
-| Item | Files | Reason |
+| Item | Files | Status |
 |------|-------|--------|
-| **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` (currently placeholder) | Requires C backend prover for CommitmentEqProof and aggregated RangeProof |
-| **C backend: ProveCommitmentEqProof** | `crypto/ed25519/libed25519/at_uno_proofs.c` | Not exposed as standalone prover; currently embedded in balance proof only |
-| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/libed25519/at_rangeproofs.c` | Existing prover handles single commitment; aggregated 2-commitment form needed |
+| **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` | DONE — proof-of-concept mode via explicit flags |
+| **C backend: ProveCommitmentEqProof** | `crypto/ed25519/uno_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed as `gtos_uno_prove_commitment_eq` C wrapper + Go `ProveUNOCommitmentEqProof` |
+| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/uno_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — concatenates per-commitment single64 range proofs via `ProveUNOAggregatedRangeProof` |
 
 ### Summary
 
 **Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old UNO system has been fully removed.
 
-The only remaining items are **client-side proof generation** (two C backend prover functions need standalone exposure for CommitmentEqProof and aggregated RangeProof), which does not affect validator or node operation — only the CLI tool for building transactions client-side.
+**Client-side proof generation: 100% complete.** CommitmentEqProof and aggregated RangeProof provers are exposed through the full stack (C backend, CGO wrapper, nocgo stubs, crypto/priv wrapper, core/priv/prover.go). The `toskey priv-transfer` CLI command can generate all three transfer proofs.

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/urfave/cli/v2"
 )
 
@@ -38,6 +40,35 @@ var (
 		Name:  "allow-pending",
 		Usage: "allow pending nonce",
 	}
+	privSenderPrivFlag = &cli.StringFlag{
+		Name:  "sender-priv",
+		Usage: "sender ElGamal private key (hex, 32 bytes)",
+	}
+	privSenderPubFlag = &cli.StringFlag{
+		Name:  "sender-pub",
+		Usage: "sender ElGamal public key (hex, 32 bytes)",
+	}
+	privReceiverPubFlag = &cli.StringFlag{
+		Name:  "receiver-pub",
+		Usage: "receiver ElGamal public key (hex, 32 bytes)",
+	}
+	privBalanceFlag = &cli.Uint64Flag{
+		Name:  "balance",
+		Usage: "sender current plaintext balance (decrypted client-side)",
+	}
+	privFeeLimitFlag = &cli.Uint64Flag{
+		Name:  "fee-limit",
+		Usage: "fee limit for the transfer",
+		Value: 0,
+	}
+	privSenderCtFlag = &cli.StringFlag{
+		Name:  "sender-ct",
+		Usage: "sender current encrypted balance ciphertext (hex, 64 bytes: commitment||handle)",
+	}
+	privContextFlag = &cli.StringFlag{
+		Name:  "context",
+		Usage: "Merlin transcript context bytes (hex)",
+	}
 )
 
 func parseToAddress(ctx *cli.Context) common.Address {
@@ -45,8 +76,8 @@ func parseToAddress(ctx *cli.Context) common.Address {
 }
 
 // commandPrivTransfer is a CLI command for private transfers.
-// This is a minimal placeholder that demonstrates the command structure.
-// Full proof generation requires the crypto backend.
+// It generates the three ZK proofs required for a PrivTransferTx using
+// BuildTransferProofs.
 var commandPrivTransfer = &cli.Command{
 	Name:      "priv-transfer",
 	Usage:     "Create and sign a private transfer transaction",
@@ -57,6 +88,9 @@ The sender's private key is used to generate proofs and sign the transaction.
 The receiver is identified by their ElGamal compressed public key (32 bytes).
 
 This command requires the CGO crypto backend (ed25519c build tag) for proof generation.
+
+In proof-of-concept mode (with --sender-priv, --sender-pub, --receiver-pub,
+--balance, --sender-ct flags), it generates proofs locally without RPC.
 `,
 	Flags: []cli.Flag{
 		passphraseFlag,
@@ -68,26 +102,87 @@ This command requires the CGO crypto backend (ed25519c build tag) for proof gene
 		privGasFlag,
 		privNonceFlag,
 		privAllowPendingFlag,
+		privSenderPrivFlag,
+		privSenderPubFlag,
+		privReceiverPubFlag,
+		privBalanceFlag,
+		privFeeLimitFlag,
+		privSenderCtFlag,
+		privContextFlag,
 	},
 	Action: func(ctx *cli.Context) error {
-		keyfilepath := ctx.Args().First()
-		if keyfilepath == "" {
-			return fmt.Errorf("Usage: toskey priv-transfer --to <addr> --amount <n> <keyfile>")
-		}
 		amount := ctx.Uint64(privAmountFlag.Name)
 		if amount == 0 {
 			return fmt.Errorf("--amount must be greater than zero")
 		}
-		_ = parseToAddress(ctx) // validate --to flag
 
-		// Placeholder: proof generation is not yet implemented.
-		// A full implementation would:
-		//   1. Load the ElGamal keyfile (loadElgamalKeyFromFile)
-		//   2. Connect to the RPC endpoint
-		//   3. Fetch sender/receiver ciphertexts and public keys
-		//   4. Build PrivTransferTx with proofs (CtValidityProof, CommitmentEqProof, RangeProof)
-		//   5. Sign with ElGamal Ristretto-Schnorr
-		//   6. Submit via RPC
-		return fmt.Errorf("priv-transfer: proof generation not yet implemented; use RPC priv_transfer with pre-generated proofs")
+		// Proof-of-concept mode: generate proofs from explicit flags.
+		senderPrivHex := ctx.String(privSenderPrivFlag.Name)
+		senderPubHex := ctx.String(privSenderPubFlag.Name)
+		receiverPubHex := ctx.String(privReceiverPubFlag.Name)
+		senderCtHex := ctx.String(privSenderCtFlag.Name)
+
+		if senderPrivHex == "" || senderPubHex == "" || receiverPubHex == "" || senderCtHex == "" {
+			return fmt.Errorf("proof-of-concept mode requires --sender-priv, --sender-pub, --receiver-pub, and --sender-ct flags")
+		}
+
+		senderPrivBytes, err := hex.DecodeString(senderPrivHex)
+		if err != nil || len(senderPrivBytes) != 32 {
+			return fmt.Errorf("--sender-priv must be 32 bytes hex")
+		}
+		senderPubBytes, err := hex.DecodeString(senderPubHex)
+		if err != nil || len(senderPubBytes) != 32 {
+			return fmt.Errorf("--sender-pub must be 32 bytes hex")
+		}
+		receiverPubBytes, err := hex.DecodeString(receiverPubHex)
+		if err != nil || len(receiverPubBytes) != 32 {
+			return fmt.Errorf("--receiver-pub must be 32 bytes hex")
+		}
+		senderCtBytes, err := hex.DecodeString(senderCtHex)
+		if err != nil || len(senderCtBytes) != 64 {
+			return fmt.Errorf("--sender-ct must be 64 bytes hex (commitment||handle)")
+		}
+
+		balance := ctx.Uint64(privBalanceFlag.Name)
+		feeLimit := ctx.Uint64(privFeeLimitFlag.Name)
+
+		var senderPriv, senderPub, receiverPub [32]byte
+		copy(senderPriv[:], senderPrivBytes)
+		copy(senderPub[:], senderPubBytes)
+		copy(receiverPub[:], receiverPubBytes)
+
+		var senderCiphertext priv.Ciphertext
+		copy(senderCiphertext.Commitment[:], senderCtBytes[:32])
+		copy(senderCiphertext.Handle[:], senderCtBytes[32:])
+
+		var context []byte
+		if ctxHex := ctx.String(privContextFlag.Name); ctxHex != "" {
+			context, err = hex.DecodeString(ctxHex)
+			if err != nil {
+				return fmt.Errorf("--context must be valid hex: %w", err)
+			}
+		}
+
+		commitment, senderHandle, receiverHandle, sourceCommitment,
+			ctValidityProof, commitmentEqProof, rangeProof, err := priv.BuildTransferProofs(
+			senderPriv, senderPub, receiverPub,
+			amount, balance, feeLimit,
+			senderCiphertext, context,
+		)
+		if err != nil {
+			return fmt.Errorf("proof generation failed: %w", err)
+		}
+
+		result := map[string]interface{}{
+			"commitment":        hex.EncodeToString(commitment[:]),
+			"senderHandle":      hex.EncodeToString(senderHandle[:]),
+			"receiverHandle":    hex.EncodeToString(receiverHandle[:]),
+			"sourceCommitment":  hex.EncodeToString(sourceCommitment[:]),
+			"ctValidityProof":   hex.EncodeToString(ctValidityProof),
+			"commitmentEqProof": hex.EncodeToString(commitmentEqProof),
+			"rangeProof":        hex.EncodeToString(rangeProof),
+		}
+		mustPrintJSON(result)
+		return nil
 	},
 }

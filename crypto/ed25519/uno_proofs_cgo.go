@@ -576,6 +576,24 @@ static int gtos_uno_prove_commitment_eq_into(unsigned char proof192_out[192],
   return 0;
 }
 
+static int gtos_uno_prove_commitment_eq(
+    unsigned char proof192_out[192],
+    const unsigned char source_privkey32[32],
+    const unsigned char source_pubkey32[32],
+    const unsigned char source_ciphertext64[64],
+    const unsigned char destination_commitment32[32],
+    unsigned long amount,
+    const unsigned char opening32[32],
+    const unsigned char *ctx, size_t ctx_sz)
+{
+    at_merlin_transcript_t transcript;
+    at_merlin_transcript_init(&transcript, (const unsigned char *)"equality-proof", 15);
+    gtos_uno_transcript_append_ctx(&transcript, ctx, ctx_sz);
+    return gtos_uno_prove_commitment_eq_into(proof192_out,
+        source_privkey32, source_pubkey32, source_ciphertext64,
+        destination_commitment32, amount, opening32, &transcript);
+}
+
 static int gtos_uno_prove_shield_ctx(unsigned char proof96_out[96],
                                      unsigned char commitment32_out[32],
                                      unsigned char receiver_handle32_out[32],
@@ -1236,6 +1254,54 @@ func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([
 		return nil, ErrUNOOperationFailed
 	}
 	return proof, nil
+}
+
+// ProveUNOCommitmentEqProof generates a 192-byte commitment equality proof
+// proving that the source ciphertext and destination commitment encode the
+// same value under the given keys.
+func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
+	if len(sourcePrivkey) != 32 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destCommitment32) != 32 || len(opening32) != 32 {
+		return nil, ErrUNOInvalidInput
+	}
+	proof := make([]byte, 192)
+	var ctxPtr *C.uchar
+	var ctxLen C.size_t
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+		ctxLen = C.size_t(len(ctx))
+	}
+	rc := C.gtos_uno_prove_commitment_eq(
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		(*C.uchar)(unsafe.Pointer(&sourcePrivkey[0])),
+		(*C.uchar)(unsafe.Pointer(&sourcePubkey[0])),
+		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
+		(*C.uchar)(unsafe.Pointer(&destCommitment32[0])),
+		C.ulong(amount),
+		(*C.uchar)(unsafe.Pointer(&opening32[0])),
+		ctxPtr, ctxLen,
+	)
+	if rc != 0 {
+		return nil, ErrUNOOperationFailed
+	}
+	return proof, nil
+}
+
+// ProveUNOAggregatedRangeProof generates range proofs for multiple
+// commitments by producing one 672-byte single64 proof per commitment
+// and concatenating them.
+func ProveUNOAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
+	if len(commitments) != len(values) || len(commitments) != len(blindings) {
+		return nil, ErrUNOInvalidInput
+	}
+	var result []byte
+	for i := range commitments {
+		proof, err := ProveUNORangeProof(commitments[i], values[i], blindings[i])
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, proof...)
+	}
+	return result, nil
 }
 
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {

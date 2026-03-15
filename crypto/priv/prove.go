@@ -49,3 +49,19 @@ func ProveBalanceProof(sourcePrivkey32, sourceCiphertext64 []byte, amount uint64
 	}
 	return proof, nil
 }
+
+func ProveCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
+	proof, err := ed25519.ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32, amount, ctx)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return proof, nil
+}
+
+func ProveAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
+	proof, err := ed25519.ProveUNOAggregatedRangeProof(commitments, values, blindings)
+	if err != nil {
+		return nil, mapBackendError(err)
+	}
+	return proof, nil
+}

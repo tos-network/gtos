@@ -182,6 +182,24 @@ func ProveUNORangeProof(commitment32 []byte, value uint64, blinding32 []byte) ([
 	return nil, ErrUNOBackendUnavailable
 }
 
+func ProveUNOCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64, destCommitment32, opening32 []byte, amount uint64, ctx []byte) ([]byte, error) {
+	_ = sourcePrivkey
+	_ = sourcePubkey
+	_ = sourceCiphertext64
+	_ = destCommitment32
+	_ = opening32
+	_ = amount
+	_ = ctx
+	return nil, ErrUNOBackendUnavailable
+}
+
+func ProveUNOAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
+	_ = commitments
+	_ = values
+	_ = blindings
+	return nil, ErrUNOBackendUnavailable
+}
+
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {
 	_ = priv32
 	return nil, ErrUNOBackendUnavailable
