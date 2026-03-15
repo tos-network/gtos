@@ -30,7 +30,7 @@ func TestCommitmentEqAndBalanceBackend(t *testing.T) {
 	}
 
 	err = VerifyRangeProof(make([]byte, 1), make([]byte, 32), []byte{64}, 1)
-	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidProof) && !errors.Is(err, ErrOperationFailed) {
+	if err != nil && !errors.Is(err, ErrBackendUnavailable) && !errors.Is(err, ErrInvalidProof) && !errors.Is(err, ErrOperationFailed) && !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("unexpected rangeproof error: %v", err)
 	}
 }

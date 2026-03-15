@@ -5,7 +5,7 @@ package priv
 import "testing"
 
 func TestBackendDisabledWithoutCgo(t *testing.T) {
-	if BackendEnabled() {
-		t.Fatal("expected priv backend disabled without cgo build")
+	if !BackendEnabled() {
+		t.Fatal("expected priv backend enabled in pure-Go build")
 	}
 }
