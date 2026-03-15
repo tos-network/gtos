@@ -135,7 +135,14 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(1000000000000000000), params.TxGas, big.NewInt(875000000), nil),
 				},
-				want: fmt.Sprintf("insufficient funds for gas * price + value: address %s have 1000000000000000000 want 1000030000000000000", addr1.Hex()),
+				want: fmt.Sprintf(
+					"insufficient funds for gas * price + value: address %s have 1000000000000000000 want %s",
+					addr1.Hex(),
+					new(big.Int).Add(
+						big.NewInt(1000000000000000000),
+						new(big.Int).Mul(new(big.Int).SetUint64(params.TxGas), params.TxPrice()),
+					).String(),
+				),
 			},
 			// ErrGasUintOverflow
 			// One missing 'core' error is ErrGasUintOverflow: "gas uint64 overflow",
@@ -145,7 +152,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				txs: []*types.Transaction{
 					makeTx(key1, 0, common.Address{}, big.NewInt(0), params.TxGas-1000, big.NewInt(875000000), nil),
 				},
-				want: "intrinsic gas too low: have 2000, want 3000",
+				want: fmt.Sprintf("intrinsic gas too low: have %d, want %d", params.TxGas-1000, params.TxGas),
 			},
 			{ // ErrGasLimitReached
 				txs: []*types.Transaction{

@@ -56,13 +56,26 @@ To sign a message contained in a file, use the --msgfile flag.
 Change the password of a keyfile.
 use the `--newpasswordfile` to point to the new password file.
 
+### `toskey priv-keygen [<keyfile>]`
+
+Generate an ElGamal keypair for privacy transactions.
+If a keyfile path is provided, the key is also stored as an encrypted `elgamal` keyfile.
+
+Example:
+
+- `toskey priv-keygen`
+- `toskey priv-keygen ./priv-key.json`
+
 ### `toskey priv-balance <keyfile>`
 
 Decrypt the priv encrypted balance locally from on-chain ciphertext via RPC.
+Use `--ct` to decrypt an explicit `commitment||handle` blob instead of calling RPC.
+Use `--max-balance` to set the baby-step giant-step search bound.
 
 Example:
 
 - `toskey priv-balance --rpc http://127.0.0.1:8545 ./key.json`
+- `toskey priv-balance --ct 0x... --max-balance 100000 ./key.json`
 
 ### `toskey priv-shield --amount <n> <keyfile>`
 

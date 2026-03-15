@@ -25,7 +25,7 @@ const (
 	GenesisGasLimit      uint64 = 30000000           // Gas limit of the Genesis block.
 
 	MaximumExtraDataSize     uint64 = 32      // Maximum size extra data may be after Genesis.
-	TxGas                    uint64 = 3000    // Per transaction not creating a contract.
+	TxGas                    uint64 = 21000   // Per transaction not creating a contract.
 	TxGasContractCreation    uint64 = 5300000 // Per transaction that creates a contract.
 	TxDataZeroGas            uint64 = 4       // Per byte of transaction data that equals zero.
 	TxDataNonZeroGasFrontier uint64 = 68      // Per byte of data attached to a transaction that is not equal to zero. NOTE: Not payable on data of calls between transactions.

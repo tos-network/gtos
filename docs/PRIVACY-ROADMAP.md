@@ -1,13 +1,13 @@
 # Privacy Roadmap: Gap Analysis & Path to First-Class Privacy
 
 **Last updated**: 2026-03-15
-**Current progress**: ~62% toward practical privacy target (~85%)
+**Current progress**: ~62% toward practical privacy target (~80%)
 
 ---
 
 ## Current State
 
-GTOS has a working confidential transfer pipeline (Level 1) and a complete Shield/Unshield consensus path (Level 2). The privacy surface covers amount hiding for transfers and bidirectional public↔private fund flow. Network-layer privacy (P2P encryption + Dandelion++) and contract-level homomorphic operations are the remaining practical targets. Transaction graph privacy (sender/receiver unlinkability) has been deprioritized — stealth addresses and ring signatures are UTXO-model concepts incompatible with GTOS's account model.
+GTOS has a working confidential transfer pipeline (Level 1) and a complete Shield/Unshield consensus path (Level 2). The privacy surface covers amount hiding for transfers and bidirectional public↔private fund flow. Contract-level homomorphic operations are the remaining practical target. Transaction graph privacy (sender/receiver unlinkability) has been deprioritized — stealth addresses and ring signatures are UTXO-model concepts incompatible with GTOS's account model. Network-layer anonymity (Dandelion++) is not needed — GTOS uses DPoS with a small set of known validators; users submit transactions via JSON-RPC, not P2P gossip.
 
 ### What Works
 
@@ -40,8 +40,6 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 | Dimension | What's Missing |
 |---|---|
-| P2P encryption | No encrypted peer-to-peer communication — transaction payloads visible to network observers |
-| Network-layer anonymity | No Dandelion++, no Tor, no mixnet — standard gossip broadcast, transaction origin IP is traceable |
 | Contract privacy | LVM executes publicly, no homomorphic operations in contracts |
 | RPC access control | commitment/handle/version readable by anyone — account activity frequency is observable |
 
@@ -51,9 +49,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Level 4: Contract HE ops (ciphertext arith)│  PLANNED
-├─────────────────────────────────────────────┤
-│  Level 3: Network privacy (encrypt+anon)    │  MISSING
+│  Level 3: Contract HE ops (ciphertext arith)│  PLANNED
 ├─────────────────────────────────────────────┤
 │  Level 2: Liquidity (Shield/Unshield)       │  DONE (consensus + RPC + CLI)
 ├─────────────────────────────────────────────┤
@@ -97,7 +93,6 @@ Resolved in commit `f358af8`. Full details:
 **Tasks**:
 - [x] `toskey priv-keygen` — generate ElGamal keypair, output pubkey + privkey (optionally encrypted with passphrase)
 - [x] `toskey priv-balance` — take privkey + on-chain ciphertext (via `--rpc` or `--ct` flag), decrypt via ECDLP baby-step-giant-step, display plaintext balance
-- [ ] `toskey priv-history` (optional) — scan PrivNonce range and decrypt each version's balance
 
 ### Phase 1c: TxPool pre-validation hardening (~62%) ✅ Mostly done
 
@@ -114,25 +109,9 @@ Resolved in commit `f358af8`. Full details:
 
 Stealth addresses (DKSAP) are incompatible with the account model. Each one-time address creates a new state entry (commitment/handle/version/nonce slots), causing unbounded state growth. Stealth addresses are a UTXO-model concept (Monero) and do not map cleanly to account-based chains. XELIS (our reference implementation) also does not implement stealth addresses for the same reason. Receiver unlinkability on an account model remains an open research problem.
 
-### Phase 3: Network-layer privacy
+### ~~Phase 3: Dandelion++~~ ABANDONED
 
-**Goal**: Break the link between transaction origin and network identity. An observer monitoring the P2P network cannot determine which node originated a transaction.
-
-**Effort**: 1–2 weeks
-
-**Sub-goals**:
-
-#### Phase 3a: P2P encryption
-- [ ] Encrypt all peer-to-peer communication using ChaCha20-Poly1305 with x25519 Diffie-Hellman key exchange
-- [ ] Key rotation after fixed data threshold (e.g. 1GB)
-- [ ] Separate encryption keys per direction
-
-#### Phase 3b: Dandelion++ transaction relay
-- [ ] **Stem phase**: When a node creates or first receives a priv transaction, forward it to exactly one random peer (the "stem")
-- [ ] **Fluff phase**: After a random number of stem hops (Poisson-distributed, λ≈4), switch to standard gossip broadcast
-- [ ] **Fail-safe timer**: If a stemmed transaction doesn't appear in a block within timeout, fluff it
-- [ ] Intercept only `PrivTransferTx`, `ShieldTx`, `UnshieldTx` for stem phase; regular transactions use standard gossip
-- [ ] **Files**: `p2p/dandelion.go` — stem routing table, phase tracking, timeout management
+Dandelion++ anonymizes transaction origin IP by routing through random stem hops before gossip broadcast. This is designed for open P2P networks (Bitcoin, Ethereum) with thousands of anonymous nodes. GTOS uses DPoS with a small set of known validators — users submit transactions via JSON-RPC to validators, not via P2P gossip. P2P payload encryption is already provided by RLPx (AES-256-CTR + ECIES handshake). Dandelion++ adds complexity without meaningful privacy benefit in this topology.
 
 ### ~~Phase 4: Decoy outputs / ring signatures~~ ABANDONED
 
@@ -166,9 +145,9 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | ~~**Phase 1b**~~ | ~~Key management CLI~~ | ✅ DONE | End-user tooling | ~60% |
 | ~~**Phase 1c**~~ | ~~TxPool hardening~~ | ✅ DONE | DoS resistance | ~62% |
 | ~~**Phase 2**~~ | ~~Stealth addresses~~ | ABANDONED | Incompatible with account model | — |
-| **Phase 3** | P2P encrypt + Dandelion++ | 1–2 weeks | Network privacy | ~75% |
+| ~~**Phase 3**~~ | ~~Dandelion++~~ | ABANDONED | Not needed in DPoS topology | — |
 | ~~**Phase 4**~~ | ~~Decoy outputs / ring sig~~ | ABANDONED | Incompatible with account model | — |
-| **Phase 5** | Contract ciphertext ops | 2–4 weeks | Confidential tokens | ~85% |
+| **Phase 5** | Contract ciphertext ops | 2–4 weeks | Confidential tokens | ~80% |
 | ~~**Phase 5b**~~ | ~~Encrypted storage~~ | ABANDONED | No production-ready solution | — |
 | ~~**Phase 5c**~~ | ~~FHE/MPC/TEE~~ | ABANDONED | No production-ready solution | — |
 
@@ -177,6 +156,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | Phase | Reason |
 |---|---|
 | **Phase 2: Stealth addresses** | DKSAP creates unbounded state growth (new slots per one-time address). This is a UTXO-model concept; XELIS also does not implement it. |
+| **Phase 3: Dandelion++** | Designed for open P2P networks with anonymous nodes. GTOS uses DPoS — users submit via JSON-RPC to known validators, not P2P gossip. RLPx already encrypts peer traffic. |
 | **Phase 4: Ring signatures / decoys** | Account model requires validator to know the real sender for balance debit — breaks ring anonymity. XELIS also does not implement sender unlinkability. |
 | **Phase 5b-c: Encrypted storage / FHE / MPC / TEE** | Active research frontier with no production-ready solution. May revisit if landscape matures. |
 
@@ -185,7 +165,6 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | Milestone | Phases required | What it means |
 |---|---|---|
 | **Minimally viable** | 0 + 1 + 1b + 1c | ← **We are here** (~62%). Amounts hidden, funds flow freely, key/decrypt tooling exists, malformed priv txs are filtered early |
-| **Network-hardened** | + 3 | (~75%). P2P encrypted, transaction origin IP anonymized via Dandelion++ |
-| **Contract-ready** | + 3 + 5 | (~85%). Contracts can manipulate encrypted values (confidential tokens, private voting) |
+| **Contract-ready** | + 5 | (~80%). Contracts can manipulate encrypted values (confidential tokens, private voting) |
 
-**Next priority: Phase 3 (P2P encryption + Dandelion++) as the highest-impact improvement — low implementation cost, high practical privacy gain.**
+**Next priority: Phase 5 (contract homomorphic operations) — the only remaining planned phase.**

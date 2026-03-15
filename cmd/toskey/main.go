@@ -26,6 +26,8 @@ func init() {
 		commandChangePassphrase,
 		commandSignMessage,
 		commandVerifyMessage,
+		commandPrivKeygen,
+		commandPrivBalance,
 		commandPrivTransfer,
 		commandPrivShield,
 		commandPrivUnshield,

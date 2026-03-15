@@ -684,6 +684,15 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 	if ptx == nil {
 		return ErrTxTypeNotSupported
 	}
+	if err := priv.ValidateCTValidityProofShape(ptx.CtValidityProof); err != nil {
+		return err
+	}
+	if err := priv.ValidateCommitmentEqProofShape(ptx.CommitmentEqProof); err != nil {
+		return err
+	}
+	if err := priv.ValidateRangeProofShape(ptx.RangeProof); err != nil {
+		return err
+	}
 	if ptx.Fee > ptx.FeeLimit {
 		return priv.ErrFeeLimitExceeded
 	}
@@ -701,6 +710,10 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
 	}
+	sigHash := ptx.SigningHash()
+	if !priv.VerifySchnorrSignature(ptx.From, sigHash[:], ptx.S, ptx.E) {
+		return ErrInvalidSender
+	}
 
 	return nil
 }
@@ -717,6 +730,12 @@ func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address,
 	if stx == nil {
 		return ErrTxTypeNotSupported
 	}
+	if err := priv.ValidateShieldProofShape(stx.ShieldProof[:]); err != nil {
+		return err
+	}
+	if err := priv.ValidateRangeProofShape(stx.RangeProof[:]); err != nil {
+		return err
+	}
 	if stx.Fee < priv.EstimateShieldFee() {
 		return priv.ErrInsufficientFee
 	}
@@ -731,6 +750,10 @@ func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address,
 	}
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
+	}
+	sigHash := stx.SigningHash()
+	if !priv.VerifySchnorrSignature(stx.Pubkey, sigHash[:], stx.S, stx.E) {
+		return ErrInvalidSender
 	}
 	return nil
 }
@@ -747,6 +770,12 @@ func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Addres
 	if utx == nil {
 		return ErrTxTypeNotSupported
 	}
+	if err := priv.ValidateCommitmentEqProofShape(utx.CommitmentEqProof[:]); err != nil {
+		return err
+	}
+	if err := priv.ValidateRangeProofShape(utx.RangeProof[:]); err != nil {
+		return err
+	}
 	if utx.Fee < priv.EstimateUnshieldFee() {
 		return priv.ErrInsufficientFee
 	}
@@ -760,6 +789,10 @@ func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Addres
 	}
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
+	}
+	sigHash := utx.SigningHash()
+	if !priv.VerifySchnorrSignature(utx.Pubkey, sigHash[:], utx.S, utx.E) {
+		return ErrInvalidSender
 	}
 	return nil
 }

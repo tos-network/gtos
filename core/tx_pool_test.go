@@ -14,10 +14,12 @@ import (
 	"github.com/tos-network/gtos/accountsigner"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
+	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/trie"
@@ -106,6 +108,18 @@ func setupTxPoolWithConfig(config *params.ChainConfig) (*TxPool, *ecdsa.PrivateK
 	return pool, key
 }
 
+func mustPoolElgamalKeypair(t *testing.T) (pub, privkey [32]byte) {
+	t.Helper()
+
+	pubBytes, privBytes, err := cryptopriv.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	copy(pub[:], pubBytes)
+	copy(privkey[:], privBytes)
+	return pub, privkey
+}
+
 // validateTxPoolInternals checks various consistency invariants within the pool.
 func validateTxPoolInternals(pool *TxPool) error {
 	pool.mu.RLock()
@@ -163,6 +177,140 @@ func validateEvents(events chan NewTxsEvent, count int) error {
 		// really nothing gets injected.
 	}
 	return nil
+}
+
+func TestValidatePrivTransferTxRejectsBadProofShape(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	fromPub, fromPriv := mustPoolElgamalKeypair(t)
+	toPub, _ := mustPoolElgamalKeypair(t)
+
+	ptx := &types.PrivTransferTx{
+		ChainID:           new(big.Int).Set(params.TestChainConfig.ChainID),
+		PrivNonce:         0,
+		Fee:               priv.EstimateRequiredFee(0),
+		FeeLimit:          priv.EstimateRequiredFee(0),
+		From:              fromPub,
+		To:                toPub,
+		CtValidityProof:   make([]byte, priv.CTValidityProofSizeT1-1),
+		CommitmentEqProof: make([]byte, priv.CommitmentEqProofSize),
+		RangeProof:        make([]byte, priv.RangeProofSingle64),
+	}
+	sigHash := ptx.SigningHash()
+	s, e, err := priv.SignSchnorr(fromPriv, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	ptx.S, ptx.E = s, e
+
+	tx := types.NewTx(ptx)
+	if err := pool.validatePrivTransferTx(tx, ptx.FromAddress(), false); !errors.Is(err, priv.ErrInvalidPayload) {
+		t.Fatalf("validatePrivTransferTx error = %v, want %v", err, priv.ErrInvalidPayload)
+	}
+}
+
+func TestValidatePrivTransferTxRejectsBadSchnorrSignature(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	fromPub, fromPriv := mustPoolElgamalKeypair(t)
+	toPub, _ := mustPoolElgamalKeypair(t)
+
+	ptx := &types.PrivTransferTx{
+		ChainID:           new(big.Int).Set(params.TestChainConfig.ChainID),
+		PrivNonce:         0,
+		Fee:               priv.EstimateRequiredFee(0),
+		FeeLimit:          priv.EstimateRequiredFee(0),
+		From:              fromPub,
+		To:                toPub,
+		CtValidityProof:   make([]byte, priv.CTValidityProofSizeT1),
+		CommitmentEqProof: make([]byte, priv.CommitmentEqProofSize),
+		RangeProof:        make([]byte, priv.RangeProofSingle64),
+	}
+	sigHash := ptx.SigningHash()
+	s, e, err := priv.SignSchnorr(fromPriv, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	s[0] ^= 0x01
+	ptx.S, ptx.E = s, e
+
+	tx := types.NewTx(ptx)
+	if err := pool.validatePrivTransferTx(tx, ptx.FromAddress(), false); !errors.Is(err, ErrInvalidSender) {
+		t.Fatalf("validatePrivTransferTx error = %v, want %v", err, ErrInvalidSender)
+	}
+}
+
+func TestValidateShieldTxRejectsBadSchnorrSignature(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	pubkey, privkey := mustPoolElgamalKeypair(t)
+	addr := common.BytesToAddress(crypto.Keccak256(pubkey[:]))
+	fee := priv.EstimateShieldFee()
+	amount := uint64(123)
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(amount+priv.FeeToWei(fee)))
+
+	stx := &types.ShieldTx{
+		ChainID:   new(big.Int).Set(params.TestChainConfig.ChainID),
+		PrivNonce: 0,
+		Fee:       fee,
+		Pubkey:    pubkey,
+		Recipient: pubkey,
+		Amount:    amount,
+	}
+	sigHash := stx.SigningHash()
+	s, e, err := priv.SignSchnorr(privkey, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	e[0] ^= 0x01
+	stx.S, stx.E = s, e
+
+	tx := types.NewTx(stx)
+	if err := pool.validateShieldTx(tx, addr, false); !errors.Is(err, ErrInvalidSender) {
+		t.Fatalf("validateShieldTx error = %v, want %v", err, ErrInvalidSender)
+	}
+}
+
+func TestValidateUnshieldTxRejectsBadSchnorrSignature(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	pubkey, privkey := mustPoolElgamalKeypair(t)
+	addr := common.BytesToAddress(crypto.Keccak256(pubkey[:]))
+	fee := priv.EstimateUnshieldFee()
+	amount := uint64(priv.FeeToWei(fee))
+
+	utx := &types.UnshieldTx{
+		ChainID:   new(big.Int).Set(params.TestChainConfig.ChainID),
+		PrivNonce: 0,
+		Fee:       fee,
+		Pubkey:    pubkey,
+		Recipient: addr,
+		Amount:    amount,
+	}
+	sigHash := utx.SigningHash()
+	s, e, err := priv.SignSchnorr(privkey, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	e[0] ^= 0x01
+	utx.S, utx.E = s, e
+
+	tx := types.NewTx(utx)
+	if err := pool.validateUnshieldTx(tx, addr, false); !errors.Is(err, ErrInvalidSender) {
+		t.Fatalf("validateUnshieldTx error = %v, want %v", err, ErrInvalidSender)
+	}
 }
 
 func deriveSender(tx *types.Transaction) (common.Address, error) {
@@ -281,7 +429,6 @@ func testSetBalanceExact(pool *TxPool, addr common.Address, amount *big.Int) {
 	pool.currentState.SetBalance(addr, new(big.Int).Set(amount))
 	pool.mu.Unlock()
 }
-
 
 func TestInvalidTransactions(t *testing.T) {
 	t.Parallel()
