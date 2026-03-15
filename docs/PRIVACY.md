@@ -155,7 +155,7 @@ struct TransferPayload {
 ## Phase 1: PrivTransferTx Transaction Type + core/priv Package
 
 ### Goal
-Add `PrivTransferTxType` transaction type with ElGamal-only pubkey-as-address model, create `core/priv/` package to replace `core/uno/`, remove Shield/Unshield. Remove ElGamal support from `SignerTxType`.
+Add `PrivTransferTxType` transaction type with ElGamal-only pubkey-as-address model, create `core/priv/` package (replacing the former `core/uno/`), remove Shield/Unshield. Remove ElGamal support from `SignerTxType`.
 
 ### 1a. New Transaction Type `PrivTransferTx`
 
@@ -327,7 +327,7 @@ The transcript context (Merlin) for proof generation also binds: ChainID, PrivNo
 **Modify** `core/state_transition.go`:
 - In public tx validation, reject transactions with ElGamal signer type
 
-### 1c. New `core/priv/` Package (evolved from core/uno/)
+### 1c. New `core/priv/` Package (evolved from former `core/uno/`)
 
 **New file** `core/priv/types.go`:
 ```go
@@ -388,9 +388,9 @@ func VerifySchnorrSignature(pubkey [32]byte, message []byte, s, e [32]byte) bool
 func SignSchnorr(privkey [32]byte, message []byte) (s, e [32]byte, err error)
 ```
 
-**Migrated files** (trimmed from core/uno/ into core/priv/):
+**Migrated files** (trimmed from former `core/uno/` into `core/priv/`):
 
-| Original core/uno/ file | → core/priv/ file | Changes |
+| Original file | → core/priv/ file | Changes |
 |---|---|---|
 | `state.go` | `state.go` | Rename slots to gtos.priv.*, add NonceSlot |
 | `context.go` | `context.go` | Keep only BuildPrivTransferTranscriptContext; bind Fee/FeeLimit to transcript |
@@ -400,20 +400,20 @@ func SignSchnorr(privkey [32]byte, message []byte) (s, e [32]byte, err error)
 | `prover.go` | `prover.go` | Keep only BuildTransferPayloadProof |
 
 **Deleted files/code**:
-- `core/uno/types.go`: Envelope, ShieldPayload, UnshieldPayload, ActionID constants
-- `core/uno/codec.go`: entire file (Envelope encode/decode no longer needed)
-- `core/uno/protocol_constants.go`: ProtocolPayloadPrefix "GTOSUNO1" no longer needed
-- `core/uno/signer.go`: RequireElgamalSigner no longer needed (pubkey in tx)
+- `types.go` (formerly `core/uno/types.go`): Envelope, ShieldPayload, UnshieldPayload, ActionID constants
+- `codec.go` (formerly `core/uno/codec.go`): entire file (Envelope encode/decode no longer needed)
+- `protocol_constants.go` (formerly `core/uno/protocol_constants.go`): ProtocolPayloadPrefix "GTOSPRIV1" no longer needed
+- `signer.go` (formerly `core/uno/signer.go`): RequireElgamalSigner no longer needed (pubkey in tx)
 - All Shield/Unshield related context, verify, prover functions
-- **Delete entire `core/uno/` directory after migration**
+- **Deleted entire former `core/uno/` directory after migration**
 
 ### 1d. Update `params/tos_params.go`
 
 ```go
 // Delete
 PrivacyRouterAddress                    // routing address no longer needed
-UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas
-UNOMaxPayloadBytes, UNOMaxProofBytes
+PrivBaseGas, PrivTransferGas (formerly UNOBaseGas, UNOTransferGas; Shield/Unshield removed)
+PrivMaxPayloadBytes, PrivMaxProofBytes
 
 // Add
 PrivBaseFee         uint64 = 10_000     // base fee per private transfer (in TOS smallest unit)
@@ -563,7 +563,7 @@ func (st *StateTransition) applyPrivTransfer() error {
 ```
 
 **Delete**:
-- Entire `applyUNO()` function
+- Entire former `applyUNO()` function (replaced by `applyPriv()`)
 - `toAddr == params.PrivacyRouterAddress` branch in `TransitionDb()`
 
 ### 1f. Update `core/parallel/analyze.go`
@@ -638,7 +638,7 @@ type GenesisAccount struct {
     SignerType  string `json:"signerType,omitempty"`
     SignerValue string `json:"signerValue,omitempty"`
 
-    // Renamed UNO → Priv
+    // Priv fields (formerly UNO)
     PrivCommitment []byte `json:"priv_commitment,omitempty"`
     PrivHandle     []byte `json:"priv_handle,omitempty"`
     PrivVersion    uint64 `json:"priv_version,omitempty"`
@@ -750,17 +750,17 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction) error {
 ### Modify `internal/tosapi/api.go`
 
 **Delete**:
-- `UnoShield()`, `UnoUnshield()` and their RPC types
-- `RPCUNOShieldArgs`, `RPCUNOUnshieldArgs`
+- Former `UnoShield()`, `UnoUnshield()` and their RPC types (removed)
+- Former `RPCUNOShieldArgs`, `RPCUNOUnshieldArgs` (removed)
 
 **Rename**:
 
 | Old RPC | New RPC | Description |
 |---------|---------|-------------|
-| `tos_unoTransfer` | `priv_transfer` | Build and submit PrivTransferTx |
-| `tos_getUNOCiphertext` | `priv_getBalance` | Query encrypted balance by pubkey |
-| `tos_unoDecryptBalance` | `priv_decryptBalance` | Client-side balance decryption |
-| `personal_unoBalance` | `priv_personalBalance` | Decrypt using keystore |
+| `tos_unoTransfer` (removed) | `priv_transfer` | Build and submit PrivTransferTx |
+| `tos_getUNOCiphertext` (removed) | `priv_getBalance` | Query encrypted balance by pubkey |
+| `tos_unoDecryptBalance` (removed) | `priv_decryptBalance` | Client-side balance decryption |
+| `personal_unoBalance` (removed) | `priv_personalBalance` | Decrypt using keystore |
 | — | `priv_getNonce` | New: query on-chain PrivNonce by pubkey |
 | — | `priv_pendingNonce` | New: TxPool virtual PrivNonce for pending priv txs |
 
@@ -801,22 +801,22 @@ type RPCPrivBalanceResult struct {
 
 ## Phase 5: CLI and Tooling Update
 
-### Rename `cmd/toskey/uno_tx.go` → `cmd/toskey/priv_tx.go`
+### Renamed `cmd/toskey/uno_tx.go` → `cmd/toskey/priv_tx.go`
 
 - Remove `shield`, `unshield` subcommands
 - `transfer` → `priv-transfer`, builds `PrivTransferTx` with ElGamal pubkeys as From/To
 
-### Rename `scripts/gen_genesis_uno_ct/` → `scripts/gen_genesis_priv_ct/`
+### Renamed `scripts/gen_genesis_uno_ct/` → `scripts/gen_genesis_priv_ct/`
 
 ---
 
 ## Phase 6: Test Update
 
 ### Deleted Tests
-- Shield/Unshield test cases in `core/uno_state_transition_test.go`
-- Shield/Unshield tests in `core/uno_reorg_test.go`
+- Shield/Unshield test cases in former `core/uno_state_transition_test.go` (deleted)
+- Shield/Unshield tests in former `core/uno_reorg_test.go` (deleted)
 
-### Migrated Tests (core/uno/*_test.go → core/priv/*_test.go)
+### Migrated Tests (former `core/uno/*_test.go` → `core/priv/*_test.go`)
 
 | Old file | New file | Changes |
 |----------|----------|---------|
@@ -850,8 +850,8 @@ All 12 cryptographic primitives required by PrivTransferTx have been audited aga
 | 3 | Decrypt handles | `at_elgamal.c` | ✅ 1 function | ✅ `elgamal.go` | **Complete** |
 | 4 | Homomorphic CT add/sub | `at_elgamal.c` | ✅ 2 functions | ✅ `elgamal.go` | **Complete** |
 | 5 | Scalar add/sub to CT (fee) | `at_elgamal.c` | ✅ 5 functions | ✅ `elgamal.go` | **Complete** |
-| 6 | CiphertextValidityProof | `at_uno_proofs.c` | ✅ 4 functions | ✅ `verify.go`/`prove.go` | **Complete** (128B/160B) |
-| 7 | CommitmentEqProof | `at_uno_proofs.c` | ✅ 1 function (verify) | ✅ `verify.go` | **Complete** (verify; generate embedded in balance proof) |
+| 6 | CiphertextValidityProof | `at_priv_proofs.c` | ✅ 4 functions | ✅ `verify.go`/`prove.go` | **Complete** (128B/160B) |
+| 7 | CommitmentEqProof | `at_priv_proofs.c` | ✅ 1 function (verify) | ✅ `verify.go` | **Complete** (verify; generate embedded in balance proof) |
 | 8 | RangeProof (Bulletproofs) | `at_rangeproofs.c` | ✅ 2 functions | ✅ `verify.go`/`prove.go` | **Complete** (u64) |
 | 9 | **Schnorr sign/verify** | `at_schnorr.c` | ❌ Not exposed | ❌ Missing | **C exists, needs CGO binding** |
 | 10 | **ChaCha20Poly1305** | `at_chacha20_poly1305.c` | ❌ Not exposed | ❌ Missing | **C exists, needs CGO binding** |
@@ -870,7 +870,7 @@ C functions available:
 - `at_schnorr_verify_batch(...)` — batch verification
 - `at_schnorr_public_key_from_private(privkey) → pubkey` — derive pubkey
 
-Add to `crypto/ed25519/uno_proofs_cgo.go`:
+Add to `crypto/ed25519/priv_proofs_cgo.go`:
 ```go
 func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s, e [32]byte, err error)
 func ElgamalSchnorrVerify(pubkey [32]byte, message []byte, s, e [32]byte) bool
@@ -882,7 +882,7 @@ C functions available:
 - `at_chacha20_poly1305_encrypt(key32, nonce12, plaintext, pt_len, aad, aad_len) → ciphertext + 16-byte tag`
 - `at_chacha20_poly1305_decrypt(key32, nonce12, ciphertext, ct_len, aad, aad_len) → plaintext`
 
-Add to `crypto/ed25519/uno_proofs_cgo.go`:
+Add to `crypto/ed25519/priv_proofs_cgo.go`:
 ```go
 func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext, aad []byte) ([]byte, error)
 func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext, aad []byte) ([]byte, error)
@@ -894,7 +894,7 @@ C functions available:
 - `at_x25519_exchange(privkey, peer_pubkey) → shared_secret32` — compute ECDH shared secret
 - `at_x25519_public(privkey) → pubkey` — derive X25519 public key
 
-Add to `crypto/ed25519/uno_proofs_cgo.go`:
+Add to `crypto/ed25519/priv_proofs_cgo.go`:
 ```go
 func X25519Exchange(privkey, peerPubkey [32]byte) ([32]byte, error)
 func X25519Public(privkey [32]byte) ([32]byte, error)
@@ -902,7 +902,7 @@ func X25519Public(privkey [32]byte) ([32]byte, error)
 
 Memo encryption key derivation: `shared_key = SHA3-256(X25519Exchange(priv, peer_pub))`, then encrypt with ChaCha20Poly1305.
 
-### 7b. Package Rename: `crypto/uno/` → `crypto/priv/`
+### 7b. Package Rename: former `crypto/uno/` → `crypto/priv/`
 
 | File | Changes |
 |------|---------|
@@ -919,13 +919,13 @@ Memo encryption key derivation: `shared_key = SHA3-256(X25519Exchange(priv, peer
 - `ecdh.go` — Go wrappers for `X25519Exchange()`, `X25519Public()`
 - `memo.go` — High-level `EncryptMemo(senderPriv, receiverPub, plaintext)` and `DecryptMemo(priv, handle, ciphertext)` using ECDH + ChaCha20Poly1305
 
-### 7d. `crypto/ed25519/uno_proofs_cgo.go`
+### 7d. `crypto/ed25519/priv_proofs_cgo.go`
 
 Add ~6 new CGO wrapper functions (Schnorr 2 + ChaCha20 2 + X25519 2). Low-level C bindings are **not renamed** (C function names do not affect the Go API).
 
-### 7e. `crypto/ed25519/uno_proofs_nocgo.go`
+### 7e. `crypto/ed25519/priv_proofs_nocgo.go`
 
-Add corresponding stubs that return `ErrUNOBackendUnavailable` for all 6 new functions.
+Add corresponding stubs that return `ErrPrivBackendUnavailable` for all 6 new functions.
 
 ### 7f. `accountsigner/crypto.go`
 
@@ -952,22 +952,22 @@ New (12+ files):
   crypto/priv/schnorr.go                — Schnorr primitives (from accountsigner)
 
 Delete:
-  core/uno/                             — entire directory
+  core/uno/                             — entire directory (deleted)
 
 Modify (~15 files):
   core/types/transaction.go             — Add PrivTransferTxType, extend encode/decode
-  params/tos_params.go                  — Remove UNO constants, add Priv constants, remove PrivacyRouterAddress
+  params/tos_params.go                  — Priv constants (formerly UNO), removed PrivacyRouterAddress
   core/state_transition.go              — Route by tx.Type(), add applyPrivTransfer()
   core/parallel/analyze.go              — Analyze by tx.Type()
   core/genesis.go                       — Rename GenesisAccount fields
   core/gen_genesis_account.go           — Regenerate
   accountsigner/crypto.go              — Remove ElGamal support from public tx signing
   internal/tosapi/api.go                — Rename RPCs + remove Shield/Unshield
-  cmd/toskey/uno_tx.go → priv_tx.go     — Rename CLI
+  cmd/toskey/priv_tx.go                 — Renamed CLI (formerly uno_tx.go)
   core/tx_pool.go                       — Add PrivTransferTx validation, PrivNonce dispatch in txNoncer
   core/tx_noncer.go                     — Type-aware nonce lookup (account Nonce vs PrivNonce)
   miner/worker.go                       — Skip gas-limit deduction for PrivTransferTxType; enforce PrivMaxPerBlock cap
-  internal/unotracker/                  — Rename to privtracker/
+  internal/privtracker/                 — Renamed (formerly unotracker/)
 ```
 
 ---
@@ -994,7 +994,7 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 
 ## Verification Strategy
 
-- **Phase 1**: `go build ./...` compiles with no UNO references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; fee credited to coinbase as public TOS; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType; `TransitionDb()` skips gas purchase/refund for PrivTransferTxType
+- **Phase 1**: `go build ./...` compiles with no legacy references remaining; PrivTransferTx RLP encode/decode is correct; 3-field ciphertext round-trip works; separated proofs verify correctly; fee deduction from encrypted balance with refund works; fee credited to coinbase as public TOS; ElGamal Schnorr signature round-trip works; ElGamal rejected in SignerTxType; `TransitionDb()` skips gas purchase/refund for PrivTransferTxType
 - **Phase 2**: Genesis allocates PrivBalance, chain boots, `priv_getBalance` returns correct ciphertext
 - **Phase 3**: TxPool accepts PrivTransferTx alongside SignerTx; PrivNonce ordering correct; `txPrice()` returns Fee for priced-list sorting; both types coexist without interference; miner includes PrivTransferTx without gas-limit deduction; PrivMaxPerBlock cap enforced
 - **Phase 4**: End-to-end RPC: `priv_transfer` → block produced → `priv_getBalance` reflects balance change; coinbase balance increases by fee amount
@@ -1013,14 +1013,14 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **Phase 1c: params update** | `params/tos_params.go` (PrivBaseFee, PrivMaxProofBytes added) | DONE |
 | **Phase 1d: state_transition** | `core/state_transition.go` (applyPrivTransfer + tx.Type() routing) | DONE |
 | **Phase 1e: parallel analysis** | `core/parallel/analyze.go` (PrivTransferTxType handler) | DONE |
-| **Phase 1f: accountsigner** | `accountsigner/crypto.go` (ElGamal kept for UNO compat; VerifyRawSignature works) | DONE |
+| **Phase 1f: accountsigner** | `accountsigner/crypto.go` (ElGamal kept for Priv compat; VerifyRawSignature works) | DONE |
 | **Phase 2: Genesis** | `core/genesis.go`, `core/gen_genesis_account.go` (PrivCommitment/Handle/Version/Nonce fields) | DONE |
 | **Phase 3: TxPool integration** | `core/tx_pool.go`, `core/tx_noncer.go`, `core/tx_list.go` (type-aware nonce, validatePrivTransferTx) | DONE |
 | **Phase 4: RPC** | `internal/tosapi/api.go` (PrivTransfer, PrivGetBalance, PrivGetNonce) | DONE |
 | **Phase 5: CLI** | `cmd/toskey/priv_tx.go` (priv-transfer command, placeholder) | DONE |
 | **Phase 5: Genesis script** | `scripts/gen_genesis_priv_ct/main.go` | DONE |
 | **Phase 6: Tests** | 32 tests across `core/priv/*_test.go`, `core/types/priv_transfer_tx_test.go`, `core/priv_state_transition_test.go`, `core/priv_isolation_test.go` | DONE |
-| **Phase 7a: CGO bindings** | `crypto/ed25519/uno_proofs_cgo.go`, `uno_proofs_nocgo.go` (ElgamalSchnorrSign/Verify, ChaCha20Poly1305, X25519) | DONE |
+| **Phase 7a: CGO bindings** | `crypto/ed25519/priv_proofs_cgo.go`, `priv_proofs_nocgo.go` (ElgamalSchnorrSign/Verify, ChaCha20Poly1305, X25519) | DONE |
 | **Phase 7d-e: CGO + nocgo stubs** | 6 new CGO functions + 6 nocgo stubs | DONE |
 | **Message type propagation** | `core/types/transaction.go` (Type(), WithTxType(), PrivTransferInner(), PrivTransferFrom()), `core/state_processor.go` | DONE |
 | **Phase 7b: crypto/priv/ package** | `crypto/priv/` (elgamal.go, verify.go, prove.go, ecdlp.go, backend.go + tests); `core/priv/` imports updated | DONE |
@@ -1030,23 +1030,23 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **core/priv/memo.go** | EncryptMemo/DecryptMemo wrappers | DONE |
 | **Miner PrivTransferTx handling** | `miner/worker.go` (gas-limit skip, PrivNonce sender, low-gas-pool), `core/state_transition.go` (transitionPrivTransfer bypass) | DONE |
 
-| **Delete core/uno/** | Entire directory + all UNO RPCs, CLI commands, tests, scripts | DONE |
-| **Delete crypto/uno/** | Entire directory (replaced by crypto/priv/) | DONE |
-| **Delete old UNO RPCs** | UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext, UnoDecryptBalance + test files | DONE |
-| **Delete old UNO CLI** | cmd/toskey/uno.go, uno_tx.go | DONE |
-| **Rename internal/unotracker/** | → `internal/privtracker/` | DONE |
-| **Remove UNO params** | UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas, PrivacyRouterAddress | DONE |
+| **Deleted core/uno/** | Entire directory + all legacy RPCs, CLI commands, tests, scripts | DONE |
+| **Deleted crypto/uno/** | Entire directory (replaced by crypto/priv/) | DONE |
+| **Deleted old RPCs** | Former UnoShield, UnoUnshield, UnoTransfer, GetUNOCiphertext, UnoDecryptBalance + test files | DONE |
+| **Deleted old CLI** | Former cmd/toskey/uno.go, uno_tx.go | DONE |
+| **Renamed internal/unotracker/** | → `internal/privtracker/` | DONE |
+| **Removed legacy params** | Former UNOBaseGas, UNOShieldGas, UNOTransferGas, UNOUnshieldGas, PrivacyRouterAddress | DONE |
 
 ### Previously Not Yet Implemented (now complete)
 
 | Item | Files | Status |
 |------|-------|--------|
 | **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` | DONE — proof-of-concept mode via explicit flags |
-| **C backend: ProveCommitmentEqProof** | `crypto/ed25519/uno_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed as `gtos_uno_prove_commitment_eq` C wrapper + Go `ProveUNOCommitmentEqProof` |
-| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/uno_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — concatenates per-commitment single64 range proofs via `ProveUNOAggregatedRangeProof` |
+| **C backend: ProveCommitmentEqProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed as `gtos_priv_prove_commitment_eq` C wrapper + Go `ProvePrivCommitmentEqProof` |
+| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — concatenates per-commitment single64 range proofs via `ProvePrivAggregatedRangeProof` |
 
 ### Summary
 
-**Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old UNO system has been fully removed.
+**Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old legacy system has been fully removed.
 
 **Client-side proof generation: 100% complete.** CommitmentEqProof and aggregated RangeProof provers are exposed through the full stack (C backend, CGO wrapper, nocgo stubs, crypto/priv wrapper, core/priv/prover.go). The `toskey priv-transfer` CLI command can generate all three transfer proofs.

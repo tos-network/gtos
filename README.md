@@ -38,13 +38,13 @@ Six patterns are emerging as the structural primitives of machine-native commerc
 
 Privacy should not be treated as a narrow payment feature or an optional overlay. A network designed for autonomous commerce cannot assume that every balance, relationship, strategy, or coordination pattern should be publicly visible by default.
 
-TOS builds privacy in at the base layer through **UNO** — encrypted balances on-chain, no bridges, no L2.
+TOS builds privacy in at the base layer through **Priv** — encrypted balances on-chain, no bridges, no L2.
 
 - Twisted ElGamal ciphertexts on Ristretto255 — balance is hidden from everyone except the owner
 - Zero-knowledge proofs (Schnorr sigma protocols) verify every transfer without revealing amounts
-- Three operations: `UNO_SHIELD` (public → private), `UNO_TRANSFER` (private → private), `UNO_UNSHIELD` (private → public)
+- Three operations: `PRIV_SHIELD` (public → private), `PRIV_TRANSFER` (private → private), `PRIV_UNSHIELD` (private → public)
 - Chain-bound proofs committed to chain ID, sender, receiver, and nonce — replay attacks are impossible
-- Decrypt your own balance locally with `personal_unoBalance` — private key never leaves your machine
+- Decrypt your own balance locally with `priv_personalBalance` — private key never leaves your machine
 
 Privacy extends beyond settlement into intent, routing metadata, and coordination patterns. The next generation of decentralized systems requires not merely private transactions, but a **privacy-ready application architecture** at every layer.
 
@@ -82,7 +82,7 @@ The agent economy runs on three foundational layers.
 
 ### Privacy
 
-UNO encrypted balances — see above.
+Priv encrypted balances — see above.
 
 
 ---
@@ -100,7 +100,7 @@ UNO encrypted balances — see above.
 │                    TOS Node (gtos)                   │
 │                                                      │
 │  ┌──────────┐   ┌────────────┐   ┌───────────────┐  │
-│  │   DPoS   │   │    UNO     │   │ System Actions│  │
+│  │   DPoS   │   │    Priv    │   │ System Actions│  │
 │  │  360ms   │   │  Privacy   │   │Kyc/Agent/TNS/ │  │
 │  │Consensus │   │   Layer    │   │   Referral    │  │
 │  └──────────┘   └────────────┘   └───────────────┘  │
@@ -122,8 +122,8 @@ go build ./cmd/gtos
 # Start a node
 gtos --datadir /data/tos --networkid 1666 console
 
-# Check your private UNO balance (private key stays local)
-> personal.unoBalance("0x<your-address>", "your-password")
+# Check your private balance (private key stays local)
+> personal.privBalance("0x<your-address>", "your-password")
 ```
 
 ---

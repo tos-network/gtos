@@ -2,7 +2,7 @@
 
 ## Context
 
-GTOS states "privacy as a first-class property" as a core design goal, but current implementation covers only encrypted balances (UNO protocol) — approximately 30-35% of that vision. Five privacy dimensions remain uncovered: transaction graph privacy, agent/identity privacy, network-layer privacy, metadata privacy, and contract/call privacy. This plan addresses each dimension through six incremental phases, respecting frozen protocol constants and preserving agent economy functionality.
+GTOS states "privacy as a first-class property" as a core design goal, but current implementation covers only encrypted balances (Priv protocol) — approximately 30-35% of that vision. Five privacy dimensions remain uncovered: transaction graph privacy, agent/identity privacy, network-layer privacy, metadata privacy, and contract/call privacy. This plan addresses each dimension through six incremental phases, respecting frozen protocol constants and preserving agent economy functionality.
 
 ### Confirmed Decisions
 - **Phase 0**: Front-loaded as a prerequisite (C library exists, CGO build chain needs fixing)
@@ -14,17 +14,17 @@ GTOS states "privacy as a first-class property" as a core design goal, but curre
 
 ## Phase 0: Critical Blocker — C Backend Proof Verification
 
-**Problem**: All ZK proof verification dispatches to the C backend (`ed25519c`) via CGO FFI. Without it, every call returns `ErrProofNotImplemented`. UNO is architecturally present but operationally inert.
+**Problem**: All ZK proof verification dispatches to the C backend (`ed25519c`) via CGO FFI. Without it, every call returns `ErrPrivBackendUnavailable`. Priv is architecturally present but operationally inert.
 
 **Scope**: Ensure the C backend (`libed25519`) compiles and links correctly, so `BackendEnabled()` returns `true` and all six verification functions work end-to-end.
 
 **Files**:
-- `crypto/ed25519/uno_proofs_cgo.go` — C glue (58.5KB), verify CGO build tags and library linking
-- `crypto/ed25519/uno_backend_cgo.go` — Feature flag
-- `core/uno/verify.go` — Remove expectation of `ErrProofNotImplemented` in production paths
-- Tests: Update `core/uno/verify_test.go` and `core/uno_state_transition_test.go` to expect successful verification
+- `crypto/ed25519/priv_proofs_cgo.go` — C glue (58.5KB), verify CGO build tags and library linking
+- `crypto/ed25519/priv_backend_cgo.go` — Feature flag
+- `core/priv/verify.go` — Remove expectation of `ErrPrivBackendUnavailable` in production paths
+- Tests: Update `core/priv/verify_test.go` and `core/priv_state_transition_test.go` to expect successful verification
 
-**Outcome**: UNO transactions are fully validated on-chain. No consensus change needed — this is a build/toolchain fix.
+**Outcome**: Priv transactions are fully validated on-chain. No consensus change needed — this is a build/toolchain fix.
 
 ---
 
@@ -33,16 +33,16 @@ GTOS states "privacy as a first-class property" as a core design goal, but curre
 **Dimension**: Metadata privacy (gas-based action type inference, payload size leakage)
 
 ### 1a. Uniform Gas Charging
-All three UNO actions charge `UNOUniformGas = 650,000` (= UNOBaseGas + UNOTransferGas). Shield and Unshield callers pay Transfer-level gas.
+All three Priv actions charge `PrivUniformGas = 650,000` (= PrivBaseGas + PrivTransferGas). Shield and Unshield callers pay Transfer-level gas.
 
-- `params/tos_params.go` — Add `UNOUniformGas` constant
-- `core/state_transition.go` (lines ~718, ~774, ~833) — Replace per-action gas with `UNOUniformGas` in all `applyUNO()` branches
+- `params/tos_params.go` — Add `PrivUniformGas` constant
+- `core/state_transition.go` (lines ~718, ~774, ~833) — Replace per-action gas with `PrivUniformGas` in all `applyPriv()` branches
 
 ### 1b. Fixed-Size Padded Envelope
-Pad `Envelope.Body` to `UNOPaddedEnvelopeSize` (max RLP-encoded Transfer body size) so all actions produce identical on-chain data sizes.
+Pad `Envelope.Body` to `PrivPaddedEnvelopeSize` (max RLP-encoded Transfer body size) so all actions produce identical on-chain data sizes.
 
-- `core/uno/types.go` — Add `UNOPaddedEnvelopeSize` constant
-- `core/uno/codec.go` — Add zero-padding in `EncodeEnvelope()`, strip on `DecodeEnvelope()`
+- `core/priv/types.go` — Add `PrivPaddedEnvelopeSize` constant
+- `core/priv/codec.go` — Add zero-padding in `EncodeEnvelope()`, strip on `DecodeEnvelope()`
 
 **Gas impact**: Shield/Unshield cost rises from 450k to 650k (privacy premium).
 **Consensus**: Hard fork required.
@@ -57,9 +57,9 @@ Pad `Envelope.Body` to `UNOPaddedEnvelopeSize` (max RLP-encoded Transfer body si
 **Scheme**: Dual-Key Stealth Address Protocol over Ristretto255. Receiver publishes meta-address `(S, V)` (spend + view keys). Sender generates ephemeral `(r, R)`, derives stealth address `P = S + H(r·V)·G`. Only the receiver (holding view key `v`) can scan for payments via `H(v·R)`.
 
 ### 2a. Stealth Key Registration
-New storage slots on UNO accounts for stealth meta-address `(S, V)`.
+New storage slots on Priv accounts for stealth meta-address `(S, V)`.
 
-- `core/uno/state.go` — Add `StealthSpendKeySlot`, `StealthViewKeySlot` via `keccak256("gtos.uno.stealthSpend")` etc. Add `Get/SetStealthKeys()`.
+- `core/priv/state.go` — Add `StealthSpendKeySlot`, `StealthViewKeySlot` via `keccak256("gtos.priv.stealthSpend")` etc. Add `Get/SetStealthKeys()`.
 
 ### 2b. New Action: StealthTransfer (ActionID 0x05)
 Adds to existing actions (frozen IDs 0x02-0x04 untouched).
@@ -73,22 +73,22 @@ Adds to existing actions (frozen IDs 0x02-0x04 untouched).
 - `EncryptedMemo []byte`
 
 New files:
-- `core/uno/stealth.go` — `DeriveStealthAddress()`, `ScanStealthPayment()` using `crypto/ristretto255`
-- `core/uno/stealth_test.go` — Round-trip DKSAP tests
+- `core/priv/stealth.go` — `DeriveStealthAddress()`, `ScanStealthPayment()` using `crypto/ristretto255`
+- `core/priv/stealth_test.go` — Round-trip DKSAP tests
 
 Modified files:
-- `core/uno/types.go` — Add `ActionStealthTransfer = 0x05`, `StealthTransferPayload` struct
-- `core/uno/codec.go` — Encode/decode for stealth payload
-- `core/uno/context.go` — `BuildUNOStealthTransferTranscriptContext()` including ephemeral pubkey
-- `core/uno/verify.go` — `VerifyStealthTransferProofBundleWithContext()` (reuses existing proof primitives)
-- `core/state_transition.go` — Add `case uno.ActionStealthTransfer` in `applyUNO()`
+- `core/priv/types.go` — Add `ActionStealthTransfer = 0x05`, `StealthTransferPayload` struct
+- `core/priv/codec.go` — Encode/decode for stealth payload
+- `core/priv/context.go` — `BuildPrivStealthTransferTranscriptContext()` including ephemeral pubkey
+- `core/priv/verify.go` — `VerifyStealthTransferProofBundleWithContext()` (reuses existing proof primitives)
+- `core/state_transition.go` — Add `case priv.ActionStealthTransfer` in `applyPriv()`
 - `core/parallel/analyze.go` — Add stealth address to write set
-- `params/tos_params.go` — `UNOStealthTransferGas = 650,000`
+- `params/tos_params.go` — `PrivStealthTransferGas = 650,000`
 
 ### 2c. Stealth Scanner RPC
-New RPC: `uno_scanStealthPayments(viewKey, spendPubKey, fromBlock, toBlock)` — scans blocks for ephemeral pubkeys matching the caller's view key.
+New RPC: `priv_scanStealthPayments(viewKey, spendPubKey, fromBlock, toBlock)` — scans blocks for ephemeral pubkeys matching the caller's view key.
 
-- New file: `core/uno/scanner.go`
+- New file: `core/priv/scanner.go`
 - RPC handler registration in existing RPC infrastructure
 
 **Gas impact**: Same as Transfer (650k with uniform gas).
@@ -104,10 +104,10 @@ New RPC: `uno_scanStealthPayments(viewKey, spendPubKey, fromBlock, toBlock)` —
 Extend StealthTransfer to include N decoy `(stealthAddress, ciphertextDelta)` pairs using **validator-transparent decoys**: decoys encrypt zero (identity ciphertext). Validators can distinguish real from decoy, but chain observers scanning raw data cannot. This avoids new proof types and keeps gas costs low.
 
 Modified files:
-- `core/uno/types.go` — Add `Decoys []DecoyOutput` to `StealthTransferPayload`
-- `core/uno/codec.go` — Encode/decode decoy array
+- `core/priv/types.go` — Add `Decoys []DecoyOutput` to `StealthTransferPayload`
+- `core/priv/codec.go` — Encode/decode decoy array
 - `core/state_transition.go` — Apply decoy deltas in StealthTransfer case
-- `params/tos_params.go` — `UNODecoyGas = 50,000` per decoy, `UNOMaxDecoys = 7`
+- `params/tos_params.go` — `PrivDecoyGas = 50,000` per decoy, `PrivMaxDecoys = 7`
 
 **Gas impact**: +50k per decoy (~850k total with 4 decoys).
 **Consensus**: Hard fork (payload format extension).
@@ -127,7 +127,7 @@ New package: `p2p/dandelion/`
 - `config.go` — Stem probability, epoch duration, timeout
 
 Modified files:
-- `p2p/` — Intercept `BroadcastTransaction` for UNO transactions, route through stem phase
+- `p2p/` — Intercept `BroadcastTransaction` for Priv transactions, route through stem phase
 - `cmd/gtos/` — CLI flag `--privacy.dandelion`
 
 **Gas impact**: None (network-layer only).
@@ -156,7 +156,7 @@ Modified files:
 Agent commits to capability set as `C = Pedersen(capBits, r)`, stores C on-chain. During discovery, provides sigma-protocol proof that a specific bit is set.
 
 New files:
-- `crypto/uno/capability_proof.go` — `ProveCapabilityOwnership()`, `VerifyCapabilityOwnership()`
+- `crypto/priv/capability_proof.go` — `ProveCapabilityOwnership()`, `VerifyCapabilityOwnership()`
 - `agent/privacy.go` — Privacy tier logic, committed capability management
 
 ### 5c. Private Agent Discovery
@@ -176,9 +176,9 @@ New files:
 
 **Dimension**: Contract/call privacy
 
-**Practical first step**: A "private token" precompile at a new system address extending UNO ciphertext arithmetic to arbitrary tokens (not just native TOS). Full FHE/MPC for general-purpose encrypted computation is out of current scope.
+**Practical first step**: A "private token" precompile at a new system address extending Priv ciphertext arithmetic to arbitrary tokens (not just native TOS). Full FHE/MPC for general-purpose encrypted computation is out of current scope.
 
-- `core/uno/private_token.go` — Private token registry using UNO infrastructure
+- `core/priv/private_token.go` — Private token registry using Priv infrastructure
 - New system address in `params/tos_params.go`
 
 **Dependencies**: Phases 1-2.
@@ -189,8 +189,8 @@ New files:
 
 | Phase | Dimension | Privacy Gain | Cumulative |
 |-------|-----------|-------------|------------|
-| Baseline (UNO) | Amount privacy | ~30-35% | ~30-35% |
-| Phase 0: C backend | (unblocks UNO) | +0% (enabler) | ~30-35% |
+| Baseline (Priv) | Amount privacy | ~30-35% | ~30-35% |
+| Phase 0: C backend | (unblocks Priv) | +0% (enabler) | ~30-35% |
 | Phase 1: Uniform envelopes | Metadata | +8% | ~40% |
 | Phase 2: Stealth addresses | Tx graph | +15% | ~55% |
 | Phase 3: Decoy outputs | Tx graph (depth) | +8% | ~63% |
@@ -216,9 +216,9 @@ Phase 6 (Private contracts)      ← aspirational
 
 ## Verification Strategy
 
-- **Phase 0**: Run `core/uno/verify_test.go` with CGO+ed25519c enabled; all proofs must pass
-- **Phase 1**: Verify gas charged is identical for all three UNO actions; verify encoded envelope sizes are equal
-- **Phase 2**: Round-trip DKSAP test: derive stealth address → send StealthTransfer → scan → spend. Integration test in `core/uno_state_transition_test.go`
+- **Phase 0**: Run `core/priv/verify_test.go` with CGO+ed25519c enabled; all proofs must pass
+- **Phase 1**: Verify gas charged is identical for all three Priv actions; verify encoded envelope sizes are equal
+- **Phase 2**: Round-trip DKSAP test: derive stealth address → send StealthTransfer → scan → spend. Integration test in `core/priv_state_transition_test.go`
 - **Phase 3**: Verify decoy ciphertexts are applied without changing recipient balances; verify anonymity set size
 - **Phase 4**: Network simulation: verify transaction origin cannot be traced within N hops
 - **Phase 5**: Register Private agent → verify bloom filter absent → verify ZK capability proof accepted by discovery

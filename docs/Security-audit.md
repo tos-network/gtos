@@ -857,9 +857,9 @@ Consequences:
 | `tos.create` / `tos.create2` address derivation | Correct. Uses `crypto.CreateAddress(contractAddr, nonce)` and `crypto.CreateAddress2(...)` — same as EVM. Nonce is incremented before child Deploy so successive calls get distinct addresses. |
 | Parallel merge order determinism | Correct. `sortedInts(level)` sorts merge order by ascending tx index; all nodes apply the same order regardless of goroutine scheduling. |
 | `tos.bytes.fromUint256` / `tos.bytes.toUint256` — no per-byte gas | Acceptable. Output is bounded at 32 bytes; these functions are O(32) and not a DoS vector under SEC-2 criteria. |
-| UNO serialization via `PrivacyRouterAddress` sentinel | Correct. All UNO txs write `PrivacyRouterAddress`; the DAG forces them serial. This protects multi-account UNO state (sender + receiver ciphertext) from parallel conflict. |
+| Priv serialization via `PrivacyRouterAddress` sentinel | Correct. All Priv txs write `PrivacyRouterAddress`; the DAG forces them serial. This protects multi-account Priv state (sender + receiver ciphertext) from parallel conflict. |
 | `lvm.Call` depth counter (`l.depth`) vs `ctx.Depth` | Correct. Two orthogonal counters: `l.depth` (Go-level LVM recursion, limit 1024 — dead in practice) and `ctx.Depth` (Lua-level `tos.call` nesting, limit 8). The Lua limit of 8 is the effective constraint. |
-| UNO Unshield sends to arbitrary `payload.To` | By design. Self-custodial: the sender can withdraw to any address. The proof binds the withdrawal address via transcript context. |
+| Priv Unshield sends to arbitrary `payload.To` | By design. Self-custodial: the sender can withdraw to any address. The proof binds the withdrawal address via transcript context. |
 
 ---
 
@@ -1098,9 +1098,9 @@ if gasUsed > gas {
 3. Validator lifecycle (`validator/handler.go`, `validator/state.go`)
 4. Block production (`miner/worker.go` — selectTransactions, fillTransactions, resultLoop, commit)
 5. Block import (`core/blockchain.go` — insertChain key paths)
-6. Transaction pool (`core/tx_pool.go` — validateTx, validateUNOTxPrecheck)
+6. Transaction pool (`core/tx_pool.go` — validateTx, validatePrivTxPrecheck)
 7. Block/state validation (`core/block_validator.go`)
-8. State transition full path (`core/state_transition.go` — preCheck, buyGas, TransitionDb, applyUNO)
+8. State transition full path (`core/state_transition.go` — preCheck, buyGas, TransitionDb, applyPriv)
 9. Execution entry point (`core/state_processor.go` — Process, ExecuteTransactions, TxAsMessageWithAccountSigner)
 
 ---
@@ -1129,9 +1129,9 @@ if gasUsed > gas {
 | **`state_transition.go` `preCheck()` — EOA sender guard** | Correct. `GetCodeHash(from) != emptyCodeHash && != zeroHash` rejects contract addresses as transaction senders. |
 | **`state_transition.go` `buyGas()` + value balance check** | Correct. For legacy txs `buyGas` checks gas fees only; `CanTransfer` is called separately at the point of value transfer and in `handleRegister`, covering all value-bearing paths. |
 | **`state_transition.go` `TransitionDb()` — data-to-non-contract rejection** | Correct. `len(data) > 0 && len(toCode) == 0` returns `ErrContractNotSupported`, preventing data payloads from silently disappearing on plain-transfer destinations. |
-| **`applyUNO` — Shield/Transfer/Unshield version overflow guard** | Correct. `senderState.Version == math.MaxUint64` is checked before any increment, returning `ErrVersionOverflow`. |
-| **`applyUNO` — UNO Transfer self-transfer blocked** | Correct. `payload.To == msg.From()` returns `ErrInvalidPayload`, preventing a ciphertext copy-without-deduction attack. |
-| **`applyUNO` — unit conversion (1 UNO unit = 1e18 wei)** | Correct. `amount = payload.Amount × params.TOS` where `params.TOS = 1e18`; applied consistently in Shield and Unshield. |
+| **`applyPriv` — Shield/Transfer/Unshield version overflow guard** | Correct. `senderState.Version == math.MaxUint64` is checked before any increment, returning `ErrVersionOverflow`. |
+| **`applyPriv` — Priv Transfer self-transfer blocked** | Correct. `payload.To == msg.From()` returns `ErrInvalidPayload`, preventing a ciphertext copy-without-deduction attack. |
+| **`applyPriv` — unit conversion (1 priv unit = 1e18 wei)** | Correct. `amount = payload.Amount × params.TOS` where `params.TOS = 1e18`; applied consistently in Shield and Unshield. |
 | **`state_processor.go` pre-block sender resolution** | Correct. All `TxAsMessageWithAccountSigner` calls use the statedb snapshot at block start. If a mid-block `ACCOUNT_SET_SIGNER` tx changes a signer, subsequent txs still resolve to the old signer — a defined, documented semantic. |
 | **`ExecuteTransactions` — per-tx gas pool isolation** | Correct. A fresh `GasPool` seeded with `msg.Gas()` is created for each tx. Block-level gas accounting is managed exclusively by `ExecuteParallel`'s serial merge loop. No double-deduction. |
 | **`WriteBufStateDB` balance delta merge — non-negative invariant** | Correct. Same-sender txs are always in different levels (sender in WriteAddrs forces serialization). Level N txs execute against the canonical state that already includes all level N-1 merges. `preCheck`/`buyGas`/`CanTransfer` enforce non-negative balances within each WriteBuf, so the delta applied to canonical state cannot make it negative. |

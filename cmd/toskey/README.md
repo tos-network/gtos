@@ -56,39 +56,39 @@ To sign a message contained in a file, use the --msgfile flag.
 Change the password of a keyfile.
 use the `--newpasswordfile` to point to the new password file.
 
-### `toskey uno-balance <keyfile>`
+### `toskey priv-balance <keyfile>`
 
-Decrypt the UNO encrypted balance locally from on-chain ciphertext via RPC.
-
-Example:
-
-- `toskey uno-balance --rpc http://127.0.0.1:8545 ./key.json`
-
-### `toskey uno-shield --amount <n> <keyfile>`
-
-Build UNO shield proof locally from the keyfile and submit transaction via `tos_unoShield`.
+Decrypt the priv encrypted balance locally from on-chain ciphertext via RPC.
 
 Example:
 
-- `toskey uno-shield --rpc http://127.0.0.1:8545 --amount 10 ./key.json`
+- `toskey priv-balance --rpc http://127.0.0.1:8545 ./key.json`
 
-### `toskey uno-transfer --to <addr> --amount <n> <keyfile>`
+### `toskey priv-shield --amount <n> <keyfile>`
 
-Build UNO transfer proof locally and submit transaction via `tos_unoTransfer`.
-
-Example:
-
-- `toskey uno-transfer --rpc http://127.0.0.1:8545 --to 0x... --amount 3 ./key.json`
-
-### `toskey uno-unshield --to <addr> --amount <n> <keyfile>`
-
-Build UNO unshield proof locally and submit transaction via `tos_unoUnshield`.
+Build priv shield proof locally from the keyfile and submit transaction via `priv_shield`.
 
 Example:
 
-- `toskey uno-unshield --rpc http://127.0.0.1:8545 --to 0x... --amount 2 ./key.json`
+- `toskey priv-shield --rpc http://127.0.0.1:8545 --amount 10 ./key.json`
 
-UNO tx command notes:
+### `toskey priv-transfer --to <addr> --amount <n> <keyfile>`
+
+Build priv transfer proof locally and submit transaction via `priv_transfer`.
+
+Example:
+
+- `toskey priv-transfer --rpc http://127.0.0.1:8545 --to 0x... --amount 3 ./key.json`
+
+### `toskey priv-unshield --to <addr> --amount <n> <keyfile>`
+
+Build priv unshield proof locally and submit transaction via `priv_unshield`.
+
+Example:
+
+- `toskey priv-unshield --rpc http://127.0.0.1:8545 --to 0x... --amount 2 ./key.json`
+
+Priv tx command notes:
 
 - Requires an `elgamal` keyfile.
 - Proof construction uses local cryptography; build `toskey` with CGO + `ed25519c`.
