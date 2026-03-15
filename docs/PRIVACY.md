@@ -804,7 +804,70 @@ type RPCPrivBalanceResult struct {
 
 ## Phase 7: Crypto Layer Update
 
-### `crypto/uno/` → `crypto/priv/`
+### C Backend Completeness Audit
+
+All 12 cryptographic primitives required by PrivTransferTx have been audited against the C backend in `crypto/ed25519/libed25519/`. **9 of 12 are fully wired; 3 have C implementations but need CGO bindings.**
+
+| # | Primitive | C Source | CGO Binding | Go Wrapper | Status |
+|---|-----------|----------|-------------|------------|--------|
+| 1 | ElGamal encrypt/decrypt | `at_elgamal.c` | ✅ 7 functions | ✅ `elgamal.go` | **Complete** |
+| 2 | Pedersen commitments | `at_elgamal.c` | ✅ 3 functions | ✅ `elgamal.go` | **Complete** |
+| 3 | Decrypt handles | `at_elgamal.c` | ✅ 1 function | ✅ `elgamal.go` | **Complete** |
+| 4 | Homomorphic CT add/sub | `at_elgamal.c` | ✅ 2 functions | ✅ `elgamal.go` | **Complete** |
+| 5 | Scalar add/sub to CT (fee) | `at_elgamal.c` | ✅ 5 functions | ✅ `elgamal.go` | **Complete** |
+| 6 | CiphertextValidityProof | `at_uno_proofs.c` | ✅ 4 functions | ✅ `verify.go`/`prove.go` | **Complete** (128B/160B) |
+| 7 | CommitmentEqProof | `at_uno_proofs.c` | ✅ 1 function (verify) | ✅ `verify.go` | **Complete** (verify; generate embedded in balance proof) |
+| 8 | RangeProof (Bulletproofs) | `at_rangeproofs.c` | ✅ 2 functions | ✅ `verify.go`/`prove.go` | **Complete** (u64) |
+| 9 | **Schnorr sign/verify** | `at_schnorr.c` | ❌ Not exposed | ❌ Missing | **C exists, needs CGO binding** |
+| 10 | **ChaCha20Poly1305** | `at_chacha20_poly1305.c` | ❌ Not exposed | ❌ Missing | **C exists, needs CGO binding** |
+| 11 | **ECDH (X25519)** | `at_x25519.c` | ❌ Not exposed | ❌ Missing | **C exists, needs CGO binding** |
+| 12 | Baby-step giant-step ECDLP | — | — | ✅ `ecdlp.go` (pure Go) | **Complete** |
+
+### 7a. Missing CGO Bindings (3 items)
+
+All three C libraries exist and are tested. The work is purely binding + wrapping.
+
+**1. ElGamal Ristretto-Schnorr Signature** — `at_schnorr.c` / `at_schnorr.h`
+
+C functions available:
+- `at_schnorr_sign(privkey, message, msg_len) → (s, e)` — generate 64-byte signature
+- `at_schnorr_verify(pubkey, message, msg_len, s, e) → bool` — verify signature
+- `at_schnorr_verify_batch(...)` — batch verification
+- `at_schnorr_public_key_from_private(privkey) → pubkey` — derive pubkey
+
+Add to `crypto/ed25519/uno_proofs_cgo.go`:
+```go
+func ElgamalSchnorrSign(privkey [32]byte, message []byte) (s, e [32]byte, err error)
+func ElgamalSchnorrVerify(pubkey [32]byte, message []byte, s, e [32]byte) bool
+```
+
+**2. ChaCha20Poly1305 (Encrypted Memo)** — `at_chacha20_poly1305.c` / `at_chacha20_poly1305.h`
+
+C functions available:
+- `at_chacha20_poly1305_encrypt(key32, nonce12, plaintext, pt_len, aad, aad_len) → ciphertext + 16-byte tag`
+- `at_chacha20_poly1305_decrypt(key32, nonce12, ciphertext, ct_len, aad, aad_len) → plaintext`
+
+Add to `crypto/ed25519/uno_proofs_cgo.go`:
+```go
+func ChaCha20Poly1305Encrypt(key [32]byte, nonce [12]byte, plaintext, aad []byte) ([]byte, error)
+func ChaCha20Poly1305Decrypt(key [32]byte, nonce [12]byte, ciphertext, aad []byte) ([]byte, error)
+```
+
+**3. ECDH X25519 (Memo Key Derivation)** — `at_x25519.c` / `at_x25519.h`
+
+C functions available:
+- `at_x25519_exchange(privkey, peer_pubkey) → shared_secret32` — compute ECDH shared secret
+- `at_x25519_public(privkey) → pubkey` — derive X25519 public key
+
+Add to `crypto/ed25519/uno_proofs_cgo.go`:
+```go
+func X25519Exchange(privkey, peerPubkey [32]byte) ([32]byte, error)
+func X25519Public(privkey [32]byte) ([32]byte, error)
+```
+
+Memo encryption key derivation: `shared_key = SHA3-256(X25519Exchange(priv, peer_pub))`, then encrypt with ChaCha20Poly1305.
+
+### 7b. Package Rename: `crypto/uno/` → `crypto/priv/`
 
 | File | Changes |
 |------|---------|
@@ -814,15 +877,22 @@ type RPCPrivBalanceResult struct {
 | `ecdlp.go` | Rename package to priv, code unchanged |
 | `backend.go` | Rename package to priv |
 
-### New `crypto/priv/schnorr.go`
+### 7c. New Files in `crypto/priv/`
 
-ElGamal Ristretto-Schnorr sign/verify extracted from `accountsigner/crypto.go` into dedicated file.
+- `schnorr.go` — Go wrappers for `ElgamalSchnorrSign()`, `ElgamalSchnorrVerify()` (calls CGO bindings from 7a)
+- `chacha.go` — Go wrappers for `ChaCha20Poly1305Encrypt()`, `ChaCha20Poly1305Decrypt()`
+- `ecdh.go` — Go wrappers for `X25519Exchange()`, `X25519Public()`
+- `memo.go` — High-level `EncryptMemo(senderPriv, receiverPub, plaintext)` and `DecryptMemo(priv, handle, ciphertext)` using ECDH + ChaCha20Poly1305
 
-### `crypto/ed25519/uno_proofs_*.go`
+### 7d. `crypto/ed25519/uno_proofs_cgo.go`
 
-Low-level C bindings are **not renamed** (C function names do not affect the Go API). Go wrapper functions are re-exported through the `crypto/priv/` layer.
+Add ~6 new CGO wrapper functions (Schnorr 2 + ChaCha20 2 + X25519 2). Low-level C bindings are **not renamed** (C function names do not affect the Go API).
 
-### `accountsigner/crypto.go`
+### 7e. `crypto/ed25519/uno_proofs_nocgo.go`
+
+Add corresponding stubs that return `ErrUNOBackendUnavailable` for all 6 new functions.
+
+### 7f. `accountsigner/crypto.go`
 
 Remove ElGamal signing/verification code (moved to `crypto/priv/`). Remove `SignerTypeElgamal` from all switch statements.
 
