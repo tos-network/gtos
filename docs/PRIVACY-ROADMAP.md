@@ -44,7 +44,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Dimension | What's Missing |
 |---|---|
 | ~~Tier-2 ZK proof verification~~ | ✅ All 9 Tier-2 ops have real ZK verification. `mul`/`div`/`rem` use multiplication Sigma protocol; `lt`/`gt`/`eq`/`min`/`max`/`select` use Bulletproofs range proofs. |
-| RPC access control | `PrivacyRPCRestricted` flag gates privacy slot reads via `GetStorageAt` and `privGetBalance`/`privGetNonce`. Default=false (permissive). TODO: replace with proper private-key-based authentication. |
+| ~~RPC access control~~ | Not needed. Privacy RPCs return ciphertext (commitment+handle) — without the private key, the plaintext balance is unrecoverable. Activity frequency (version counter) is observable but this is inherent to account-model chains. Same design as XELIS. |
 
 ---
 
@@ -163,7 +163,7 @@ Ring signatures and decoy outputs are fundamentally incompatible with the accoun
 - [x] Two-slot storage for `uno` (commitment + handle), `mapping(agent => uno)` supported
 - [x] Operator restrictions: `==`/`!=` allowed (desugared to `eq`), arithmetic/comparison operators rejected
 - [x] Sample contract `ConfidentialToken.tol` compiles end-to-end
-- [x] RPC access control: `GetStorageAt` blocks privacy slots, `privGetBalance`/`privGetNonce` gated by `PrivacyRPCRestricted` flag
+- [x] ~~RPC access control~~: removed — ciphertext is safe to expose (decryption requires private key); same model as XELIS
 - [x] 53 gtos tests (35 LVM + 7 ProofBundle + 9 mul_proof + 2 crypto) + 12 tolang tests passing
 
 #### ~~Phase 5b: Encrypted contract storage~~ ABANDONED
@@ -204,7 +204,6 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | Milestone | Phases required | What it means |
 |---|---|---|
 | **Minimally viable** | 0 + 1 + 1b + 1c + 1d + 1e | (~72%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, privacy txs are batch-verified in txpool and execution |
-| **Contract-ready** | + 5 | ← **We are here** (~80%). Contracts can manipulate encrypted values via `uno` type. All 22 ciphertext ops have real ZK verification. RPC privacy slot access is gated by `PrivacyRPCRestricted` flag. |
+| **Contract-ready** | + 5 | ← **We are here** (~80%). Contracts can manipulate encrypted values via `uno` type. All 22 ciphertext ops have real ZK verification. |
 
-**All planned privacy phases are complete. All ZK verifications are real.** Remaining hardening:
-- RPC authentication: replace boolean `PrivacyRPCRestricted` flag with private-key-based auth
+**All planned privacy phases are complete. All ZK verifications are real. No remaining hardening items.**

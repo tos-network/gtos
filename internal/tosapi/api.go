@@ -778,13 +778,6 @@ func (s *BlockChainAPI) GetCode(ctx context.Context, address common.Address, blo
 // block number. The rpc.LatestBlockNumber and rpc.PendingBlockNumber meta block
 // numbers are also allowed.
 func (s *BlockChainAPI) GetStorageAt(ctx context.Context, address common.Address, key string, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
-	// Block reads on privacy-reserved storage slots when restricted mode is
-	// enabled. This prevents unauthenticated callers from reading encrypted
-	// balance data via eth_getStorageAt, which could reveal activity patterns.
-	reqSlot := common.HexToHash(key)
-	if PrivacyRPCRestricted && isPrivacySlot(reqSlot) {
-		return nil, errors.New("access denied: privacy storage slot")
-	}
 	state, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if state == nil || err != nil {
 		return nil, err
@@ -3319,11 +3312,6 @@ func (s *TOSAPI) PrivTransfer(ctx context.Context, args RPCPrivTransferArgs) (co
 // PrivGetBalance returns the encrypted balance for a priv account identified
 // by its 32-byte ElGamal pubkey.
 func (s *TOSAPI) PrivGetBalance(ctx context.Context, pubkey hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (*RPCPrivBalanceResult, error) {
-	// TODO: require caller to prove knowledge of the private key (e.g. a
-	// signed challenge) before returning encrypted balance data.
-	if PrivacyRPCRestricted {
-		return nil, errors.New("access denied: privacy RPC restricted")
-	}
 	if len(pubkey) != 32 {
 		return nil, newRPCInvalidParamsError("pubkey", "must be exactly 32 bytes")
 	}
@@ -3356,11 +3344,6 @@ func (s *TOSAPI) PrivGetBalance(ctx context.Context, pubkey hexutil.Bytes, block
 // PrivGetNonce returns the on-chain PrivNonce for a priv account identified
 // by its 32-byte ElGamal pubkey.
 func (s *TOSAPI) PrivGetNonce(ctx context.Context, pubkey hexutil.Bytes, blockNrOrHash *rpc.BlockNumberOrHash) (hexutil.Uint64, error) {
-	// TODO: require caller to prove knowledge of the private key (e.g. a
-	// signed challenge) before returning privacy nonce data.
-	if PrivacyRPCRestricted {
-		return 0, errors.New("access denied: privacy RPC restricted")
-	}
 	if len(pubkey) != 32 {
 		return 0, newRPCInvalidParamsError("pubkey", "must be exactly 32 bytes")
 	}
