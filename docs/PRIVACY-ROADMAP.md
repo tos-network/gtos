@@ -44,7 +44,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Dimension | What's Missing |
 |---|---|
 | ~~Tier-2 ZK proof verification~~ | ✅ All 9 Tier-2 ops have real ZK verification. `mul`/`div`/`rem` use multiplication Sigma protocol; `lt`/`gt`/`eq`/`min`/`max`/`select` use Bulletproofs range proofs. |
-| ~~RPC access control~~ | Not needed. Privacy RPCs return ciphertext (commitment+handle) — without the private key, the plaintext balance is unrecoverable. Activity frequency (version counter) is observable but this is inherent to account-model chains. Same design as XELIS. |
+| ~~RPC access control~~ | Not needed. Privacy RPCs return ciphertext (commitment+handle) — without the private key, the plaintext balance is unrecoverable. Activity frequency (version counter) is observable but this is inherent to account-model chains. |
 
 ---
 
@@ -163,7 +163,7 @@ Ring signatures and decoy outputs are fundamentally incompatible with the accoun
 - [x] Two-slot storage for `uno` (commitment + handle), `mapping(agent => uno)` supported
 - [x] Operator restrictions: `==`/`!=` allowed (desugared to `eq`), arithmetic/comparison operators rejected
 - [x] Sample contract `ConfidentialToken.tol` compiles end-to-end
-- [x] ~~RPC access control~~: removed — ciphertext is safe to expose (decryption requires private key); same model as XELIS
+- [x] ~~RPC access control~~: removed — ciphertext is safe to expose (decryption requires private key)
 - [x] 53 gtos tests (35 LVM + 7 ProofBundle + 9 mul_proof + 2 crypto) + 12 tolang tests passing
 
 #### ~~Phase 5b: Encrypted contract storage~~ ABANDONED
