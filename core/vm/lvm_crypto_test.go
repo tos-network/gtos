@@ -1149,3 +1149,136 @@ func TestCtDivInvalidProof(t *testing.T) {
 		t.Fatal("expected error for invalid div proof")
 	}
 }
+
+// --- Missing coverage tests ---
+
+func TestCtDivScalar(t *testing.T) {
+	pub, _ := testKeypair(t)
+	pubHex := "0x" + hex.EncodeToString(pub[:])
+
+	st := newAgentTestState()
+	contractAddr := common.Address{0xF6}
+
+	// mul_scalar(ct, 6) then div_scalar(ct, 3) should give mul_scalar(ct, 2)
+	src := `
+local ct = tos.ciphertext
+local a = ct.encrypt("` + pubHex + `", 1)
+local x6 = ct.mul_scalar(a, 6)
+local x2 = ct.div_scalar(x6, 3)
+local expected = ct.mul_scalar(a, 2)
+if x2 ~= expected then error("div_scalar mismatch") end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("div_scalar: %v", err)
+	}
+}
+
+func TestCtDivScalarByZero(t *testing.T) {
+	pub, _ := testKeypair(t)
+	pubHex := "0x" + hex.EncodeToString(pub[:])
+
+	st := newAgentTestState()
+	contractAddr := common.Address{0xF7}
+
+	src := `
+local ct = tos.ciphertext
+local a = ct.encrypt("` + pubHex + `", 10)
+ct.div_scalar(a, 0)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err == nil {
+		t.Fatal("expected error for division by zero")
+	}
+	if !strings.Contains(err.Error(), "division by zero") {
+		t.Fatalf("expected division by zero error, got: %v", err)
+	}
+}
+
+func TestCtGtInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 7)
+	ctB := buildCtFromOpening(t, pub, openB, 3)
+
+	inputHash := makeInputHash("gt", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "gt", InputHash: inputHash, ResultData: []byte{1}, Proof: make([]byte, 672),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF8}
+	src := `tos.ciphertext.gt("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "range proof") {
+		t.Fatalf("expected range proof error, got: %v", err)
+	}
+}
+
+func TestCtEqInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 5)
+	ctB := buildCtFromOpening(t, pub, openB, 5)
+
+	inputHash := makeInputHash("eq", ctA, ctB)
+	// eq=true needs 1344B, provide wrong size
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "eq", InputHash: inputHash, ResultData: []byte{1}, Proof: make([]byte, 672),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF9}
+	src := `tos.ciphertext.eq("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil {
+		t.Fatal("expected error for wrong eq proof size")
+	}
+}
+
+func TestCtMaxInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 3)
+	ctB := buildCtFromOpening(t, pub, openB, 7)
+
+	inputHash := makeInputHash("max", ctA, ctB)
+	// result=ctB but bad range proof
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "max", InputHash: inputHash, ResultData: ctB, Proof: make([]byte, 672),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xFA}
+	src := `tos.ciphertext.max("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "range proof") {
+		t.Fatalf("expected range proof error, got: %v", err)
+	}
+}
+
+func TestCtRemInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 17)
+	ctB := buildCtFromOpening(t, pub, openB, 5)
+
+	inputHash := makeInputHash("rem", ctA, ctB)
+	// Wrong proof size
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "rem", InputHash: inputHash, ResultData: make([]byte, 64), Proof: make([]byte, 100),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xFB}
+	src := `tos.ciphertext.rem("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 4_000_000)
+	if err == nil {
+		t.Fatal("expected error for invalid rem proof")
+	}
+}
