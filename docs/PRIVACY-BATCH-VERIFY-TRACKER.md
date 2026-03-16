@@ -22,6 +22,10 @@ It does not cover:
 ## Overall Status
 
 The functional privacy batch-verification alignment work is complete.
+Relative to the `~/x` verifier design, GTOS now matches the in-scope sigma/range
+batch-verification architecture in both pure-Go and native `ed25519c` backends.
+The only intentional difference left in this area is the out-of-scope `ZKP cache`
+model.
 
 GTOS now has:
 
@@ -32,7 +36,9 @@ GTOS now has:
 - execution-path batch verification beyond txpool
 - shared prepared proof-state flow across txpool and execution
 
-There are no remaining in-scope implementation tasks in this tracker. GTOS also keeps backward-compatible acceptance of the older concatenated transfer range-proof encoding so historical data can still be verified.
+There are no remaining in-scope implementation tasks in this tracker. GTOS also
+keeps backward-compatible acceptance of the older concatenated transfer
+range-proof encoding so historical data can still be verified.
 
 ## Current Status
 
@@ -67,6 +73,8 @@ There are no remaining in-scope implementation tasks in this tracker. GTOS also 
 
 ### Already aligned
 
+- real sigma batch verification in pure-Go and native `ed25519c`
+- real range-proof batch verification in pure-Go and native `ed25519c`
 - txpool admission performs real proof verification instead of shape-only prechecks
 - pool-level sigma/range batch verification exists
 - dependency-sensitive private txs use virtual-state replay before verification

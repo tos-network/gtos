@@ -1007,7 +1007,7 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **Phase 7b: crypto/priv/ package** | `crypto/priv/` (elgamal.go, verify.go, prove.go, ecdlp.go, backend.go + tests); `core/priv/` imports updated | DONE |
 | **Phase 7c: crypto/priv/ wrappers** | `crypto/priv/schnorr.go`, `chacha.go`, `ecdh.go`, `memo.go` | DONE |
 | **core/priv/signature.go** | ElGamal Ristretto-Schnorr sign/verify wrappers | DONE |
-| **core/priv/prover.go** | BuildTransferProofs (CommitmentEqProof + aggregated RangeProof stubbed pending C backend) | DONE |
+| **core/priv/prover.go** | BuildTransferProofs (CommitmentEqProof + aggregated two-commitment RangeProof) | DONE |
 | **core/priv/memo.go** | EncryptMemo/DecryptMemo wrappers | DONE |
 | **Miner PrivTransferTx handling** | `miner/worker.go` (gas-limit skip, PrivNonce sender, low-gas-pool), `core/state_transition.go` (transitionPrivTransfer bypass) | DONE |
 
@@ -1024,11 +1024,11 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 |------|-------|--------|
 | **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` | DONE — proof-of-concept mode via explicit flags |
 | **C backend: ProveCommitmentEqProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed as `gtos_priv_prove_commitment_eq` C wrapper + Go `ProvePrivCommitmentEqProof` |
-| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — concatenates per-commitment single64 range proofs via `ProvePrivAggregatedRangeProof` |
+| **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed through the CGO backend and produces the same aggregated multi-commitment transfer range-proof representation used by the pure-Go path |
 | **UNO unit system** | `params/tos_params.go`, `core/priv/fee.go`, `core/privacy_tx_validation.go`, `core/priv/prover.go`, `core/types/{shield,unshield,priv_transfer}_tx.go` | DONE — 2-decimal UNO units (1 base unit = 0.01 TOS = 10^16 Wei); fields renamed to UnoFee/UnoAmount/UnoFeeLimit; BSGS L1=26 table decrypts full 5B TOS supply in ~62ms |
 | **TxPool privacy batch validation** | `core/tx_pool.go`, `core/tx_pool_privacy_batch.go` | DONE — batch proof verification, sequential replay for dependent priv txs |
 
-Follow-up batch-verification alignment work is tracked in `docs/PRIVACY-BATCH-VERIFY-TRACKER.md`. That tracker is now complete for its in-scope goals; the only remaining intentional difference against `~/x` is the out-of-scope `ZKP cache` model.
+Follow-up batch-verification alignment work is tracked in `docs/PRIVACY-BATCH-VERIFY-TRACKER.md`. That tracker is now complete for its in-scope goals: pure-Go and native `ed25519c` sigma/range batch verification are in place, txpool and execution-path integration are done, and transfer range proofs now use the aggregated representation. The only remaining intentional difference against `~/x` is the out-of-scope `ZKP cache` model.
 
 ### Summary
 
