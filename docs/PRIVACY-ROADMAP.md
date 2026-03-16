@@ -1,7 +1,7 @@
 # Privacy Roadmap: Gap Analysis & Path to First-Class Privacy
 
 **Last updated**: 2026-03-16
-**Current progress**: ~68% toward practical privacy target (~80%)
+**Current progress**: ~72% toward practical privacy target (~80%)
 
 ---
 
@@ -23,7 +23,8 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Homomorphic ciphertext arithmetic | Add / Sub / AddScalar | Pure-Go + CGO |
 | Encrypted balance state storage | 4 slots per account | commitment, handle, version, nonce in StateDB |
 | RPC endpoints | privTransfer / privShield / privUnshield / privGetBalance / privGetNonce | Functional |
-| TxPool handling | Size, chainID, nonce, fee, funds, proof-shape, signature validation | Correct priv nonce source dispatch; PrivTransfer FeeLimit enforced; Shield/Unshield public-balance coverage enforced; malformed proofs and bad Schnorr signatures rejected at pool admission |
+| TxPool handling | Real proof admission + batch verification | Pool admission now does real privacy proof verification, batch sigma/range verification, and pool-local private-state replay; malformed proofs and bad Schnorr signatures are rejected before admission |
+| Execution-path batch verification | Shared prepared-proof flow | Blocks containing privacy txs reuse the same prepared verification model and batch-verify consecutive privacy runs before apply |
 | Fee model | UNO base units | UNOBaseFee = 1 (0.01 UNO = 10^16 Wei); `UNOFeeToWei()` converts to Wei on-chain |
 | EncryptedMemo | ECDH + ChaCha20-Poly1305 | Per-tx nonce from txHash; integrity-protected by Schnorr signature |
 | Genesis seeding | Full support | Helper script generates encrypted balances for genesis accounts |
@@ -99,7 +100,9 @@ Resolved in commit `f358af8`. Full details:
 **Tasks**:
 - [x] Proof shape/size pre-validation — reject transactions with wrong proof sizes at `validatePrivTransferTx` / `validateShieldTx` / `validateUnshieldTx` (check `len(CtValidityProof)==160`, `len(ShieldProof)==96`, etc.)
 - [x] Schnorr signature pre-check — verify `VerifySchnorrSignature(pubkey, sigHash, S, E)` at pool admission (currently only checked during consensus execution)
-- [ ] ShieldProof/RangeProof pre-verification (optional, expensive) — only if DoS proves to be a real concern
+- [x] Real privacy proof pre-verification at pool admission — txpool now verifies actual shield/transfer/unshield proofs before admission instead of stopping at shape-only checks
+- [x] Pool-level sigma/range batch verification — pure-Go and native `ed25519c` backends both batch-verify privacy proofs for txpool admission
+- [x] Pool-local private-state replay — dependent private txs are replayed on virtual private state before verification
 
 ### ~~Phase 1d: UNO unit system~~ ✅ DONE
 
@@ -113,6 +116,22 @@ Resolved in commit `f358af8`. Full details:
 - [x] Rename tx fields for unit clarity: `Fee→UnoFee`, `Amount→UnoAmount`, `FeeLimit→UnoFeeLimit`
 - [x] BSGS precomputed table (L1=26, ~350 MB) — decrypts full 5B TOS supply in ~62ms
 - [x] `toskey priv-balance` displays balance as `X.XX UNO`
+
+### ~~Phase 1e: Sigma/range batch-verification alignment~~ ✅ DONE
+
+**Goal**: Align GTOS privacy verification with the practical `~/x` model for real sigma/range batch verification, without taking on `ZKP cache`.
+
+**Tasks**:
+- [x] Pure-Go sigma batch verifier
+- [x] Pure-Go range batch verifier
+- [x] Native `ed25519c` sigma batch verifier
+- [x] Native `ed25519c` range batch verifier
+- [x] Shared prepare / pre-verify architecture between txpool and execution
+- [x] Execution-path batch verification beyond txpool
+- [x] Transfer range-proof representation aligned to aggregated multi-commitment form
+- [x] Batch vs sequential equivalence tests and focused benchmarks
+
+See `docs/PRIVACY-BATCH-VERIFY-TRACKER.md` for the detailed completion tracker. The only intentional verifier-model difference left against `~/x` is the out-of-scope `ZKP cache`.
 
 ### ~~Phase 2: Stealth addresses~~ ABANDONED
 
@@ -154,6 +173,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | ~~**Phase 1b**~~ | ~~Key management CLI~~ | ✅ DONE | End-user tooling | ~60% |
 | ~~**Phase 1c**~~ | ~~TxPool hardening~~ | ✅ DONE | DoS resistance | ~62% |
 | ~~**Phase 1d**~~ | ~~UNO unit system~~ | ✅ DONE | Feasible BSGS decryption | ~68% |
+| ~~**Phase 1e**~~ | ~~Batch-verification alignment~~ | ✅ DONE | Real sigma/range batch verification in Go and native C; txpool + execution-path parity | ~72% |
 | ~~**Phase 2**~~ | ~~Stealth addresses~~ | ABANDONED | Incompatible with account model | — |
 | ~~**Phase 3**~~ | ~~Dandelion++~~ | ABANDONED | Not needed in DPoS topology | — |
 | ~~**Phase 4**~~ | ~~Decoy outputs / ring sig~~ | ABANDONED | Incompatible with account model | — |
@@ -174,7 +194,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 
 | Milestone | Phases required | What it means |
 |---|---|---|
-| **Minimally viable** | 0 + 1 + 1b + 1c + 1d | ← **We are here** (~68%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, malformed priv txs are filtered early |
+| **Minimally viable** | 0 + 1 + 1b + 1c + 1d + 1e | ← **We are here** (~72%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, privacy txs are batch-verified in txpool and execution, and verifier behavior is aligned with `~/x` except for the intentionally excluded `ZKP cache` |
 | **Contract-ready** | + 5 | (~80%). Contracts can manipulate encrypted values (confidential tokens, private voting) |
 
 **Next priority: Phase 5 (contract homomorphic operations) — the only remaining planned phase.**
