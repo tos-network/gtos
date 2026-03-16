@@ -97,28 +97,32 @@ func VerifyCommitmentEqProofWithContext(pubkey [32]byte, ciphertext Ciphertext, 
 	))
 }
 
-// VerifyRangeProof verifies the aggregated Bulletproof range proof proving
-// that the committed amounts are in [0, 2^64).
+// VerifyRangeProof verifies the two single-commitment Bulletproof range
+// proofs carried by a PrivTransferTx.
 func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byte) error {
-	decoded, err := decodeRangeProof(proof)
+	decoded, err := decodeTransferRangeProofs(proof)
 	if err != nil {
 		return err
 	}
-	// Aggregate both commitments into a single range proof verification.
-	commitments := make([]byte, 64)
-	copy(commitments[:32], sourceCommitment[:])
-	copy(commitments[32:], transferCommitment[:])
+	if err := mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
+		decoded[0],
+		sourceCommitment[:],
+		[]byte{64},
+		1,
+	)); err != nil {
+		return err
+	}
 	return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
-		decoded,
-		commitments,
-		[]byte{64, 64},
-		2,
+		decoded[1],
+		transferCommitment[:],
+		[]byte{64},
+		1,
 	))
 }
 
 // VerifySingleRangeProof verifies a range proof over a single commitment.
 func VerifySingleRangeProof(commitment [32]byte, proof []byte) error {
-	decoded, err := decodeRangeProof(proof)
+	decoded, err := decodeSingleRangeProof(proof)
 	if err != nil {
 		return err
 	}

@@ -221,6 +221,137 @@ func mustMakeUnshieldTx(t *testing.T, chainID *big.Int, senderPub, senderPriv [3
 	return types.NewTx(utx)
 }
 
+func mustEncryptPrivBalance(t *testing.T, pubkey [32]byte, amount uint64) priv.Ciphertext {
+	t.Helper()
+
+	ciphertextBytes, _, err := cryptopriv.EncryptWithGeneratedOpening(pubkey[:], amount)
+	if err != nil {
+		t.Fatalf("EncryptWithGeneratedOpening: %v", err)
+	}
+	return priv.Ciphertext{
+		Commitment: bytesToArray32(ciphertextBytes[:32]),
+		Handle:     bytesToArray32(ciphertextBytes[32:]),
+	}
+}
+
+func mustMakePrivTransferTx(t *testing.T, chainID *big.Int, senderPub, senderPriv, receiverPub [32]byte, nonce, fee, feeLimit, amount, senderBalance uint64, senderCt priv.Ciphertext) *types.Transaction {
+	t.Helper()
+
+	if senderBalance < amount+feeLimit {
+		t.Fatalf("insufficient sender balance: have %d need %d", senderBalance, amount+feeLimit)
+	}
+	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	receiverAddr := common.BytesToAddress(crypto.Keccak256(receiverPub[:]))
+	newBalance := senderBalance - amount - feeLimit
+
+	commitmentBytes, opening, err := cryptopriv.CommitmentNew(amount)
+	if err != nil {
+		t.Fatalf("CommitmentNew(amount): %v", err)
+	}
+	senderHandleBytes, err := cryptopriv.DecryptHandleWithOpening(senderPub[:], opening)
+	if err != nil {
+		t.Fatalf("DecryptHandleWithOpening(sender): %v", err)
+	}
+	receiverHandleBytes, err := cryptopriv.DecryptHandleWithOpening(receiverPub[:], opening)
+	if err != nil {
+		t.Fatalf("DecryptHandleWithOpening(receiver): %v", err)
+	}
+	sourceCommitmentBytes, sourceOpening, err := cryptopriv.CommitmentNew(newBalance)
+	if err != nil {
+		t.Fatalf("CommitmentNew(source): %v", err)
+	}
+
+	commitment := bytesToArray32(commitmentBytes)
+	senderHandle := bytesToArray32(senderHandleBytes)
+	receiverHandle := bytesToArray32(receiverHandleBytes)
+	sourceCommitment := bytesToArray32(sourceCommitmentBytes)
+	senderTransferCt := priv.Ciphertext{Commitment: commitment, Handle: senderHandle}
+	receiverTransferCt := priv.Ciphertext{Commitment: commitment, Handle: receiverHandle}
+
+	transcriptCtx := priv.BuildPrivTransferTranscriptContext(
+		chainID,
+		nonce,
+		fee,
+		feeLimit,
+		senderAddr,
+		receiverAddr,
+		senderTransferCt,
+		receiverTransferCt,
+		sourceCommitment,
+	)
+	ctValidityProof, _, _, _, err := cryptopriv.ProveCTValidityProofWithContext(
+		senderPub[:], receiverPub[:], amount, opening, true, transcriptCtx,
+	)
+	if err != nil {
+		t.Fatalf("ProveCTValidityProofWithContext: %v", err)
+	}
+	outputCt, err := priv.AddScalarToCiphertext(senderTransferCt, feeLimit)
+	if err != nil {
+		t.Fatalf("AddScalarToCiphertext: %v", err)
+	}
+	newSenderBalanceCt, err := priv.SubCiphertexts(senderCt, outputCt)
+	if err != nil {
+		t.Fatalf("SubCiphertexts: %v", err)
+	}
+	updatedCt64 := append(append([]byte{}, newSenderBalanceCt.Commitment[:]...), newSenderBalanceCt.Handle[:]...)
+	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
+		senderPriv[:], senderPub[:],
+		updatedCt64,
+		sourceCommitmentBytes, sourceOpening,
+		newBalance, transcriptCtx,
+	)
+	if err != nil {
+		t.Fatalf("ProveCommitmentEqProof: %v", err)
+	}
+	rangeProof, err := cryptopriv.ProveAggregatedRangeProof(
+		[][]byte{sourceCommitmentBytes, commitmentBytes},
+		[]uint64{newBalance, amount},
+		[][]byte{sourceOpening, opening},
+	)
+	if err != nil {
+		t.Fatalf("ProveAggregatedRangeProof: %v", err)
+	}
+
+	ptx := &types.PrivTransferTx{
+		ChainID:           new(big.Int).Set(chainID),
+		PrivNonce:         nonce,
+		UnoFee:            fee,
+		UnoFeeLimit:       feeLimit,
+		From:              senderPub,
+		To:                receiverPub,
+		Commitment:        commitment,
+		SenderHandle:      senderHandle,
+		ReceiverHandle:    receiverHandle,
+		SourceCommitment:  sourceCommitment,
+		CtValidityProof:   ctValidityProof,
+		CommitmentEqProof: commitmentEqProof,
+		RangeProof:        rangeProof,
+	}
+	sigHash := ptx.SigningHash()
+	ptx.S, ptx.E, err = priv.SignSchnorr(senderPriv, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	return types.NewTx(ptx)
+}
+
+func mustPreparePrivacyBatch(t *testing.T, pool *TxPool, txs []*types.Transaction) []preparedPrivacyTx {
+	t.Helper()
+
+	round := newTxPoolPrivBatch(pool).fork()
+	prepared := make([]preparedPrivacyTx, 0, len(txs))
+	for _, tx := range txs {
+		from := pool.resolveTxSender(tx)
+		item, err := pool.preparePrivacyTx(tx, from, false, round.buildState(tx))
+		if err != nil {
+			t.Fatalf("preparePrivacyTx(%s): %v", tx.Hash(), err)
+		}
+		prepared = append(prepared, item)
+		round.accept(tx)
+	}
+	return prepared
+}
+
 // validateTxPoolInternals checks various consistency invariants within the pool.
 func validateTxPoolInternals(pool *TxPool) error {
 	pool.mu.RLock()
@@ -478,6 +609,147 @@ func TestAddRemoteShieldTxRejectsInvalidProof(t *testing.T) {
 	}
 }
 
+func TestAddRemotePrivacyBatchFallsBackToSequentialOnBatchFailure(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	pubkeyA, privkeyA := mustPoolElgamalKeypair(t)
+	pubkeyB, privkeyB := mustPoolElgamalKeypair(t)
+	addrA := common.BytesToAddress(crypto.Keccak256(pubkeyA[:]))
+	addrB := common.BytesToAddress(crypto.Keccak256(pubkeyB[:]))
+	fee := priv.EstimateShieldFee()
+	amountA := uint64(320)
+	amountB := uint64(240)
+
+	pool.currentState.SetBalance(addrA, new(big.Int).SetUint64(priv.UNOFeeToWei(amountA+fee)+123))
+	pool.currentState.SetBalance(addrB, new(big.Int).SetUint64(priv.UNOFeeToWei(amountB+fee)+123))
+	priv.SetAccountState(pool.currentState, addrA, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, addrB, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+	pool.pendingNonces = newTxNoncer(pool.currentState)
+
+	validTx, _ := mustMakeShieldTx(t, params.TestChainConfig.ChainID, pubkeyA, privkeyA, pubkeyA, 0, fee, amountA)
+	invalidTx, _ := mustMakeShieldTx(t, params.TestChainConfig.ChainID, pubkeyB, privkeyB, pubkeyB, 0, fee, amountB)
+	stx := invalidTx.ShieldInner()
+	stx.ShieldProof[0] ^= 0x01
+	sigHash := stx.SigningHash()
+	s, e, err := priv.SignSchnorr(privkeyB, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	stx.S, stx.E = s, e
+	invalidTx = types.NewTx(stx)
+
+	errs := pool.AddRemotesSync([]*types.Transaction{validTx, invalidTx})
+	if errs[0] != nil {
+		t.Fatalf("valid tx error = %v, want nil", errs[0])
+	}
+	if !errors.Is(errs[1], priv.ErrInvalidPayload) {
+		t.Fatalf("invalid tx error = %v, want %v", errs[1], priv.ErrInvalidPayload)
+	}
+	status := pool.Status([]common.Hash{validTx.Hash(), invalidTx.Hash()})
+	if status[0] != TxStatusPending {
+		t.Fatalf("valid tx status = %v, want %v", status[0], TxStatusPending)
+	}
+	if status[1] != TxStatusUnknown {
+		t.Fatalf("invalid tx status = %v, want %v", status[1], TxStatusUnknown)
+	}
+}
+
+func TestPreparedPrivacyBatchMatchesSequentialPrivTransferVerification(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	fee := priv.EstimateRequiredFee(0)
+	senderPubA, senderPrivA := mustPoolElgamalKeypair(t)
+	receiverPubA, _ := mustPoolElgamalKeypair(t)
+	senderPubB, senderPrivB := mustPoolElgamalKeypair(t)
+	receiverPubB, _ := mustPoolElgamalKeypair(t)
+
+	senderBalanceA := uint64(900)
+	senderBalanceB := uint64(750)
+	senderCtA := mustEncryptPrivBalance(t, senderPubA, senderBalanceA)
+	senderCtB := mustEncryptPrivBalance(t, senderPubB, senderBalanceB)
+
+	senderAddrA := common.BytesToAddress(crypto.Keccak256(senderPubA[:]))
+	receiverAddrA := common.BytesToAddress(crypto.Keccak256(receiverPubA[:]))
+	senderAddrB := common.BytesToAddress(crypto.Keccak256(senderPubB[:]))
+	receiverAddrB := common.BytesToAddress(crypto.Keccak256(receiverPubB[:]))
+
+	priv.SetAccountState(pool.currentState, senderAddrA, priv.AccountState{Ciphertext: senderCtA, Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, receiverAddrA, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, senderAddrB, priv.AccountState{Ciphertext: senderCtB, Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, receiverAddrB, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+
+	txA := mustMakePrivTransferTx(t, params.TestChainConfig.ChainID, senderPubA, senderPrivA, receiverPubA, 0, fee, fee, 210, senderBalanceA, senderCtA)
+	txB := mustMakePrivTransferTx(t, params.TestChainConfig.ChainID, senderPubB, senderPrivB, receiverPubB, 0, fee, fee, 175, senderBalanceB, senderCtB)
+	prepared := mustPreparePrivacyBatch(t, pool, []*types.Transaction{txA, txB})
+
+	if err := verifyPreparedPrivacyBatch(prepared); err != nil {
+		t.Fatalf("verifyPreparedPrivacyBatch: %v", err)
+	}
+	for i, item := range prepared {
+		if err := item.VerifyProofs(); err != nil {
+			t.Fatalf("VerifyProofs[%d]: %v", i, err)
+		}
+	}
+}
+
+func TestPreparedPrivacyBatchMatchesSequentialPrivTransferVerificationOnInvalidProof(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	fee := priv.EstimateRequiredFee(0)
+	senderPubA, senderPrivA := mustPoolElgamalKeypair(t)
+	receiverPubA, _ := mustPoolElgamalKeypair(t)
+	senderPubB, senderPrivB := mustPoolElgamalKeypair(t)
+	receiverPubB, _ := mustPoolElgamalKeypair(t)
+
+	senderBalanceA := uint64(920)
+	senderBalanceB := uint64(780)
+	senderCtA := mustEncryptPrivBalance(t, senderPubA, senderBalanceA)
+	senderCtB := mustEncryptPrivBalance(t, senderPubB, senderBalanceB)
+
+	senderAddrA := common.BytesToAddress(crypto.Keccak256(senderPubA[:]))
+	receiverAddrA := common.BytesToAddress(crypto.Keccak256(receiverPubA[:]))
+	senderAddrB := common.BytesToAddress(crypto.Keccak256(senderPubB[:]))
+	receiverAddrB := common.BytesToAddress(crypto.Keccak256(receiverPubB[:]))
+
+	priv.SetAccountState(pool.currentState, senderAddrA, priv.AccountState{Ciphertext: senderCtA, Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, receiverAddrA, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, senderAddrB, priv.AccountState{Ciphertext: senderCtB, Nonce: 0, Version: 0})
+	priv.SetAccountState(pool.currentState, receiverAddrB, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
+
+	txA := mustMakePrivTransferTx(t, params.TestChainConfig.ChainID, senderPubA, senderPrivA, receiverPubA, 0, fee, fee, 200, senderBalanceA, senderCtA)
+	txB := mustMakePrivTransferTx(t, params.TestChainConfig.ChainID, senderPubB, senderPrivB, receiverPubB, 0, fee, fee, 160, senderBalanceB, senderCtB)
+
+	ptxB := txB.PrivTransferInner()
+	ptxB.CtValidityProof[96] ^= 0x01
+	sigHash := ptxB.SigningHash()
+	s, e, err := priv.SignSchnorr(senderPrivB, sigHash[:])
+	if err != nil {
+		t.Fatalf("SignSchnorr: %v", err)
+	}
+	ptxB.S, ptxB.E = s, e
+	txB = types.NewTx(ptxB)
+
+	prepared := mustPreparePrivacyBatch(t, pool, []*types.Transaction{txA, txB})
+	if err := verifyPreparedPrivacyBatch(prepared); !errors.Is(err, priv.ErrInvalidPayload) {
+		t.Fatalf("verifyPreparedPrivacyBatch error = %v, want %v", err, priv.ErrInvalidPayload)
+	}
+	if err := prepared[0].VerifyProofs(); err != nil {
+		t.Fatalf("VerifyProofs[0]: %v", err)
+	}
+	if err := prepared[1].VerifyProofs(); !errors.Is(err, priv.ErrInvalidPayload) {
+		t.Fatalf("VerifyProofs[1] error = %v, want %v", err, priv.ErrInvalidPayload)
+	}
+}
+
 func TestAddRemotePrivacyBatchReplaysDependencies(t *testing.T) {
 	t.Parallel()
 
@@ -488,7 +760,7 @@ func TestAddRemotePrivacyBatchReplaysDependencies(t *testing.T) {
 	addr := common.BytesToAddress(crypto.Keccak256(pubkey[:]))
 	shieldFee := priv.EstimateShieldFee()
 	unshieldFee := priv.EstimateUnshieldFee()
-	shieldAmount := uint64(500) // UNO base units
+	shieldAmount := uint64(500)   // UNO base units
 	unshieldAmount := uint64(200) // UNO base units
 
 	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(shieldAmount+shieldFee)+12345))
@@ -522,7 +794,7 @@ func TestAddRemotePrivacyTxReplaysExistingPoolState(t *testing.T) {
 	addr := common.BytesToAddress(crypto.Keccak256(pubkey[:]))
 	shieldFee := priv.EstimateShieldFee()
 	unshieldFee := priv.EstimateUnshieldFee()
-	shieldAmount := uint64(400) // UNO base units
+	shieldAmount := uint64(400)   // UNO base units
 	unshieldAmount := uint64(200) // UNO base units
 
 	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(shieldAmount+shieldFee)+12345))

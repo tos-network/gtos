@@ -4,6 +4,7 @@ const (
 	CTValidityProofSizeT1 = 160
 	CommitmentEqProofSize = 192
 	RangeProofSingle64    = 672
+	RangeProofTransfer    = 2 * RangeProofSingle64
 	ShieldProofSize       = 96
 )
 
@@ -22,10 +23,30 @@ func decodeCommitmentEqProof(proof []byte) ([]byte, error) {
 }
 
 func decodeRangeProof(proof []byte) ([]byte, error) {
+	if len(proof) != RangeProofSingle64 && len(proof) != RangeProofTransfer {
+		return nil, ErrInvalidPayload
+	}
+	return append([]byte(nil), proof...), nil
+}
+
+func decodeSingleRangeProof(proof []byte) ([]byte, error) {
 	if len(proof) != RangeProofSingle64 {
 		return nil, ErrInvalidPayload
 	}
 	return append([]byte(nil), proof...), nil
+}
+
+func decodeTransferRangeProofs(proof []byte) ([][]byte, error) {
+	if len(proof) != RangeProofTransfer {
+		return nil, ErrInvalidPayload
+	}
+	out := make([][]byte, 2)
+	for i := range out {
+		start := i * RangeProofSingle64
+		end := start + RangeProofSingle64
+		out[i] = append([]byte(nil), proof[start:end]...)
+	}
+	return out, nil
 }
 
 // ValidateCTValidityProofShape validates ciphertext validity proof blob size.

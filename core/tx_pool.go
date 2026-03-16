@@ -688,160 +688,29 @@ func privacyValidationError(err error) error {
 // validatePrivTransferTx checks whether a PrivTransferTx is valid for inclusion
 // in the transaction pool. It verifies the fee, chain ID, nonce, and size.
 func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
-	// Reject transactions over defined size to prevent DOS attacks.
-	if uint64(tx.Size()) > txMaxSize {
-		return ErrOversizedData
-	}
-
-	// Chain ID must match.
-	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
-		return types.ErrInvalidChainId
-	}
-
-	ptx := tx.PrivTransferInner()
-	if ptx == nil {
-		return ErrTxTypeNotSupported
-	}
-	if err := priv.ValidateCTValidityProofShape(ptx.CtValidityProof); err != nil {
-		return err
-	}
-	if err := priv.ValidateCommitmentEqProofShape(ptx.CommitmentEqProof); err != nil {
-		return err
-	}
-	if err := priv.ValidateRangeProofShape(ptx.RangeProof); err != nil {
-		return err
-	}
-	if ptx.UnoFee > ptx.UnoFeeLimit {
-		return priv.ErrFeeLimitExceeded
-	}
-	if ptx.UnoFeeLimit < priv.EstimateRequiredFee(0) {
-		return priv.ErrInsufficientFee
-	}
-
-	// PrivNonce check: must not be lower than the current on-chain priv nonce.
-	stateNonce := priv.GetPrivNonce(pool.currentState, from)
-	if tx.Nonce() < stateNonce {
-		return ErrNonceTooLow
-	}
-	if statedb == nil {
-		statedb = pool.currentState
-	}
-	expectedNonce := priv.GetPrivNonce(statedb, from)
-	if tx.Nonce() < expectedNonce {
-		return ErrNonceTooLow
-	}
-	if tx.Nonce() > expectedNonce {
-		return ErrNonceTooHigh
-	}
-
-	// Drop non-local transactions under our own minimal accepted tx price.
-	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
-		return ErrUnderpriced
-	}
-	snap := statedb.Snapshot()
-	_, err := applyPrivTransferState(pool.chainconfig.ChainID, statedb, ptx)
+	prepared, err := pool.preparePrivTransferTx(tx, from, local, statedb)
 	if err != nil {
-		statedb.RevertToSnapshot(snap)
-		return privacyValidationError(err)
+		return err
 	}
-	statedb.RevertToSnapshot(snap)
-	return nil
+	return privacyValidationError(prepared.VerifyProofs())
 }
 
 // validateShieldTx validates a ShieldTx for pool inclusion.
 func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
-	if uint64(tx.Size()) > txMaxSize {
-		return ErrOversizedData
-	}
-	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
-		return types.ErrInvalidChainId
-	}
-	stx := tx.ShieldInner()
-	if stx == nil {
-		return ErrTxTypeNotSupported
-	}
-	if err := priv.ValidateShieldProofShape(stx.ShieldProof[:]); err != nil {
-		return err
-	}
-	if err := priv.ValidateRangeProofShape(stx.RangeProof[:]); err != nil {
-		return err
-	}
-	if stx.UnoFee < priv.EstimateShieldFee() {
-		return priv.ErrInsufficientFee
-	}
-	stateNonce := priv.GetPrivNonce(pool.currentState, from)
-	if tx.Nonce() < stateNonce {
-		return ErrNonceTooLow
-	}
-	if statedb == nil {
-		statedb = pool.currentState
-	}
-	expectedNonce := priv.GetPrivNonce(statedb, from)
-	if tx.Nonce() < expectedNonce {
-		return ErrNonceTooLow
-	}
-	if tx.Nonce() > expectedNonce {
-		return ErrNonceTooHigh
-	}
-	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
-		return ErrUnderpriced
-	}
-	snap := statedb.Snapshot()
-	_, err := applyShieldState(pool.chainconfig.ChainID, statedb, stx)
+	prepared, err := pool.prepareShieldTx(tx, from, local, statedb)
 	if err != nil {
-		statedb.RevertToSnapshot(snap)
-		return privacyValidationError(err)
+		return err
 	}
-	statedb.RevertToSnapshot(snap)
-	return nil
+	return privacyValidationError(prepared.VerifyProofs())
 }
 
 // validateUnshieldTx validates an UnshieldTx for pool inclusion.
 func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
-	if uint64(tx.Size()) > txMaxSize {
-		return ErrOversizedData
-	}
-	if tx.ChainId().Cmp(pool.signer.ChainID()) != 0 {
-		return types.ErrInvalidChainId
-	}
-	utx := tx.UnshieldInner()
-	if utx == nil {
-		return ErrTxTypeNotSupported
-	}
-	if err := priv.ValidateCommitmentEqProofShape(utx.CommitmentEqProof[:]); err != nil {
-		return err
-	}
-	if err := priv.ValidateRangeProofShape(utx.RangeProof[:]); err != nil {
-		return err
-	}
-	if utx.UnoFee < priv.EstimateUnshieldFee() {
-		return priv.ErrInsufficientFee
-	}
-	stateNonce := priv.GetPrivNonce(pool.currentState, from)
-	if tx.Nonce() < stateNonce {
-		return ErrNonceTooLow
-	}
-	if statedb == nil {
-		statedb = pool.currentState
-	}
-	expectedNonce := priv.GetPrivNonce(statedb, from)
-	if tx.Nonce() < expectedNonce {
-		return ErrNonceTooLow
-	}
-	if tx.Nonce() > expectedNonce {
-		return ErrNonceTooHigh
-	}
-	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
-		return ErrUnderpriced
-	}
-	snap := statedb.Snapshot()
-	_, err := applyUnshieldState(pool.chainconfig.ChainID, statedb, utx)
+	prepared, err := pool.prepareUnshieldTx(tx, from, local, statedb)
 	if err != nil {
-		statedb.RevertToSnapshot(snap)
-		return privacyValidationError(err)
+		return err
 	}
-	statedb.RevertToSnapshot(snap)
-	return nil
+	return privacyValidationError(prepared.VerifyProofs())
 }
 
 // add validates a transaction and inserts it into the non-executable queue for later
@@ -855,18 +724,16 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	return pool.addWithState(tx, local, nil)
 }
 
-func (pool *TxPool) addWithState(tx *types.Transaction, local bool, statedb vm.StateDB) (replaced bool, err error) {
-	// If the transaction is already known, discard it
+func (pool *TxPool) resolveAddTxContext(tx *types.Transaction, local bool) (common.Hash, common.Address, bool, error) {
 	hash := tx.Hash()
 	if pool.all.Get(hash) != nil {
 		log.Trace("Discarding already known transaction", "hash", hash)
 		knownTxMeter.Mark(1)
-		return false, ErrAlreadyKnown
+		return common.Hash{}, common.Address{}, false, ErrAlreadyKnown
 	}
-	// Resolve sender once; used for locals check and full validation.
+
 	var from common.Address
 	if privFrom, ok := tx.PrivTxFrom(); ok {
-		// Privacy tx: sender is derived from the ElGamal public key.
 		from = privFrom
 	} else {
 		var fromErr error
@@ -874,19 +741,25 @@ func (pool *TxPool) addWithState(tx *types.Transaction, local bool, statedb vm.S
 		if fromErr != nil {
 			log.Trace("Discarding transaction with invalid sender", "hash", hash, "err", fromErr)
 			invalidTxMeter.Mark(1)
-			return false, ErrInvalidSender
+			return common.Hash{}, common.Address{}, false, ErrInvalidSender
 		}
 		if tx.IsSponsored() {
 			if _, sponsorErr := ResolveSponsor(tx, pool.signer, pool.currentState); sponsorErr != nil {
 				log.Trace("Discarding sponsored transaction with invalid sponsor", "hash", hash, "err", sponsorErr)
 				invalidTxMeter.Mark(1)
-				return false, ErrInvalidSponsor
+				return common.Hash{}, common.Address{}, false, ErrInvalidSponsor
 			}
 		}
 	}
-	// Make the local flag. If it's from local source or it's from the network but
-	// the sender is marked as local previously, treat it as the local transaction.
 	isLocal := local || pool.locals.contains(from)
+	return hash, from, isLocal, nil
+}
+
+func (pool *TxPool) addWithState(tx *types.Transaction, local bool, statedb vm.StateDB) (replaced bool, err error) {
+	hash, from, isLocal, err := pool.resolveAddTxContext(tx, local)
+	if err != nil {
+		return false, err
+	}
 
 	// If the transaction fails basic validation, discard it
 	if err := pool.validateTxWithState(tx, from, isLocal, statedb); err != nil {
@@ -894,6 +767,10 @@ func (pool *TxPool) addWithState(tx *types.Transaction, local bool, statedb vm.S
 		invalidTxMeter.Mark(1)
 		return false, err
 	}
+	return pool.addValidatedTx(tx, hash, from, local, isLocal)
+}
+
+func (pool *TxPool) addValidatedTx(tx *types.Transaction, hash common.Hash, from common.Address, local, isLocal bool) (replaced bool, err error) {
 	// If the transaction pool is full, discard underpriced transactions
 	if uint64(pool.all.Slots()+numSlots(tx)) > pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it
@@ -1180,22 +1057,63 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 	}
 
 	for {
-		progress := false
+		round := privBatch.fork()
+		candidates := make([]preparedPrivacyCandidate, 0, len(txs))
 		for i, tx := range txs {
 			if processed[i] {
 				continue
 			}
-			privState := privBatch.buildState(tx)
-			replaced, err := pool.addWithState(tx, local, privState)
+			from := pool.resolveTxSender(tx)
+			isLocal := local || pool.locals.contains(from)
+			prepared, err := pool.preparePrivacyTx(tx, from, isLocal, round.buildState(tx))
 			errs[i] = err
 			if err != nil {
 				continue
 			}
-			processed[i] = true
+			round.accept(tx)
+			candidates = append(candidates, preparedPrivacyCandidate{index: i, prepared: prepared})
+		}
+		if len(candidates) == 0 {
+			break
+		}
+		progress := false
+		batchPrepared := make([]preparedPrivacyTx, 0, len(candidates))
+		for _, candidate := range candidates {
+			batchPrepared = append(batchPrepared, candidate.prepared)
+		}
+		batchErr := verifyPreparedPrivacyBatch(batchPrepared)
+		fallbackFrom := len(candidates)
+		if batchErr == nil {
+			for idx, candidate := range candidates {
+				replaced, err := pool.addPreparedPrivacyTx(candidate.prepared, local)
+				errs[candidate.index] = err
+				if err != nil {
+					fallbackFrom = idx
+					break
+				}
+				processed[candidate.index] = true
+				progress = true
+				privBatch.accept(candidate.prepared.Transaction())
+				if !replaced {
+					dirty.add(candidate.prepared.From())
+				}
+			}
+		} else {
+			fallbackFrom = 0
+		}
+		for _, candidate := range candidates[fallbackFrom:] {
+			tx := candidate.prepared.Transaction()
+			from := candidate.prepared.From()
+			replaced, err := pool.addPrivacyTxSequential(tx, from, local, privBatch.buildState(tx))
+			errs[candidate.index] = err
+			if err != nil {
+				continue
+			}
+			processed[candidate.index] = true
 			progress = true
 			privBatch.accept(tx)
 			if !replaced {
-				dirty.add(pool.resolveTxSender(tx))
+				dirty.add(from)
 			}
 		}
 		if !progress {

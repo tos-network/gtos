@@ -21,6 +21,11 @@ type txPoolPrivBatch struct {
 	accepted map[privTxKey]*types.Transaction
 }
 
+type preparedPrivacyCandidate struct {
+	index    int
+	prepared preparedPrivacyTx
+}
+
 func newTxPoolPrivBatch(pool *TxPool) *txPoolPrivBatch {
 	return &txPoolPrivBatch{
 		pool:     pool,
@@ -32,6 +37,21 @@ func newTxPoolPrivBatch(pool *TxPool) *txPoolPrivBatch {
 func (b *txPoolPrivBatch) accept(tx *types.Transaction) {
 	if key, ok := privacyTxKey(tx); ok {
 		b.accepted[key] = tx
+	}
+}
+
+func (b *txPoolPrivBatch) fork() *txPoolPrivBatch {
+	existing := make(map[privTxKey]*types.Transaction, len(b.existing)+len(b.accepted))
+	for key, tx := range b.existing {
+		existing[key] = tx
+	}
+	for key, tx := range b.accepted {
+		existing[key] = tx
+	}
+	return &txPoolPrivBatch{
+		pool:     b.pool,
+		existing: existing,
+		accepted: make(map[privTxKey]*types.Transaction),
 	}
 }
 

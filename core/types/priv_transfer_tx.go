@@ -12,8 +12,8 @@ import (
 // From and To are compressed ElGamal public keys (Ristretto255), NOT hashed addresses.
 // Signature is ElGamal Ristretto-Schnorr (S, E) — no SignerType field.
 type PrivTransferTx struct {
-	ChainID   *big.Int
-	PrivNonce uint64
+	ChainID     *big.Int
+	PrivNonce   uint64
 	UnoFee      uint64 // fee in UNO base units (1 = 0.01 UNO = 10^16 Wei)
 	UnoFeeLimit uint64 // max fee in UNO base units sender willing to pay
 
@@ -31,10 +31,10 @@ type PrivTransferTx struct {
 	// Proofs (separated)
 	CtValidityProof   []byte // ~160 bytes
 	CommitmentEqProof []byte // ~192 bytes
-	RangeProof        []byte // ~672 bytes
+	RangeProof        []byte // currently two concatenated ~672-byte single range proofs
 
 	// Encrypted memo
-	EncryptedMemo      []byte   // ChaCha20Poly1305 ciphertext
+	EncryptedMemo      []byte // ChaCha20Poly1305 ciphertext
 	MemoSenderHandle   [32]byte
 	MemoReceiverHandle [32]byte
 
@@ -73,15 +73,15 @@ func (tx *PrivTransferTx) copy() TxData {
 
 // accessors for TxData interface.
 func (tx *PrivTransferTx) txType() byte           { return PrivTransferTxType }
-func (tx *PrivTransferTx) chainID() *big.Int       { return tx.ChainID }
-func (tx *PrivTransferTx) gas() uint64             { return 0 }
-func (tx *PrivTransferTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.UnoFee) }
-func (tx *PrivTransferTx) value() *big.Int         { return big.NewInt(0) }
-func (tx *PrivTransferTx) nonce() uint64           { return tx.PrivNonce }
-func (tx *PrivTransferTx) data() []byte            { return nil }
-func (tx *PrivTransferTx) accessList() AccessList  { return nil }
-func (tx *PrivTransferTx) gasTipCap() *big.Int     { return big.NewInt(0) }
-func (tx *PrivTransferTx) gasFeeCap() *big.Int     { return big.NewInt(0) }
+func (tx *PrivTransferTx) chainID() *big.Int      { return tx.ChainID }
+func (tx *PrivTransferTx) gas() uint64            { return 0 }
+func (tx *PrivTransferTx) txPrice() *big.Int      { return new(big.Int).SetUint64(tx.UnoFee) }
+func (tx *PrivTransferTx) value() *big.Int        { return big.NewInt(0) }
+func (tx *PrivTransferTx) nonce() uint64          { return tx.PrivNonce }
+func (tx *PrivTransferTx) data() []byte           { return nil }
+func (tx *PrivTransferTx) accessList() AccessList { return nil }
+func (tx *PrivTransferTx) gasTipCap() *big.Int    { return big.NewInt(0) }
+func (tx *PrivTransferTx) gasFeeCap() *big.Int    { return big.NewInt(0) }
 
 func (tx *PrivTransferTx) to() *common.Address {
 	addr := common.BytesToAddress(crypto.Keccak256(tx.To[:]))
