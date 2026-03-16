@@ -89,6 +89,20 @@ func ValidateRangeProofShape(proof []byte) error {
 	return err
 }
 
+// EncryptedMemoMaxCiphertext is the maximum encrypted memo ciphertext size.
+// Plaintext limit is 1024 bytes (MemoMaxSize in crypto/priv); ChaCha20-Poly1305
+// adds a 16-byte authentication tag.
+const EncryptedMemoMaxCiphertext = 1024 + 16 // 1040
+
+// ValidateEncryptedMemoSize rejects oversized encrypted memos. Empty memos are
+// allowed (memo is optional).
+func ValidateEncryptedMemoSize(memo []byte) error {
+	if len(memo) > EncryptedMemoMaxCiphertext {
+		return ErrInvalidPayload
+	}
+	return nil
+}
+
 func decodeShieldProof(proof []byte) ([]byte, error) {
 	if len(proof) != ShieldProofSize {
 		return nil, ErrInvalidPayload

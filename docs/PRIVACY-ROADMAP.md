@@ -33,11 +33,11 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Miner/Worker | All priv tx types gas bypass | Correct zero-gas handling in block assembly for PrivTransfer/Shield/Unshield |
 | CLI tooling | priv-keygen / priv-balance / priv-transfer / priv-shield / priv-unshield | Key generation, ciphertext decryption, proof generation, and transaction construction |
 
-### Exists but Not Usable
+### Design Decisions
 
-| Capability | Issue |
-|---|---|
-| EncryptedMemo consumption | Memo is carried in tx and covered by Schnorr signature, but **execution path does not read or validate it** |
+| Capability | Status | Rationale |
+|---|---|---|
+| EncryptedMemo | Passively carried, not consumed by execution | By design — memo is encrypted application-layer metadata, not consensus state. Execution validates size (≤1040B ciphertext) to prevent DoS. Decryption happens wallet-side. Same pattern as other account-model privacy chains. |
 
 ### Remaining Gaps
 

@@ -327,6 +327,9 @@ func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Tr
 	fromAddr := ptx.FromAddress()
 	toAddr := ptx.ToAddress()
 
+	if err := priv.ValidateEncryptedMemoSize(ptx.EncryptedMemo); err != nil {
+		return nil, fmt.Errorf("priv: encrypted memo too large: %w", err)
+	}
 	if ptx.UnoFee > ptx.UnoFeeLimit {
 		return nil, priv.ErrFeeLimitExceeded
 	}

@@ -51,6 +51,9 @@ func (pool *TxPool) preparePrivTransferTx(tx *types.Transaction, from common.Add
 	if ptx == nil {
 		return nil, ErrTxTypeNotSupported
 	}
+	if err := priv.ValidateEncryptedMemoSize(ptx.EncryptedMemo); err != nil {
+		return nil, err
+	}
 	if err := priv.ValidateCTValidityProofShape(ptx.CtValidityProof); err != nil {
 		return nil, err
 	}
