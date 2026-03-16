@@ -1,6 +1,13 @@
 # Privacy as a First-Class Property — Gap Assessment
 
-Status: **Assessment as of 2026-03-15**
+Status: **HISTORICAL — superseded by [PRIVACY-ROADMAP.md](PRIVACY-ROADMAP.md)**
+
+> **Update 2026-03-16**: This assessment was written on 2026-03-15 when progress
+> was ~30-35%. Since then, Phases 0-5 of the privacy roadmap have been completed
+> (~80%). The "Critical Blocker" (C backend) is resolved — both CGO and pure-Go
+> backends are fully functional. Phase 5 (contract ciphertext ops) added the
+> `uno` type with 22 LVM operations, all with real ZK verification (Sigma
+> protocols + Bulletproofs range proofs). See PRIVACY-ROADMAP.md for current status.
 
 This document evaluates how far the GTOS network has progressed toward
 its stated goal of "privacy as a first-class property, not an afterthought."
@@ -48,25 +55,17 @@ All proofs are bound via Merlin transcript context:
 
 ---
 
-## Critical Blocker
+## ~~Critical Blocker~~ ✅ RESOLVED
 
-### Proof Verification Not Functional
+### ~~Proof Verification Not Functional~~
 
-All proof verification dispatches to the C backend (`ed25519c`) via FFI.
+> **Resolved**: Phase 0 (commit `415d63c`) added pure-Go implementations for
+> all 43 cryptographic functions. Both CGO and pure-Go backends are fully
+> functional. `PrivBackendEnabled()` returns `true` on all builds.
+
+~~All proof verification dispatches to the C backend (`ed25519c`) via FFI.
 Without CGO compilation, every verification call returns
-`ErrPrivBackendUnavailable`.
-
-Test code confirms this is the expected current behavior:
-
-```go
-if !errors.Is(res.Err, corepriv.ErrPrivBackendUnavailable) {
-    t.Fatalf("expected proof error, got %v", res.Err)
-}
-```
-
-**Impact**: Priv transactions cannot be validated on-chain. The proof
-architecture is structurally sound but operationally inert until the C
-backend is integrated.
+`ErrPrivBackendUnavailable`.~~
 
 ---
 
@@ -121,10 +120,17 @@ Standard libp2p P2P stack without privacy enhancements:
 | Account version | Observable | Increments per operation, reveals activity frequency |
 | EncryptedMemo | Optional | Not mandatory, not validated as actually encrypted |
 
-### 5. Contract / Call Privacy — NOT ADDRESSED (Severity: Medium)
+### 5. Contract / Call Privacy — ~~NOT ADDRESSED~~ ✅ PARTIALLY ADDRESSED (Phase 5 complete)
 
-- LVM contract calls are on-chain visible
-- No private contract state
+> **Update 2026-03-16**: Phase 5 added the `uno` encrypted type to TOL with
+> 22 `tos.ciphertext.*` LVM operations (homomorphic add/sub/mul/div/rem,
+> comparisons, min/max/select, verification). All with real ZK proofs.
+> Contracts can now store and manipulate encrypted values (confidential tokens,
+> private voting). Encrypted logs/events and confidential general-purpose
+> compute remain out of scope.
+
+- ~~LVM contract calls are on-chain visible~~
+- ~~No private contract state~~
 - No encrypted logs or events
 - No confidential compute for contract execution
 
@@ -141,7 +147,7 @@ Privacy extends to intent, routing,        Covers balance encryption only
 ────────────────────────────────────────────────────────────────
 ```
 
-**Estimated progress: ~30-35% toward the stated goal.**
+**Estimated progress at time of writing: ~30-35% toward the stated goal.** *(Now ~80% — see PRIVACY-ROADMAP.md)*
 
 Priv is solid foundational infrastructure — the cryptographic primitives
 (Ristretto255, Twisted ElGamal, Pedersen) are well-chosen and the proof

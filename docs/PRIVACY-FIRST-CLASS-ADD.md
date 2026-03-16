@@ -1,5 +1,17 @@
 # GTOS Privacy Enhancement Plan: Closing the Gap to "Privacy as a First-Class Property"
 
+Status: **HISTORICAL — early planning document, superseded by [PRIVACY-ROADMAP.md](PRIVACY-ROADMAP.md)**
+
+> **Update 2026-03-16**: This plan was drafted before implementation began.
+> The actual execution diverged significantly:
+> - **Phase 0** (C backend): ✅ Done — plus pure-Go backend added
+> - **Phases 1, 3, 4** (uniform envelopes, decoys, Dandelion++): ABANDONED — incompatible with account model or unnecessary in DPoS topology
+> - **Phase 2** (stealth addresses): ABANDONED — causes unbounded state growth
+> - **Phase 5** (agent privacy tiers): Not yet started (different from roadmap Phase 5)
+> - **Phase 6** (private contracts): ✅ Done as roadmap Phase 5 — `uno` type with 22 ciphertext ops, all real ZK verification
+>
+> See PRIVACY-ROADMAP.md for authoritative current status (~80% complete).
+
 ## Context
 
 GTOS states "privacy as a first-class property" as a core design goal, but current implementation covers only encrypted balances (Priv protocol) — approximately 30-35% of that vision. Five privacy dimensions remain uncovered: transaction graph privacy, agent/identity privacy, network-layer privacy, metadata privacy, and contract/call privacy. This plan addresses each dimension through six incremental phases, respecting frozen protocol constants and preserving agent economy functionality.

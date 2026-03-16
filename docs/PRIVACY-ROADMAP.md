@@ -164,7 +164,7 @@ Ring signatures and decoy outputs are fundamentally incompatible with the accoun
 - [x] Operator restrictions: `==`/`!=` allowed (desugared to `eq`), arithmetic/comparison operators rejected
 - [x] Sample contract `ConfidentialToken.tol` compiles end-to-end
 - [x] RPC access control: `GetStorageAt` blocks privacy slots, `privGetBalance`/`privGetNonce` gated by `PrivacyRPCRestricted` flag
-- [x] 46 gtos tests + 12 tolang tests passing
+- [x] 53 gtos tests (35 LVM + 7 ProofBundle + 9 mul_proof + 2 crypto) + 12 tolang tests passing
 
 #### ~~Phase 5b: Encrypted contract storage~~ ABANDONED
 #### ~~Phase 5c: Confidential computation (FHE/MPC/TEE)~~ ABANDONED
