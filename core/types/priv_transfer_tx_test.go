@@ -49,8 +49,8 @@ func samplePrivTransferTx() *PrivTransferTx {
 	return &PrivTransferTx{
 		ChainID:            big.NewInt(42),
 		PrivNonce:          7,
-		Fee:                500,
-		FeeLimit:           1000,
+		UnoFee:             500,
+		UnoFeeLimit:        1000,
 		From:               from,
 		To:                 to,
 		Commitment:         commitment,
@@ -83,7 +83,7 @@ func TestPrivTransferTxType(t *testing.T) {
 	if got := inner.nonce(); got != inner.PrivNonce {
 		t.Fatalf("nonce() = %d, want %d", got, inner.PrivNonce)
 	}
-	wantPrice := new(big.Int).SetUint64(inner.Fee)
+	wantPrice := new(big.Int).SetUint64(inner.UnoFee)
 	if got := inner.txPrice(); got.Cmp(wantPrice) != 0 {
 		t.Fatalf("txPrice() = %s, want %s", got, wantPrice)
 	}
@@ -112,8 +112,8 @@ func TestPrivTransferTxRLPRoundTrip(t *testing.T) {
 	if decoded.ChainId().Cmp(inner.ChainID) != 0 {
 		t.Fatalf("decoded ChainId() = %s, want %s", decoded.ChainId(), inner.ChainID)
 	}
-	if decoded.TxPrice().Cmp(new(big.Int).SetUint64(inner.Fee)) != 0 {
-		t.Fatalf("decoded TxPrice() = %s, want %d", decoded.TxPrice(), inner.Fee)
+	if decoded.TxPrice().Cmp(new(big.Int).SetUint64(inner.UnoFee)) != 0 {
+		t.Fatalf("decoded TxPrice() = %s, want %d", decoded.TxPrice(), inner.UnoFee)
 	}
 	if decoded.Hash() != tx.Hash() {
 		t.Fatalf("hash mismatch: decoded=%s original=%s", decoded.Hash().Hex(), tx.Hash().Hex())
@@ -185,7 +185,7 @@ func TestPrivTransferTxCopy(t *testing.T) {
 	if cpy.PrivNonce != orig.PrivNonce {
 		t.Fatalf("PrivNonce mismatch after copy")
 	}
-	if cpy.Fee != orig.Fee {
+	if cpy.UnoFee != orig.UnoFee {
 		t.Fatalf("Fee mismatch after copy")
 	}
 	if cpy.From != orig.From {

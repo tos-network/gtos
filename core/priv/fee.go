@@ -3,29 +3,38 @@ package priv
 import "github.com/tos-network/gtos/params"
 
 // Fee fields in PrivTransferTx / ShieldTx / UnshieldTx are denominated in
-// *gas units*, not Wei.  The actual Wei cost charged on-chain is:
+// UNO base units. 1 UNO base unit = 0.01 UNO = 10^16 Wei.
 //
-//     fee_wei = Fee * params.TxPriceWei          (protocol-fixed gas price)
+// The actual Wei cost charged on-chain is:
 //
-// This keeps the Fee field small and human-readable (e.g. 10 000) while the
-// on-chain deduction follows the same gas-price model as regular transactions.
+//     fee_wei = Fee * params.UNOUnit
 
-// FeeToWei converts a fee in gas units to Wei using the protocol-fixed gas price.
-func FeeToWei(feeGasUnits uint64) uint64 {
-	return feeGasUnits * uint64(params.TxPriceWei)
+// UNOFeeToWei converts a fee in UNO base units to Wei.
+func UNOFeeToWei(feeUNO uint64) uint64 {
+	return feeUNO * params.UNOUnit
 }
 
-// EstimateRequiredFee returns the minimum fee (in gas units) for a PrivTransferTx.
+// WeiToUNO converts Wei to UNO base units (truncating).
+func WeiToUNO(wei uint64) uint64 {
+	return wei / params.UNOUnit
+}
+
+// WeiToUNORemainder returns the Wei remainder after UNO conversion.
+func WeiToUNORemainder(wei uint64) uint64 {
+	return wei % params.UNOUnit
+}
+
+// EstimateRequiredFee returns the minimum fee (in UNO base units) for a PrivTransferTx.
 func EstimateRequiredFee(txSize int) uint64 {
-	return 42_000 // PrivBaseFee from params
+	return params.UNOBaseFee
 }
 
-// EstimateShieldFee returns the minimum fee (in gas units) for a ShieldTx.
+// EstimateShieldFee returns the minimum fee (in UNO base units) for a ShieldTx.
 func EstimateShieldFee() uint64 {
-	return 42_000
+	return params.UNOBaseFee
 }
 
-// EstimateUnshieldFee returns the minimum fee (in gas units) for an UnshieldTx.
+// EstimateUnshieldFee returns the minimum fee (in UNO base units) for an UnshieldTx.
 func EstimateUnshieldFee() uint64 {
-	return 42_000
+	return params.UNOBaseFee
 }

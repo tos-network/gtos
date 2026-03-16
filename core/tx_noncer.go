@@ -65,17 +65,18 @@ func (txn *txNoncer) setIfLower(addr common.Address, nonce uint64) {
 }
 
 // getForType returns the current nonce of an account, using the appropriate
-// nonce source based on the transaction type. For PrivTransferTxType the nonce
-// is read from the priv storage slot; for all other types the regular account
-// nonce is used.
+// nonce source based on the transaction type. All privacy transaction types
+// read from the priv storage slot; public transactions use the regular account
+// nonce.
 func (txn *txNoncer) getForType(addr common.Address, txType byte) uint64 {
 	txn.lock.Lock()
 	defer txn.lock.Unlock()
 
 	if _, ok := txn.nonces[addr]; !ok {
-		if txType == types.PrivTransferTxType {
+		switch txType {
+		case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
 			txn.nonces[addr] = priv.GetPrivNonce(txn.fallback, addr)
-		} else {
+		default:
 			txn.nonces[addr] = txn.fallback.GetNonce(addr)
 		}
 	}
@@ -90,9 +91,10 @@ func (txn *txNoncer) setIfLowerForType(addr common.Address, nonce uint64, txType
 	defer txn.lock.Unlock()
 
 	if _, ok := txn.nonces[addr]; !ok {
-		if txType == types.PrivTransferTxType {
+		switch txType {
+		case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
 			txn.nonces[addr] = priv.GetPrivNonce(txn.fallback, addr)
-		} else {
+		default:
 			txn.nonces[addr] = txn.fallback.GetNonce(addr)
 		}
 	}

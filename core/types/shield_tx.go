@@ -18,11 +18,11 @@ import (
 type ShieldTx struct {
 	ChainID   *big.Int
 	PrivNonce uint64
-	Fee       uint64 // fee in gas units, paid by sender from public balance
+	UnoFee    uint64 // fee in UNO base units (1 = 0.01 UNO = 10^16 Wei)
 
 	Pubkey    [32]byte // sender ElGamal compressed public key
 	Recipient [32]byte // recipient ElGamal compressed public key
-	Amount    uint64   // plaintext deposit amount
+	UnoAmount uint64   // deposit amount in UNO base units
 
 	// Encrypted form of Amount under Recipient's key
 	Commitment [32]byte // Pedersen commitment to Amount
@@ -41,10 +41,10 @@ type ShieldTx struct {
 func (tx *ShieldTx) copy() TxData {
 	cpy := &ShieldTx{
 		PrivNonce:   tx.PrivNonce,
-		Fee:         tx.Fee,
+		UnoFee:      tx.UnoFee,
 		Pubkey:      tx.Pubkey,
 		Recipient:   tx.Recipient,
-		Amount:      tx.Amount,
+		UnoAmount:   tx.UnoAmount,
 		Commitment:  tx.Commitment,
 		Handle:      tx.Handle,
 		ShieldProof: tx.ShieldProof,
@@ -63,7 +63,7 @@ func (tx *ShieldTx) copy() TxData {
 func (tx *ShieldTx) txType() byte           { return ShieldTxType }
 func (tx *ShieldTx) chainID() *big.Int       { return tx.ChainID }
 func (tx *ShieldTx) gas() uint64             { return 0 }
-func (tx *ShieldTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.Fee) }
+func (tx *ShieldTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.UnoFee) }
 func (tx *ShieldTx) value() *big.Int         { return big.NewInt(0) }
 func (tx *ShieldTx) nonce() uint64           { return tx.PrivNonce }
 func (tx *ShieldTx) data() []byte            { return nil }
@@ -103,10 +103,10 @@ func (tx *ShieldTx) SigningHash() common.Hash {
 	rlp.Encode(sha, []interface{}{
 		tx.ChainID,
 		tx.PrivNonce,
-		tx.Fee,
+		tx.UnoFee,
 		tx.Pubkey,
 		tx.Recipient,
-		tx.Amount,
+		tx.UnoAmount,
 		tx.Commitment,
 		tx.Handle,
 		tx.ShieldProof,

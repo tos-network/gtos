@@ -129,10 +129,17 @@ const (
 	LeasePruneBudgetPerSweep     uint64 = 4096
 )
 
-// Private transfer fee constants
+// UNO (Untraceable Native cOin) unit system.
+// 1 TOS = 1 UNO; UNO has 2 decimal places.
 const (
-	PrivBaseFee       uint64 = 42_000 // base fee per private tx (gas units); actual cost = PrivBaseFee * TxPriceWei = 2x plain transfer
-	PrivMaxProofBytes        = 96 * 1024
+	UNODecimals       = 2
+	UNOUnit    uint64 = 1e16 // 1 UNO base unit = 0.01 TOS = 10^16 Wei
+	UNOBaseFee uint64 = 1    // base fee per priv tx in UNO base units (0.01 UNO)
+)
+
+// Privacy proof size limits.
+const (
+	PrivMaxProofBytes = 96 * 1024
 )
 
 // TxPriceWei is the protocol-fixed tx price for GTOS transactions.

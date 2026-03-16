@@ -15,6 +15,7 @@ import (
 	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/event"
 	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/metrics"
@@ -580,14 +581,18 @@ func (pool *TxPool) resolveTxSender(tx *types.Transaction) common.Address {
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
 func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local bool) error {
+	return pool.validateTxWithState(tx, from, local, nil)
+}
+
+func (pool *TxPool) validateTxWithState(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
 	// Dispatch privacy transaction types to their own validation paths.
 	switch tx.Type() {
 	case types.PrivTransferTxType:
-		return pool.validatePrivTransferTx(tx, from, local)
+		return pool.validatePrivTransferTx(tx, from, local, statedb)
 	case types.ShieldTxType:
-		return pool.validateShieldTx(tx, from, local)
+		return pool.validateShieldTx(tx, from, local, statedb)
 	case types.UnshieldTxType:
-		return pool.validateUnshieldTx(tx, from, local)
+		return pool.validateUnshieldTx(tx, from, local, statedb)
 	}
 	var sponsor common.Address
 	if tx.Type() != types.SignerTxType {
@@ -667,9 +672,22 @@ func (pool *TxPool) validateTx(tx *types.Transaction, from common.Address, local
 	return nil
 }
 
+func privacyValidationError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errInvalidPrivSchnorrSignature):
+		return ErrInvalidSender
+	case errors.Is(err, priv.ErrNonceMismatch):
+		return ErrNonceTooHigh
+	default:
+		return err
+	}
+}
+
 // validatePrivTransferTx checks whether a PrivTransferTx is valid for inclusion
 // in the transaction pool. It verifies the fee, chain ID, nonce, and size.
-func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Address, local bool) error {
+func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
 	// Reject transactions over defined size to prevent DOS attacks.
 	if uint64(tx.Size()) > txMaxSize {
 		return ErrOversizedData
@@ -693,10 +711,10 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 	if err := priv.ValidateRangeProofShape(ptx.RangeProof); err != nil {
 		return err
 	}
-	if ptx.Fee > ptx.FeeLimit {
+	if ptx.UnoFee > ptx.UnoFeeLimit {
 		return priv.ErrFeeLimitExceeded
 	}
-	if ptx.FeeLimit < priv.EstimateRequiredFee(0) {
+	if ptx.UnoFeeLimit < priv.EstimateRequiredFee(0) {
 		return priv.ErrInsufficientFee
 	}
 
@@ -705,21 +723,33 @@ func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction, from common.Ad
 	if tx.Nonce() < stateNonce {
 		return ErrNonceTooLow
 	}
+	if statedb == nil {
+		statedb = pool.currentState
+	}
+	expectedNonce := priv.GetPrivNonce(statedb, from)
+	if tx.Nonce() < expectedNonce {
+		return ErrNonceTooLow
+	}
+	if tx.Nonce() > expectedNonce {
+		return ErrNonceTooHigh
+	}
 
 	// Drop non-local transactions under our own minimal accepted tx price.
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
 	}
-	sigHash := ptx.SigningHash()
-	if !priv.VerifySchnorrSignature(ptx.From, sigHash[:], ptx.S, ptx.E) {
-		return ErrInvalidSender
+	snap := statedb.Snapshot()
+	_, err := applyPrivTransferState(pool.chainconfig.ChainID, statedb, ptx)
+	if err != nil {
+		statedb.RevertToSnapshot(snap)
+		return privacyValidationError(err)
 	}
-
+	statedb.RevertToSnapshot(snap)
 	return nil
 }
 
 // validateShieldTx validates a ShieldTx for pool inclusion.
-func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address, local bool) error {
+func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
 	if uint64(tx.Size()) > txMaxSize {
 		return ErrOversizedData
 	}
@@ -736,30 +766,38 @@ func (pool *TxPool) validateShieldTx(tx *types.Transaction, from common.Address,
 	if err := priv.ValidateRangeProofShape(stx.RangeProof[:]); err != nil {
 		return err
 	}
-	if stx.Fee < priv.EstimateShieldFee() {
+	if stx.UnoFee < priv.EstimateShieldFee() {
 		return priv.ErrInsufficientFee
-	}
-	totalCost := new(big.Int).SetUint64(stx.Amount)
-	totalCost.Add(totalCost, new(big.Int).SetUint64(priv.FeeToWei(stx.Fee)))
-	if pool.currentState.GetBalance(from).Cmp(totalCost) < 0 {
-		return ErrInsufficientFundsForTransfer
 	}
 	stateNonce := priv.GetPrivNonce(pool.currentState, from)
 	if tx.Nonce() < stateNonce {
 		return ErrNonceTooLow
 	}
+	if statedb == nil {
+		statedb = pool.currentState
+	}
+	expectedNonce := priv.GetPrivNonce(statedb, from)
+	if tx.Nonce() < expectedNonce {
+		return ErrNonceTooLow
+	}
+	if tx.Nonce() > expectedNonce {
+		return ErrNonceTooHigh
+	}
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
 	}
-	sigHash := stx.SigningHash()
-	if !priv.VerifySchnorrSignature(stx.Pubkey, sigHash[:], stx.S, stx.E) {
-		return ErrInvalidSender
+	snap := statedb.Snapshot()
+	_, err := applyShieldState(pool.chainconfig.ChainID, statedb, stx)
+	if err != nil {
+		statedb.RevertToSnapshot(snap)
+		return privacyValidationError(err)
 	}
+	statedb.RevertToSnapshot(snap)
 	return nil
 }
 
 // validateUnshieldTx validates an UnshieldTx for pool inclusion.
-func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Address, local bool) error {
+func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Address, local bool, statedb vm.StateDB) error {
 	if uint64(tx.Size()) > txMaxSize {
 		return ErrOversizedData
 	}
@@ -776,24 +814,33 @@ func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Addres
 	if err := priv.ValidateRangeProofShape(utx.RangeProof[:]); err != nil {
 		return err
 	}
-	if utx.Fee < priv.EstimateUnshieldFee() {
+	if utx.UnoFee < priv.EstimateUnshieldFee() {
 		return priv.ErrInsufficientFee
-	}
-	availablePublic := new(big.Int).Add(new(big.Int).Set(pool.currentState.GetBalance(from)), new(big.Int).SetUint64(utx.Amount))
-	if availablePublic.Cmp(new(big.Int).SetUint64(priv.FeeToWei(utx.Fee))) < 0 {
-		return ErrInsufficientFundsForTransfer
 	}
 	stateNonce := priv.GetPrivNonce(pool.currentState, from)
 	if tx.Nonce() < stateNonce {
 		return ErrNonceTooLow
 	}
+	if statedb == nil {
+		statedb = pool.currentState
+	}
+	expectedNonce := priv.GetPrivNonce(statedb, from)
+	if tx.Nonce() < expectedNonce {
+		return ErrNonceTooLow
+	}
+	if tx.Nonce() > expectedNonce {
+		return ErrNonceTooHigh
+	}
 	if !local && tx.TxPrice().Cmp(pool.txPrice) < 0 {
 		return ErrUnderpriced
 	}
-	sigHash := utx.SigningHash()
-	if !priv.VerifySchnorrSignature(utx.Pubkey, sigHash[:], utx.S, utx.E) {
-		return ErrInvalidSender
+	snap := statedb.Snapshot()
+	_, err := applyUnshieldState(pool.chainconfig.ChainID, statedb, utx)
+	if err != nil {
+		statedb.RevertToSnapshot(snap)
+		return privacyValidationError(err)
 	}
+	statedb.RevertToSnapshot(snap)
 	return nil
 }
 
@@ -805,6 +852,10 @@ func (pool *TxPool) validateUnshieldTx(tx *types.Transaction, from common.Addres
 // be added to the allowlist, preventing any associated transaction from being dropped
 // out of the pool due to pricing constraints.
 func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err error) {
+	return pool.addWithState(tx, local, nil)
+}
+
+func (pool *TxPool) addWithState(tx *types.Transaction, local bool, statedb vm.StateDB) (replaced bool, err error) {
 	// If the transaction is already known, discard it
 	hash := tx.Hash()
 	if pool.all.Get(hash) != nil {
@@ -838,7 +889,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	isLocal := local || pool.locals.contains(from)
 
 	// If the transaction fails basic validation, discard it
-	if err := pool.validateTx(tx, from, isLocal); err != nil {
+	if err := pool.validateTxWithState(tx, from, isLocal, statedb); err != nil {
 		log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
 		invalidTxMeter.Mark(1)
 		return false, err
@@ -1073,10 +1124,12 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		}
 		// Pre-lock signature verification: reject invalid signatures cheaply
 		// before acquiring pool.mu. Read-only stale-is-ok access to currentState.
-		if _, err := ResolveSender(tx, pool.signer, pool.currentState); err != nil {
-			errs[i] = ErrInvalidSender
-			invalidTxMeter.Mark(1)
-			continue
+		if _, ok := tx.PrivTxFrom(); !ok {
+			if _, err := ResolveSender(tx, pool.signer, pool.currentState); err != nil {
+				errs[i] = ErrInvalidSender
+				invalidTxMeter.Mark(1)
+				continue
+			}
 		}
 		// Accumulate all unknown transactions for deeper processing
 		news = append(news, tx)
@@ -1111,11 +1164,42 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error, *accountSet) {
 	dirty := newAccountSet(pool.signer)
 	errs := make([]error, len(txs))
+	privBatch := newTxPoolPrivBatch(pool)
+	processed := make([]bool, len(txs))
+
 	for i, tx := range txs {
-		replaced, err := pool.add(tx, local)
+		if tx.Type() == types.PrivTransferTxType || tx.Type() == types.ShieldTxType || tx.Type() == types.UnshieldTxType {
+			continue
+		}
+		replaced, err := pool.addWithState(tx, local, nil)
 		errs[i] = err
+		processed[i] = true
 		if err == nil && !replaced {
 			dirty.add(pool.resolveTxSender(tx))
+		}
+	}
+
+	for {
+		progress := false
+		for i, tx := range txs {
+			if processed[i] {
+				continue
+			}
+			privState := privBatch.buildState(tx)
+			replaced, err := pool.addWithState(tx, local, privState)
+			errs[i] = err
+			if err != nil {
+				continue
+			}
+			processed[i] = true
+			progress = true
+			privBatch.accept(tx)
+			if !replaced {
+				dirty.add(pool.resolveTxSender(tx))
+			}
+		}
+		if !progress {
+			break
 		}
 	}
 	validTxMeter.Mark(int64(len(dirty.accounts)))
@@ -1288,7 +1372,7 @@ func (pool *TxPool) scheduleReorgLoop() {
 		case tx := <-pool.queueTxEventCh:
 			// Queue up the event, but don't schedule a reorg. It's up to the caller to
 			// request one later if they want the events sent.
-			addr, _ := ResolveSender(tx, pool.signer, pool.currentState)
+			addr := pool.resolveTxSender(tx)
 			if _, ok := queuedEvents[addr]; !ok {
 				queuedEvents[addr] = newTxSortedMap()
 			}

@@ -42,10 +42,10 @@ func sampleShieldTx() *ShieldTx {
 	return &ShieldTx{
 		ChainID:     big.NewInt(42),
 		PrivNonce:   7,
-		Fee:         42_000,
+		UnoFee:      1,
 		Pubkey:      pubkey,
 		Recipient:   recipient,
-		Amount:      5000,
+		UnoAmount:   500,
 		Commitment:  commitment,
 		Handle:      handle,
 		ShieldProof: shieldProof,
@@ -70,7 +70,7 @@ func TestShieldTxType(t *testing.T) {
 	if got := inner.nonce(); got != inner.PrivNonce {
 		t.Fatalf("nonce() = %d, want %d", got, inner.PrivNonce)
 	}
-	wantPrice := new(big.Int).SetUint64(inner.Fee)
+	wantPrice := new(big.Int).SetUint64(inner.UnoFee)
 	if got := inner.txPrice(); got.Cmp(wantPrice) != 0 {
 		t.Fatalf("txPrice() = %s, want %s", got, wantPrice)
 	}
@@ -87,13 +87,13 @@ func TestShieldTxCopy(t *testing.T) {
 	if cpy.PrivNonce != orig.PrivNonce {
 		t.Fatalf("PrivNonce mismatch after copy")
 	}
-	if cpy.Fee != orig.Fee {
+	if cpy.UnoFee != orig.UnoFee {
 		t.Fatalf("Fee mismatch after copy")
 	}
 	if cpy.Pubkey != orig.Pubkey {
 		t.Fatalf("Pubkey mismatch after copy")
 	}
-	if cpy.Amount != orig.Amount {
+	if cpy.UnoAmount != orig.UnoAmount {
 		t.Fatalf("Amount mismatch after copy")
 	}
 	if cpy.ShieldProof != orig.ShieldProof {
@@ -122,7 +122,7 @@ func TestShieldTxSigningHash(t *testing.T) {
 	}
 
 	// Modifying a field should change the hash.
-	inner.Amount = 9999
+	inner.UnoAmount = 9999
 	h3 := inner.SigningHash()
 	if h1 == h3 {
 		t.Fatalf("SigningHash did not change after modifying Amount")
@@ -163,7 +163,7 @@ func TestShieldTxRLPRoundTrip(t *testing.T) {
 	if stx.Pubkey != inner.Pubkey {
 		t.Fatalf("Pubkey mismatch")
 	}
-	if stx.Amount != inner.Amount {
+	if stx.UnoAmount != inner.UnoAmount {
 		t.Fatalf("Amount mismatch")
 	}
 	if stx.Commitment != inner.Commitment {
@@ -263,8 +263,8 @@ func TestShieldTxMessageInner(t *testing.T) {
 	if msg.ShieldInner().Pubkey != inner.Pubkey {
 		t.Fatalf("msg.ShieldInner().Pubkey mismatch")
 	}
-	if msg.ShieldInner().Amount != inner.Amount {
-		t.Fatalf("msg.ShieldInner().Amount mismatch")
+	if msg.ShieldInner().UnoAmount != inner.UnoAmount {
+		t.Fatalf("msg.ShieldInner().UnoAmount mismatch")
 	}
 	if msg.PrivTransferInner() != nil {
 		t.Fatalf("msg.PrivTransferInner() should be nil for ShieldTx")

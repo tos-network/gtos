@@ -14,16 +14,16 @@ import (
 // Pubkey identifies the sender (signs the tx, owns the encrypted balance).
 // Recipient is the address that receives the public TOS.
 // For self-directed withdrawals, Recipient == DerivedAddress(Pubkey).
-// Fee (in gas units) is deducted from the recipient's public balance after
-// crediting Amount — the net credit is Amount − Fee×GasPrice.
+// Fee (in UNO base units) is deducted from the recipient's public balance after
+// crediting Amount — the net credit is (Amount − Fee) × UNOUnit Wei.
 type UnshieldTx struct {
 	ChainID   *big.Int
 	PrivNonce uint64
-	Fee       uint64 // fee in gas units
+	UnoFee    uint64 // fee in UNO base units (1 = 0.01 UNO = 10^16 Wei)
 
 	Pubkey    [32]byte       // sender ElGamal compressed public key
 	Recipient common.Address // recipient of public TOS
-	Amount    uint64         // plaintext withdrawal amount
+	UnoAmount uint64         // withdrawal amount in UNO base units
 
 	// New encrypted balance commitment after withdrawal
 	SourceCommitment [32]byte
@@ -41,10 +41,10 @@ type UnshieldTx struct {
 func (tx *UnshieldTx) copy() TxData {
 	cpy := &UnshieldTx{
 		PrivNonce:         tx.PrivNonce,
-		Fee:               tx.Fee,
+		UnoFee:            tx.UnoFee,
 		Pubkey:            tx.Pubkey,
 		Recipient:         tx.Recipient,
-		Amount:            tx.Amount,
+		UnoAmount:         tx.UnoAmount,
 		SourceCommitment:  tx.SourceCommitment,
 		CommitmentEqProof: tx.CommitmentEqProof,
 		RangeProof:        tx.RangeProof,
@@ -62,7 +62,7 @@ func (tx *UnshieldTx) copy() TxData {
 func (tx *UnshieldTx) txType() byte           { return UnshieldTxType }
 func (tx *UnshieldTx) chainID() *big.Int       { return tx.ChainID }
 func (tx *UnshieldTx) gas() uint64             { return 0 }
-func (tx *UnshieldTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.Fee) }
+func (tx *UnshieldTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.UnoFee) }
 func (tx *UnshieldTx) value() *big.Int         { return big.NewInt(0) }
 func (tx *UnshieldTx) nonce() uint64           { return tx.PrivNonce }
 func (tx *UnshieldTx) data() []byte            { return nil }
@@ -97,10 +97,10 @@ func (tx *UnshieldTx) SigningHash() common.Hash {
 	rlp.Encode(sha, []interface{}{
 		tx.ChainID,
 		tx.PrivNonce,
-		tx.Fee,
+		tx.UnoFee,
 		tx.Pubkey,
 		tx.Recipient,
-		tx.Amount,
+		tx.UnoAmount,
 		tx.SourceCommitment,
 		tx.CommitmentEqProof,
 		tx.RangeProof,

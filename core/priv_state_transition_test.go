@@ -121,8 +121,8 @@ func TestApplyPrivTransfer_NonceMismatch(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 3, // wrong — state expects 5
-		Fee:       42_000,
-		FeeLimit:  42_000,
+		UnoFee:      1,
+		UnoFeeLimit: 1,
 		From:      fromPub,
 		To:        toPub,
 	}
@@ -172,8 +172,8 @@ func TestApplyPrivTransfer_InsufficientFee(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       requiredFee - 1, // below required
-		FeeLimit:  requiredFee - 1, // FeeLimit also below required
+		UnoFee:      requiredFee - 1, // below required
+		UnoFeeLimit: requiredFee - 1, // UnoFeeLimit also below required
 		From:      fromPub,
 		To:        toPub,
 	}
@@ -234,8 +234,8 @@ func TestApplyPrivTransfer_FeeLimitGreaterThanFee(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:          big.NewInt(1337),
 		PrivNonce:        0,
-		Fee:              requiredFee / 2, // below required
-		FeeLimit:         requiredFee * 2, // above required — should pass fee check
+		UnoFee:           requiredFee / 2, // below required
+		UnoFeeLimit:      requiredFee * 2, // above required — should pass fee check
 		From:             fromPub,
 		To:               toPub,
 		Commitment:       idBytes,
@@ -295,8 +295,8 @@ func TestApplyPrivTransfer_FeeExceedsFeeLimit(t *testing.T) {
 	ptx := &types.PrivTransferTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       20_001,
-		FeeLimit:  20_000,
+		UnoFee:      2,
+		UnoFeeLimit: 1,
 		From:      fromPub,
 		To:        toPub,
 	}
@@ -322,7 +322,7 @@ func TestApplyShield_InsufficientFee(t *testing.T) {
 
 	senderPub, _ := mustElgamalKeypair(t)
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
-	st.AddBalance(addr, new(big.Int).SetUint64(priv.FeeToWei(priv.EstimateShieldFee())+1))
+	st.AddBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(priv.EstimateShieldFee())+1))
 	priv.SetAccountState(st, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -332,9 +332,9 @@ func TestApplyShield_InsufficientFee(t *testing.T) {
 	stx := &types.ShieldTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       priv.EstimateShieldFee() - 1,
+		UnoFee:    priv.EstimateShieldFee() - 1,
 		Pubkey:    senderPub,
-		Amount:    1,
+		UnoAmount: 1,
 	}
 
 	msg := makeShieldMsg(senderPub, stx, 2_000_000)
@@ -355,10 +355,11 @@ func TestApplyShield_Success(t *testing.T) {
 
 	senderPub, senderPriv := mustElgamalKeypair(t)
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
-	fee := priv.EstimateShieldFee()
-	feeWei := priv.FeeToWei(fee)
-	amount := feeWei * 5
-	initialPublic := amount + feeWei + 12345
+	fee := priv.EstimateShieldFee()              // 1 UNO base unit
+	amount := uint64(500)                         // 500 UNO base units = 5 UNO
+	totalCostWei := priv.UNOFeeToWei(amount + fee) // (amount+fee) * UNOUnit Wei
+	feeWei := priv.UNOFeeToWei(fee)
+	initialPublic := totalCostWei + 12345
 
 	st.AddBalance(addr, new(big.Int).SetUint64(initialPublic))
 	priv.SetAccountState(st, addr, priv.AccountState{
@@ -400,10 +401,10 @@ func TestApplyShield_Success(t *testing.T) {
 	stx := &types.ShieldTx{
 		ChainID:    big.NewInt(1337),
 		PrivNonce:  0,
-		Fee:        fee,
+		UnoFee:     fee,
 		Pubkey:     senderPub,
 		Recipient:  senderPub, // self-directed shield
-		Amount:     amount,
+		UnoAmount:  amount,
 		Commitment: commitment,
 		Handle:     handle,
 	}
@@ -425,8 +426,8 @@ func TestApplyShield_Success(t *testing.T) {
 		t.Fatalf("expected successful shield, got %v", res.Err)
 	}
 
-	if got := st.GetBalance(addr).Uint64(); got != initialPublic-amount-feeWei {
-		t.Fatalf("public balance = %d, want %d", got, initialPublic-amount-feeWei)
+	if got := st.GetBalance(addr).Uint64(); got != initialPublic-totalCostWei {
+		t.Fatalf("public balance = %d, want %d", got, initialPublic-totalCostWei)
 	}
 	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
 		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)
@@ -450,17 +451,18 @@ func TestApplyUnshield_InsufficientPublicForFee(t *testing.T) {
 	coinbase := common.HexToAddress("0xC0FFEE")
 
 	senderPub, _ := mustElgamalKeypair(t)
-	fee := priv.EstimateUnshieldFee()
-	feeWei := priv.FeeToWei(fee)
+	fee := priv.EstimateUnshieldFee() // 1 UNO base unit
 
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	// Amount=0 UNO base units → 0 Wei credit; fee=1 → 1e16 Wei deduction.
+	// Recipient has 0 public balance, so available = 0 + 0 < feeWei → should fail.
 	utx := &types.UnshieldTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       fee,
+		UnoFee:    fee,
 		Pubkey:    senderPub,
 		Recipient: senderAddr, // self-directed unshield
-		Amount:    feeWei - 1,
+		UnoAmount: 0,
 	}
 
 	msg := makeUnshieldMsg(senderPub, utx, 2_000_000)
@@ -485,10 +487,10 @@ func TestApplyUnshield_InsufficientFee(t *testing.T) {
 	utx := &types.UnshieldTx{
 		ChainID:   big.NewInt(1337),
 		PrivNonce: 0,
-		Fee:       priv.EstimateUnshieldFee() - 1,
+		UnoFee:    priv.EstimateUnshieldFee() - 1,
 		Pubkey:    senderPub,
 		Recipient: senderAddr,
-		Amount:    1,
+		UnoAmount: 1,
 	}
 
 	msg := makeUnshieldMsg(senderPub, utx, 2_000_000)
@@ -510,11 +512,11 @@ func TestApplyUnshield_Success(t *testing.T) {
 	senderPub, senderPriv := mustElgamalKeypair(t)
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	recipientAddr := common.HexToAddress("0xBEEF")
-	fee := priv.EstimateUnshieldFee()
-	feeWei := priv.FeeToWei(fee)
-	senderBalance := feeWei * 7
-	amount := feeWei * 5
-	newBalance := senderBalance - amount
+	fee := priv.EstimateUnshieldFee()       // 1 UNO base unit
+	feeWei := priv.UNOFeeToWei(fee)         // 1e16 Wei
+	senderBalance := uint64(700)             // 700 UNO base units (encrypted balance)
+	amount := uint64(500)                    // 500 UNO base units withdrawal
+	newBalance := senderBalance - amount     // 200 UNO base units
 
 	opening, err := cryptopriv.GenerateOpening()
 	if err != nil {
@@ -572,10 +574,10 @@ func TestApplyUnshield_Success(t *testing.T) {
 	utx := &types.UnshieldTx{
 		ChainID:          big.NewInt(1337),
 		PrivNonce:        0,
-		Fee:              fee,
+		UnoFee:           fee,
 		Pubkey:           senderPub,
 		Recipient:        recipientAddr,
-		Amount:           amount,
+		UnoAmount:        amount,
 		SourceCommitment: sourceCommitment,
 	}
 	copy(utx.CommitmentEqProof[:], commitmentEqProof)
@@ -596,8 +598,9 @@ func TestApplyUnshield_Success(t *testing.T) {
 		t.Fatalf("expected successful unshield, got %v", res.Err)
 	}
 
-	if got := st.GetBalance(recipientAddr).Uint64(); got != amount-feeWei {
-		t.Fatalf("recipient public balance = %d, want %d", got, amount-feeWei)
+	amountWei := priv.UNOFeeToWei(amount)
+	if got := st.GetBalance(recipientAddr).Uint64(); got != amountWei-feeWei {
+		t.Fatalf("recipient public balance = %d, want %d", got, amountWei-feeWei)
 	}
 	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
 		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)

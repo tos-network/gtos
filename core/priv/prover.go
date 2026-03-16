@@ -35,17 +35,14 @@ func BuildTransferProofs(
 	ctValidityProof, commitmentEqProof, rangeProof []byte,
 	err error,
 ) {
-	// feeLimit is in gas units; convert to Wei for encrypted balance arithmetic.
-	feeLimitWei := FeeToWei(feeLimit)
-
-	// Verify sufficient balance (both amount and fee are in Wei)
-	if senderBalance < amount+feeLimitWei {
+	// All values (amount, feeLimit, senderBalance) are in UNO base units.
+	if senderBalance < amount+feeLimit {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
-			nil, nil, nil, fmt.Errorf("insufficient balance: have %d, need %d (amount %d + fee_limit_wei %d)",
-				senderBalance, amount+feeLimitWei, amount, feeLimitWei)
+			nil, nil, nil, fmt.Errorf("insufficient balance: have %d, need %d (amount %d + fee_limit %d)",
+				senderBalance, amount+feeLimit, amount, feeLimit)
 	}
 
-	newBalance := senderBalance - amount - feeLimitWei
+	newBalance := senderBalance - amount - feeLimit
 
 	// 1. Generate transfer ciphertext (commitment + two handles)
 	//    Uses crypto backend to create Pedersen commitment with random opening.
@@ -97,7 +94,7 @@ func BuildTransferProofs(
 	var transferCt Ciphertext
 	copy(transferCt.Commitment[:], commitmentBytes)
 	copy(transferCt.Handle[:], sHandle)
-	outputCt, err := AddScalarToCiphertext(transferCt, feeLimitWei)
+	outputCt, err := AddScalarToCiphertext(transferCt, feeLimit)
 	if err != nil {
 		return commitment, senderHandle, receiverHandle, sourceCommitment,
 			nil, nil, nil, fmt.Errorf("output ciphertext computation failed: %w", err)

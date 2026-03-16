@@ -40,10 +40,10 @@ func sampleUnshieldTx() *UnshieldTx {
 	return &UnshieldTx{
 		ChainID:           big.NewInt(42),
 		PrivNonce:         3,
-		Fee:               42_000,
+		UnoFee:            1,
 		Pubkey:            pubkey,
 		Recipient:         recipient,
-		Amount:            2500,
+		UnoAmount:         250,
 		SourceCommitment:  sourceCommitment,
 		CommitmentEqProof: commitmentEqProof,
 		RangeProof:        rangeProof,
@@ -67,7 +67,7 @@ func TestUnshieldTxType(t *testing.T) {
 	if got := inner.nonce(); got != inner.PrivNonce {
 		t.Fatalf("nonce() = %d, want %d", got, inner.PrivNonce)
 	}
-	wantPrice := new(big.Int).SetUint64(inner.Fee)
+	wantPrice := new(big.Int).SetUint64(inner.UnoFee)
 	if got := inner.txPrice(); got.Cmp(wantPrice) != 0 {
 		t.Fatalf("txPrice() = %s, want %s", got, wantPrice)
 	}
@@ -84,13 +84,13 @@ func TestUnshieldTxCopy(t *testing.T) {
 	if cpy.PrivNonce != orig.PrivNonce {
 		t.Fatalf("PrivNonce mismatch after copy")
 	}
-	if cpy.Fee != orig.Fee {
+	if cpy.UnoFee != orig.UnoFee {
 		t.Fatalf("Fee mismatch after copy")
 	}
 	if cpy.Pubkey != orig.Pubkey {
 		t.Fatalf("Pubkey mismatch after copy")
 	}
-	if cpy.Amount != orig.Amount {
+	if cpy.UnoAmount != orig.UnoAmount {
 		t.Fatalf("Amount mismatch after copy")
 	}
 	if cpy.SourceCommitment != orig.SourceCommitment {
@@ -120,7 +120,7 @@ func TestUnshieldTxSigningHash(t *testing.T) {
 		t.Fatalf("SigningHash not deterministic")
 	}
 
-	inner.Amount = 9999
+	inner.UnoAmount = 9999
 	h3 := inner.SigningHash()
 	if h1 == h3 {
 		t.Fatalf("SigningHash did not change after modifying Amount")
@@ -161,7 +161,7 @@ func TestUnshieldTxRLPRoundTrip(t *testing.T) {
 	if utx.Pubkey != inner.Pubkey {
 		t.Fatalf("Pubkey mismatch")
 	}
-	if utx.Amount != inner.Amount {
+	if utx.UnoAmount != inner.UnoAmount {
 		t.Fatalf("Amount mismatch")
 	}
 	if utx.SourceCommitment != inner.SourceCommitment {
@@ -256,8 +256,8 @@ func TestUnshieldTxMessageInner(t *testing.T) {
 	if msg.UnshieldInner().Pubkey != inner.Pubkey {
 		t.Fatalf("msg.UnshieldInner().Pubkey mismatch")
 	}
-	if msg.UnshieldInner().Amount != inner.Amount {
-		t.Fatalf("msg.UnshieldInner().Amount mismatch")
+	if msg.UnshieldInner().UnoAmount != inner.UnoAmount {
+		t.Fatalf("msg.UnshieldInner().UnoAmount mismatch")
 	}
 	if msg.PrivTransferInner() != nil {
 		t.Fatalf("msg.PrivTransferInner() should be nil for UnshieldTx")

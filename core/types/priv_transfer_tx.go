@@ -14,8 +14,8 @@ import (
 type PrivTransferTx struct {
 	ChainID   *big.Int
 	PrivNonce uint64
-	Fee       uint64 // plaintext fee paid to validators
-	FeeLimit  uint64 // max fee sender willing to pay
+	UnoFee      uint64 // fee in UNO base units (1 = 0.01 UNO = 10^16 Wei)
+	UnoFeeLimit uint64 // max fee in UNO base units sender willing to pay
 
 	From [32]byte // sender ElGamal compressed public key
 	To   [32]byte // receiver ElGamal compressed public key
@@ -47,8 +47,8 @@ type PrivTransferTx struct {
 func (tx *PrivTransferTx) copy() TxData {
 	cpy := &PrivTransferTx{
 		PrivNonce:          tx.PrivNonce,
-		Fee:                tx.Fee,
-		FeeLimit:           tx.FeeLimit,
+		UnoFee:             tx.UnoFee,
+		UnoFeeLimit:        tx.UnoFeeLimit,
 		From:               tx.From,
 		To:                 tx.To,
 		Commitment:         tx.Commitment,
@@ -75,7 +75,7 @@ func (tx *PrivTransferTx) copy() TxData {
 func (tx *PrivTransferTx) txType() byte           { return PrivTransferTxType }
 func (tx *PrivTransferTx) chainID() *big.Int       { return tx.ChainID }
 func (tx *PrivTransferTx) gas() uint64             { return 0 }
-func (tx *PrivTransferTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.Fee) }
+func (tx *PrivTransferTx) txPrice() *big.Int       { return new(big.Int).SetUint64(tx.UnoFee) }
 func (tx *PrivTransferTx) value() *big.Int         { return big.NewInt(0) }
 func (tx *PrivTransferTx) nonce() uint64           { return tx.PrivNonce }
 func (tx *PrivTransferTx) data() []byte            { return nil }
@@ -123,8 +123,8 @@ func (tx *PrivTransferTx) SigningHash() common.Hash {
 	rlp.Encode(sha, []interface{}{
 		tx.ChainID,
 		tx.PrivNonce,
-		tx.Fee,
-		tx.FeeLimit,
+		tx.UnoFee,
+		tx.UnoFeeLimit,
 		tx.From,
 		tx.To,
 		tx.Commitment,

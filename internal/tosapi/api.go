@@ -3283,8 +3283,8 @@ func (s *TOSAPI) PrivTransfer(ctx context.Context, args RPCPrivTransferArgs) (co
 	ptx := &types.PrivTransferTx{
 		ChainID:   s.b.ChainConfig().ChainID,
 		PrivNonce: uint64(*args.PrivNonce),
-		Fee:       uint64(*args.Fee),
-		FeeLimit:  uint64(*args.FeeLimit),
+		UnoFee:      uint64(*args.Fee),
+		UnoFeeLimit: uint64(*args.FeeLimit),
 	}
 	copy(ptx.From[:], args.From)
 	copy(ptx.To[:], args.To)
@@ -3402,8 +3402,8 @@ func (s *TOSAPI) PrivShield(ctx context.Context, args RPCShieldArgs) (common.Has
 	stx := &types.ShieldTx{
 		ChainID:   s.b.ChainConfig().ChainID,
 		PrivNonce: uint64(*args.PrivNonce),
-		Fee:       uint64(*args.Fee),
-		Amount:    uint64(*args.Amount),
+		UnoFee:    uint64(*args.Fee),
+		UnoAmount: uint64(*args.Amount),
 	}
 	copy(stx.Pubkey[:], args.Pubkey)
 	copy(stx.Recipient[:], args.Recipient)
@@ -3451,8 +3451,8 @@ func (s *TOSAPI) PrivUnshield(ctx context.Context, args RPCUnshieldArgs) (common
 	utx := &types.UnshieldTx{
 		ChainID:   s.b.ChainConfig().ChainID,
 		PrivNonce: uint64(*args.PrivNonce),
-		Fee:       uint64(*args.Fee),
-		Amount:    uint64(*args.Amount),
+		UnoFee:    uint64(*args.Fee),
+		UnoAmount: uint64(*args.Amount),
 	}
 	copy(utx.Pubkey[:], args.Pubkey)
 	copy(utx.Recipient[:], args.Recipient)

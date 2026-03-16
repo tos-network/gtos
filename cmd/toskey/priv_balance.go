@@ -278,7 +278,8 @@ reports that the balance exceeds the current search window.
 			fmt.Println("Address:", out.Address)
 			fmt.Println("Pubkey:", out.Pubkey)
 			fmt.Println("Ciphertext:", out.Ciphertext)
-			fmt.Println("Plaintext balance:", out.PlaintextBalance)
+			fmt.Printf("Plaintext balance: %d.%02d UNO\n", out.PlaintextBalance/100, out.PlaintextBalance%100)
+			fmt.Println("Plaintext balance (raw):", out.PlaintextBalance)
 			fmt.Println("Search bound:", out.MaxBalance)
 			fmt.Println("Source:", out.Source)
 			if source == "rpc" {

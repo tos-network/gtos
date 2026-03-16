@@ -21,7 +21,7 @@ var (
 	}
 	privAmountFlag = &cli.Uint64Flag{
 		Name:  "amount",
-		Usage: "amount to transfer (in TOS units)",
+		Usage: "amount in UNO base units (1 = 0.01 UNO = 0.01 TOS)",
 	}
 	privMemoHexFlag = &cli.StringFlag{
 		Name:  "memo",
