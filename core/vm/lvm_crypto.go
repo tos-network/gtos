@@ -20,9 +20,12 @@ var ristrettoGroupOrder = func() *big.Int {
 // Proof size constants (matching core/priv/proofs.go — inlined here to avoid
 // circular import since core/priv imports core/vm).
 const (
-	ctValidityProofSize   = 160 // CTValidityProofSizeT1
-	commitmentEqProofSize = 192 // CommitmentEqProofSize
+	ctValidityProofSize    = 160 // CTValidityProofSizeT1
+	commitmentEqProofSize  = 192 // CommitmentEqProofSize
 	rangeProofSingle64Size = 672 // single 64-bit Bulletproofs range proof
+	mulProofSize           = 160 // multiplication Sigma proof
+	// div/rem proof: [Enc(aux) 64B] [mul_proof 160B] [rp_r 672B] [rp_bound 672B]
+	divRemProofSize = 64 + mulProofSize + 2*rangeProofSingle64Size // 1568
 )
 
 // Gas costs for ciphertext operations.
@@ -131,6 +134,68 @@ func verifyRangeProof64(commitment []byte, proof []byte) error {
 		return fmt.Errorf("commitment must be at least 32 bytes, got %d", len(commitment))
 	}
 	return cryptopriv.VerifyRangeProof(proof, commitment[:32], []byte{64}, 1)
+}
+
+// verifyDivRemProofCore verifies the division relation a = b*q + r.
+//
+// Inputs:
+//   - ctA, ctB: 64-byte ciphertexts for dividend and divisor
+//   - encQ, encR: 64-byte ciphertexts for quotient and remainder
+//   - subProof: [mul_proof 160B][rp_r 672B][rp_bound 672B] = 1504 bytes
+//
+// Verification:
+//  1. Com(a-r) = Com(a) - Com(r); verify mul_proof proves value(a-r) = value(b)*value(q)
+//  2. Verify range proof on Com(r) proves r ∈ [0, 2^64)
+//  3. Compute diff = Com(b) - Com(r), shifted = diff - 1*G; verify range proof proves b-r-1 ∈ [0, 2^64) (i.e., r < b)
+func verifyDivRemProofCore(ctA, ctB, encQ, encR []byte, subProof []byte) error {
+	expectedSubLen := mulProofSize + 2*rangeProofSingle64Size
+	if len(subProof) != expectedSubLen {
+		return fmt.Errorf("div/rem sub-proof must be %d bytes, got %d", expectedSubLen, len(subProof))
+	}
+
+	mulPrf := subProof[:mulProofSize]
+	rpR := subProof[mulProofSize : mulProofSize+rangeProofSingle64Size]
+	rpBound := subProof[mulProofSize+rangeProofSingle64Size:]
+
+	// 1. Compute Com(a-r) homomorphically and verify multiplication relation.
+	comAMinusR, err := cryptopriv.SubCompressedCiphertexts(ctA, encR)
+	if err != nil {
+		return fmt.Errorf("compute Com(a-r): %v", err)
+	}
+	// Multiplication proof: proves value(Com(a-r)) = value(Com_b) * value(Com_q)
+	if err := cryptopriv.VerifyMulProof(mulPrf, ctB[:32], encQ[:32], comAMinusR[:32]); err != nil {
+		return fmt.Errorf("multiplication proof verification failed: %v", err)
+	}
+
+	// 2. Range proof on remainder: r ∈ [0, 2^64).
+	if err := verifyRangeProof64(encR[:32], rpR); err != nil {
+		return fmt.Errorf("remainder range proof failed: %v", err)
+	}
+
+	// 3. Range proof on (b - r - 1): proves r < b.
+	diff, err := cryptopriv.SubCompressedCiphertexts(ctB, encR)
+	if err != nil {
+		return fmt.Errorf("compute b-r: %v", err)
+	}
+	shifted, err := cryptopriv.SubAmountCompressed(diff, 1)
+	if err != nil {
+		return fmt.Errorf("compute b-r-1: %v", err)
+	}
+	if err := verifyRangeProof64(shifted[:32], rpBound); err != nil {
+		return fmt.Errorf("bound range proof failed (r < b): %v", err)
+	}
+
+	return nil
+}
+
+// verifyDivRemProof verifies a div proof where ResultData=Enc(q) and
+// proof = [Enc(r) 64B][mul_proof 160B][rp_r 672B][rp_bound 672B].
+func verifyDivRemProof(ctA, ctB, encQ, proof []byte) error {
+	if len(proof) != divRemProofSize {
+		return fmt.Errorf("div proof must be %d bytes, got %d", divRemProofSize, len(proof))
+	}
+	encR := proof[:64]
+	return verifyDivRemProofCore(ctA, ctB, encQ, encR, proof[64:])
 }
 
 // registerCiphertextTable creates the tos.ciphertext sub-table and registers
@@ -351,53 +416,142 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 
 	// ── Tier 2: proof-based operations ───────────────────────────────────────
 
-	// Helper for Tier-2 stubbed ciphertext-result ops (mul, div, rem).
-	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
-	tier2StubCtOp := func(opName string, gas uint64) lua.LGFunction {
-		return func(L *lua.LState) int {
-			chargePrimGas(gas)
-			aHex := L.CheckString(1)
-			bHex := L.CheckString(2)
-			a, err := parseCiphertextHex(aHex)
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			b, err := parseCiphertextHex(bHex)
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			if proofBundle == nil {
-				L.RaiseError("ciphertext.%s: proof bundle required", opName)
-				return 0
-			}
-			// TODO: requires multiplication Sigma protocol not yet in crypto/priv
-			entry, err := proofBundle.Next(opName, a[:], b[:])
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			if len(entry.ResultData) != 64 {
-				L.RaiseError("ciphertext.%s: result must be 64 bytes", opName)
-				return 0
-			}
-			var res [64]byte
-			copy(res[:], entry.ResultData)
-			L.Push(lua.LString(ciphertextToHex(res)))
-			return 1
-		}
-	}
-
 	// 10. mul(a, b) → ciphertext
-	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
-	L.SetField(ctTable, "mul", L.NewFunction(tier2StubCtOp("mul", gasCtMul)))
-	// 11. div(a, b) → ciphertext
-	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
-	L.SetField(ctTable, "div", L.NewFunction(tier2StubCtOp("div", gasCtDiv)))
-	// 12. rem(a, b) → ciphertext
-	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
-	L.SetField(ctTable, "rem", L.NewFunction(tier2StubCtOp("rem", gasCtRem)))
+	//     Proof = 160B multiplication Sigma proof.
+	//     Proves: value(Com_c) = value(Com_a) * value(Com_b).
+	L.SetField(ctTable, "mul", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtMul)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.mul: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.mul: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.mul: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("mul", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.mul: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 64 {
+			L.RaiseError("ciphertext.mul: result must be 64 bytes")
+			return 0
+		}
+		if len(entry.Proof) != mulProofSize {
+			L.RaiseError("ciphertext.mul: proof must be %d bytes, got %d", mulProofSize, len(entry.Proof))
+			return 0
+		}
+		// Verify: value(result_commitment) = value(a_commitment) * value(b_commitment)
+		if err2 := cryptopriv.VerifyMulProof(entry.Proof, a[:32], b[:32], entry.ResultData[:32]); err2 != nil {
+			L.RaiseError("ciphertext.mul: multiplication proof verification failed: %v", err2)
+			return 0
+		}
+		var res [64]byte
+		copy(res[:], entry.ResultData)
+		L.Push(lua.LString(ciphertextToHex(res)))
+		return 1
+	}))
+
+	// 11. div(a, b) → ciphertext (quotient)
+	//     Proves: a = b*q + r, r ∈ [0, 2^64), r < b.
+	//     ResultData = Enc(q) (64B), Proof = [Enc(r) 64B][mul_proof 160B][rp_r 672B][rp_bound 672B]
+	L.SetField(ctTable, "div", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtDiv)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.div: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.div: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.div: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("div", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.div: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 64 {
+			L.RaiseError("ciphertext.div: result must be 64 bytes")
+			return 0
+		}
+		if len(entry.Proof) != divRemProofSize {
+			L.RaiseError("ciphertext.div: proof must be %d bytes, got %d", divRemProofSize, len(entry.Proof))
+			return 0
+		}
+		if err2 := verifyDivRemProof(a[:], b[:], entry.ResultData, entry.Proof); err2 != nil {
+			L.RaiseError("ciphertext.div: %v", err2)
+			return 0
+		}
+		var res [64]byte
+		copy(res[:], entry.ResultData)
+		L.Push(lua.LString(ciphertextToHex(res)))
+		return 1
+	}))
+
+	// 12. rem(a, b) → ciphertext (remainder)
+	//     Proves: a = b*q + r, r ∈ [0, 2^64), r < b.
+	//     ResultData = Enc(r) (64B), Proof = [Enc(q) 64B][mul_proof 160B][rp_r 672B][rp_bound 672B]
+	L.SetField(ctTable, "rem", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtRem)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.rem: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.rem: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.rem: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("rem", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.rem: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 64 {
+			L.RaiseError("ciphertext.rem: result must be 64 bytes")
+			return 0
+		}
+		if len(entry.Proof) != divRemProofSize {
+			L.RaiseError("ciphertext.rem: proof must be %d bytes, got %d", divRemProofSize, len(entry.Proof))
+			return 0
+		}
+		// For rem: ResultData=Enc(r), Proof contains Enc(q) as prefix.
+		// Swap roles: quotient is in proof[0:64], remainder is ResultData.
+		encQ := entry.Proof[:64]
+		encR := entry.ResultData
+		if err2 := verifyDivRemProofCore(a[:], b[:], encQ, encR, entry.Proof[64:]); err2 != nil {
+			L.RaiseError("ciphertext.rem: %v", err2)
+			return 0
+		}
+		var res [64]byte
+		copy(res[:], entry.ResultData)
+		L.Push(lua.LString(ciphertextToHex(res)))
+		return 1
+	}))
 
 	// 13. lt(a, b) → bool
 	//     Proof = 672B range proof.

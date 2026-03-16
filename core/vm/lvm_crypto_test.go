@@ -195,37 +195,37 @@ func TestCtTier2WithBundle(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xC7}
 
-	// Encrypt two values to get valid ciphertext bytes.
-	aBytes, err := cryptopriv.Encrypt(pub[:], 10)
-	if err != nil {
-		t.Fatalf("Encrypt(10): %v", err)
-	}
-	bBytes, err := cryptopriv.Encrypt(pub[:], 5)
-	if err != nil {
-		t.Fatalf("Encrypt(5): %v", err)
-	}
-	// Prepare a fake result (just use aBytes as result).
-	resultBytes := make([]byte, 64)
-	copy(resultBytes, aBytes)
+	valA, valB := uint64(10), uint64(5)
+	valC := valA * valB
 
-	// Build the proof bundle with the correct input hash.
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openC, _ := cryptopriv.GenerateOpening()
+
+	aBytes := buildCtFromOpening(t, pub[:], openA, valA)
+	bBytes := buildCtFromOpening(t, pub[:], openB, valB)
+	cBytes := buildCtFromOpening(t, pub[:], openC, valC)
+
+	// Generate real multiplication proof.
+	mulProof, err := cryptopriv.ProveMulProof(aBytes[:32], bBytes[:32], cBytes[:32], valA, openA, openB, openC)
+	if err != nil {
+		t.Fatalf("ProveMulProof: %v", err)
+	}
+
 	inputHash := makeInputHash("mul", aBytes, bBytes)
 	entries := []ProofEntry{
 		{
 			Op:         "mul",
 			InputHash:  inputHash,
-			ResultData: resultBytes,
-			Proof:      []byte("fake-proof"),
+			ResultData: cBytes,
+			Proof:      mulProof,
 		},
 	}
 	bundleBytes := EncodeProofBundle(entries)
 
-	// Build calldata = empty ABI data + bundle.
-	calldata := bundleBytes
-
 	aHex := "0x" + hex.EncodeToString(aBytes)
 	bHex := "0x" + hex.EncodeToString(bBytes)
-	expectedResult := "0x" + hex.EncodeToString(resultBytes)
+	expectedResult := "0x" + hex.EncodeToString(cBytes)
 
 	src := `
 local ct = tos.ciphertext
@@ -236,12 +236,11 @@ end
 tos.sstore("ok", 1)
 `
 
-	// Use Execute directly so we can pass calldata with the bundle.
 	ctx := CallCtx{
 		From:     common.Address{0xFF},
 		To:       contractAddr,
 		Value:    big.NewInt(0),
-		Data:     calldata,
+		Data:     bundleBytes,
 		TxOrigin: common.Address{0xFF},
 		TxPrice:  big.NewInt(1),
 	}
@@ -863,5 +862,290 @@ func TestCtMinWrongResult(t *testing.T) {
 	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
 	if err == nil || !strings.Contains(err.Error(), "must equal one of the inputs") {
 		t.Fatalf("expected 'must equal one of the inputs' error, got: %v", err)
+	}
+}
+
+// --- Mul/Div/Rem real proof tests ---
+
+// scalarMul computes (a * b) mod ristrettoGroupOrder, returning 32-byte LE scalar.
+func scalarMul(a, b []byte) []byte {
+	aBig := new(big.Int).SetBytes(reverseBytes32(a))
+	bBig := new(big.Int).SetBytes(reverseBytes32(b))
+	product := new(big.Int).Mul(aBig, bBig)
+	product.Mod(product, ristrettoGroupOrder)
+	s := bigIntToScalar32LE(product)
+	return s[:]
+}
+
+// scalarAdd computes (a + b) mod ristrettoGroupOrder, returning 32-byte LE scalar.
+func scalarAdd(a, b []byte) []byte {
+	aBig := new(big.Int).SetBytes(reverseBytes32(a))
+	bBig := new(big.Int).SetBytes(reverseBytes32(b))
+	sum := new(big.Int).Add(aBig, bBig)
+	sum.Mod(sum, ristrettoGroupOrder)
+	s := bigIntToScalar32LE(sum)
+	return s[:]
+}
+
+// buildDivRemProof builds the proof bytes for div/rem operations.
+// a = b*q + r.
+// Returns (encQ, encR, proof) where proof = [enc_aux 64B][mul_proof 160B][rp_r 672B][rp_bound 672B].
+// For div: enc_aux=encR, result=encQ. For rem: enc_aux=encQ, result=encR.
+func buildDivRemProof(t *testing.T, pub []byte,
+	valA, valB, valQ, valR uint64,
+	openA, openB, openQ, openR []byte,
+	forRem bool) (resultData []byte, proof []byte) {
+	t.Helper()
+
+	ctQ := buildCtFromOpening(t, pub, openQ, valQ)
+	ctR := buildCtFromOpening(t, pub, openR, valR)
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	// Com(a-r) commitment
+	comAMinusR, err := cryptopriv.SubCompressedCiphertexts(ctA, ctR)
+	if err != nil {
+		t.Fatalf("SubCompressedCiphertexts: %v", err)
+	}
+
+	// Blinding for Com(a-r) = r_a - r_r
+	openAR := scalarSub(openA, openR)
+
+	// Multiplication proof: value(Com(a-r)) = value(Com_b) * value(Com_q)
+	// Prover knows: b (plaintext of first arg), r_b, r_q, r_{a-r}
+	mulPrf, err := cryptopriv.ProveMulProof(ctB[:32], ctQ[:32], comAMinusR[:32], valB, openB, openQ, openAR)
+	if err != nil {
+		t.Fatalf("ProveMulProof: %v", err)
+	}
+
+	// Range proof on r: r ∈ [0, 2^64)
+	rpR, err := cryptopriv.ProveRangeProof(ctR[:32], valR, openR)
+	if err != nil {
+		t.Fatalf("ProveRangeProof(r): %v", err)
+	}
+
+	// Range proof on b-r-1: proves r < b
+	diff, err := cryptopriv.SubCompressedCiphertexts(ctB, ctR)
+	if err != nil {
+		t.Fatalf("SubCompressedCiphertexts(b-r): %v", err)
+	}
+	shifted, err := cryptopriv.SubAmountCompressed(diff, 1)
+	if err != nil {
+		t.Fatalf("SubAmountCompressed: %v", err)
+	}
+	openDiff := scalarSub(openB, openR)
+	rpBound, err := cryptopriv.ProveRangeProof(shifted[:32], valB-valR-1, openDiff)
+	if err != nil {
+		t.Fatalf("ProveRangeProof(bound): %v", err)
+	}
+
+	if forRem {
+		// rem: ResultData=encR, proof=[encQ 64B][mul 160B][rpR 672B][rpBound 672B]
+		proof = make([]byte, 0, 64+len(mulPrf)+len(rpR)+len(rpBound))
+		proof = append(proof, ctQ...)
+		proof = append(proof, mulPrf...)
+		proof = append(proof, rpR...)
+		proof = append(proof, rpBound...)
+		return ctR, proof
+	}
+	// div: ResultData=encQ, proof=[encR 64B][mul 160B][rpR 672B][rpBound 672B]
+	proof = make([]byte, 0, 64+len(mulPrf)+len(rpR)+len(rpBound))
+	proof = append(proof, ctR...)
+	proof = append(proof, mulPrf...)
+	proof = append(proof, rpR...)
+	proof = append(proof, rpBound...)
+	return ctQ, proof
+}
+
+func TestCtMulReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openC, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(3), uint64(7)
+	valC := valA * valB
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+	ctC := buildCtFromOpening(t, pub, openC, valC)
+
+	mulProof, err := cryptopriv.ProveMulProof(ctA[:32], ctB[:32], ctC[:32], valA, openA, openB, openC)
+	if err != nil {
+		t.Fatalf("ProveMulProof: %v", err)
+	}
+
+	inputHash := makeInputHash("mul", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "mul", InputHash: inputHash, ResultData: ctC, Proof: mulProof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF0}
+	src := `
+local r = tos.ciphertext.mul("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(ctC) + `" then error("mul result mismatch") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("mul valid: %v", err)
+	}
+	raw := st.GetState(addr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestCtMulInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openC, _ := cryptopriv.GenerateOpening()
+
+	ctA := buildCtFromOpening(t, pub, openA, 3)
+	ctB := buildCtFromOpening(t, pub, openB, 7)
+	ctC := buildCtFromOpening(t, pub, openC, 21)
+
+	// Zero-filled 160B proof (invalid).
+	badProof := make([]byte, 160)
+
+	inputHash := makeInputHash("mul", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "mul", InputHash: inputHash, ResultData: ctC, Proof: badProof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF1}
+	src := `tos.ciphertext.mul("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "multiplication proof verification failed") {
+		t.Fatalf("expected multiplication proof error, got: %v", err)
+	}
+}
+
+func TestCtDivReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openQ, _ := cryptopriv.GenerateOpening()
+	openR, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(17), uint64(5)
+	valQ, valR := valA/valB, valA%valB // 3, 2
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	resultData, proof := buildDivRemProof(t, pub, valA, valB, valQ, valR, openA, openB, openQ, openR, false)
+
+	inputHash := makeInputHash("div", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "div", InputHash: inputHash, ResultData: resultData, Proof: proof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF2}
+	src := `
+local r = tos.ciphertext.div("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(resultData) + `" then error("div result mismatch") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 4_000_000); err != nil {
+		t.Fatalf("div valid: %v", err)
+	}
+	raw := st.GetState(addr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestCtRemReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openQ, _ := cryptopriv.GenerateOpening()
+	openR, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(17), uint64(5)
+	valQ, valR := valA/valB, valA%valB // 3, 2
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	resultData, proof := buildDivRemProof(t, pub, valA, valB, valQ, valR, openA, openB, openQ, openR, true)
+
+	inputHash := makeInputHash("rem", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "rem", InputHash: inputHash, ResultData: resultData, Proof: proof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF3}
+	src := `
+local r = tos.ciphertext.rem("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(resultData) + `" then error("rem result mismatch") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 4_000_000); err != nil {
+		t.Fatalf("rem valid: %v", err)
+	}
+	raw := st.GetState(addr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestCtDivExact(t *testing.T) {
+	// Test exact division: 21 / 7 = 3, remainder = 0.
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openQ, _ := cryptopriv.GenerateOpening()
+	openR, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(21), uint64(7)
+	valQ, valR := uint64(3), uint64(0)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	resultData, proof := buildDivRemProof(t, pub, valA, valB, valQ, valR, openA, openB, openQ, openR, false)
+
+	inputHash := makeInputHash("div", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "div", InputHash: inputHash, ResultData: resultData, Proof: proof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF4}
+	src := `
+local r = tos.ciphertext.div("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 4_000_000); err != nil {
+		t.Fatalf("div exact: %v", err)
+	}
+}
+
+func TestCtDivInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	openQ, _ := cryptopriv.GenerateOpening()
+
+	ctA := buildCtFromOpening(t, pub, openA, 17)
+	ctB := buildCtFromOpening(t, pub, openB, 5)
+	ctQ := buildCtFromOpening(t, pub, openQ, 3)
+
+	// Fake proof with correct size but all zeros.
+	badProof := make([]byte, 1568) // divRemProofSize
+
+	inputHash := makeInputHash("div", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "div", InputHash: inputHash, ResultData: ctQ, Proof: badProof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xF5}
+	src := `tos.ciphertext.div("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 4_000_000)
+	if err == nil {
+		t.Fatal("expected error for invalid div proof")
 	}
 }
