@@ -9,20 +9,20 @@ import (
 	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 )
 
-func batchArray32(t *testing.T, in []byte) [32]byte {
-	t.Helper()
+func batchArray32(tb testing.TB, in []byte) [32]byte {
+	tb.Helper()
 	if len(in) != 32 {
-		t.Fatalf("array32 len = %d, want 32", len(in))
+		tb.Fatalf("array32 len = %d, want 32", len(in))
 	}
 	var out [32]byte
 	copy(out[:], in)
 	return out
 }
 
-func batchCiphertext(t *testing.T, compressed []byte) Ciphertext {
-	t.Helper()
+func batchCiphertext(tb testing.TB, compressed []byte) Ciphertext {
+	tb.Helper()
 	if len(compressed) != 64 {
-		t.Fatalf("ciphertext len = %d, want 64", len(compressed))
+		tb.Fatalf("ciphertext len = %d, want 64", len(compressed))
 	}
 	var out Ciphertext
 	copy(out.Commitment[:], compressed[:32])
@@ -30,22 +30,22 @@ func batchCiphertext(t *testing.T, compressed []byte) Ciphertext {
 	return out
 }
 
-func mustBatchKeypair(t *testing.T) (pub, privkey [32]byte) {
-	t.Helper()
+func mustBatchKeypair(tb testing.TB) (pub, privkey [32]byte) {
+	tb.Helper()
 	pubBytes, privBytes, err := cryptopriv.GenerateKeypair()
 	if err != nil {
-		t.Fatalf("GenerateKeypair: %v", err)
+		tb.Fatalf("GenerateKeypair: %v", err)
 	}
 	copy(pub[:], pubBytes)
 	copy(privkey[:], privBytes)
 	return pub, privkey
 }
 
-func makeTransferProofBundle(t *testing.T, chainID *big.Int) ([32]byte, [32]byte, [32]byte, [32]byte, [32]byte, []byte, []byte, []byte, Ciphertext, [32]byte, []byte) {
-	t.Helper()
+func makeTransferProofBundle(tb testing.TB, chainID *big.Int) ([32]byte, [32]byte, [32]byte, [32]byte, [32]byte, []byte, []byte, []byte, Ciphertext, [32]byte, []byte) {
+	tb.Helper()
 
-	senderPub, senderPriv := mustBatchKeypair(t)
-	receiverPub, _ := mustBatchKeypair(t)
+	senderPub, senderPriv := mustBatchKeypair(tb)
+	receiverPub, _ := mustBatchKeypair(tb)
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	receiverAddr := common.BytesToAddress(crypto.Keccak256(receiverPub[:]))
 
@@ -56,42 +56,42 @@ func makeTransferProofBundle(t *testing.T, chainID *big.Int) ([32]byte, [32]byte
 
 	senderCtCompressed, _, err := cryptopriv.EncryptWithGeneratedOpening(senderPub[:], senderBalance)
 	if err != nil {
-		t.Fatalf("EncryptWithGeneratedOpening: %v", err)
+		tb.Fatalf("EncryptWithGeneratedOpening: %v", err)
 	}
-	senderCiphertext := batchCiphertext(t, senderCtCompressed)
+	senderCiphertext := batchCiphertext(tb, senderCtCompressed)
 
 	commitmentBytes, opening, err := cryptopriv.CommitmentNew(amount)
 	if err != nil {
-		t.Fatalf("CommitmentNew(amount): %v", err)
+		tb.Fatalf("CommitmentNew(amount): %v", err)
 	}
-	commitment := batchArray32(t, commitmentBytes)
+	commitment := batchArray32(tb, commitmentBytes)
 
 	senderHandleBytes, err := cryptopriv.DecryptHandleWithOpening(senderPub[:], opening)
 	if err != nil {
-		t.Fatalf("DecryptHandleWithOpening(sender): %v", err)
+		tb.Fatalf("DecryptHandleWithOpening(sender): %v", err)
 	}
-	senderHandle := batchArray32(t, senderHandleBytes)
+	senderHandle := batchArray32(tb, senderHandleBytes)
 
 	receiverHandleBytes, err := cryptopriv.DecryptHandleWithOpening(receiverPub[:], opening)
 	if err != nil {
-		t.Fatalf("DecryptHandleWithOpening(receiver): %v", err)
+		tb.Fatalf("DecryptHandleWithOpening(receiver): %v", err)
 	}
-	receiverHandle := batchArray32(t, receiverHandleBytes)
+	receiverHandle := batchArray32(tb, receiverHandleBytes)
 
 	sourceCommitmentBytes, sourceOpening, err := cryptopriv.CommitmentNew(newBalance)
 	if err != nil {
-		t.Fatalf("CommitmentNew(source): %v", err)
+		tb.Fatalf("CommitmentNew(source): %v", err)
 	}
-	sourceCommitment := batchArray32(t, sourceCommitmentBytes)
+	sourceCommitment := batchArray32(tb, sourceCommitmentBytes)
 
 	transferCt := Ciphertext{Commitment: commitment, Handle: senderHandle}
 	outputCt, err := AddScalarToCiphertext(transferCt, feeLimit)
 	if err != nil {
-		t.Fatalf("AddScalarToCiphertext: %v", err)
+		tb.Fatalf("AddScalarToCiphertext: %v", err)
 	}
 	newSenderBalanceCt, err := SubCiphertexts(senderCiphertext, outputCt)
 	if err != nil {
-		t.Fatalf("SubCiphertexts: %v", err)
+		tb.Fatalf("SubCiphertexts: %v", err)
 	}
 
 	receiverCt := Ciphertext{Commitment: commitment, Handle: receiverHandle}
@@ -111,7 +111,7 @@ func makeTransferProofBundle(t *testing.T, chainID *big.Int) ([32]byte, [32]byte
 		senderPub[:], receiverPub[:], amount, opening, true, ctx,
 	)
 	if err != nil {
-		t.Fatalf("ProveCTValidityProofWithContext: %v", err)
+		tb.Fatalf("ProveCTValidityProofWithContext: %v", err)
 	}
 	updatedCt64 := append(append([]byte{}, newSenderBalanceCt.Commitment[:]...), newSenderBalanceCt.Handle[:]...)
 	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
@@ -122,7 +122,7 @@ func makeTransferProofBundle(t *testing.T, chainID *big.Int) ([32]byte, [32]byte
 		ctx,
 	)
 	if err != nil {
-		t.Fatalf("ProveCommitmentEqProof: %v", err)
+		tb.Fatalf("ProveCommitmentEqProof: %v", err)
 	}
 	rangeProof, err := cryptopriv.ProveAggregatedRangeProof(
 		[][]byte{sourceCommitmentBytes, commitmentBytes},
@@ -130,14 +130,14 @@ func makeTransferProofBundle(t *testing.T, chainID *big.Int) ([32]byte, [32]byte
 		[][]byte{sourceOpening, opening},
 	)
 	if err != nil {
-		t.Fatalf("ProveAggregatedRangeProof: %v", err)
+		tb.Fatalf("ProveAggregatedRangeProof: %v", err)
 	}
 
 	return senderPub, receiverPub, commitment, senderHandle, receiverHandle, ctValidityProof, commitmentEqProof, rangeProof, newSenderBalanceCt, sourceCommitment, ctx
 }
 
-func makeShieldProofBundle(t *testing.T, chainID *big.Int, senderPub, receiverPub [32]byte) ([32]byte, [32]byte, []byte, []byte, []byte) {
-	t.Helper()
+func makeShieldProofBundle(tb testing.TB, chainID *big.Int, senderPub, receiverPub [32]byte) ([32]byte, [32]byte, []byte, []byte, []byte) {
+	tb.Helper()
 
 	const amount = uint64(77)
 	const fee = uint64(9)
@@ -145,28 +145,88 @@ func makeShieldProofBundle(t *testing.T, chainID *big.Int, senderPub, receiverPu
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	opening, err := cryptopriv.GenerateOpening()
 	if err != nil {
-		t.Fatalf("GenerateOpening: %v", err)
+		tb.Fatalf("GenerateOpening: %v", err)
 	}
 	commitmentBytes, err := cryptopriv.PedersenCommitmentWithOpening(opening, amount)
 	if err != nil {
-		t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+		tb.Fatalf("PedersenCommitmentWithOpening: %v", err)
 	}
 	handleBytes, err := cryptopriv.DecryptHandleWithOpening(receiverPub[:], opening)
 	if err != nil {
-		t.Fatalf("DecryptHandleWithOpening: %v", err)
+		tb.Fatalf("DecryptHandleWithOpening: %v", err)
 	}
-	commitment := batchArray32(t, commitmentBytes)
-	handle := batchArray32(t, handleBytes)
+	commitment := batchArray32(tb, commitmentBytes)
+	handle := batchArray32(tb, handleBytes)
 	ctx := BuildShieldTranscriptContext(chainID, 0, fee, amount, senderAddr, commitment, handle)
 	proof, _, _, err := cryptopriv.ProveShieldProofWithContext(receiverPub[:], amount, opening, ctx)
 	if err != nil {
-		t.Fatalf("ProveShieldProofWithContext: %v", err)
+		tb.Fatalf("ProveShieldProofWithContext: %v", err)
 	}
 	rangeProof, err := cryptopriv.ProveRangeProof(commitmentBytes, amount, opening)
 	if err != nil {
-		t.Fatalf("ProveRangeProof: %v", err)
+		tb.Fatalf("ProveRangeProof: %v", err)
 	}
 	return commitment, handle, proof, rangeProof, ctx
+}
+
+func makeUnshieldProofBundle(tb testing.TB, chainID *big.Int) ([32]byte, Ciphertext, [32]byte, []byte, []byte, []byte) {
+	tb.Helper()
+
+	senderPub, senderPriv := mustBatchKeypair(tb)
+	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
+	senderBalance := uint64(640)
+	amount := uint64(91)
+	senderCtCompressed, _, err := cryptopriv.EncryptWithGeneratedOpening(senderPub[:], senderBalance)
+	if err != nil {
+		tb.Fatalf("EncryptWithGeneratedOpening: %v", err)
+	}
+	senderCt := batchCiphertext(tb, senderCtCompressed)
+	amountCt, err := AddScalarToCiphertext(ZeroCiphertext(), amount)
+	if err != nil {
+		tb.Fatalf("AddScalarToCiphertext: %v", err)
+	}
+	zeroedCt, err := SubCiphertexts(senderCt, amountCt)
+	if err != nil {
+		tb.Fatalf("SubCiphertexts: %v", err)
+	}
+	newBalance := senderBalance - amount
+	sourceCommitmentBytes, sourceOpening, err := cryptopriv.CommitmentNew(newBalance)
+	if err != nil {
+		tb.Fatalf("CommitmentNew: %v", err)
+	}
+	sourceCommitment := batchArray32(tb, sourceCommitmentBytes)
+	ctx := BuildUnshieldTranscriptContext(chainID, 0, 0, amount, senderAddr, zeroedCt, sourceCommitment)
+	zeroedCt64 := append(append([]byte{}, zeroedCt.Commitment[:]...), zeroedCt.Handle[:]...)
+	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
+		senderPriv[:], senderPub[:], zeroedCt64, sourceCommitmentBytes, sourceOpening, newBalance, ctx,
+	)
+	if err != nil {
+		tb.Fatalf("ProveCommitmentEqProof: %v", err)
+	}
+	rangeProof, err := cryptopriv.ProveRangeProof(sourceCommitmentBytes, newBalance, sourceOpening)
+	if err != nil {
+		tb.Fatalf("ProveRangeProof: %v", err)
+	}
+	return senderPub, zeroedCt, sourceCommitment, commitmentEqProof, rangeProof, ctx
+}
+
+func makeBalanceProofBundle(tb testing.TB) ([32]byte, Ciphertext, []byte, []byte) {
+	tb.Helper()
+
+	senderPub, senderPriv := mustBatchKeypair(tb)
+	amount := uint64(144)
+	senderCtCompressed, _, err := cryptopriv.EncryptWithGeneratedOpening(senderPub[:], amount)
+	if err != nil {
+		tb.Fatalf("EncryptWithGeneratedOpening: %v", err)
+	}
+	senderCt := batchCiphertext(tb, senderCtCompressed)
+	sourceCt64 := append(append([]byte{}, senderCt.Commitment[:]...), senderCt.Handle[:]...)
+	ctx := []byte("balance-batch-context")
+	proof, err := cryptopriv.ProveBalanceProofWithContext(senderPriv[:], sourceCt64, amount, ctx)
+	if err != nil {
+		tb.Fatalf("ProveBalanceProofWithContext: %v", err)
+	}
+	return senderPub, senderCt, proof, ctx
 }
 
 func TestBatchVerifierAcceptsTransferAndShieldProofs(t *testing.T) {
@@ -213,6 +273,35 @@ func TestBatchVerifierRejectsInvalidTransferProof(t *testing.T) {
 	}
 	if err := batch.AddRangeProof(sourceCommitment, commitment, rangeProof); err != nil {
 		t.Fatalf("AddRangeProof: %v", err)
+	}
+	if err := batch.Verify(); err == nil {
+		t.Fatal("Verify succeeded with invalid proof")
+	}
+}
+
+func TestBatchVerifierAcceptsBalanceProof(t *testing.T) {
+	t.Parallel()
+
+	pubkey, ciphertext, proof, ctx := makeBalanceProofBundle(t)
+
+	batch := NewBatchVerifier()
+	if err := batch.AddBalanceProofWithContext(pubkey, ciphertext, proof, ctx); err != nil {
+		t.Fatalf("AddBalanceProofWithContext: %v", err)
+	}
+	if err := batch.Verify(); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestBatchVerifierRejectsInvalidBalanceProof(t *testing.T) {
+	t.Parallel()
+
+	pubkey, ciphertext, proof, ctx := makeBalanceProofBundle(t)
+	proof[7] ^= 0x01
+
+	batch := NewBatchVerifier()
+	if err := batch.AddBalanceProofWithContext(pubkey, ciphertext, proof, ctx); err != nil {
+		t.Fatalf("AddBalanceProofWithContext: %v", err)
 	}
 	if err := batch.Verify(); err == nil {
 		t.Fatal("Verify succeeded with invalid proof")

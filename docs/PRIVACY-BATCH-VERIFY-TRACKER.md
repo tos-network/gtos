@@ -41,10 +41,10 @@ It does not cover:
 
 | Priority | Task | Status | Notes |
 |---|---|---|---|
-| P1 | Extend batch verification beyond txpool | TODO | Block import and state-transition execution still use sequential single-proof verification |
-| P1 | Unify the prepare/pre-verify architecture | TODO | Current design is txpool-specific; `~/x` uses a more uniform transaction-level `pre_verify -> verify_batch` flow |
-| P2 | Add `BalanceProof` batch support if needed | TODO | The current batch API covers the proof families used on the hot txpool path; `BalanceProof` is still single-verify only |
-| P2 | Add focused performance benchmarks | TODO | Compare batch vs sequential throughput for Go and `ed25519c` backends under realistic mempool mixes |
+| P1 | Extend batch verification beyond txpool | DONE | Blocks containing privacy txs now use a serial privacy execution path that batch-verifies consecutive privacy runs before applying them to canonical state |
+| P1 | Unify the prepare/pre-verify architecture | DONE | Shared prepared-privacy helpers now back both txpool admission and execution-path verification/apply flow |
+| P2 | Add `BalanceProof` batch support if needed | DONE | `BalanceProof` now feeds the same sigma collector path in both pure-Go and native `ed25519c` backends |
+| P2 | Add focused performance benchmarks | DONE | `core/priv` now includes batch-vs-sequential benchmarks for transfer-heavy and mixed privacy-proof sets under both Go and `ed25519c` builds |
 | P3 | Re-evaluate range-proof representation alignment | TODO | GTOS currently batches its existing transfer wire format, which is two concatenated single range proofs rather than one aggregated proof view |
 
 ## Reference Alignment With `~/x`
@@ -54,16 +54,14 @@ It does not cover:
 - txpool admission performs real proof verification instead of shape-only prechecks
 - pool-level sigma/range batch verification exists
 - dependency-sensitive private txs use virtual-state replay before verification
+- execution path reuses prepared proof state and performs batch verification beyond txpool
 
 ### Still different
 
-- GTOS batch verification is currently integrated into txpool, not the full execution pipeline
 - GTOS does not implement the `~/x` ZKP cache model
 - GTOS keeps its current transfer range-proof wire format instead of adopting the `~/x` verification-view format directly
 
 ## Suggested Completion Order
 
-1. Move batch verification from txpool-only into the block/state execution pipeline.
-2. Refactor toward a reusable transaction-level `prepare/pre-verify` interface shared by txpool and execution.
-3. Decide whether `BalanceProof` belongs on a hot path before adding it to the batch API.
-4. Add benchmarks and telemetry before considering any deeper protocol-format refactor.
+1. Decide whether `BalanceProof` belongs on a hot path before adding it to the batch API.
+2. Revisit range-proof representation alignment only if protocol-format convergence with `~/x` becomes a goal.

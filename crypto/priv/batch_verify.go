@@ -22,6 +22,10 @@ func (b *BatchVerifier) AddCommitmentEqProofWithContext(proof192, sourcePubkey, 
 	return mapBackendError(b.inner.AddPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment, ctx))
 }
 
+func (b *BatchVerifier) AddBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	return mapBackendError(b.inner.AddPrivBalanceProofWithContext(proof, publicKey, sourceCiphertext64, ctx))
+}
+
 func (b *BatchVerifier) AddRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	return mapBackendError(b.inner.AddPrivRangeProof(proof, commitments, bitLengths, batchLen))
 }

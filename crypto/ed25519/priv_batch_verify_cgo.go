@@ -128,6 +128,30 @@ func (b *PrivBatchVerifier) AddPrivCommitmentEqProofWithContext(proof192, source
 	return nil
 }
 
+func (b *PrivBatchVerifier) AddPrivBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	if len(proof) != 200 || len(publicKey) != 32 || len(sourceCiphertext64) != 64 {
+		return ErrPrivInvalidInput
+	}
+	if err := b.ensure(); err != nil {
+		return err
+	}
+	var ctxPtr *C.uchar
+	if len(ctx) > 0 {
+		ctxPtr = (*C.uchar)(unsafe.Pointer(&ctx[0]))
+	}
+	if C.gtos_priv_batch_add_balance_ctx(
+		b.ptr,
+		(*C.uchar)(unsafe.Pointer(&proof[0])),
+		(*C.uchar)(unsafe.Pointer(&publicKey[0])),
+		(*C.uchar)(unsafe.Pointer(&sourceCiphertext64[0])),
+		ctxPtr,
+		C.size_t(len(ctx)),
+	) != 0 {
+		return ErrPrivInvalidProof
+	}
+	return nil
+}
+
 func (b *PrivBatchVerifier) AddPrivRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
 	if batchLen == 0 {
 		return ErrPrivInvalidInput

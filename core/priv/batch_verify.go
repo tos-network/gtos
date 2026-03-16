@@ -44,6 +44,22 @@ func (b *BatchVerifier) AddCommitmentEqProofWithContext(pubkey [32]byte, ciphert
 	))
 }
 
+func (b *BatchVerifier) AddBalanceProofWithContext(pubkey [32]byte, ciphertext Ciphertext, proof []byte, ctx []byte) error {
+	decoded, err := decodeBalanceProof(proof)
+	if err != nil {
+		return err
+	}
+	ct64 := make([]byte, 64)
+	copy(ct64[:32], ciphertext.Commitment[:])
+	copy(ct64[32:], ciphertext.Handle[:])
+	return mapCryptoVerifyError(b.inner.AddBalanceProofWithContext(
+		decoded,
+		pubkey[:],
+		ct64,
+		ctx,
+	))
+}
+
 func (b *BatchVerifier) AddShieldProofWithContext(commitment, handle [32]byte, pubkey [32]byte, amount uint64, proof []byte, ctx []byte) error {
 	decoded, err := decodeShieldProof(proof)
 	if err != nil {

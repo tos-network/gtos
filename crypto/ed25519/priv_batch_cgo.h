@@ -44,6 +44,14 @@ gtos_priv_batch_add_commitment_eq_ctx( gtos_priv_batch_verifier_t * verifier,
                                        size_t                      ctx_sz );
 
 int
+gtos_priv_batch_add_balance_ctx( gtos_priv_batch_verifier_t * verifier,
+                                 unsigned char const *       proof,
+                                 unsigned char const *       public_key,
+                                 unsigned char const *       source_ciphertext64,
+                                 unsigned char const *       ctx,
+                                 size_t                      ctx_sz );
+
+int
 gtos_priv_batch_add_range( gtos_priv_batch_verifier_t * verifier,
                            unsigned char const *       proof,
                            size_t                      proof_sz,

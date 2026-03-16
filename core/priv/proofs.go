@@ -3,6 +3,7 @@ package priv
 const (
 	CTValidityProofSizeT1 = 160
 	CommitmentEqProofSize = 192
+	BalanceProofSize      = 8 + CommitmentEqProofSize
 	RangeProofSingle64    = 672
 	RangeProofTransfer    = 2 * RangeProofSingle64
 	ShieldProofSize       = 96
@@ -17,6 +18,13 @@ func decodeCTValidityProof(proof []byte) ([]byte, error) {
 
 func decodeCommitmentEqProof(proof []byte) ([]byte, error) {
 	if len(proof) != CommitmentEqProofSize {
+		return nil, ErrInvalidPayload
+	}
+	return append([]byte(nil), proof...), nil
+}
+
+func decodeBalanceProof(proof []byte) ([]byte, error) {
+	if len(proof) != BalanceProofSize {
 		return nil, ErrInvalidPayload
 	}
 	return append([]byte(nil), proof...), nil
@@ -58,6 +66,12 @@ func ValidateCTValidityProofShape(proof []byte) error {
 // ValidateCommitmentEqProofShape validates commitment equality proof blob size.
 func ValidateCommitmentEqProofShape(proof []byte) error {
 	_, err := decodeCommitmentEqProof(proof)
+	return err
+}
+
+// ValidateBalanceProofShape validates balance proof blob size.
+func ValidateBalanceProofShape(proof []byte) error {
+	_, err := decodeBalanceProof(proof)
 	return err
 }
 

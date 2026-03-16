@@ -138,6 +138,9 @@ func ExecuteTransactions(
 	gp *GasPool,
 	msgs []types.Message,
 ) (types.Receipts, []*types.Log, uint64, error) {
+	if hasPrivacyTransactions(txs) {
+		return executeTransactionsSerial(config, blockCtx, statedb, txs, blockHash, blockNumber, gp, msgs)
+	}
 	applyMsgFn := func(bCtx vm.BlockContext, cfg *params.ChainConfig, msg types.Message, sdb vm.StateDB) (*parallel.TxResult, error) {
 		perTxGP := new(GasPool).AddGas(msg.Gas())
 		result, err := ApplyMessage(context.Background(), bCtx, cfg, msg, perTxGP, sdb)

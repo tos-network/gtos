@@ -97,6 +97,24 @@ func VerifyCommitmentEqProofWithContext(pubkey [32]byte, ciphertext Ciphertext, 
 	))
 }
 
+// VerifyBalanceProofWithContext verifies that subtracting the claimed amount
+// from the source ciphertext yields a zero-value commitment opening.
+func VerifyBalanceProofWithContext(pubkey [32]byte, ciphertext Ciphertext, proof []byte, ctx []byte) error {
+	decoded, err := decodeBalanceProof(proof)
+	if err != nil {
+		return err
+	}
+	ct64 := make([]byte, 64)
+	copy(ct64[:32], ciphertext.Commitment[:])
+	copy(ct64[32:], ciphertext.Handle[:])
+	return mapCryptoVerifyError(cryptopriv.VerifyBalanceProofWithContext(
+		decoded,
+		pubkey[:],
+		ct64,
+		ctx,
+	))
+}
+
 // VerifyRangeProof verifies the two single-commitment Bulletproof range
 // proofs carried by a PrivTransferTx.
 func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byte) error {

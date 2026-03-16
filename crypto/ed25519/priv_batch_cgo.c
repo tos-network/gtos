@@ -1,3 +1,6 @@
+//go:build cgo && ed25519c
+// +build cgo,ed25519c
+
 #include "priv_batch_cgo.h"
 
 #include <stdlib.h>
@@ -111,6 +114,26 @@ gtos_priv_batch_add_commitment_eq_ctx( gtos_priv_batch_verifier_t * verifier,
                                             destination_commitment,
                                             &transcript,
                                             &verifier->collector );
+}
+
+int
+gtos_priv_batch_add_balance_ctx( gtos_priv_batch_verifier_t * verifier,
+                                 unsigned char const *       proof_bytes,
+                                 unsigned char const *       public_key,
+                                 unsigned char const *       source_ciphertext64,
+                                 unsigned char const *       ctx,
+                                 size_t                      ctx_sz ) {
+  if( !verifier || !proof_bytes || !public_key || !source_ciphertext64 ) return -1;
+  at_balance_proof_t proof;
+  if( at_balance_proof_parse( proof_bytes, AT_BALANCE_PROOF_SZ, &proof ) ) return -1;
+  at_merlin_transcript_t transcript;
+  at_merlin_transcript_init( &transcript, AT_MERLIN_LITERAL("balance_proof") );
+  gtos_priv_transcript_append_ctx_cgo( &transcript, ctx, ctx_sz );
+  return at_balance_proof_pre_verify( &proof,
+                                      public_key,
+                                      source_ciphertext64,
+                                      &transcript,
+                                      &verifier->collector );
 }
 
 int

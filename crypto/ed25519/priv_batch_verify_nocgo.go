@@ -4,6 +4,7 @@ package ed25519
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 
 	"github.com/tos-network/gtos/crypto/ristretto255"
 )
@@ -290,7 +291,7 @@ func (b *PrivBatchVerifier) AddPrivCTValidityProofWithContext(proof, commitment,
 	return nil
 }
 
-func (b *PrivBatchVerifier) AddPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, ctx []byte) error {
+func (b *PrivBatchVerifier) addPrivCommitmentEqProofWithTranscript(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, t *merlinTranscript) error {
 	if len(proof192) != 192 || len(sourcePubkey) != 32 || len(sourceCiphertext64) != 64 || len(destinationCommitment) != 32 {
 		return ErrPrivInvalidInput
 	}
@@ -342,11 +343,6 @@ func (b *PrivBatchVerifier) AddPrivCommitmentEqProofWithContext(proof192, source
 	if err != nil {
 		return ErrPrivInvalidProof
 	}
-
-	t := newMerlinTranscript("new-commitment-proof")
-	if len(ctx) > 0 {
-		t.appendMessage("chain-ctx", ctx)
-	}
 	t.appendMessage("dom-sep", []byte("equality-proof"))
 	t.appendMessage("Y_0", Y0Bytes)
 	t.appendMessage("Y_1", Y1Bytes)
@@ -391,6 +387,47 @@ func (b *PrivBatchVerifier) AddPrivCommitmentEqProofWithContext(proof192, source
 	}
 	appendWeightedTerms(&b.sigmaScalars, &b.sigmaPoints, weight, scalars, points)
 	return nil
+}
+
+func (b *PrivBatchVerifier) AddPrivCommitmentEqProofWithContext(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment []byte, ctx []byte) error {
+	t := newMerlinTranscript("new-commitment-proof")
+	if len(ctx) > 0 {
+		t.appendMessage("chain-ctx", ctx)
+	}
+	return b.addPrivCommitmentEqProofWithTranscript(proof192, sourcePubkey, sourceCiphertext64, destinationCommitment, t)
+}
+
+func (b *PrivBatchVerifier) AddPrivBalanceProofWithContext(proof, publicKey, sourceCiphertext64 []byte, ctx []byte) error {
+	if len(proof) != 200 || len(publicKey) != 32 || len(sourceCiphertext64) != 64 {
+		return ErrPrivInvalidInput
+	}
+	amount := binary.BigEndian.Uint64(proof[:8])
+	eqProof := proof[8:]
+
+	opening1 := openingOneBytes()
+	amountCT, err := ElgamalEncryptWithOpening(publicKey, amount, opening1)
+	if err != nil {
+		return ErrPrivInvalidProof
+	}
+	zeroed, err := ElgamalCTSubCompressed(sourceCiphertext64, amountCT)
+	if err != nil {
+		return ErrPrivInvalidProof
+	}
+	destCommit, err := PedersenCommitmentWithOpening(opening1, 0)
+	if err != nil {
+		return ErrPrivInvalidProof
+	}
+
+	t := newMerlinTranscript("balance_proof")
+	if len(ctx) > 0 {
+		t.appendMessage("chain-ctx", ctx)
+	}
+	t.appendMessage("dom-sep", []byte("balance-proof"))
+	amountBE := u64ToBE8(amount)
+	t.appendMessage("amount", amountBE[:])
+	t.appendMessage("source_ct", sourceCiphertext64)
+
+	return b.addPrivCommitmentEqProofWithTranscript(eqProof, publicKey, zeroed, destCommit, t)
 }
 
 func (b *PrivBatchVerifier) AddPrivRangeProof(proof []byte, commitments []byte, bitLengths []byte, batchLen uint8) error {
