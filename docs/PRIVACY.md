@@ -48,10 +48,10 @@
 
 **Core Principles**:
 - **Supported tx types**: PrivTransfer (private-to-private), Shield (public→private, `ShieldTxType=0x02`), and Unshield (private→public, `UnshieldTxType=0x03`) — all three are implemented and wired into consensus (see PRIVACY-ROADMAP.md for details)
-- Fees are `uint64` values denominated in gas units, converted to Wei on-chain via `FeeToWei(feeGasUnits) = feeGasUnits × params.TxPriceWei`. PrivBaseFee = 42,000 gas (2× plain transfer). Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
+- Fees are `uint64` values denominated in UNO base units (1 UNO base unit = 0.01 UNO = 10^16 Wei). UNOBaseFee = 1. `UNOFeeToWei()` converts to Wei on-chain. Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions reuse the existing TxPool. The pool dispatches by `tx.Type()` for nonce lookup and validation
-- PrivTransferTx uses `gas() == 0` and a plaintext Fee/FeeLimit model instead of the gas model. Block assembly and miner gas-limit checks must skip gas accounting for PrivTransferTxType
+- PrivTransferTx uses `gas() == 0` and a plaintext UnoFee/UnoFeeLimit model in UNO base units instead of the gas model. Block assembly and miner gas-limit checks must skip gas accounting for PrivTransferTxType
 
 **Signature Type Separation**:
 - `PrivTransferTxType`: **ElGamal only**. From/To fields are ElGamal compressed public keys (32 bytes each). No `SignerType` field — the signature algorithm is implicit in the transaction type
@@ -395,8 +395,10 @@ PrivBaseGas, PrivTransferGas (formerly UNOBaseGas, UNOTransferGas; Shield/Unshie
 PrivMaxPayloadBytes, PrivMaxProofBytes
 
 // Add
-PrivBaseFee         uint64 = 10_000     // base fee per private transfer (in TOS smallest unit)
-PrivMaxProofBytes          = 96 * 1024
+UNODecimals                = 2
+UNOUnit      uint64 = 1e16   // 1 UNO base unit = 0.01 TOS = 10^16 Wei
+UNOBaseFee   uint64 = 1      // base fee per priv tx in UNO base units
+PrivMaxProofBytes   = 96 * 1024
 ```
 
 ### 1e. Update `core/state_transition.go`
@@ -702,7 +704,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 func (pool *TxPool) validatePrivTransferTx(tx *types.Transaction) error {
     ptx := tx.inner.(*types.PrivTransferTx)
     // 1. Verify ElGamal Schnorr signature using From pubkey (zero IO)
-    // 2. Fee >= PrivBaseFee and FeeLimit >= Fee
+    // 2. UnoFee >= UNOBaseFee and UnoFeeLimit >= UnoFee
     // 3. PrivNonce validation (from storage slot at FromAddress())
     // 4. Validate From/To are valid Ristretto255 compressed points
     // 5. Proof size validation: CtValidityProof (~160B), CommitmentEqProof (~192B), RangeProof (~672B)
@@ -989,7 +991,7 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 |------|-------|--------|
 | **Phase 1a: PrivTransferTx type** | `core/types/priv_transfer_tx.go`, `core/types/transaction.go` | DONE |
 | **Phase 1b: core/priv/ package** | `core/priv/types.go`, `state.go`, `errors.go`, `zero.go`, `verify.go`, `proofs.go`, `context.go`, `fee.go` | DONE |
-| **Phase 1c: params update** | `params/tos_params.go` (PrivBaseFee, PrivMaxProofBytes added) | DONE |
+| **Phase 1c: params update** | `params/tos_params.go` (UNODecimals, UNOUnit, UNOBaseFee, PrivMaxProofBytes) | DONE |
 | **Phase 1d: state_transition** | `core/state_transition.go` (applyPrivTransfer + tx.Type() routing) | DONE |
 | **Phase 1e: parallel analysis** | `core/parallel/analyze.go` (PrivTransferTxType handler) | DONE |
 | **Phase 1f: accountsigner** | `accountsigner/crypto.go` (ElGamal kept for Priv compat; VerifyRawSignature works) | DONE |
@@ -1023,6 +1025,8 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **priv-transfer CLI proof generation** | `cmd/toskey/priv_tx.go` | DONE — proof-of-concept mode via explicit flags |
 | **C backend: ProveCommitmentEqProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — exposed as `gtos_priv_prove_commitment_eq` C wrapper + Go `ProvePrivCommitmentEqProof` |
 | **C backend: ProveAggregatedRangeProof** | `crypto/ed25519/priv_proofs_cgo.go`, `crypto/priv/prove.go` | DONE — concatenates per-commitment single64 range proofs via `ProvePrivAggregatedRangeProof` |
+| **UNO unit system** | `params/tos_params.go`, `core/priv/fee.go`, `core/privacy_tx_validation.go`, `core/priv/prover.go`, `core/types/{shield,unshield,priv_transfer}_tx.go` | DONE — 2-decimal UNO units (1 base unit = 0.01 TOS = 10^16 Wei); fields renamed to UnoFee/UnoAmount/UnoFeeLimit; BSGS L1=26 table decrypts full 5B TOS supply in ~62ms |
+| **TxPool privacy batch validation** | `core/tx_pool.go`, `core/tx_pool_privacy_batch.go` | DONE — batch proof verification, sequential replay for dependent priv txs |
 
 ### Summary
 

@@ -1,7 +1,7 @@
 # Privacy Roadmap: Gap Analysis & Path to First-Class Privacy
 
-**Last updated**: 2026-03-15
-**Current progress**: ~62% toward practical privacy target (~80%)
+**Last updated**: 2026-03-16
+**Current progress**: ~68% toward practical privacy target (~80%)
 
 ---
 
@@ -24,7 +24,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | Encrypted balance state storage | 4 slots per account | commitment, handle, version, nonce in StateDB |
 | RPC endpoints | privTransfer / privShield / privUnshield / privGetBalance / privGetNonce | Functional |
 | TxPool handling | Size, chainID, nonce, fee, funds, proof-shape, signature validation | Correct priv nonce source dispatch; PrivTransfer FeeLimit enforced; Shield/Unshield public-balance coverage enforced; malformed proofs and bad Schnorr signatures rejected at pool admission |
-| Fee model | Gas units × TxPriceWei | PrivBaseFee = 42,000 gas (2× plain transfer); `FeeToWei()` converts to Wei on-chain |
+| Fee model | UNO base units | UNOBaseFee = 1 (0.01 UNO = 10^16 Wei); `UNOFeeToWei()` converts to Wei on-chain |
 | EncryptedMemo | ECDH + ChaCha20-Poly1305 | Per-tx nonce from txHash; integrity-protected by Schnorr signature |
 | Genesis seeding | Full support | Helper script generates encrypted balances for genesis accounts |
 | Miner/Worker | All priv tx types gas bypass | Correct zero-gas handling in block assembly for PrivTransfer/Shield/Unshield |
@@ -74,36 +74,45 @@ Resolved in commit `f358af8`. Full details:
 - **Transaction types**: `ShieldTxType=0x02` and `UnshieldTxType=0x03` defined with complete TxData interface, RLP encoding, and SigningHash
 - **Third-party support**: Shield `Recipient` field (ElGamal pubkey) and Unshield `Recipient` field (address) allow deposits/withdrawals to any account
 - **Consensus execution**: `applyShield()` (11 steps) and `applyUnshield()` (12 steps) in `state_transition.go`, bypassing gas pipeline like PrivTransfer
-- **Shield flow**: Deducts `Amount + FeeToWei(Fee)` from sender → verifies ShieldProof under Recipient's key + RangeProof → adds ciphertext to recipient's encrypted balance
-- **Unshield flow**: Computes `zeroedCt` via ciphertext subtraction → verifies CommitmentEqProof + RangeProof → updates sender's encrypted balance → credits `Amount` to recipient's public balance, deducts `FeeToWei(Fee)` from recipient
+- **Shield flow**: Deducts `(UnoAmount + UnoFee) × UNOUnit` Wei from sender → verifies ShieldProof under Recipient's key + RangeProof → adds ciphertext to recipient's encrypted balance
+- **Unshield flow**: Computes `zeroedCt` via ciphertext subtraction → verifies CommitmentEqProof + RangeProof → updates sender's encrypted balance → credits `UnoAmount × UNOUnit` Wei to recipient's public balance, deducts `UnoFee × UNOUnit` Wei from recipient
 - **Proof context**: 131-byte Shield context (actionTag=0x11), 163-byte Unshield context (actionTag=0x12), bound to chain/nonce/fee/amount/address
 - **Shared PrivNonce**: All 3 tx types (Transfer, Shield, Unshield) share the same PrivNonce counter per account
-- **Fee**: PrivBaseFee = 42,000 gas (2× plain transfer); fee fields are gas units, charged on-chain via `FeeToWei()`
+- **Fee**: UNOBaseFee = 1 UNO base unit (0.01 UNO = 10^16 Wei); fee fields are UNO base units, charged on-chain via `UNOFeeToWei()`
 
 ---
 
 ## Remaining Work
 
-### Phase 1b: Key management CLI (~60%) ✅ Mostly done
+### ~~Phase 1b: Key management CLI~~ ✅ DONE
 
 **Goal**: End users can generate keys and check encrypted balances from the command line.
 
-**Effort**: 1–2 days
-
 **Tasks**:
 - [x] `toskey priv-keygen` — generate ElGamal keypair, output pubkey + privkey (optionally encrypted with passphrase)
-- [x] `toskey priv-balance` — take privkey + on-chain ciphertext (via `--rpc` or `--ct` flag), decrypt via ECDLP baby-step-giant-step, display plaintext balance
+- [x] `toskey priv-balance` — take privkey + on-chain ciphertext (via `--rpc` or `--ct` flag), decrypt via ECDLP baby-step-giant-step, display plaintext balance as X.XX UNO
 
-### Phase 1c: TxPool pre-validation hardening (~62%) ✅ Mostly done
+### ~~Phase 1c: TxPool pre-validation hardening~~ ✅ DONE
 
 **Goal**: Reject obviously invalid priv transactions at pool admission before they consume consensus resources.
-
-**Effort**: 1–2 days
 
 **Tasks**:
 - [x] Proof shape/size pre-validation — reject transactions with wrong proof sizes at `validatePrivTransferTx` / `validateShieldTx` / `validateUnshieldTx` (check `len(CtValidityProof)==160`, `len(ShieldProof)==96`, etc.)
 - [x] Schnorr signature pre-check — verify `VerifySchnorrSignature(pubkey, sigHash, S, E)` at pool admission (currently only checked during consensus execution)
 - [ ] ShieldProof/RangeProof pre-verification (optional, expensive) — only if DoS proves to be a real concern
+
+### ~~Phase 1d: UNO unit system~~ ✅ DONE
+
+**Goal**: Replace Wei-denominated privacy balances with UNO base units (2 decimal places) to make BSGS discrete-log decryption feasible.
+
+**Tasks**:
+- [x] `params.UNOUnit = 1e16` (1 UNO base unit = 0.01 TOS = 10^16 Wei), `params.UNOBaseFee = 1`
+- [x] Replace gas-based fee model (`PrivBaseFee × TxPriceWei`) with direct UNO base unit fees
+- [x] `UNOFeeToWei()` / `WeiToUNO()` / `WeiToUNORemainder()` conversion functions
+- [x] Shield/Unshield convert UNO↔Wei at public balance boundary; PrivTransfer ciphertext arithmetic in UNO base units
+- [x] Rename tx fields for unit clarity: `Fee→UnoFee`, `Amount→UnoAmount`, `FeeLimit→UnoFeeLimit`
+- [x] BSGS precomputed table (L1=26, ~350 MB) — decrypts full 5B TOS supply in ~62ms
+- [x] `toskey priv-balance` displays balance as `X.XX UNO`
 
 ### ~~Phase 2: Stealth addresses~~ ABANDONED
 
@@ -144,6 +153,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | ~~**Phase 1**~~ | ~~Shield/Unshield~~ | ✅ DONE | Public ↔ private flow | ~58% |
 | ~~**Phase 1b**~~ | ~~Key management CLI~~ | ✅ DONE | End-user tooling | ~60% |
 | ~~**Phase 1c**~~ | ~~TxPool hardening~~ | ✅ DONE | DoS resistance | ~62% |
+| ~~**Phase 1d**~~ | ~~UNO unit system~~ | ✅ DONE | Feasible BSGS decryption | ~68% |
 | ~~**Phase 2**~~ | ~~Stealth addresses~~ | ABANDONED | Incompatible with account model | — |
 | ~~**Phase 3**~~ | ~~Dandelion++~~ | ABANDONED | Not needed in DPoS topology | — |
 | ~~**Phase 4**~~ | ~~Decoy outputs / ring sig~~ | ABANDONED | Incompatible with account model | — |
@@ -164,7 +174,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 
 | Milestone | Phases required | What it means |
 |---|---|---|
-| **Minimally viable** | 0 + 1 + 1b + 1c | ← **We are here** (~62%). Amounts hidden, funds flow freely, key/decrypt tooling exists, malformed priv txs are filtered early |
+| **Minimally viable** | 0 + 1 + 1b + 1c + 1d | ← **We are here** (~68%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, malformed priv txs are filtered early |
 | **Contract-ready** | + 5 | (~80%). Contracts can manipulate encrypted values (confidential tokens, private voting) |
 
 **Next priority: Phase 5 (contract homomorphic operations) — the only remaining planned phase.**
