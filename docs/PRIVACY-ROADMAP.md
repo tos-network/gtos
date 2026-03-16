@@ -43,7 +43,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 | Dimension | What's Missing |
 |---|---|
-| Tier-2 ZK proof verification | `mul`/`div`/`rem` proofs are InputHash-bound but not cryptographically verified (need multiplication Sigma protocol). `lt`/`gt`/`eq`/`min`/`max`/`select` now have real Bulletproofs range-proof verification. |
+| ~~Tier-2 ZK proof verification~~ | ✅ All 9 Tier-2 ops have real ZK verification. `mul`/`div`/`rem` use multiplication Sigma protocol; `lt`/`gt`/`eq`/`min`/`max`/`select` use Bulletproofs range proofs. |
 | RPC access control | `PrivacyRPCRestricted` flag gates privacy slot reads via `GetStorageAt` and `privGetBalance`/`privGetNonce`. Default=false (permissive). TODO: replace with proper private-key-based authentication. |
 
 ---
@@ -52,7 +52,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Level 3: Contract HE ops (ciphertext arith)│  DONE (22 ops, Tier-2 ZK stubs)
+│  Level 3: Contract HE ops (ciphertext arith)│  DONE (22 ops, all real ZK verification)
 ├─────────────────────────────────────────────┤
 │  Level 2: Liquidity (Shield/Unshield)       │  DONE (consensus + RPC + CLI)
 ├─────────────────────────────────────────────┤
@@ -155,7 +155,7 @@ Ring signatures and decoy outputs are fundamentally incompatible with the accoun
 - [x] `uno` first-class encrypted type in TOL compiler (lexer, parser, sema, IR lowering, ABI encode/decode)
 - [x] `tos.ciphertext` LVM sub-table with 22 Go-native functions
 - [x] Tier 1 (9 native homomorphic): `add`, `sub`, `add_scalar`, `sub_scalar`, `mul_scalar`, `div_scalar`, `zero`, `encrypt`, `from_parts`
-- [x] Tier 2 (9 proof-bundle verified): `lt`, `gt`, `eq`, `min`, `max`, `select` have real Bulletproofs range-proof verification; `mul`, `div`, `rem` remain stubbed (need multiplication Sigma protocol)
+- [x] Tier 2 (9 proof-bundle verified, all with real ZK verification): `lt`/`gt`/`eq`/`min`/`max`/`select` use Bulletproofs range proofs; `mul`/`div`/`rem` use Pedersen multiplication Sigma protocol (160B proof, Merlin transcript Fiat-Shamir)
 - [x] Accessors: `commitment`, `handle`
 - [x] Verification (real crypto): `verify_transfer` (VerifyCTValidityProof), `verify_eq` (VerifyCommitmentEqProof)
 - [x] ProofBundle binary format (`PBND` magic) appended to calldata; Execute() strips before ABI decoding
@@ -164,7 +164,7 @@ Ring signatures and decoy outputs are fundamentally incompatible with the accoun
 - [x] Operator restrictions: `==`/`!=` allowed (desugared to `eq`), arithmetic/comparison operators rejected
 - [x] Sample contract `ConfidentialToken.tol` compiles end-to-end
 - [x] RPC access control: `GetStorageAt` blocks privacy slots, `privGetBalance`/`privGetNonce` gated by `PrivacyRPCRestricted` flag
-- [x] 33 gtos tests + 12 tolang tests passing
+- [x] 46 gtos tests + 12 tolang tests passing
 
 #### ~~Phase 5b: Encrypted contract storage~~ ABANDONED
 #### ~~Phase 5c: Confidential computation (FHE/MPC/TEE)~~ ABANDONED
@@ -204,8 +204,7 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | Milestone | Phases required | What it means |
 |---|---|---|
 | **Minimally viable** | 0 + 1 + 1b + 1c + 1d + 1e | (~72%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, privacy txs are batch-verified in txpool and execution |
-| **Contract-ready** | + 5 | ← **We are here** (~80%). Contracts can manipulate encrypted values via `uno` type. 6 of 9 Tier-2 ops have real Bulletproofs verification; 3 remain stubbed (mul/div/rem). RPC privacy slot access is gated by `PrivacyRPCRestricted` flag. |
+| **Contract-ready** | + 5 | ← **We are here** (~80%). Contracts can manipulate encrypted values via `uno` type. All 22 ciphertext ops have real ZK verification. RPC privacy slot access is gated by `PrivacyRPCRestricted` flag. |
 
-**All planned privacy phases are complete.** Remaining hardening:
-- `mul`/`div`/`rem` ZK proof verification (needs multiplication Sigma protocol in `crypto/priv`)
+**All planned privacy phases are complete. All ZK verifications are real.** Remaining hardening:
 - RPC authentication: replace boolean `PrivacyRPCRestricted` flag with private-key-based auth
