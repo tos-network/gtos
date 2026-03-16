@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -21,6 +22,7 @@ var ristrettoGroupOrder = func() *big.Int {
 const (
 	ctValidityProofSize   = 160 // CTValidityProofSizeT1
 	commitmentEqProofSize = 192 // CommitmentEqProofSize
+	rangeProofSingle64Size = 672 // single 64-bit Bulletproofs range proof
 )
 
 // Gas costs for ciphertext operations.
@@ -117,6 +119,18 @@ func bigIntToScalar32LE(n *big.Int) [32]byte {
 	}
 	copy(s[:], b)
 	return s
+}
+
+// verifyRangeProof64 verifies a single 64-bit Bulletproofs range proof
+// against the given 32-byte Pedersen commitment.
+func verifyRangeProof64(commitment []byte, proof []byte) error {
+	if len(proof) != rangeProofSingle64Size {
+		return fmt.Errorf("range proof must be %d bytes, got %d", rangeProofSingle64Size, len(proof))
+	}
+	if len(commitment) < 32 {
+		return fmt.Errorf("commitment must be at least 32 bytes, got %d", len(commitment))
+	}
+	return cryptopriv.VerifyRangeProof(proof, commitment[:32], []byte{64}, 1)
 }
 
 // registerCiphertextTable creates the tos.ciphertext sub-table and registers
@@ -337,8 +351,9 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 
 	// ── Tier 2: proof-based operations ───────────────────────────────────────
 
-	// Helper for Tier-2 ciphertext-result ops (mul, div, rem, min, max).
-	tier2CtOp := func(opName string, gas uint64) lua.LGFunction {
+	// Helper for Tier-2 stubbed ciphertext-result ops (mul, div, rem).
+	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
+	tier2StubCtOp := func(opName string, gas uint64) lua.LGFunction {
 		return func(L *lua.LState) int {
 			chargePrimGas(gas)
 			aHex := L.CheckString(1)
@@ -357,7 +372,7 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 				L.RaiseError("ciphertext.%s: proof bundle required", opName)
 				return 0
 			}
-			// TODO: implement ZK proof verification
+			// TODO: requires multiplication Sigma protocol not yet in crypto/priv
 			entry, err := proofBundle.Next(opName, a[:], b[:])
 			if err != nil {
 				L.RaiseError("ciphertext.%s: %v", opName, err)
@@ -374,64 +389,379 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		}
 	}
 
-	// Helper for Tier-2 boolean-result ops (lt, gt, eq).
-	tier2BoolOp := func(opName string, gas uint64) lua.LGFunction {
-		return func(L *lua.LState) int {
-			chargePrimGas(gas)
-			aHex := L.CheckString(1)
-			bHex := L.CheckString(2)
-			a, err := parseCiphertextHex(aHex)
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			b, err := parseCiphertextHex(bHex)
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			if proofBundle == nil {
-				L.RaiseError("ciphertext.%s: proof bundle required", opName)
-				return 0
-			}
-			// TODO: implement ZK proof verification
-			entry, err := proofBundle.Next(opName, a[:], b[:])
-			if err != nil {
-				L.RaiseError("ciphertext.%s: %v", opName, err)
-				return 0
-			}
-			if len(entry.ResultData) != 1 {
-				L.RaiseError("ciphertext.%s: bool result must be 1 byte", opName)
-				return 0
-			}
-			if entry.ResultData[0] != 0 {
-				L.Push(lua.LTrue)
-			} else {
-				L.Push(lua.LFalse)
-			}
-			return 1
-		}
-	}
-
 	// 10. mul(a, b) → ciphertext
-	L.SetField(ctTable, "mul", L.NewFunction(tier2CtOp("mul", gasCtMul)))
+	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
+	L.SetField(ctTable, "mul", L.NewFunction(tier2StubCtOp("mul", gasCtMul)))
 	// 11. div(a, b) → ciphertext
-	L.SetField(ctTable, "div", L.NewFunction(tier2CtOp("div", gasCtDiv)))
+	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
+	L.SetField(ctTable, "div", L.NewFunction(tier2StubCtOp("div", gasCtDiv)))
 	// 12. rem(a, b) → ciphertext
-	L.SetField(ctTable, "rem", L.NewFunction(tier2CtOp("rem", gasCtRem)))
+	// TODO: requires multiplication Sigma protocol not yet in crypto/priv
+	L.SetField(ctTable, "rem", L.NewFunction(tier2StubCtOp("rem", gasCtRem)))
+
 	// 13. lt(a, b) → bool
-	L.SetField(ctTable, "lt", L.NewFunction(tier2BoolOp("lt", gasCtLt)))
+	//     Proof = 672B range proof.
+	//     If result == true (a < b):  proves b-a-1 ∈ [0, 2^64), i.e., a < b.
+	//     If result == false (a ≥ b): proves a-b ∈ [0, 2^64), i.e., a ≥ b.
+	L.SetField(ctTable, "lt", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtLt)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.lt: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.lt: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.lt: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("lt", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.lt: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.lt: bool result must be 1 byte")
+			return 0
+		}
+		result := entry.ResultData[0] != 0
+		if result {
+			// a < b: diff = b - a, shifted = diff - 1. Prove shifted ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.lt: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.lt: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.lt: range proof verification failed: %v", err2)
+				return 0
+			}
+		} else {
+			// a >= b: diff = a - b. Prove diff ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.lt: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.lt: range proof verification failed: %v", err2)
+				return 0
+			}
+		}
+		if result {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
 	// 14. gt(a, b) → bool
-	L.SetField(ctTable, "gt", L.NewFunction(tier2BoolOp("gt", gasCtGt)))
+	//     Proof = 672B range proof.
+	//     If result == true (a > b):  proves a-b-1 ∈ [0, 2^64), i.e., a > b.
+	//     If result == false (a ≤ b): proves b-a ∈ [0, 2^64), i.e., a ≤ b.
+	L.SetField(ctTable, "gt", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtGt)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.gt: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.gt: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.gt: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("gt", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.gt: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.gt: bool result must be 1 byte")
+			return 0
+		}
+		result := entry.ResultData[0] != 0
+		if result {
+			// a > b: diff = a - b, shifted = diff - 1. Prove shifted ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.gt: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.gt: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.gt: range proof verification failed: %v", err2)
+				return 0
+			}
+		} else {
+			// a <= b: diff = b - a. Prove diff ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.gt: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.gt: range proof verification failed: %v", err2)
+				return 0
+			}
+		}
+		if result {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
 	// 15. eq(a, b) → bool
-	L.SetField(ctTable, "eq", L.NewFunction(tier2BoolOp("eq", gasCtEq)))
+	//     If result == true: Proof = 1344B (two 672B range proofs).
+	//       Proves a-b ∈ [0,2^64) AND b-a ∈ [0,2^64) → diff must be 0.
+	//     If result == false: Proof = 673B ([direction 1B] [range_proof 672B]).
+	//       direction=0 → a>b, direction=1 → b>a; proves |a-b| ≥ 1.
+	L.SetField(ctTable, "eq", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtEq)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.eq: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.eq: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.eq: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("eq", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.eq: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.eq: bool result must be 1 byte")
+			return 0
+		}
+		result := entry.ResultData[0] != 0
+		if result {
+			// Equal: proof = two range proofs (1344B total).
+			// Proves a-b ∈ [0,2^64) AND b-a ∈ [0,2^64) → diff = 0.
+			if len(entry.Proof) != 2*rangeProofSingle64Size {
+				L.RaiseError("ciphertext.eq: eq=true proof must be %d bytes, got %d",
+					2*rangeProofSingle64Size, len(entry.Proof))
+				return 0
+			}
+			diffFwd, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.eq: compute diff_fwd: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diffFwd[:32], entry.Proof[:rangeProofSingle64Size]); err2 != nil {
+				L.RaiseError("ciphertext.eq: forward range proof failed: %v", err2)
+				return 0
+			}
+			diffBwd, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.eq: compute diff_bwd: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diffBwd[:32], entry.Proof[rangeProofSingle64Size:]); err2 != nil {
+				L.RaiseError("ciphertext.eq: backward range proof failed: %v", err2)
+				return 0
+			}
+		} else {
+			// Not equal: proof = 1B direction + 672B range proof.
+			// direction=0 → a>b; direction=1 → b>a. Proves |a-b| ≥ 1.
+			if len(entry.Proof) != 1+rangeProofSingle64Size {
+				L.RaiseError("ciphertext.eq: eq=false proof must be %d bytes, got %d",
+					1+rangeProofSingle64Size, len(entry.Proof))
+				return 0
+			}
+			direction := entry.Proof[0]
+			rangeProof := entry.Proof[1:]
+			var diff []byte
+			var err2 error
+			if direction == 0 {
+				// a > b
+				diff, err2 = cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			} else {
+				// b > a
+				diff, err2 = cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			}
+			if err2 != nil {
+				L.RaiseError("ciphertext.eq: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.eq: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], rangeProof); err2 != nil {
+				L.RaiseError("ciphertext.eq: range proof failed: %v", err2)
+				return 0
+			}
+		}
+		if result {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
+		return 1
+	}))
+
 	// 16. min(a, b) → ciphertext
-	L.SetField(ctTable, "min", L.NewFunction(tier2CtOp("min", gasCtMin)))
+	//     Proof = 672B range proof. ResultData must equal a or b.
+	//     If result==a: proves b≥a (range proof on (b-a)). If result==b: proves a≥b.
+	L.SetField(ctTable, "min", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtMin)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.min: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.min: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.min: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("min", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.min: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 64 {
+			L.RaiseError("ciphertext.min: result must be 64 bytes")
+			return 0
+		}
+		if bytes.Equal(entry.ResultData, a[:]) {
+			// result == a → prove b ≥ a: range proof on (b - a)
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.min: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.min: range proof failed: %v", err2)
+				return 0
+			}
+		} else if bytes.Equal(entry.ResultData, b[:]) {
+			// result == b → prove a ≥ b: range proof on (a - b)
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.min: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.min: range proof failed: %v", err2)
+				return 0
+			}
+		} else {
+			L.RaiseError("ciphertext.min: result must equal one of the inputs")
+			return 0
+		}
+		var res [64]byte
+		copy(res[:], entry.ResultData)
+		L.Push(lua.LString(ciphertextToHex(res)))
+		return 1
+	}))
+
 	// 17. max(a, b) → ciphertext
-	L.SetField(ctTable, "max", L.NewFunction(tier2CtOp("max", gasCtMax)))
+	//     Proof = 672B range proof. ResultData must equal a or b.
+	//     If result==a: proves a≥b (range proof on (a-b)). If result==b: proves b≥a.
+	L.SetField(ctTable, "max", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtMax)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.max: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.max: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.max: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("max", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.max: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 64 {
+			L.RaiseError("ciphertext.max: result must be 64 bytes")
+			return 0
+		}
+		if bytes.Equal(entry.ResultData, a[:]) {
+			// result == a → prove a ≥ b: range proof on (a - b)
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.max: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.max: range proof failed: %v", err2)
+				return 0
+			}
+		} else if bytes.Equal(entry.ResultData, b[:]) {
+			// result == b → prove b ≥ a: range proof on (b - a)
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.max: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.max: range proof failed: %v", err2)
+				return 0
+			}
+		} else {
+			L.RaiseError("ciphertext.max: result must equal one of the inputs")
+			return 0
+		}
+		var res [64]byte
+		copy(res[:], entry.ResultData)
+		L.Push(lua.LString(ciphertextToHex(res)))
+		return 1
+	}))
 
 	// 18. select(cond, a, b) → ciphertext
 	//     cond is a Lua boolean; selects a if true, b if false.
+	//     Verification: byte-compare result against the selected input (no ZK proof needed).
 	L.SetField(ctTable, "select", L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(gasCtSelect)
 		cond := L.CheckBool(1)
@@ -456,7 +786,6 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		if cond {
 			condByte[0] = 1
 		}
-		// TODO: implement ZK proof verification
 		entry, err := proofBundle.Next("select", condByte[:], a[:], b[:])
 		if err != nil {
 			L.RaiseError("ciphertext.select: %v", err)
@@ -465,6 +794,18 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		if len(entry.ResultData) != 64 {
 			L.RaiseError("ciphertext.select: result must be 64 bytes")
 			return 0
+		}
+		// Verify result matches the selected input.
+		if cond {
+			if !bytes.Equal(entry.ResultData, a[:]) {
+				L.RaiseError("ciphertext.select: result must equal input a when cond is true")
+				return 0
+			}
+		} else {
+			if !bytes.Equal(entry.ResultData, b[:]) {
+				L.RaiseError("ciphertext.select: result must equal input b when cond is false")
+				return 0
+			}
 		}
 		var res [64]byte
 		copy(res[:], entry.ResultData)

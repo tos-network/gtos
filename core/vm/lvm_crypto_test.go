@@ -534,3 +534,334 @@ tos.sstore("ok", 1)
 		t.Error("expected ok=1")
 	}
 }
+
+// --- Tier-2 real verification tests ---
+
+// buildCtFromOpening constructs a ciphertext from a known opening and amount.
+func buildCtFromOpening(t *testing.T, pub []byte, opening []byte, amount uint64) []byte {
+	t.Helper()
+	commitment, err := cryptopriv.PedersenCommitmentWithOpening(opening, amount)
+	if err != nil {
+		t.Fatalf("PedersenCommitmentWithOpening: %v", err)
+	}
+	handle, err := cryptopriv.DecryptHandleWithOpening(pub, opening)
+	if err != nil {
+		t.Fatalf("DecryptHandleWithOpening: %v", err)
+	}
+	ct := make([]byte, 64)
+	copy(ct[:32], commitment)
+	copy(ct[32:], handle)
+	return ct
+}
+
+// scalarSub computes (a - b) mod ristrettoGroupOrder, returning 32-byte LE scalar.
+func scalarSub(a, b []byte) []byte {
+	aBig := new(big.Int).SetBytes(reverseBytes32(a))
+	bBig := new(big.Int).SetBytes(reverseBytes32(b))
+	diff := new(big.Int).Sub(aBig, bBig)
+	diff.Mod(diff, ristrettoGroupOrder)
+	s := bigIntToScalar32LE(diff)
+	return s[:]
+}
+
+func reverseBytes32(in []byte) []byte {
+	out := make([]byte, len(in))
+	for i, b := range in {
+		out[len(in)-1-i] = b
+	}
+	return out
+}
+
+// runLuaWithBundle runs Lua source with a proof bundle attached to calldata.
+func runLuaWithBundle(t *testing.T, st StateDB, contractAddr common.Address,
+	src string, bundleBytes []byte, gas uint64) error {
+	t.Helper()
+	ctx := CallCtx{
+		From: common.Address{0xFF}, To: contractAddr,
+		Value: big.NewInt(0), Data: bundleBytes,
+		TxOrigin: common.Address{0xFF}, TxPrice: big.NewInt(1),
+	}
+	_, _, _, err := Execute(st, newBlockCtx(), testChainConfig, ctx, []byte(src), gas)
+	return err
+}
+
+func TestCtLtReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(3), uint64(7)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	// lt(a, b)=true: diff=sub(b,a), shifted=sub_scalar(diff,1), prove shifted ∈ [0,2^64)
+	diff, _ := cryptopriv.SubCompressedCiphertexts(ctB, ctA)
+	shifted, _ := cryptopriv.SubAmountCompressed(diff, 1)
+	openDiff := scalarSub(openB, openA)
+	rangeProof, err := cryptopriv.ProveRangeProof(shifted[:32], valB-valA-1, openDiff)
+	if err != nil {
+		t.Fatalf("ProveRangeProof: %v", err)
+	}
+
+	inputHash := makeInputHash("lt", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "lt", InputHash: inputHash, ResultData: []byte{1}, Proof: rangeProof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE0}
+	src := `
+local r = tos.ciphertext.lt("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= true then error("expected true") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("lt valid: %v", err)
+	}
+}
+
+func TestCtLtInvalidProof(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 3)
+	ctB := buildCtFromOpening(t, pub, openB, 7)
+
+	inputHash := makeInputHash("lt", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "lt", InputHash: inputHash, ResultData: []byte{1}, Proof: make([]byte, 672),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE1}
+	src := `tos.ciphertext.lt("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "range proof") {
+		t.Fatalf("expected range proof error, got: %v", err)
+	}
+}
+
+func TestCtGtReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(7), uint64(3)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	diff, _ := cryptopriv.SubCompressedCiphertexts(ctA, ctB)
+	shifted, _ := cryptopriv.SubAmountCompressed(diff, 1)
+	openDiff := scalarSub(openA, openB)
+	rangeProof, _ := cryptopriv.ProveRangeProof(shifted[:32], valA-valB-1, openDiff)
+
+	inputHash := makeInputHash("gt", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "gt", InputHash: inputHash, ResultData: []byte{1}, Proof: rangeProof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE2}
+	src := `
+local r = tos.ciphertext.gt("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= true then error("expected true") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("gt valid: %v", err)
+	}
+}
+
+func TestCtEqTrueReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	val := uint64(5)
+
+	ctA := buildCtFromOpening(t, pub, openA, val)
+	ctB := buildCtFromOpening(t, pub, openB, val)
+
+	diffFwd, _ := cryptopriv.SubCompressedCiphertexts(ctA, ctB)
+	diffBwd, _ := cryptopriv.SubCompressedCiphertexts(ctB, ctA)
+	openFwd := scalarSub(openA, openB)
+	openBwd := scalarSub(openB, openA)
+	rpFwd, _ := cryptopriv.ProveRangeProof(diffFwd[:32], 0, openFwd)
+	rpBwd, _ := cryptopriv.ProveRangeProof(diffBwd[:32], 0, openBwd)
+
+	inputHash := makeInputHash("eq", ctA, ctB)
+	proof := append(rpFwd, rpBwd...)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "eq", InputHash: inputHash, ResultData: []byte{1}, Proof: proof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE3}
+	src := `
+local r = tos.ciphertext.eq("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= true then error("expected true") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("eq=true valid: %v", err)
+	}
+}
+
+func TestCtEqFalseReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(5), uint64(8)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	// direction=1 (b > a)
+	diff, _ := cryptopriv.SubCompressedCiphertexts(ctB, ctA)
+	shifted, _ := cryptopriv.SubAmountCompressed(diff, 1)
+	openDiff := scalarSub(openB, openA)
+	rp, _ := cryptopriv.ProveRangeProof(shifted[:32], valB-valA-1, openDiff)
+
+	inputHash := makeInputHash("eq", ctA, ctB)
+	proof := append([]byte{1}, rp...) // direction=1
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "eq", InputHash: inputHash, ResultData: []byte{0}, Proof: proof,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE4}
+	src := `
+local r = tos.ciphertext.eq("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= false then error("expected false") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("eq=false valid: %v", err)
+	}
+}
+
+func TestCtMinReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(3), uint64(7)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	// min=ctA → prove b ≥ a: range proof on sub(b, a)
+	diff, _ := cryptopriv.SubCompressedCiphertexts(ctB, ctA)
+	openDiff := scalarSub(openB, openA)
+	rp, _ := cryptopriv.ProveRangeProof(diff[:32], valB-valA, openDiff)
+
+	inputHash := makeInputHash("min", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "min", InputHash: inputHash, ResultData: ctA, Proof: rp,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE5}
+	src := `
+local r = tos.ciphertext.min("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(ctA) + `" then error("expected ctA") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("min valid: %v", err)
+	}
+}
+
+func TestCtMaxReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	valA, valB := uint64(3), uint64(7)
+
+	ctA := buildCtFromOpening(t, pub, openA, valA)
+	ctB := buildCtFromOpening(t, pub, openB, valB)
+
+	// max=ctB → prove b ≥ a: range proof on sub(b, a)
+	diff, _ := cryptopriv.SubCompressedCiphertexts(ctB, ctA)
+	openDiff := scalarSub(openB, openA)
+	rp, _ := cryptopriv.ProveRangeProof(diff[:32], valB-valA, openDiff)
+
+	inputHash := makeInputHash("max", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "max", InputHash: inputHash, ResultData: ctB, Proof: rp,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE6}
+	src := `
+local r = tos.ciphertext.max("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(ctB) + `" then error("expected ctB") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("max valid: %v", err)
+	}
+}
+
+func TestCtSelectReal(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	openA, _ := cryptopriv.GenerateOpening()
+	openB, _ := cryptopriv.GenerateOpening()
+	ctA := buildCtFromOpening(t, pub, openA, 10)
+	ctB := buildCtFromOpening(t, pub, openB, 20)
+
+	inputHash := makeInputHash("select", []byte{1}, ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "select", InputHash: inputHash, ResultData: ctA,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE7}
+	src := `
+local r = tos.ciphertext.select(true, "0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")
+if r ~= "0x` + hex.EncodeToString(ctA) + `" then error("expected ctA") end
+tos.sstore("ok", 1)
+`
+	if err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000); err != nil {
+		t.Fatalf("select valid: %v", err)
+	}
+}
+
+func TestCtSelectWrongResult(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	ctA := buildCtFromOpening(t, pub, func() []byte { o, _ := cryptopriv.GenerateOpening(); return o }(), 10)
+	ctB := buildCtFromOpening(t, pub, func() []byte { o, _ := cryptopriv.GenerateOpening(); return o }(), 20)
+
+	// cond=true but result=ctB (wrong)
+	inputHash := makeInputHash("select", []byte{1}, ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "select", InputHash: inputHash, ResultData: ctB,
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE8}
+	src := `tos.ciphertext.select(true, "0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "must equal input a") {
+		t.Fatalf("expected 'must equal input a' error, got: %v", err)
+	}
+}
+
+func TestCtMinWrongResult(t *testing.T) {
+	pub, _, _ := cryptopriv.GenerateKeypair()
+	ctA := buildCtFromOpening(t, pub, func() []byte { o, _ := cryptopriv.GenerateOpening(); return o }(), 3)
+	ctB := buildCtFromOpening(t, pub, func() []byte { o, _ := cryptopriv.GenerateOpening(); return o }(), 7)
+
+	fakeResult := make([]byte, 64)
+	fakeResult[0] = 0xFF
+	inputHash := makeInputHash("min", ctA, ctB)
+	bundleBytes := EncodeProofBundle([]ProofEntry{{
+		Op: "min", InputHash: inputHash, ResultData: fakeResult, Proof: make([]byte, 672),
+	}})
+
+	st := newAgentTestState()
+	addr := common.Address{0xE9}
+	src := `tos.ciphertext.min("0x` + hex.EncodeToString(ctA) + `", "0x` + hex.EncodeToString(ctB) + `")`
+	err := runLuaWithBundle(t, st, addr, src, bundleBytes, 2_000_000)
+	if err == nil || !strings.Contains(err.Error(), "must equal one of the inputs") {
+		t.Fatalf("expected 'must equal one of the inputs' error, got: %v", err)
+	}
+}
