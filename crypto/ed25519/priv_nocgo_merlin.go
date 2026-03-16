@@ -1,5 +1,3 @@
-//go:build !cgo || !ed25519c
-
 package ed25519
 
 import (
@@ -20,7 +18,7 @@ const (
 	flagI byte = 1
 	flagA byte = 2
 	flagC byte = 4
-	flagT byte = 8  //nolint:unused
+	flagT byte = 8 //nolint:unused
 	flagM byte = 16
 	flagK byte = 32
 )

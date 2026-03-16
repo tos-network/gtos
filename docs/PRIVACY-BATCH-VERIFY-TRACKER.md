@@ -19,6 +19,21 @@ It does not cover:
 - ZKP cache work
 - unrelated privacy roadmap items such as memo consumption, contract privacy, or network-layer privacy
 
+## Overall Status
+
+The functional privacy batch-verification alignment work is complete.
+
+GTOS now has:
+
+- real sigma batch verification in both pure-Go and native `ed25519c` backends
+- real range-proof batch verification in both backends
+- aggregated transfer range-proof representation aligned with the `~/x` model
+- txpool batch verification with pool-local private-state replay
+- execution-path batch verification beyond txpool
+- shared prepared proof-state flow across txpool and execution
+
+There are no remaining in-scope implementation tasks in this tracker. GTOS also keeps backward-compatible acceptance of the older concatenated transfer range-proof encoding so historical data can still be verified.
+
 ## Current Status
 
 | Item | Status | Notes |
@@ -29,6 +44,11 @@ It does not cover:
 | Native C range batch verifier | DONE | Native range pre-verification appends MSM terms to the collector and verifies them in batch |
 | TxPool integration | DONE | Prepared privacy txs are batch-verified before admission; invalid batches fall back to sequential verification for isolation |
 | Pool-local privacy state replay | DONE | Dependent private txs are replayed on a virtual private state before verification |
+| Execution-path integration | DONE | Blocks containing privacy txs use the shared prepared flow and batch-verify consecutive privacy runs before apply |
+| Shared prepare / pre-verify architecture | DONE | Txpool admission and execution reuse the same prepared privacy tx model and proof-state derivation |
+| `BalanceProof` batch support | DONE | `BalanceProof` now feeds the same sigma collector path in both pure-Go and native `ed25519c` backends |
+| Focused performance benchmarks | DONE | `core/priv` includes batch-vs-sequential benchmarks for transfer-heavy and mixed privacy-proof sets |
+| Transfer range-proof representation alignment | DONE | `PrivTransfer` now generates one aggregated two-commitment range proof; verifiers still accept the legacy concatenated encoding for compatibility |
 | Batch vs sequential equivalence tests | DONE | Positive and negative-path tests confirm identical verification outcomes |
 
 ## Explicit Non-Goals
@@ -41,11 +61,7 @@ It does not cover:
 
 | Priority | Task | Status | Notes |
 |---|---|---|---|
-| P1 | Extend batch verification beyond txpool | DONE | Blocks containing privacy txs now use a serial privacy execution path that batch-verifies consecutive privacy runs before applying them to canonical state |
-| P1 | Unify the prepare/pre-verify architecture | DONE | Shared prepared-privacy helpers now back both txpool admission and execution-path verification/apply flow |
-| P2 | Add `BalanceProof` batch support if needed | DONE | `BalanceProof` now feeds the same sigma collector path in both pure-Go and native `ed25519c` backends |
-| P2 | Add focused performance benchmarks | DONE | `core/priv` now includes batch-vs-sequential benchmarks for transfer-heavy and mixed privacy-proof sets under both Go and `ed25519c` builds |
-| P3 | Re-evaluate range-proof representation alignment | TODO | GTOS currently batches its existing transfer wire format, which is two concatenated single range proofs rather than one aggregated proof view |
+| - | No remaining in-scope work | DONE | The tracker scope is complete; only `~/x` items intentionally out of scope, such as `ZKP cache`, remain different |
 
 ## Reference Alignment With `~/x`
 
@@ -55,13 +71,13 @@ It does not cover:
 - pool-level sigma/range batch verification exists
 - dependency-sensitive private txs use virtual-state replay before verification
 - execution path reuses prepared proof state and performs batch verification beyond txpool
+- transfer range proofs now use an aggregated multi-commitment representation instead of a concatenated pair of single proofs
 
 ### Still different
 
 - GTOS does not implement the `~/x` ZKP cache model
-- GTOS keeps its current transfer range-proof wire format instead of adopting the `~/x` verification-view format directly
 
 ## Suggested Completion Order
 
-1. Decide whether `BalanceProof` belongs on a hot path before adding it to the batch API.
-2. Revisit range-proof representation alignment only if protocol-format convergence with `~/x` becomes a goal.
+1. Treat the current batch-verification work as complete for functional parity.
+2. Only revisit this tracker if `ZKP cache` or another intentionally excluded `~/x` feature becomes in scope.

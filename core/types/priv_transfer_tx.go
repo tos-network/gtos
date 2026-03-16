@@ -31,7 +31,7 @@ type PrivTransferTx struct {
 	// Proofs (separated)
 	CtValidityProof   []byte // ~160 bytes
 	CommitmentEqProof []byte // ~192 bytes
-	RangeProof        []byte // currently two concatenated ~672-byte single range proofs
+	RangeProof        []byte // aggregated transfer range proof; legacy concatenated proofs are still accepted by verifiers
 
 	// Encrypted memo
 	EncryptedMemo      []byte // ChaCha20Poly1305 ciphertext

@@ -115,27 +115,47 @@ func VerifyBalanceProofWithContext(pubkey [32]byte, ciphertext Ciphertext, proof
 	))
 }
 
-// VerifyRangeProof verifies the two single-commitment Bulletproof range
-// proofs carried by a PrivTransferTx.
+// VerifyRangeProof verifies the PrivTransfer range proof. New transactions use
+// one aggregated proof over the source and transfer commitments; legacy blocks
+// may still contain the older concatenated two-proof encoding.
 func VerifyRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byte) error {
-	decoded, err := decodeTransferRangeProofs(proof)
-	if err != nil {
-		return err
+	switch len(proof) {
+	case RangeProofTransfer:
+		decoded, err := decodeAggregatedTransferRangeProof(proof)
+		if err != nil {
+			return err
+		}
+		commitments := make([]byte, 64)
+		copy(commitments[:32], sourceCommitment[:])
+		copy(commitments[32:], transferCommitment[:])
+		return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
+			decoded,
+			commitments,
+			[]byte{64, 64},
+			2,
+		))
+	case RangeProofTransferLegacy:
+		decoded, err := decodeTransferRangeProofs(proof)
+		if err != nil {
+			return err
+		}
+		if err := mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
+			decoded[0],
+			sourceCommitment[:],
+			[]byte{64},
+			1,
+		)); err != nil {
+			return err
+		}
+		return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
+			decoded[1],
+			transferCommitment[:],
+			[]byte{64},
+			1,
+		))
+	default:
+		return ErrInvalidPayload
 	}
-	if err := mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
-		decoded[0],
-		sourceCommitment[:],
-		[]byte{64},
-		1,
-	)); err != nil {
-		return err
-	}
-	return mapCryptoVerifyError(cryptopriv.VerifyRangeProof(
-		decoded[1],
-		transferCommitment[:],
-		[]byte{64},
-		1,
-	))
 }
 
 // VerifySingleRangeProof verifies a range proof over a single commitment.

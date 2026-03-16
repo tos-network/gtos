@@ -116,8 +116,8 @@ func BuildTransferProofs(
 			nil, nil, nil, fmt.Errorf("commitment eq proof failed: %w", err)
 	}
 
-	// 5. Generate the two single-commitment range proofs carried by the
-	//    transfer, concatenated in source/transfer order.
+	// 5. Generate the aggregated transfer range proof covering both the
+	//    source commitment and transfer commitment.
 	rangeProof, err = cryptopriv.ProveAggregatedRangeProof(
 		[][]byte{srcCommitmentBytes, commitmentBytes},
 		[]uint64{newBalance, amount},

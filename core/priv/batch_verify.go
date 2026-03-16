@@ -76,14 +76,28 @@ func (b *BatchVerifier) AddShieldProofWithContext(commitment, handle [32]byte, p
 }
 
 func (b *BatchVerifier) AddRangeProof(sourceCommitment, transferCommitment [32]byte, proof []byte) error {
-	decoded, err := decodeTransferRangeProofs(proof)
-	if err != nil {
-		return err
+	switch len(proof) {
+	case RangeProofTransfer:
+		decoded, err := decodeAggregatedTransferRangeProof(proof)
+		if err != nil {
+			return err
+		}
+		commitments := make([]byte, 64)
+		copy(commitments[:32], sourceCommitment[:])
+		copy(commitments[32:], transferCommitment[:])
+		return mapCryptoVerifyError(b.inner.AddRangeProof(decoded, commitments, []byte{64, 64}, 2))
+	case RangeProofTransferLegacy:
+		decoded, err := decodeTransferRangeProofs(proof)
+		if err != nil {
+			return err
+		}
+		if err := mapCryptoVerifyError(b.inner.AddRangeProof(decoded[0], sourceCommitment[:], []byte{64}, 1)); err != nil {
+			return err
+		}
+		return mapCryptoVerifyError(b.inner.AddRangeProof(decoded[1], transferCommitment[:], []byte{64}, 1))
+	default:
+		return ErrInvalidPayload
 	}
-	if err := mapCryptoVerifyError(b.inner.AddRangeProof(decoded[0], sourceCommitment[:], []byte{64}, 1)); err != nil {
-		return err
-	}
-	return mapCryptoVerifyError(b.inner.AddRangeProof(decoded[1], transferCommitment[:], []byte{64}, 1))
 }
 
 func (b *BatchVerifier) AddSingleRangeProof(commitment [32]byte, proof []byte) error {

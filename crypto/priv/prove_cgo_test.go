@@ -115,3 +115,7 @@ func TestProveAndVerifyRangeProof(t *testing.T) {
 		t.Fatalf("VerifyRangeProof: %v", err)
 	}
 }
+
+func TestProveAndVerifyAggregatedRangeProof(t *testing.T) {
+	testAggregatedRangeProof(t)
+}

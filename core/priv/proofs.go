@@ -1,12 +1,13 @@
 package priv
 
 const (
-	CTValidityProofSizeT1 = 160
-	CommitmentEqProofSize = 192
-	BalanceProofSize      = 8 + CommitmentEqProofSize
-	RangeProofSingle64    = 672
-	RangeProofTransfer    = 2 * RangeProofSingle64
-	ShieldProofSize       = 96
+	CTValidityProofSizeT1    = 160
+	CommitmentEqProofSize    = 192
+	BalanceProofSize         = 8 + CommitmentEqProofSize
+	RangeProofSingle64       = 672
+	RangeProofTransfer       = 736
+	RangeProofTransferLegacy = 2 * RangeProofSingle64
+	ShieldProofSize          = 96
 )
 
 func decodeCTValidityProof(proof []byte) ([]byte, error) {
@@ -31,7 +32,7 @@ func decodeBalanceProof(proof []byte) ([]byte, error) {
 }
 
 func decodeRangeProof(proof []byte) ([]byte, error) {
-	if len(proof) != RangeProofSingle64 && len(proof) != RangeProofTransfer {
+	if len(proof) != RangeProofSingle64 && len(proof) != RangeProofTransfer && len(proof) != RangeProofTransferLegacy {
 		return nil, ErrInvalidPayload
 	}
 	return append([]byte(nil), proof...), nil
@@ -45,7 +46,7 @@ func decodeSingleRangeProof(proof []byte) ([]byte, error) {
 }
 
 func decodeTransferRangeProofs(proof []byte) ([][]byte, error) {
-	if len(proof) != RangeProofTransfer {
+	if len(proof) != RangeProofTransferLegacy {
 		return nil, ErrInvalidPayload
 	}
 	out := make([][]byte, 2)
@@ -55,6 +56,13 @@ func decodeTransferRangeProofs(proof []byte) ([][]byte, error) {
 		out[i] = append([]byte(nil), proof[start:end]...)
 	}
 	return out, nil
+}
+
+func decodeAggregatedTransferRangeProof(proof []byte) ([]byte, error) {
+	if len(proof) != RangeProofTransfer {
+		return nil, ErrInvalidPayload
+	}
+	return append([]byte(nil), proof...), nil
 }
 
 // ValidateCTValidityProofShape validates ciphertext validity proof blob size.

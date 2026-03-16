@@ -739,18 +739,6 @@ func ProvePrivRangeProof(commitment32 []byte, value uint64, blinding32 []byte) (
 	return proof, nil
 }
 
-// ProvePrivAggregatedRangeProof produces concatenated individual range proofs.
 func ProvePrivAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
-	if len(commitments) != len(values) || len(commitments) != len(blindings) {
-		return nil, ErrPrivInvalidInput
-	}
-	var result []byte
-	for i := range commitments {
-		proof, err := ProvePrivRangeProof(commitments[i], values[i], blindings[i])
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, proof...)
-	}
-	return result, nil
+	return provePrivAggregatedRangeProofGo(commitments, values, blindings)
 }

@@ -1,5 +1,3 @@
-//go:build !cgo || !ed25519c
-
 package ed25519
 
 import (

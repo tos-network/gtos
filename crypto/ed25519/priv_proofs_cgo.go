@@ -1331,22 +1331,8 @@ func ProvePrivCommitmentEqProof(sourcePrivkey, sourcePubkey, sourceCiphertext64,
 	return proof, nil
 }
 
-// ProvePrivAggregatedRangeProof generates range proofs for multiple
-// commitments by producing one 672-byte single64 proof per commitment
-// and concatenating them.
 func ProvePrivAggregatedRangeProof(commitments [][]byte, values []uint64, blindings [][]byte) ([]byte, error) {
-	if len(commitments) != len(values) || len(commitments) != len(blindings) {
-		return nil, ErrPrivInvalidInput
-	}
-	var result []byte
-	for i := range commitments {
-		proof, err := ProvePrivRangeProof(commitments[i], values[i], blindings[i])
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, proof...)
-	}
-	return result, nil
+	return provePrivAggregatedRangeProofGo(commitments, values, blindings)
 }
 
 func ElgamalPublicKeyFromPrivate(priv32 []byte) ([]byte, error) {

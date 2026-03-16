@@ -229,6 +229,32 @@ func makeBalanceProofBundle(tb testing.TB) ([32]byte, Ciphertext, []byte, []byte
 	return senderPub, senderCt, proof, ctx
 }
 
+func makeLegacyTransferRangeProofBundle(tb testing.TB) ([32]byte, [32]byte, []byte) {
+	tb.Helper()
+
+	sourceValue := uint64(400)
+	transferValue := uint64(125)
+
+	sourceCommitmentBytes, sourceOpening, err := cryptopriv.CommitmentNew(sourceValue)
+	if err != nil {
+		tb.Fatalf("CommitmentNew(source): %v", err)
+	}
+	transferCommitmentBytes, transferOpening, err := cryptopriv.CommitmentNew(transferValue)
+	if err != nil {
+		tb.Fatalf("CommitmentNew(transfer): %v", err)
+	}
+	sourceRangeProof, err := cryptopriv.ProveRangeProof(sourceCommitmentBytes, sourceValue, sourceOpening)
+	if err != nil {
+		tb.Fatalf("ProveRangeProof(source): %v", err)
+	}
+	transferRangeProof, err := cryptopriv.ProveRangeProof(transferCommitmentBytes, transferValue, transferOpening)
+	if err != nil {
+		tb.Fatalf("ProveRangeProof(transfer): %v", err)
+	}
+	legacy := append(append([]byte{}, sourceRangeProof...), transferRangeProof...)
+	return batchArray32(tb, sourceCommitmentBytes), batchArray32(tb, transferCommitmentBytes), legacy
+}
+
 func TestBatchVerifierAcceptsTransferAndShieldProofs(t *testing.T) {
 	t.Parallel()
 
@@ -305,5 +331,23 @@ func TestBatchVerifierRejectsInvalidBalanceProof(t *testing.T) {
 	}
 	if err := batch.Verify(); err == nil {
 		t.Fatal("Verify succeeded with invalid proof")
+	}
+}
+
+func TestBatchVerifierAcceptsLegacyTransferRangeEncoding(t *testing.T) {
+	t.Parallel()
+
+	sourceCommitment, transferCommitment, legacyProof := makeLegacyTransferRangeProofBundle(t)
+
+	if err := VerifyRangeProof(sourceCommitment, transferCommitment, legacyProof); err != nil {
+		t.Fatalf("VerifyRangeProof(legacy): %v", err)
+	}
+
+	batch := NewBatchVerifier()
+	if err := batch.AddRangeProof(sourceCommitment, transferCommitment, legacyProof); err != nil {
+		t.Fatalf("AddRangeProof(legacy): %v", err)
+	}
+	if err := batch.Verify(); err != nil {
+		t.Fatalf("Verify(legacy): %v", err)
 	}
 }
