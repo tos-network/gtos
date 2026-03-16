@@ -885,8 +885,13 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.SetField(msgTable, "value", luBig(v))
 		}
 	}
+	// Extract proof bundle from calldata (if present).  The bundle is
+	// appended after a "PBND" magic marker; strippedData is the original
+	// ABI calldata without the bundle suffix.
+	proofBundle, strippedData := ExtractProofBundle(ctx.Data)
+
 	{
-		d := ctx.Data
+		d := strippedData
 		var msgDataHex string
 		if len(d) == 0 {
 			msgDataHex = "0x"
@@ -906,10 +911,10 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	// Read by TOL-generated ABI decode guards in constructors and dispatch branches.
 	{
 		var calldataHex string
-		if len(ctx.Data) == 0 {
+		if len(strippedData) == 0 {
 			calldataHex = "0x"
 		} else {
-			calldataHex = "0x" + hex.EncodeToString(ctx.Data)
+			calldataHex = "0x" + hex.EncodeToString(strippedData)
 		}
 		L.SetField(tosTable, "calldata", lua.LString(calldataHex))
 	}
@@ -4450,6 +4455,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		L.Push(pkgProxy)
 		return 1
 	}))
+
+	// ── Encrypted ciphertext operations (tos.ciphertext.*) ───────────────────
+	registerCiphertextTable(L, tosTable, chargePrimGas, ctx.Readonly, proofBundle)
 
 	// ── Inject globals ────────────────────────────────────────────────────────
 
