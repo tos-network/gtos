@@ -1028,6 +1028,8 @@ Phase 7 (Crypto layer cleanup)              ← last, lowest risk
 | **UNO unit system** | `params/tos_params.go`, `core/priv/fee.go`, `core/privacy_tx_validation.go`, `core/priv/prover.go`, `core/types/{shield,unshield,priv_transfer}_tx.go` | DONE — 2-decimal UNO units (1 base unit = 0.01 TOS = 10^16 Wei); fields renamed to UnoFee/UnoAmount/UnoFeeLimit; BSGS L1=26 table decrypts full 5B TOS supply in ~62ms |
 | **TxPool privacy batch validation** | `core/tx_pool.go`, `core/tx_pool_privacy_batch.go` | DONE — batch proof verification, sequential replay for dependent priv txs |
 
+Follow-up batch-verification alignment work is tracked in `docs/PRIVACY-BATCH-VERIFY-TRACKER.md`.
+
 ### Summary
 
 **Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old legacy system has been fully removed.
