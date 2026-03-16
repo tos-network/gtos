@@ -97,7 +97,12 @@ static int gtos_priv_verify_balance_ctx(const unsigned char *proof,
   at_priv_batch_collector_init(&collector);
   at_merlin_transcript_init(&transcript, AT_MERLIN_LITERAL("balance_proof"));
   gtos_priv_transcript_append_ctx(&transcript, ctx, ctx_sz);
-  return at_balance_proof_pre_verify(&parsed, public_key, source_ciphertext64, &transcript, &collector);
+  int rc = at_balance_proof_pre_verify(&parsed, public_key, source_ciphertext64, &transcript, &collector);
+  if (rc == 0) {
+    rc = at_priv_batch_collector_verify(&collector);
+  }
+  at_priv_batch_collector_clear(&collector);
+  return rc;
 }
 
 static int gtos_priv_verify_shield(const unsigned char *proof96,

@@ -20,6 +20,8 @@
 
 #define AT_RANGEPROOFS_MAX_COMMITMENTS 8
 
+typedef struct at_priv_batch_collector at_priv_batch_collector_t;
+
 struct __attribute__((packed)) at_rangeproofs_ipp_vecs {
   uchar l[ 32 ]; /* point */
   uchar r[ 32 ]; /* point */
@@ -55,6 +57,16 @@ at_rangeproofs_verify(
   uchar const                          bit_lengths [ 1 ],
   uchar const                          batch_len,
   at_merlin_transcript_t *             transcript );
+
+int
+at_rangeproofs_pre_verify(
+  at_rangeproofs_range_proof_t const * range_proof,
+  at_rangeproofs_ipp_proof_t const *   ipp_proof,
+  uchar const                          commitments [ 32 ],
+  uchar const                          bit_lengths [ 1 ],
+  uchar const                          batch_len,
+  at_merlin_transcript_t *             transcript,
+  at_priv_batch_collector_t *          collector );
 
 AT_PROTOTYPES_END
 #endif /* HEADER_at_ballet_at_rangeproofs_h */

@@ -6,6 +6,7 @@
 #include "at/crypto/at_priv_proofs.h"
 #include "at/crypto/at_curve25519.h"
 #include "at/crypto/at_elgamal.h"
+#include <stdlib.h>
 
 /* Ristretto255 basepoint G (compressed form).
    This matches the standard ristretto255 generator. */
@@ -52,6 +53,126 @@ at_priv_native_to_be64( ulong v, uchar * p ) {
   p[5] = (uchar)(v >> 16);
   p[6] = (uchar)(v >> 8);
   p[7] = (uchar)(v);
+}
+
+void
+at_priv_batch_collector_init( at_priv_batch_collector_t * c ) {
+  if( c ) at_memset( c, 0, sizeof(*c) );
+}
+
+void
+at_priv_batch_collector_clear( at_priv_batch_collector_t * c ) {
+  if( !c ) return;
+  free( c->sigma_scalars );
+  free( c->sigma_points );
+  free( c->range_scalars );
+  free( c->range_points );
+  at_memset( c, 0, sizeof(*c) );
+}
+
+int
+at_priv_batch_random_scalar( uchar out[32] ) {
+  at_pedersen_opening_t opening;
+  if( !out ) return -1;
+  if( at_pedersen_opening_generate( &opening ) ) return -1;
+  at_memcpy( out, opening.bytes, 32 );
+  return 0;
+}
+
+static int
+at_priv_batch_collector_reserve( uchar **                  scalars_dst,
+                                 at_ristretto255_point_t ** points_dst,
+                                 ulong *                   cap_dst,
+                                 ulong                     need ) {
+  ulong cap = *cap_dst;
+  if( cap >= need ) return 0;
+  while( cap < need ) cap = cap ? (cap<<1) : 16UL;
+
+  uchar * new_scalars = (uchar *)malloc( cap*32UL );
+  if( !new_scalars ) return -1;
+  at_ristretto255_point_t * new_points = (at_ristretto255_point_t *)malloc( cap*sizeof(at_ristretto255_point_t) );
+  if( !new_points ) {
+    free( new_scalars );
+    return -1;
+  }
+  if( *scalars_dst ) at_memcpy( new_scalars, *scalars_dst, (*cap_dst)*32UL );
+  if( *points_dst ) at_memcpy( new_points, *points_dst, (*cap_dst)*sizeof(at_ristretto255_point_t) );
+  free( *scalars_dst );
+  free( *points_dst );
+  *scalars_dst = new_scalars;
+  *points_dst = new_points;
+  *cap_dst = cap;
+  return 0;
+}
+
+static int
+at_priv_batch_collector_append_terms( uchar **                    scalars_dst,
+                                      at_ristretto255_point_t **  points_dst,
+                                      ulong *                     len_dst,
+                                      ulong *                     cap_dst,
+                                      uchar const                 weight[32],
+                                      uchar const *               scalars,
+                                      at_ristretto255_point_t const * points,
+                                      ulong                       count ) {
+  if( count==0 ) return 0;
+  if( at_priv_batch_collector_reserve( scalars_dst, points_dst, cap_dst, *len_dst + count ) ) return -1;
+  for( ulong i=0; i<count; i++ ) {
+    uchar * dst_scalar = *scalars_dst + ((*len_dst + i)*32UL);
+    if( weight ) at_curve25519_scalar_mul( dst_scalar, weight, scalars + i*32UL );
+    else at_memcpy( dst_scalar, scalars + i*32UL, 32 );
+    at_ristretto255_point_set( &(*points_dst)[ *len_dst + i ], &points[i] );
+  }
+  *len_dst += count;
+  return 0;
+}
+
+int
+at_priv_batch_collector_append_sigma_terms( at_priv_batch_collector_t *      collector,
+                                            uchar const                      weight[32],
+                                            uchar const *                    scalars,
+                                            at_ristretto255_point_t const *  points,
+                                            ulong                            count ) {
+  if( !collector || !weight || !scalars || !points ) return -1;
+  return at_priv_batch_collector_append_terms( &collector->sigma_scalars,
+                                               &collector->sigma_points,
+                                               &collector->sigma_len,
+                                               &collector->sigma_cap,
+                                               weight,
+                                               scalars,
+                                               points,
+                                               count );
+}
+
+int
+at_priv_batch_collector_append_range_terms( at_priv_batch_collector_t *      collector,
+                                            uchar const *                    scalars,
+                                            at_ristretto255_point_t const *  points,
+                                            ulong                            count ) {
+  if( !collector || !scalars || !points ) return -1;
+  return at_priv_batch_collector_append_terms( &collector->range_scalars,
+                                               &collector->range_points,
+                                               &collector->range_len,
+                                               &collector->range_cap,
+                                               NULL,
+                                               scalars,
+                                               points,
+                                               count );
+}
+
+int
+at_priv_batch_collector_verify( at_priv_batch_collector_t const * c ) {
+  if( !c ) return -1;
+  at_ristretto255_point_t check[1], zero[1];
+  at_ristretto255_point_set_zero( zero );
+  if( c->sigma_len ) {
+    at_ristretto255_multi_scalar_mul( check, c->sigma_scalars, c->sigma_points, c->sigma_len );
+    if( !at_ristretto255_point_eq( check, zero ) ) return -1;
+  }
+  if( c->range_len ) {
+    at_ristretto255_multi_scalar_mul( check, c->range_scalars, c->range_points, c->range_len );
+    if( !at_ristretto255_point_eq( check, zero ) ) return -1;
+  }
+  return 0;
 }
 
 /**********************************************************************/
@@ -503,12 +624,91 @@ at_commitment_eq_proof_pre_verify( at_commitment_eq_proof_t const * proof,
                                    uchar const                      destination_commitment[32],
                                    at_merlin_transcript_t *         transcript,
                                    at_priv_batch_collector_t *       collector ) {
-  (void)collector;
-  return at_commitment_eq_proof_verify( proof,
-                                        source_pubkey,
-                                        source_ciphertext,
-                                        destination_commitment,
-                                        transcript );
+  if( !collector ) {
+    return at_commitment_eq_proof_verify( proof,
+                                          source_pubkey,
+                                          source_ciphertext,
+                                          destination_commitment,
+                                          transcript );
+  }
+  if( !proof || !source_pubkey || !source_ciphertext || !destination_commitment || !transcript ) return -1;
+
+  at_ristretto255_point_t p_source[1], c_source[1], d_source[1], c_dest[1];
+  at_ristretto255_point_t y0[1], y1[1], y2[1], g_point[1], h_point[1];
+
+  if( !at_ristretto255_point_frombytes( p_source, source_pubkey ) ) return -1;
+  if( !at_ristretto255_point_frombytes( c_source, source_ciphertext ) ) return -1;
+  if( !at_ristretto255_point_frombytes( d_source, source_ciphertext + 32 ) ) return -1;
+  if( !at_ristretto255_point_frombytes( c_dest, destination_commitment ) ) return -1;
+  if( !at_ristretto255_point_frombytes( y0, proof->Y_0 ) ) return -1;
+  if( !at_ristretto255_point_frombytes( y1, proof->Y_1 ) ) return -1;
+  if( !at_ristretto255_point_frombytes( y2, proof->Y_2 ) ) return -1;
+  if( !at_ristretto255_point_frombytes( g_point, AT_RISTRETTO_BASEPOINT_COMPRESSED ) ) return -1;
+  if( !at_ristretto255_point_frombytes( h_point, AT_PEDERSEN_H_COMPRESSED ) ) return -1;
+
+  at_merlin_transcript_append_message( transcript,
+    AT_MERLIN_LITERAL( AT_PROOF_DOMAIN_SEP_LABEL ),
+    (uchar const *)AT_EQ_PROOF_DOMAIN,
+    sizeof(AT_EQ_PROOF_DOMAIN)-1 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_0 ), proof->Y_0, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_1 ), proof->Y_1, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_2 ), proof->Y_2, 32 );
+
+  uchar c[32];
+  merlin_challenge_scalar( transcript, AT_PROOF_LABEL_CHALLENGE, c );
+
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Z_S ), proof->z_s, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Z_X ), proof->z_x, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Z_R ), proof->z_r, 32 );
+
+  uchar w[32], ww[32];
+  merlin_challenge_scalar( transcript, AT_PROOF_LABEL_FINALIZE, w );
+  at_curve25519_scalar_mul( ww, w, w );
+
+  uchar neg_c[32], neg_w[32], neg_ww[32];
+  uchar w_zx[32], w_zs[32], w_c[32], ww_zx[32], ww_zr[32], ww_c[32];
+  uchar neg_w_c[32], neg_ww_c[32];
+  at_curve25519_scalar_neg( neg_c, c );
+  at_curve25519_scalar_neg( neg_w, w );
+  at_curve25519_scalar_neg( neg_ww, ww );
+  at_curve25519_scalar_mul( w_zx, w, proof->z_x );
+  at_curve25519_scalar_mul( w_zs, w, proof->z_s );
+  at_curve25519_scalar_mul( w_c,  w, c );
+  at_curve25519_scalar_mul( ww_zx, ww, proof->z_x );
+  at_curve25519_scalar_mul( ww_zr, ww, proof->z_r );
+  at_curve25519_scalar_mul( ww_c,  ww, c );
+  at_curve25519_scalar_neg( neg_w_c, w_c );
+  at_curve25519_scalar_neg( neg_ww_c, ww_c );
+
+  uchar scalars[11*32];
+  at_memcpy( scalars + 0*32,  proof->z_s, 32 );
+  at_memcpy( scalars + 1*32,  neg_c,      32 );
+  at_memcpy( scalars + 2*32,  at_curve25519_scalar_minus_one, 32 );
+  at_memcpy( scalars + 3*32,  w_zx,       32 );
+  at_memcpy( scalars + 4*32,  w_zs,       32 );
+  at_memcpy( scalars + 5*32,  neg_w_c,    32 );
+  at_memcpy( scalars + 6*32,  neg_w,      32 );
+  at_memcpy( scalars + 7*32,  ww_zx,      32 );
+  at_memcpy( scalars + 8*32,  ww_zr,      32 );
+  at_memcpy( scalars + 9*32,  neg_ww_c,   32 );
+  at_memcpy( scalars + 10*32, neg_ww,     32 );
+
+  at_ristretto255_point_t points[11];
+  at_ristretto255_point_set( &points[0],  p_source );
+  at_ristretto255_point_set( &points[1],  h_point );
+  at_ristretto255_point_set( &points[2],  y0 );
+  at_ristretto255_point_set( &points[3],  g_point );
+  at_ristretto255_point_set( &points[4],  d_source );
+  at_ristretto255_point_set( &points[5],  c_source );
+  at_ristretto255_point_set( &points[6],  y1 );
+  at_ristretto255_point_set( &points[7],  g_point );
+  at_ristretto255_point_set( &points[8],  h_point );
+  at_ristretto255_point_set( &points[9],  c_dest );
+  at_ristretto255_point_set( &points[10], y2 );
+
+  uchar weight[32];
+  if( at_priv_batch_random_scalar( weight ) ) return -1;
+  return at_priv_batch_collector_append_sigma_terms( collector, weight, scalars, points, 11 );
 }
 
 int
@@ -528,11 +728,14 @@ at_balance_proof_verify( at_balance_proof_t const * proof,
   at_priv_batch_collector_t collector;
   at_merlin_transcript_init( &transcript, AT_MERLIN_LITERAL( "balance_proof" ) );
   at_priv_batch_collector_init( &collector );
-  return at_balance_proof_pre_verify( proof,
-                                      public_key,
-                                      source_ciphertext,
-                                      &transcript,
-                                      &collector );
+  int rc = at_balance_proof_pre_verify( proof,
+                                        public_key,
+                                        source_ciphertext,
+                                        &transcript,
+                                        &collector );
+  if( !rc ) rc = at_priv_batch_collector_verify( &collector );
+  at_priv_batch_collector_clear( &collector );
+  return rc;
 }
 
 int
@@ -541,7 +744,6 @@ at_balance_proof_pre_verify( at_balance_proof_t const * proof,
                              uchar const                source_ciphertext[64],
                              at_merlin_transcript_t *   transcript,
                              at_priv_batch_collector_t * collector ) {
-  (void)collector;
   if( !proof || !public_key || !source_ciphertext ) return -1;
 
   at_pedersen_opening_t opening_one;
@@ -570,11 +772,12 @@ at_balance_proof_pre_verify( at_balance_proof_t const * proof,
   at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( "amount" ), amount_be, 8 );
   at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( "source_ct" ), source_ciphertext, 64 );
 
-  return at_commitment_eq_proof_verify( &proof->commitment_eq_proof,
-                                        public_key,
-                                        zeroed.bytes,
-                                        dest_commitment.bytes,
-                                        transcript );
+  return at_commitment_eq_proof_pre_verify( &proof->commitment_eq_proof,
+                                            public_key,
+                                            zeroed.bytes,
+                                            dest_commitment.bytes,
+                                            transcript,
+                                            collector );
 }
 
 int
@@ -585,13 +788,65 @@ at_shield_proof_pre_verify( at_shield_proof_t const *   proof,
                             ulong                      amount,
                             at_merlin_transcript_t *   transcript,
                             at_priv_batch_collector_t * collector ) {
-  (void)collector;
-  return at_shield_proof_verify( proof,
-                                 commitment,
-                                 receiver_handle,
-                                 receiver_pubkey,
-                                 amount,
-                                 transcript );
+  if( !collector ) {
+    return at_shield_proof_verify( proof,
+                                   commitment,
+                                   receiver_handle,
+                                   receiver_pubkey,
+                                   amount,
+                                   transcript );
+  }
+  if( !proof || !commitment || !receiver_handle || !receiver_pubkey || !transcript ) return -1;
+
+  at_ristretto255_point_t C_point[1], D_point[1], P_point[1], Y_H_point[1], Y_P_point[1], G_point[1], H_point[1];
+  if( at_ristretto255_point_frombytes( C_point, commitment ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( D_point, receiver_handle ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( P_point, receiver_pubkey ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( Y_H_point, proof->Y_H ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( Y_P_point, proof->Y_P ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( G_point, AT_RISTRETTO_BASEPOINT_COMPRESSED ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( H_point, AT_PEDERSEN_H_COMPRESSED ) == NULL ) return -1;
+
+  at_merlin_transcript_append_message( transcript,
+    AT_MERLIN_LITERAL( AT_PROOF_DOMAIN_SEP_LABEL ),
+    (uchar const *)AT_SHIELD_PROOF_DOMAIN,
+    sizeof(AT_SHIELD_PROOF_DOMAIN) - 1 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_H ), proof->Y_H, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_P ), proof->Y_P, 32 );
+
+  uchar challenge[64], finalize[64], c[32];
+  at_merlin_transcript_challenge_bytes( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_CHALLENGE ), challenge, 64 );
+  at_merlin_transcript_challenge_bytes( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_FINALIZE ), finalize, 64 );
+  at_curve25519_scalar_reduce( c, challenge );
+
+  uchar amount_scalar[32];
+  at_memset( amount_scalar, 0, 32 );
+  for( int i = 0; i < 8; i++ ) amount_scalar[i] = (uchar)(amount >> (i * 8));
+
+  at_ristretto255_point_t amount_G[1], C_minus_aG[1];
+  at_ristretto255_scalar_mul( amount_G, amount_scalar, G_point );
+  at_ristretto255_point_sub( C_minus_aG, C_point, amount_G );
+
+  uchar neg_c[32], scalars[3*32], weight[32];
+  at_curve25519_scalar_neg( neg_c, c );
+
+  at_memcpy( scalars + 0*32, proof->z, 32 );
+  at_memcpy( scalars + 1*32, neg_c, 32 );
+  at_memcpy( scalars + 2*32, at_curve25519_scalar_minus_one, 32 );
+
+  at_ristretto255_point_t points1[3];
+  at_ristretto255_point_set( &points1[0], H_point );
+  at_ristretto255_point_set( &points1[1], C_minus_aG );
+  at_ristretto255_point_set( &points1[2], Y_H_point );
+  if( at_priv_batch_random_scalar( weight ) ) return -1;
+  if( at_priv_batch_collector_append_sigma_terms( collector, weight, scalars, points1, 3 ) ) return -1;
+
+  at_ristretto255_point_t points2[3];
+  at_ristretto255_point_set( &points2[0], P_point );
+  at_ristretto255_point_set( &points2[1], D_point );
+  at_ristretto255_point_set( &points2[2], Y_P_point );
+  if( at_priv_batch_random_scalar( weight ) ) return -1;
+  return at_priv_batch_collector_append_sigma_terms( collector, weight, scalars, points2, 3 );
 }
 
 int
@@ -604,13 +859,84 @@ at_ct_validity_proof_pre_verify( at_ct_validity_proof_t const * proof,
                                  int                            tx_version_t1,
                                  at_merlin_transcript_t *       transcript,
                                  at_priv_batch_collector_t *     collector ) {
-  (void)collector;
-  return at_ct_validity_proof_verify( proof,
-                                      commitment,
-                                      sender_handle,
-                                      receiver_handle,
-                                      sender_pubkey,
-                                      receiver_pubkey,
-                                      tx_version_t1,
-                                      transcript );
+  if( !collector ) {
+    return at_ct_validity_proof_verify( proof,
+                                        commitment,
+                                        sender_handle,
+                                        receiver_handle,
+                                        sender_pubkey,
+                                        receiver_pubkey,
+                                        tx_version_t1,
+                                        transcript );
+  }
+  if( !proof || !commitment || !transcript || !receiver_handle || !receiver_pubkey ) return -1;
+  if( tx_version_t1 && (!sender_handle || !sender_pubkey) ) return -1;
+
+  at_ristretto255_point_t C_point[1], D_receiver[1], P_receiver[1], Y_0_point[1], Y_1_point[1], G_point[1], H_point[1];
+  if( at_ristretto255_point_frombytes( C_point, commitment ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( D_receiver, receiver_handle ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( P_receiver, receiver_pubkey ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( Y_0_point, proof->Y_0 ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( Y_1_point, proof->Y_1 ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( G_point, AT_RISTRETTO_BASEPOINT_COMPRESSED ) == NULL ) return -1;
+  if( at_ristretto255_point_frombytes( H_point, AT_PEDERSEN_H_COMPRESSED ) == NULL ) return -1;
+
+  at_ristretto255_point_t D_sender[1], P_sender[1], Y_2_point[1];
+  if( tx_version_t1 ) {
+    if( at_ristretto255_point_frombytes( D_sender, sender_handle ) == NULL ) return -1;
+    if( at_ristretto255_point_frombytes( P_sender, sender_pubkey ) == NULL ) return -1;
+    if( proof->has_Y_2 && at_ristretto255_point_frombytes( Y_2_point, proof->Y_2 ) == NULL ) return -1;
+  }
+
+  at_merlin_transcript_append_message( transcript,
+    AT_MERLIN_LITERAL( AT_PROOF_DOMAIN_SEP_LABEL ),
+    (uchar const *)AT_CT_VALIDITY_DOMAIN,
+    sizeof(AT_CT_VALIDITY_DOMAIN) - 1 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_0 ), proof->Y_0, 32 );
+  at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_1 ), proof->Y_1, 32 );
+  if( tx_version_t1 && proof->has_Y_2 ) {
+    at_merlin_transcript_append_message( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_Y_2 ), proof->Y_2, 32 );
+  }
+
+  uchar challenge[64], finalize[64], c[32], neg_c[32], weight[32];
+  at_merlin_transcript_challenge_bytes( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_CHALLENGE ), challenge, 64 );
+  at_merlin_transcript_challenge_bytes( transcript, AT_MERLIN_LITERAL( AT_PROOF_LABEL_FINALIZE ), finalize, 64 );
+  at_curve25519_scalar_reduce( c, challenge );
+  at_curve25519_scalar_neg( neg_c, c );
+
+  uchar scalars0[4*32];
+  at_memcpy( scalars0 + 0*32, proof->z_x, 32 );
+  at_memcpy( scalars0 + 1*32, proof->z_r, 32 );
+  at_memcpy( scalars0 + 2*32, neg_c,      32 );
+  at_memcpy( scalars0 + 3*32, at_curve25519_scalar_minus_one, 32 );
+
+  at_ristretto255_point_t points0[4];
+  at_ristretto255_point_set( &points0[0], G_point );
+  at_ristretto255_point_set( &points0[1], H_point );
+  at_ristretto255_point_set( &points0[2], C_point );
+  at_ristretto255_point_set( &points0[3], Y_0_point );
+  if( at_priv_batch_random_scalar( weight ) ) return -1;
+  if( at_priv_batch_collector_append_sigma_terms( collector, weight, scalars0, points0, 4 ) ) return -1;
+
+  uchar scalars1[3*32];
+  at_memcpy( scalars1 + 0*32, proof->z_r, 32 );
+  at_memcpy( scalars1 + 1*32, neg_c,      32 );
+  at_memcpy( scalars1 + 2*32, at_curve25519_scalar_minus_one, 32 );
+
+  at_ristretto255_point_t points1[3];
+  at_ristretto255_point_set( &points1[0], P_receiver );
+  at_ristretto255_point_set( &points1[1], D_receiver );
+  at_ristretto255_point_set( &points1[2], Y_1_point );
+  if( at_priv_batch_random_scalar( weight ) ) return -1;
+  if( at_priv_batch_collector_append_sigma_terms( collector, weight, scalars1, points1, 3 ) ) return -1;
+
+  if( tx_version_t1 && proof->has_Y_2 ) {
+    at_ristretto255_point_t points2[3];
+    at_ristretto255_point_set( &points2[0], P_sender );
+    at_ristretto255_point_set( &points2[1], D_sender );
+    at_ristretto255_point_set( &points2[2], Y_2_point );
+    if( at_priv_batch_random_scalar( weight ) ) return -1;
+    if( at_priv_batch_collector_append_sigma_terms( collector, weight, scalars1, points2, 3 ) ) return -1;
+  }
+  return 0;
 }

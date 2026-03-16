@@ -238,26 +238,43 @@ extern uchar const AT_PEDERSEN_H_COMPRESSED[32];
 /* Batch-preverify Compatibility Layer                                 */
 /**********************************************************************/
 
-/* C path verifies equations individually. This collector is provided to keep
-   API parity with Rust pre_verify/batch flows used by higher layers. */
 struct at_priv_batch_collector {
-  uint reserved;
+  uchar *                  sigma_scalars;
+  at_ristretto255_point_t * sigma_points;
+  ulong                    sigma_len;
+  ulong                    sigma_cap;
+  uchar *                  range_scalars;
+  at_ristretto255_point_t * range_points;
+  ulong                    range_len;
+  ulong                    range_cap;
 };
 
 typedef struct at_priv_batch_collector at_priv_batch_collector_t;
 
-static inline void
-at_priv_batch_collector_init( at_priv_batch_collector_t * c ) {
-  if( c ) c->reserved = 0u;
-}
+void
+at_priv_batch_collector_init( at_priv_batch_collector_t * c );
 
-/* Returns 0 to indicate "collected equations verify".
-   In C implementation equations are checked eagerly in pre_verify wrappers. */
-static inline int
-at_priv_batch_collector_verify( at_priv_batch_collector_t const * c ) {
-  (void)c;
-  return 0;
-}
+void
+at_priv_batch_collector_clear( at_priv_batch_collector_t * c );
+
+int
+at_priv_batch_random_scalar( uchar out[32] );
+
+int
+at_priv_batch_collector_append_sigma_terms( at_priv_batch_collector_t *      collector,
+                                            uchar const                      weight[32],
+                                            uchar const *                    scalars,
+                                            at_ristretto255_point_t const *  points,
+                                            ulong                            count );
+
+int
+at_priv_batch_collector_append_range_terms( at_priv_batch_collector_t *      collector,
+                                            uchar const *                    scalars,
+                                            at_ristretto255_point_t const *  points,
+                                            ulong                            count );
+
+int
+at_priv_batch_collector_verify( at_priv_batch_collector_t const * c );
 
 /* Pre-verify wrappers (currently eager single-proof verification). */
 int
