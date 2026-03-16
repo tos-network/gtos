@@ -116,7 +116,7 @@ Resolved in commit `f358af8`. Full details:
 
 ### ~~Phase 2: Stealth addresses~~ ABANDONED
 
-Stealth addresses (DKSAP) are incompatible with the account model. Each one-time address creates a new state entry (commitment/handle/version/nonce slots), causing unbounded state growth. Stealth addresses are a UTXO-model concept (Monero) and do not map cleanly to account-based chains. XELIS (our reference implementation) also does not implement stealth addresses for the same reason. Receiver unlinkability on an account model remains an open research problem.
+Stealth addresses (DKSAP) are incompatible with the account model. Each one-time address creates a new state entry (commitment/handle/version/nonce slots), causing unbounded state growth. Stealth addresses are a UTXO-model concept (Monero) and do not map cleanly to account-based chains. Other account-model privacy chains also does not implement stealth addresses for the same reason. Receiver unlinkability on an account model remains an open research problem.
 
 ### ~~Phase 3: Dandelion++~~ ABANDONED
 
@@ -124,7 +124,7 @@ Dandelion++ anonymizes transaction origin IP by routing through random stem hops
 
 ### ~~Phase 4: Decoy outputs / ring signatures~~ ABANDONED
 
-Ring signatures and decoy outputs are fundamentally incompatible with the account model. In an account model, the validator must know the real sender to debit their encrypted balance — this breaks the ring's purpose. These are UTXO-model concepts (Monero) where each "output" is independently spendable. XELIS (our reference implementation) does not implement sender unlinkability for the same reason. Sender unlinkability on an account model would require a fundamentally different approach (e.g., ZK-SNARK membership proofs + nullifiers, similar to Tornado Cash), which is out of scope.
+Ring signatures and decoy outputs are fundamentally incompatible with the account model. In an account model, the validator must know the real sender to debit their encrypted balance — this breaks the ring's purpose. These are UTXO-model concepts (Monero) where each "output" is independently spendable. Other account-model privacy chains does not implement sender unlinkability for the same reason. Sender unlinkability on an account model would require a fundamentally different approach (e.g., ZK-SNARK membership proofs + nullifiers, similar to Tornado Cash), which is out of scope.
 
 ### Phase 5: Contract homomorphic operations
 
@@ -165,9 +165,9 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 
 | Phase | Reason |
 |---|---|
-| **Phase 2: Stealth addresses** | DKSAP creates unbounded state growth (new slots per one-time address). This is a UTXO-model concept; XELIS also does not implement it. |
+| **Phase 2: Stealth addresses** | DKSAP creates unbounded state growth (new slots per one-time address). This is a UTXO-model concept; other account-model privacy chains also do not implement it. |
 | **Phase 3: Dandelion++** | Designed for open P2P networks with anonymous nodes. GTOS uses DPoS — users submit via JSON-RPC to known validators, not P2P gossip. RLPx already encrypts peer traffic. |
-| **Phase 4: Ring signatures / decoys** | Account model requires validator to know the real sender for balance debit — breaks ring anonymity. XELIS also does not implement sender unlinkability. |
+| **Phase 4: Ring signatures / decoys** | Account model requires validator to know the real sender for balance debit — breaks ring anonymity. other account-model privacy chains also do not implement sender unlinkability. |
 | **Phase 5b-c: Encrypted storage / FHE / MPC / TEE** | Active research frontier with no production-ready solution. May revisit if landscape matures. |
 
 ### Privacy milestones
