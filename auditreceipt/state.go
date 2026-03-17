@@ -6,12 +6,16 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
-// stateDB is the minimal storage interface required by this package.
+// StateDB is the minimal storage interface required by this package.
 // Avoids an import cycle with core/vm (which imports params).
-type stateDB interface {
+// Exported so that the RPC registration layer can reference it.
+type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
 }
+
+// stateDB is a package-local alias kept for backward compatibility.
+type stateDB = StateDB
 
 // registry is the system contract address for audit receipt metadata.
 var registry = params.AuditReceiptRegistryAddress

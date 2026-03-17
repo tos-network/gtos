@@ -38,7 +38,7 @@ import (
 	"github.com/tos-network/gtos/p2p/dnsdisc"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"
-	_ "github.com/tos-network/gtos/policywallet" // registers POLICY_* handlers via init()
+	"github.com/tos-network/gtos/policywallet" // registers POLICY_* handlers via init(); also used for 2046 RPC API registration
 	_ "github.com/tos-network/gtos/referral"     // registers REFERRAL_* handlers via init()
 	"github.com/tos-network/gtos/reputation"
 	"github.com/tos-network/gtos/rlp"
@@ -342,6 +342,19 @@ func makeExtraData(extra []byte) []byte {
 // NOTE, some of these services probably need to be moved to somewhere else.
 func (s *TOS) APIs() []rpc.API {
 	apis := tosapi.GetAPIs(s.APIBackend)
+
+	// Register 2046 architecture RPC APIs (policyWallet, gateway, auditReceipt, settlement).
+	apis = append(apis, tosapi.Register2046APIs(func() policywallet.StateDB {
+		head := s.blockchain.CurrentBlock()
+		if head == nil {
+			return nil
+		}
+		stateDB, err := s.blockchain.StateAt(head.Root())
+		if err != nil {
+			return nil
+		}
+		return stateDB
+	})...)
 
 	// Append any APIs exposed explicitly by the consensus engine
 	apis = append(apis, s.engine.APIs(s.BlockChain())...)
