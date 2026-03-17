@@ -1,0 +1,44 @@
+name: 2046 Architecture Compatibility
+on:
+  push:
+    paths:
+      - 'boundary/**'
+      - 'policywallet/**'
+      - 'auditreceipt/**'
+      - 'gateway/**'
+      - 'settlement/**'
+      - 'e2e/**'
+      - 'params/tos_params.go'
+  pull_request:
+    paths:
+      - 'boundary/**'
+      - 'policywallet/**'
+      - 'auditreceipt/**'
+      - 'gateway/**'
+      - 'settlement/**'
+
+jobs:
+  boundary-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Run boundary schema tests
+        run: go test ./boundary/... -v
+      - name: Run policy wallet tests
+        run: go test ./policywallet/... -v
+      - name: Run audit receipt tests
+        run: go test ./auditreceipt/... -v
+      - name: Run gateway tests
+        run: go test ./gateway/... -v
+      - name: Run settlement tests
+        run: go test ./settlement/... -v
+      - name: Run e2e integration tests
+        run: go test ./e2e/... -v
+      - name: Verify schema version consistency
+        run: |
+          SCHEMA_VERSION=$(grep 'SchemaVersion' boundary/types.go | grep -o '"[^"]*"' | tr -d '"')
+          echo "GTOS boundary schema version: $SCHEMA_VERSION"
+          echo "schema_version=$SCHEMA_VERSION" >> $GITHUB_OUTPUT
