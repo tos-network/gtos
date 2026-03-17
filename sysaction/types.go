@@ -64,6 +64,16 @@ const (
 	ActionLeaseRenew  ActionKind = "LEASE_RENEW"
 	ActionLeaseClose  ActionKind = "LEASE_CLOSE"
 
+	// Gateway relay lifecycle.
+	ActionGatewayRegister   ActionKind = "GATEWAY_REGISTER"
+	ActionGatewayUpdate     ActionKind = "GATEWAY_UPDATE"
+	ActionGatewayDeregister ActionKind = "GATEWAY_DEREGISTER"
+
+	// Settlement callbacks and async fulfillment.
+	ActionSettlementRegisterCallback ActionKind = "SETTLEMENT_REGISTER_CALLBACK"
+	ActionSettlementExecuteCallback  ActionKind = "SETTLEMENT_EXECUTE_CALLBACK"
+	ActionSettlementFulfillAsync     ActionKind = "SETTLEMENT_FULFILL_ASYNC"
+
 	// Policy wallet primitives.
 	ActionPolicySetSpendCaps      ActionKind = "POLICY_SET_SPEND_CAPS"
 	ActionPolicySetAllowlist      ActionKind = "POLICY_SET_ALLOWLIST"

@@ -62,6 +62,14 @@ var (
 	// AuditReceiptRegistryAddress stores audit receipt metadata for
 	// intent-to-receipt traceability and proof references.
 	AuditReceiptRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010D")
+
+	// GatewayRegistryAddress stores on-chain gateway relay configuration for
+	// agents with the GatewayRelay capability.
+	GatewayRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010E")
+
+	// SettlementRegistryAddress stores settlement callbacks and async
+	// fulfillment records composable with account policy and receipts.
+	SettlementRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010F")
 )
 
 // DPoS validator stake and reward parameters.
