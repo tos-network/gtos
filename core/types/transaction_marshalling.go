@@ -50,6 +50,8 @@ type txJSON struct {
 	SponsorV             *hexutil.Big    `json:"sponsorV,omitempty"`
 	SponsorR             *hexutil.Big    `json:"sponsorR,omitempty"`
 	SponsorS             *hexutil.Big    `json:"sponsorS,omitempty"`
+	TerminalClass        *hexutil.Uint64 `json:"terminalClass,omitempty"`
+	TrustTier            *hexutil.Uint64 `json:"trustTier,omitempty"`
 
 	// Access list transaction fields:
 	ChainID    *hexutil.Big `json:"chainId,omitempty"`
@@ -90,6 +92,14 @@ func (t *Transaction) MarshalJSON() ([]byte, error) {
 			enc.SponsorV = (*hexutil.Big)(tx.SponsorV)
 			enc.SponsorR = (*hexutil.Big)(tx.SponsorR)
 			enc.SponsorS = (*hexutil.Big)(tx.SponsorS)
+		}
+		if tx.TerminalClass != 0 {
+			tc := hexutil.Uint64(tx.TerminalClass)
+			enc.TerminalClass = &tc
+		}
+		if tx.TrustTier != 0 {
+			tt := hexutil.Uint64(tx.TrustTier)
+			enc.TrustTier = &tt
 		}
 	}
 	return json.Marshal(&enc)
@@ -178,6 +188,12 @@ func (t *Transaction) UnmarshalJSON(input []byte) error {
 			itx.SponsorV = (*big.Int)(dec.SponsorV)
 			itx.SponsorR = (*big.Int)(dec.SponsorR)
 			itx.SponsorS = (*big.Int)(dec.SponsorS)
+		}
+		if dec.TerminalClass != nil {
+			itx.TerminalClass = uint8(*dec.TerminalClass)
+		}
+		if dec.TrustTier != nil {
+			itx.TrustTier = uint8(*dec.TrustTier)
 		}
 		withSignature := itx.V.Sign() != 0 || itx.R.Sign() != 0 || itx.S.Sign() != 0
 		if withSignature {

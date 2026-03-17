@@ -344,3 +344,234 @@ func TestSponsoredTxPolicyWallet_SponsorNotAllowlisted(t *testing.T) {
 		t.Fatalf("expected ErrSponsorNotAllowlisted, got: %v", err)
 	}
 }
+
+// ---------- Terminal class + trust tier from transaction ----------
+
+// TestSponsoredTxTerminalContext_CardLowTrustRejected verifies that a
+// sponsored tx with TerminalClass=Card, TrustTier=Low is rejected when the
+// terminal policy requires higher trust.
+func TestSponsoredTxTerminalContext_CardLowTrustRejected(t *testing.T) {
+	from := common.HexToAddress("0xA110")
+	sponsor := common.HexToAddress("0xB110")
+	to := common.HexToAddress("0xC110")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	txPrice := big.NewInt(1e9)
+	gasLimit := uint64(21_000)
+	value := big.NewInt(1e15) // 0.001 TOS
+
+	gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), txPrice)
+	fundAmount := new(big.Int).Add(gasCost, value)
+	st := newPWState(t, map[common.Address]*big.Int{
+		from:    value,
+		sponsor: fundAmount,
+	})
+
+	// Configure policy wallet for Card terminal with MinTrustTier=Medium.
+	oneTOS := new(big.Int).Mul(big.NewInt(1), new(big.Int).SetUint64(params.TOS))
+	policywallet.WriteOwner(st, from, from)
+	policywallet.WriteAllowlisted(st, from, sponsor, true)
+	policywallet.WriteTerminalPolicy(st, from, policywallet.TerminalCard, policywallet.TerminalPolicy{
+		Enabled:        true,
+		MaxSingleValue: oneTOS,
+		MaxDailyValue:  oneTOS,
+		MinTrustTier:   policywallet.TrustMedium,
+	})
+
+	// Send with TerminalClass=Card, TrustTier=Low -> should be rejected (trust too low).
+	msg := types.NewMessage(from, &to, 0, value, gasLimit, txPrice, txPrice, big.NewInt(0), nil, nil, false).
+		WithSponsor(sponsor, 0, 0, common.Hash{}).
+		WithTerminalContext(policywallet.TerminalCard, policywallet.TrustLow)
+	gp := new(GasPool).AddGas(gasLimit)
+
+	_, err := ApplyMessage(context.Background(), pwBlockCtx(), cfg, msg, gp, st)
+	if err == nil {
+		t.Fatal("expected error for Card+Low trust, got nil")
+	}
+	if err.Error() != policywallet.ErrSponsorTrustTooLow.Error() {
+		t.Fatalf("expected ErrSponsorTrustTooLow, got: %v", err)
+	}
+}
+
+// TestSponsoredTxTerminalContext_AppFullTrustAllowed verifies that a
+// sponsored tx with TerminalClass=App, TrustTier=Full is allowed when the
+// terminal policy allows it.
+func TestSponsoredTxTerminalContext_AppFullTrustAllowed(t *testing.T) {
+	from := common.HexToAddress("0xA111")
+	sponsor := common.HexToAddress("0xB111")
+	to := common.HexToAddress("0xC111")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	txPrice := big.NewInt(1e9)
+	gasLimit := uint64(21_000)
+	value := big.NewInt(1e15) // 0.001 TOS
+
+	gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), txPrice)
+	fundAmount := new(big.Int).Add(gasCost, value)
+	st := newPWState(t, map[common.Address]*big.Int{
+		from:    value,
+		sponsor: fundAmount,
+	})
+
+	oneTOS := new(big.Int).Mul(big.NewInt(1), new(big.Int).SetUint64(params.TOS))
+	setupPolicyWallet(st, from, from, sponsor, policywallet.TerminalPolicy{
+		Enabled:        true,
+		MaxSingleValue: oneTOS,
+		MaxDailyValue:  oneTOS,
+		MinTrustTier:   policywallet.TrustLow,
+	})
+
+	// Send with TerminalClass=App, TrustTier=Full -> should succeed.
+	msg := types.NewMessage(from, &to, 0, value, gasLimit, txPrice, txPrice, big.NewInt(0), nil, nil, false).
+		WithSponsor(sponsor, 0, 0, common.Hash{}).
+		WithTerminalContext(policywallet.TerminalApp, policywallet.TrustFull)
+	gp := new(GasPool).AddGas(gasLimit)
+
+	result, err := ApplyMessage(context.Background(), pwBlockCtx(), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if result.Failed() {
+		t.Fatalf("expected successful execution, got vmerr: %v", result.Err)
+	}
+}
+
+// TestSponsoredTxTerminalContext_ZeroFieldsBackwardCompat verifies that
+// zero terminal fields (unset) use permissive defaults (TrustFull) for
+// backward compatibility.
+func TestSponsoredTxTerminalContext_ZeroFieldsBackwardCompat(t *testing.T) {
+	from := common.HexToAddress("0xA112")
+	sponsor := common.HexToAddress("0xB112")
+	to := common.HexToAddress("0xC112")
+	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
+
+	txPrice := big.NewInt(1e9)
+	gasLimit := uint64(21_000)
+	value := big.NewInt(1e15) // 0.001 TOS
+
+	gasCost := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), txPrice)
+	fundAmount := new(big.Int).Add(gasCost, value)
+	st := newPWState(t, map[common.Address]*big.Int{
+		from:    value,
+		sponsor: fundAmount,
+	})
+
+	oneTOS := new(big.Int).Mul(big.NewInt(1), new(big.Int).SetUint64(params.TOS))
+	setupPolicyWallet(st, from, from, sponsor, policywallet.TerminalPolicy{
+		Enabled:        true,
+		MaxSingleValue: oneTOS,
+		MaxDailyValue:  oneTOS,
+		MinTrustTier:   policywallet.TrustFull, // requires Full trust
+	})
+
+	// Send with zero terminal fields (no WithTerminalContext) -> defaults to
+	// TerminalApp + TrustFull, so even TrustFull requirement should pass.
+	msg := types.NewMessage(from, &to, 0, value, gasLimit, txPrice, txPrice, big.NewInt(0), nil, nil, false).
+		WithSponsor(sponsor, 0, 0, common.Hash{})
+	gp := new(GasPool).AddGas(gasLimit)
+
+	result, err := ApplyMessage(context.Background(), pwBlockCtx(), cfg, msg, gp, st)
+	if err != nil {
+		t.Fatalf("expected success for zero terminal fields (backward compat), got error: %v", err)
+	}
+	if result.Failed() {
+		t.Fatalf("expected successful execution, got vmerr: %v", result.Err)
+	}
+}
+
+// ---------- Privacy tx terminal context tests ----------
+
+// TestPrivacyTxTerminalContext_CardLowTrustRejected verifies that a privacy
+// terminal policy with Card+Low trust rejects when the policy requires Medium.
+func TestPrivacyTxTerminalContext_CardLowTrustRejected(t *testing.T) {
+	sender := common.HexToAddress("0xA210")
+	st := newPWState(t, map[common.Address]*big.Int{
+		sender: big.NewInt(1e18),
+	})
+
+	// Configure privacy terminal policy for App terminal with MinTrustTier=Medium.
+	policywallet.WriteOwner(st, sender, sender)
+	policywallet.WritePrivacyTerminalPolicy(st, sender, policywallet.PrivacyTerminalPolicy{
+		TerminalClass:     policywallet.TerminalApp,
+		MaxPrivateValue:   new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e18)),
+		AllowShield:       true,
+		AllowUnshield:     true,
+		AllowPrivTransfer: true,
+		MinTrustTier:      policywallet.TrustMedium,
+	})
+
+	// Directly test with Low trust -> should be rejected.
+	value := new(big.Int).SetUint64(priv.UNOFeeToWei(100))
+	err := policywallet.ValidatePrivacyTerminalAccess(
+		st, sender,
+		policywallet.TerminalApp, policywallet.TrustLow,
+		policywallet.PrivacyActionShield, value,
+	)
+	if err == nil {
+		t.Fatal("expected error for Low trust privacy access, got nil")
+	}
+	if err.Error() != policywallet.ErrPrivTerminalTrustTooLow.Error() {
+		t.Fatalf("expected ErrPrivTerminalTrustTooLow, got: %v", err)
+	}
+}
+
+// TestPrivacyTxTerminalContext_AppFullTrustAllowed verifies that App+Full
+// trust passes privacy terminal policy checks.
+func TestPrivacyTxTerminalContext_AppFullTrustAllowed(t *testing.T) {
+	sender := common.HexToAddress("0xA211")
+	st := newPWState(t, map[common.Address]*big.Int{
+		sender: big.NewInt(1e18),
+	})
+
+	policywallet.WriteOwner(st, sender, sender)
+	policywallet.WritePrivacyTerminalPolicy(st, sender, policywallet.PrivacyTerminalPolicy{
+		TerminalClass:     policywallet.TerminalApp,
+		MaxPrivateValue:   new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e18)),
+		AllowShield:       true,
+		AllowUnshield:     true,
+		AllowPrivTransfer: true,
+		MinTrustTier:      policywallet.TrustMedium,
+	})
+
+	value := new(big.Int).SetUint64(priv.UNOFeeToWei(100))
+	err := policywallet.ValidatePrivacyTerminalAccess(
+		st, sender,
+		policywallet.TerminalApp, policywallet.TrustFull,
+		policywallet.PrivacyActionShield, value,
+	)
+	if err != nil {
+		t.Fatalf("expected shield with Full trust to be allowed, got error: %v", err)
+	}
+}
+
+// TestPrivacyTxTerminalContext_ZeroFieldsBackwardCompat verifies that the
+// privacy terminal validation function falls back to permissive defaults
+// when terminal fields are zero.
+func TestPrivacyTxTerminalContext_ZeroFieldsBackwardCompat(t *testing.T) {
+	sender := common.HexToAddress("0xA212")
+	st := newPWState(t, map[common.Address]*big.Int{
+		sender: big.NewInt(1e18),
+	})
+
+	policywallet.WriteOwner(st, sender, sender)
+	policywallet.WritePrivacyTerminalPolicy(st, sender, policywallet.PrivacyTerminalPolicy{
+		TerminalClass:     policywallet.TerminalApp,
+		MaxPrivateValue:   new(big.Int).Mul(big.NewInt(1000), big.NewInt(1e18)),
+		AllowShield:       true,
+		AllowUnshield:     true,
+		AllowPrivTransfer: true,
+		MinTrustTier:      policywallet.TrustFull, // requires Full trust
+	})
+
+	// With zero fields -> defaults to TerminalApp + TrustFull, which meets
+	// the TrustFull requirement.
+	value := new(big.Int).SetUint64(priv.UNOFeeToWei(100))
+	err := policywallet.ValidatePrivacyTerminalAccess(
+		st, sender,
+		policywallet.TerminalApp, policywallet.TrustFull,
+		policywallet.PrivacyActionShield, value,
+	)
+	if err != nil {
+		t.Fatalf("expected success with Full trust defaults, got error: %v", err)
+	}
+}

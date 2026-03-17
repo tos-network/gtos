@@ -353,6 +353,24 @@ func (tx *Transaction) SponsorPolicyHash() (common.Hash, bool) {
 	return common.Hash{}, false
 }
 
+// TerminalClass returns the terminal class from the transaction envelope.
+// Returns (0, false) for non-SignerTx types; 0 means "unset" (default: app).
+func (tx *Transaction) TerminalClass() (uint8, bool) {
+	if stx, ok := tx.inner.(*SignerTx); ok {
+		return stx.TerminalClass, true
+	}
+	return 0, false
+}
+
+// TrustTier returns the trust tier from the transaction envelope.
+// Returns (0, false) for non-SignerTx types; 0 means "unset" (default: full trust).
+func (tx *Transaction) TrustTier() (uint8, bool) {
+	if stx, ok := tx.inner.(*SignerTx); ok {
+		return stx.TrustTier, true
+	}
+	return 0, false
+}
+
 // SponsorRawSignatureValues returns the sponsor V, R, S values if present.
 func (tx *Transaction) SponsorRawSignatureValues() (v, r, s *big.Int, ok bool) {
 	if stx, okType := tx.inner.(*SignerTx); okType && stx.Sponsor != (common.Address{}) {
@@ -812,6 +830,8 @@ type Message struct {
 	gasTipCap         *big.Int
 	data              []byte
 	accessList        AccessList
+	terminalClass     uint8
+	trustTier         uint8
 	isFake            bool
 	txType            byte            // SignerTxType (default 0) or PrivTransferTxType/ShieldTxType/UnshieldTxType
 	privTransferTx    *PrivTransferTx // non-nil for PrivTransferTxType
@@ -879,6 +899,12 @@ func (tx *Transaction) AsMessage(s Signer, baseFee *big.Int) (Message, error) {
 	if sponsorPolicyHash, ok := tx.SponsorPolicyHash(); ok {
 		msg.sponsorPolicyHash = sponsorPolicyHash
 	}
+	if tc, ok := tx.TerminalClass(); ok {
+		msg.terminalClass = tc
+	}
+	if tt, ok := tx.TrustTier(); ok {
+		msg.trustTier = tt
+	}
 	// If baseFee provided, set txPrice to effectiveTxPrice.
 	if baseFee != nil {
 		msg.txPrice = math.BigMin(msg.txPrice.Add(msg.gasTipCap, baseFee), msg.gasFeeCap)
@@ -912,6 +938,15 @@ func (m Message) Data() []byte                   { return m.data }
 func (m Message) AccessList() AccessList         { return m.accessList }
 func (m Message) IsFake() bool                   { return m.isFake }
 func (m Message) Type() byte                     { return m.txType }
+func (m Message) TerminalClass() uint8           { return m.terminalClass }
+func (m Message) TrustTier() uint8               { return m.trustTier }
+
+// WithTerminalContext returns a copy of the message with terminal class and trust tier set.
+func (m Message) WithTerminalContext(terminalClass, trustTier uint8) Message {
+	m.terminalClass = terminalClass
+	m.trustTier = trustTier
+	return m
+}
 
 // WithTxType returns a copy of the message with the given transaction type set.
 func (m Message) WithTxType(txType byte) Message {

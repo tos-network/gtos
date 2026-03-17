@@ -374,8 +374,21 @@ func validatePrivacyTerminalIfConfigured(statedb vm.StateDB, tx *types.Transacti
 		return nil
 	}
 
-	terminalClass := policywallet.TerminalApp // default terminal class
-	trustTier := policywallet.TrustMedium     // default trust tier
+	terminalClass := uint8(0)
+	trustTier := uint8(0)
+	if tc, ok := tx.TerminalClass(); ok {
+		terminalClass = tc
+	}
+	if tt, ok := tx.TrustTier(); ok {
+		trustTier = tt
+	}
+	// If both are zero (unset), fall back to permissive defaults
+	// for backward compatibility: TerminalApp + TrustFull means
+	// "no terminal restriction".
+	if terminalClass == 0 && trustTier == 0 {
+		terminalClass = policywallet.TerminalApp
+		trustTier = policywallet.TrustFull
+	}
 	return policywallet.ValidatePrivacyTerminalAccess(statedb, senderAddr, terminalClass, trustTier, actionType, value)
 }
 

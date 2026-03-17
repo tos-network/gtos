@@ -33,6 +33,9 @@ type SignerTx struct {
 	SponsorV *big.Int `json:"sponsorV,omitempty"`
 	SponsorR *big.Int `json:"sponsorR,omitempty"`
 	SponsorS *big.Int `json:"sponsorS,omitempty"`
+
+	TerminalClass uint8 `json:"terminalClass" rlp:"optional"`
+	TrustTier     uint8 `json:"trustTier"     rlp:"optional"`
 }
 
 // copy creates a deep copy of the transaction data and initializes all fields.
@@ -50,6 +53,8 @@ func (tx *SignerTx) copy() TxData {
 		SponsorNonce:      tx.SponsorNonce,
 		SponsorExpiry:     tx.SponsorExpiry,
 		SponsorPolicyHash: tx.SponsorPolicyHash,
+		TerminalClass:     tx.TerminalClass,
+		TrustTier:         tx.TrustTier,
 		Value:             new(big.Int),
 		ChainID:           new(big.Int),
 		V:                 new(big.Int),

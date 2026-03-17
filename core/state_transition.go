@@ -79,6 +79,8 @@ type Message interface {
 	Data() []byte
 	AccessList() types.AccessList
 	Type() byte
+	TerminalClass() uint8
+	TrustTier() uint8
 }
 
 // ExecutionResult includes all output after executing a given message.
@@ -408,8 +410,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// wallet owner set, enforce the terminal/sponsor policy rules.
 		// Accounts without a policy wallet (owner == zero) are unaffected.
 		if owner := policywallet.ReadOwner(st.state, msg.From()); owner != (common.Address{}) {
-			terminalClass := policywallet.TerminalApp // default terminal class
-			trustTier := policywallet.TrustMedium     // default trust tier
+			terminalClass := msg.TerminalClass()
+			trustTier := msg.TrustTier()
+			// If both are zero (unset), fall back to permissive defaults
+			// for backward compatibility: TerminalApp + TrustFull means
+			// "no terminal restriction".
+			if terminalClass == 0 && trustTier == 0 {
+				terminalClass = policywallet.TerminalApp
+				trustTier = policywallet.TrustFull
+			}
 			if err := policywallet.ValidateSponsoredExecution(st.state, msg.From(), msg.Sponsor(), msg.Value(), terminalClass, trustTier); err != nil {
 				return nil, err
 			}
