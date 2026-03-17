@@ -141,6 +141,9 @@ var (
 	ErrInvalidTerminalClass  = errors.New("policywallet: invalid terminal class")
 	ErrZeroAddress           = errors.New("policywallet: zero address not allowed")
 	ErrOwnerNotSet           = errors.New("policywallet: wallet has no owner")
+	ErrNegativeAmount        = errors.New("policywallet: negative amount not allowed")
+	ErrTimelockOverflow      = errors.New("policywallet: timelock arithmetic overflow")
+	ErrZeroAllowance         = errors.New("policywallet: zero allowance not allowed for delegate")
 )
 
 // RecoveryTimelockBlocks is the number of blocks that must pass between

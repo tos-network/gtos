@@ -63,6 +63,9 @@ func (h *policyWalletHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAc
 // requireOwner verifies that ctx.From is the wallet owner.
 // If the wallet has no owner set, the first caller becomes the owner.
 func requireOwner(ctx *sysaction.Context, wallet common.Address) error {
+	if ctx.From == (common.Address{}) {
+		return ErrZeroAddress
+	}
 	owner := ReadOwner(ctx.StateDB, wallet)
 	if owner == (common.Address{}) {
 		// First interaction: caller becomes owner.
@@ -98,9 +101,15 @@ func (h *policyWalletHandler) handleSetSpendCaps(ctx *sysaction.Context, sa *sys
 	if !ok {
 		return ErrInvalidAmount
 	}
+	if daily.Sign() < 0 {
+		return ErrNegativeAmount
+	}
 	single, ok := new(big.Int).SetString(p.SingleTxLimit, 10)
 	if !ok {
 		return ErrInvalidAmount
+	}
+	if single.Sign() < 0 {
+		return ErrNegativeAmount
 	}
 	WriteDailyLimit(ctx.StateDB, p.Account, daily)
 	WriteSingleTxLimit(ctx.StateDB, p.Account, single)
@@ -143,9 +152,15 @@ func (h *policyWalletHandler) handleSetTerminalPolicy(ctx *sysaction.Context, sa
 	if !ok {
 		return ErrInvalidAmount
 	}
+	if maxSingle.Sign() < 0 {
+		return ErrNegativeAmount
+	}
 	maxDaily, ok := new(big.Int).SetString(p.MaxDaily, 10)
 	if !ok {
 		return ErrInvalidAmount
+	}
+	if maxDaily.Sign() < 0 {
+		return ErrNegativeAmount
 	}
 	WriteTerminalPolicy(ctx.StateDB, p.Account, p.TerminalClass, TerminalPolicy{
 		MaxSingleValue: maxSingle,
@@ -173,6 +188,12 @@ func (h *policyWalletHandler) handleAuthorizeDelegate(ctx *sysaction.Context, sa
 	allowance, ok := new(big.Int).SetString(p.Allowance, 10)
 	if !ok {
 		return ErrInvalidAmount
+	}
+	if allowance.Sign() < 0 {
+		return ErrNegativeAmount
+	}
+	if allowance.Sign() == 0 {
+		return ErrZeroAllowance
 	}
 	WriteDelegateAuth(ctx.StateDB, p.Account, DelegateAuth{
 		Delegate:  p.Delegate,
@@ -213,6 +234,9 @@ func (h *policyWalletHandler) handleSetGuardian(ctx *sysaction.Context, sa *sysa
 	}
 	if err := requireNotSuspended(ctx.StateDB, p.Account); err != nil {
 		return err
+	}
+	if p.Guardian == (common.Address{}) {
+		return ErrZeroAddress
 	}
 	WriteGuardian(ctx.StateDB, p.Account, p.Guardian)
 	return nil
@@ -279,8 +303,13 @@ func (h *policyWalletHandler) handleCompleteRecovery(ctx *sysaction.Context, sa 
 	if ctx.From != rs.Guardian {
 		return ErrNotGuardian
 	}
-	// Verify timelock has elapsed.
-	if ctx.BlockNumber.Uint64() < rs.InitiatedAt+rs.Timelock {
+	// Verify timelock has elapsed. Guard against uint64 overflow.
+	deadline := rs.InitiatedAt + rs.Timelock
+	if deadline < rs.InitiatedAt {
+		// Overflow: timelock can never be met.
+		return ErrTimelockOverflow
+	}
+	if ctx.BlockNumber.Uint64() < deadline {
 		return ErrRecoveryTimelockNotMet
 	}
 	// Transfer ownership.
@@ -297,6 +326,9 @@ func (h *policyWalletHandler) handleSuspend(ctx *sysaction.Context, sa *sysactio
 	}
 	// Either owner or guardian can suspend.
 	owner := ReadOwner(ctx.StateDB, p.Account)
+	if owner == (common.Address{}) {
+		return ErrOwnerNotSet
+	}
 	guardian := ReadGuardian(ctx.StateDB, p.Account)
 	if ctx.From != owner && ctx.From != guardian {
 		return ErrNotOwner
