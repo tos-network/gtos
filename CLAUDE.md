@@ -36,3 +36,28 @@ Single-package runs don't benefit from `-p`; use `-parallel` instead to parallel
 ```bash
 go test -parallel 16 ./core -timeout 120s
 ```
+
+## 2046 Architecture Packages
+
+The 2046 architecture is defined in `docs/2046.md`. The following packages
+implement its core components:
+
+- `boundary/` — Shared boundary schemas (IntentEnvelope, PlanRecord,
+  ApprovalRecord, ExecutionReceipt, terminal classes, trust tiers, agent roles)
+- `policywallet/` — On-chain policy wallet primitives (spend caps, allowlists,
+  terminal restrictions, delegation, guardian recovery, suspension) at
+  `PolicyWalletRegistryAddress` (0x...010C)
+- `auditreceipt/` — Audit receipt surface (AuditReceipt, ProofReference,
+  PolicyDecisionRecord, SponsorAttribution, SettlementTrace, SessionProof) at
+  `AuditReceiptRegistryAddress` (0x...010D)
+- `gateway/` — Gateway relay as first-class capability at
+  `GatewayRegistryAddress` (0x...010E)
+- `settlement/` — Settlement callbacks and async fulfillment at
+  `SettlementRegistryAddress` (0x...010F)
+- `deploy/` — Contract compilation and deployment tooling for TOL contracts
+- `e2e/` — Cross-package integration tests
+
+All system contract addresses use full 32-byte (64 hex character) format in
+`params/tos_params.go`. The shared boundary schema version is `0.1.0`.
+
+Run `scripts/check-2046-compat.sh` to verify cross-repo compatibility.
