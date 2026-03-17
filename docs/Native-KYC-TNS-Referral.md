@@ -36,9 +36,9 @@ Design derived from:
 
 ```go
 // KYC / TNS / Referral system contract addresses.
-KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000105")
-TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000106")
-ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000107")
+KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000105")
+TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000106")
+ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000107")
 
 // TNS constants.
 TNSRegistrationFee = new(big.Int).Mul(big.NewInt(1e17), big.NewInt(1)) // 0.1 TOS

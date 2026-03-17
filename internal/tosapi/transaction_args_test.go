@@ -24,6 +24,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/internal/testfixtures"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/tosdb"
@@ -189,8 +190,8 @@ func TestSetDefaultsUsesDoEstimateGasForContractCalldata(t *testing.T) {
 	marker := errors.New("estimate branch reached")
 	b.blockByNumberOrHashErr = marker
 
-	from := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	to := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	from := testfixtures.Secp256k1AddrA
+	to := testfixtures.Secp256k1AddrB
 	calldata := hexutil.Bytes{0x60, 0x00}
 	args := &TransactionArgs{
 		From:  &from,
@@ -256,8 +257,8 @@ func TestSetDefaultsUsesUnlockedLocalSignerTypeWithoutOnChainMetadata(t *testing
 
 func TestDoEstimateGasCapsByFundsBeforeBinarySearch(t *testing.T) {
 	b := newBackendMock()
-	from := common.HexToAddress("0x3333333333333333333333333333333333333333")
-	to := common.HexToAddress("0x4444444444444444444444444444444444444444")
+	from := testfixtures.Secp256k1AddrC
+	to := testfixtures.Secp256k1AddrA
 
 	allowance := params.TxGas - 1000 // deliberately below intrinsic transfer gas
 	statedb := mustNewStateDB(t)

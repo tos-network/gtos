@@ -32,6 +32,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/internal/testfixtures"
 )
 
 // Tests that updating a state trie does not leak any database writes prior to
@@ -511,7 +512,7 @@ func TestCopyCommitCopy(t *testing.T) {
 	state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
 	// Create an account and check if the retrieved balance is correct
-	addr := common.HexToAddress("0xaffeaffeaffeaffeaffeaffeaffeaffeaffeaffe")
+	addr := testfixtures.Secp256k1AddrB
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 
@@ -583,7 +584,7 @@ func TestCopyCopyCommitCopy(t *testing.T) {
 	state, _ := New(common.Hash{}, NewDatabase(rawdb.NewMemoryDatabase()), nil)
 
 	// Create an account and check if the retrieved balance is correct
-	addr := common.HexToAddress("0xaffeaffeaffeaffeaffeaffeaffeaffeaffeaffe")
+	addr := testfixtures.Secp256k1AddrB
 	skey := common.HexToHash("aaa")
 	sval := common.HexToHash("bbb")
 

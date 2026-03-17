@@ -18,6 +18,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/event"
+	"github.com/tos-network/gtos/internal/testfixtures"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/tosdb"
@@ -203,11 +204,11 @@ func TestPendingTxFilter(t *testing.T) {
 		api          = NewFilterAPI(sys, false)
 
 		transactions = []*types.Transaction{
-			types.NewTransaction(0, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
-			types.NewTransaction(1, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
-			types.NewTransaction(2, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
-			types.NewTransaction(3, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
-			types.NewTransaction(4, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
+			types.NewTransaction(0, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
+			types.NewTransaction(1, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
+			types.NewTransaction(2, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
+			types.NewTransaction(3, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
+			types.NewTransaction(4, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil),
 		}
 
 		hashes []common.Hash
@@ -351,10 +352,10 @@ func TestLogFilter(t *testing.T) {
 		backend, sys = newTestFilterSystem(t, db, Config{})
 		api          = NewFilterAPI(sys, false)
 
-		firstAddr      = common.HexToAddress("0x1111111111111111111111111111111111111111")
-		secondAddr     = common.HexToAddress("0x2222222222222222222222222222222222222222")
-		thirdAddress   = common.HexToAddress("0x3333333333333333333333333333333333333333")
-		notUsedAddress = common.HexToAddress("0x9999999999999999999999999999999999999999")
+		firstAddr      = testfixtures.Secp256k1AddrA
+		secondAddr     = testfixtures.Secp256k1AddrB
+		thirdAddress   = testfixtures.Secp256k1AddrC
+		notUsedAddress = common.HexToAddress("0x0000000000000000000000009999999999999999999999999999999999999999")
 		firstTopic     = common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 		secondTopic    = common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
 		notUsedTopic   = common.HexToHash("0x9999999999999999999999999999999999999999999999999999999999999999")
@@ -465,10 +466,10 @@ func TestPendingLogsSubscription(t *testing.T) {
 		backend, sys = newTestFilterSystem(t, db, Config{})
 		api          = NewFilterAPI(sys, false)
 
-		firstAddr      = common.HexToAddress("0x1111111111111111111111111111111111111111")
-		secondAddr     = common.HexToAddress("0x2222222222222222222222222222222222222222")
-		thirdAddress   = common.HexToAddress("0x3333333333333333333333333333333333333333")
-		notUsedAddress = common.HexToAddress("0x9999999999999999999999999999999999999999")
+		firstAddr      = testfixtures.Secp256k1AddrA
+		secondAddr     = testfixtures.Secp256k1AddrB
+		thirdAddress   = testfixtures.Secp256k1AddrC
+		notUsedAddress = common.HexToAddress("0x0000000000000000000000009999999999999999999999999999999999999999")
 		firstTopic     = common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 		secondTopic    = common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")
 		thirdTopic     = common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333")
@@ -661,7 +662,7 @@ func TestPendingTxFilterDeadlock(t *testing.T) {
 			default:
 			}
 
-			tx := types.NewTransaction(i, common.HexToAddress("0xb794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil)
+			tx := types.NewTransaction(i, common.HexToAddress("0x000000000000000000000000b794f5ea0ba39494ce83a213fffba74279579268"), new(big.Int), 0, new(big.Int), nil)
 			backend.txFeed.Send(core.NewTxsEvent{Txs: []*types.Transaction{tx}})
 			i++
 		}

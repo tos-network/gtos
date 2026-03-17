@@ -276,7 +276,7 @@ existing registry pattern:
 
 ```go
 // in params/tos_params.go
-LeaseRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010B")
+LeaseRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010B")
 ```
 
 This address has no deployed code and cannot be called. It is used purely as a

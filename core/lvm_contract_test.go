@@ -14,6 +14,7 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	lvm "github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/internal/testfixtures"
 	"github.com/tos-network/gtos/params"
 	lua "github.com/tos-network/tolang"
 	goripemd160 "golang.org/x/crypto/ripemd160"
@@ -983,10 +984,10 @@ func TestLvmContractEmit(t *testing.T) {
 
 	t.Run("event_with_address_and_uint256", func(t *testing.T) {
 		// Emit a Transfer(address from, address to, uint256 value) event.
-		const code = `
-			local recipient = "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF"
+		code := fmt.Sprintf(`
+			local recipient = %q
 			tos.emit("Transfer", "address", tos.caller, "address", recipient, "uint256", 1000)
-		`
+		`, testfixtures.Secp256k1AddrBHex)
 		bc, contractAddr, cleanup := lvmTestSetup(t, code)
 		defer cleanup()
 		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), nil)
@@ -1282,7 +1283,7 @@ func TestLvmContractDispatch(t *testing.T) {
 		defer cleanup()
 		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 		addr1 := crypto.PubkeyToAddress(key1.PublicKey)
-		recipient := common.HexToAddress("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF")
+		recipient := testfixtures.Secp256k1AddrB
 		data := buildCalldata(t, "transfer(address,uint256)", "address", recipient, "uint256", big.NewInt(1000))
 		receipt := runLvmTxGetReceipt(t, bc, contractAddr, big.NewInt(0), data)
 		if len(receipt.Logs) != 1 {
@@ -1965,7 +1966,7 @@ func TestLvmContractCrossContractRead(t *testing.T) {
 		-- codeAt
 		local hasCode = tos.codeAt(%q)
 		tos.emit("HasCode", "bool", hasCode)
-		local noCode = tos.codeAt("0x0000000000000000000000000000000000000000")
+			local noCode = tos.codeAt("0x0000000000000000000000000000000000000000000000000000000000000000")
 		tos.emit("NoCode", "bool", noCode)
 	`, addrB.Hex(), addrB.Hex())
 
@@ -3159,7 +3160,7 @@ func TestLvmContractMappingProxy(t *testing.T) {
 func TestLvmContractSend(t *testing.T) {
 	t.Run("success_transfers_balance", func(t *testing.T) {
 		// Contract starts with 1 TOS; send 0.5 TOS to recipient.
-		recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
+		recipient := common.HexToAddress("0x0000000000000000000000001111111111111111111111111111111111111111")
 		halfTOS := new(big.Int).Div(big.NewInt(params.TOS), big.NewInt(2))
 
 		code := fmt.Sprintf(`
@@ -3180,7 +3181,7 @@ func TestLvmContractSend(t *testing.T) {
 
 	t.Run("returns_false_on_insufficient_balance", func(t *testing.T) {
 		// Contract has 1 TOS; try to send 2 TOS → false, recipient gets nothing.
-		recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
+		recipient := common.HexToAddress("0x0000000000000000000000002222222222222222222222222222222222222222")
 		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
 
 		code := fmt.Sprintf(`
@@ -3205,7 +3206,7 @@ func TestLvmContractSend(t *testing.T) {
 		twoTOS := new(big.Int).Mul(big.NewInt(2), big.NewInt(params.TOS))
 		code := fmt.Sprintf(`
 			tos.sstore("before", 1)
-			local ok = tos.send("0x4444444444444444444444444444444444444444", %s)
+				local ok = tos.send("0x0000000000000000000000004444444444444444444444444444444444444444", %s)
 			assert(ok == false)
 			tos.sstore("after", 2)
 		`, twoTOS.Text(10))
@@ -3230,7 +3231,7 @@ func TestLvmContractSend(t *testing.T) {
 		const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 		const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 		calleeCode := `
-			local ok = tos.send("0x1111111111111111111111111111111111111111", 1)
+				local ok = tos.send("0x0000000000000000000000001111111111111111111111111111111111111111", 1)
 			assert(ok == false, "send in readonly context must return false")
 		`
 		callerCode := fmt.Sprintf(`
@@ -3244,7 +3245,7 @@ func TestLvmContractSend(t *testing.T) {
 
 	t.Run("zero_amount_succeeds", func(t *testing.T) {
 		// send(addr, 0) is a no-op transfer; must return true.
-		recipient := common.HexToAddress("0x3333333333333333333333333333333333333333")
+		recipient := common.HexToAddress("0x0000000000000000000000003333333333333333333333333333333333333333")
 		code := fmt.Sprintf(`
 			local ok = tos.send(%q, 0)
 			assert(ok == true, "send(0) should succeed")
@@ -5034,7 +5035,7 @@ func TestLvmContractAccess(t *testing.T) {
 func TestLvmContractTimelock(t *testing.T) {
 	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
 	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-	const zero = "0x0000000000000000000000000000000000000000"
+	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
 	t.Run("delay_zero_schedule_and_execute", func(t *testing.T) {
 		// With delay=0 the eta equals the scheduling block's timestamp.

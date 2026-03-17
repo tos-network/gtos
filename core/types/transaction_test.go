@@ -35,12 +35,12 @@ import (
 // The values in those tests are from the Transaction Tests
 // at github.com/tos/tests.
 var (
-	testAddr = common.HexToAddress("b94f5374fce5edbc8e2a8697c15331677e6ebf0b")
-	testFrom = common.HexToAddress("0x1111111111111111111111111111111111111111")
+	testAddr = common.HexToAddress("0x000000000000000000000000b94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+	testFrom = common.HexToAddress("0x0000000000000000000000001111111111111111111111111111111111111111")
 
 	emptyTx = NewTransaction(
 		0,
-		common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87"),
+		common.HexToAddress("0x000000000000000000000000095e7baea6a6c7c4c2dfeb977efac326af552d87"),
 		big.NewInt(0), 0, big.NewInt(0),
 		nil,
 	)

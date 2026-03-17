@@ -31,10 +31,10 @@ Add the following to the existing file:
 
 ```go
 // Agent-Native system contract addresses.
-AgentRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000101")
-CapabilityRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000102")
-DelegationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000103")
-ReputationHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000104")
+AgentRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000101")
+CapabilityRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000102")
+DelegationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000103")
+ReputationHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000104")
 
 // AA constants.
 ValidationGasCap uint64 = 50_000 // hard cap for account.validate() call

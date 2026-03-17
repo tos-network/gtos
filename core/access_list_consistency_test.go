@@ -6,6 +6,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/internal/testfixtures"
 	"github.com/tos-network/gtos/params"
 )
 
@@ -17,7 +18,7 @@ func TestAccessListIntrinsicGasIsZero(t *testing.T) {
 	// A non-trivial access list with one address + one storage slot.
 	al := types.AccessList{
 		{
-			Address:     common.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+			Address:     testfixtures.Secp256k1AddrB,
 			StorageKeys: []common.Hash{common.HexToHash("0x01")},
 		},
 	}

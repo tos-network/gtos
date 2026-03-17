@@ -2126,8 +2126,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Address utilities + constants ─────────────────────────────────────────
 
-	// tos.ZERO_ADDRESS  — the all-zeros address "0x0000...0000" (20 bytes).
-	// Equivalent to Solidity's address(0).
+		// tos.ZERO_ADDRESS  — the all-zeros 32-byte TOS address.
+		// Equivalent to the zero-value address in GTOS.
 	//
 	//   require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
 	L.SetField(tosTable, "ZERO_ADDRESS", lua.LString(common.Address{}.Hex()))
@@ -2141,9 +2141,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		L.SetField(tosTable, "MAX_UINT256", luBig(max))
 	}
 
-	// tos.isAddress(str) → bool
-	//   Returns true if str is a syntactically valid Ethereum address:
-	//   optional "0x"/"0X" prefix followed by exactly 40 hex characters.
+		// tos.isAddress(str) → bool
+		//   Returns true if str is a syntactically valid TOS address:
+		//   optional "0x"/"0X" prefix followed by exactly 64 hex characters.
 	//   Does NOT check whether the address has deployed code or a non-zero balance.
 	//
 	//   require(tos.isAddress(to), "invalid address")
@@ -2165,10 +2165,10 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 1
 	}))
 
-	// tos.toAddress(str) → string
-	//   Normalise any hex string to a canonical lowercase "0x"-prefixed 20-byte
-	//   address string.  Short inputs are zero-padded on the left; extra leading
-	//   zeros are stripped.  Equivalent to Solidity's address(uint160(x)).
+		// tos.toAddress(str) → string
+		//   Normalise any hex string to a canonical checksum "0x"-prefixed 32-byte
+		//   TOS address string. Short inputs are zero-padded on the left; extra
+		//   leading bytes are truncated via common.HexToAddress semantics.
 	//
 	//   Useful to ensure consistent storage keys regardless of how callers format
 	//   addresses:

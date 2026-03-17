@@ -40,6 +40,7 @@ func TestBytesConversion(t *testing.T) {
 }
 
 func TestIsHexAddress(t *testing.T) {
+	legacy20 := strings.Repeat("1", 40)
 	tests := []struct {
 		str string
 		exp bool
@@ -47,13 +48,13 @@ func TestIsHexAddress(t *testing.T) {
 		{"0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a", true},
 		{"969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a", true},
 		{"0X969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a", true},
-		{"0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", false},
-		{"5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", false},
-		{"0X5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", false},
-		{"0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed1", false},
-		{"0x5aaeb6053f3e94c9b9a09f33669435e7ef1beae", false},
-		{"5aaeb6053f3e94c9b9a09f33669435e7ef1beaed11", false},
-		{"0xxaaeb6053f3e94c9b9a09f33669435e7ef1beaed", false},
+		{"0x" + legacy20, false},
+		{legacy20, false},
+		{"0X" + legacy20, false},
+		{"0x" + legacy20 + "1", false},
+		{"0x" + legacy20[:39], false},
+		{legacy20 + "11", false},
+		{"0xx" + legacy20[1:], false},
 	}
 
 	for _, test := range tests {
@@ -94,6 +95,8 @@ func TestHashJsonValidation(t *testing.T) {
 }
 
 func TestAddressUnmarshalJSON(t *testing.T) {
+	legacy20A := strings.Repeat("a", 40)
+	legacy20B := strings.Repeat("b", 40)
 	var tests = []struct {
 		Input     string
 		ShouldErr bool
@@ -106,8 +109,8 @@ func TestAddressUnmarshalJSON(t *testing.T) {
 		{`"0xG000000000000000000000000000000000000000"`, true, nil},
 		{`"0x0000000000000000000000000000000000000000000000000000000000000000"`, false, big.NewInt(0)},
 		{`"0x0000000000000000000000000000000000000000000000000000000000000010"`, false, big.NewInt(16)},
-		{`"0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"`, true, nil},
-		{`"0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359"`, true, nil},
+		{fmt.Sprintf(`"0x%s"`, legacy20A), true, nil},
+		{fmt.Sprintf(`"0x%s"`, legacy20B), true, nil},
 	}
 	for i, test := range tests {
 		var v Address

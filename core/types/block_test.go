@@ -57,7 +57,7 @@ func TestBlockEncoding(t *testing.T) {
 	check("Difficulty", block.Difficulty(), big.NewInt(131072))
 	check("GasLimit", block.GasLimit(), uint64(3141592))
 	check("GasUsed", block.GasUsed(), uint64(21000))
-	check("Coinbase", block.Coinbase(), common.HexToAddress("8888f1f195afa192cfee860698584c030f4c9db1"))
+	check("Coinbase", block.Coinbase(), common.HexToAddress("0x0000000000000000000000008888f1f195afa192cfee860698584c030f4c9db1"))
 	check("MixDigest", block.MixDigest(), common.HexToHash("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498"))
 	check("Root", block.Root(), common.HexToHash("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017"))
 	check("Hash", block.Hash(), common.HexToHash("0a5843ac1cb04865017cb35a57b50b07084e5fcee39b5acadade33149f4fff9e"))
@@ -94,7 +94,7 @@ func TestDynamicFeeBlockEncoding(t *testing.T) {
 	check("Difficulty", block.Difficulty(), big.NewInt(131072))
 	check("GasLimit", block.GasLimit(), uint64(3141592))
 	check("GasUsed", block.GasUsed(), uint64(21000))
-	check("Coinbase", block.Coinbase(), common.HexToAddress("8888f1f195afa192cfee860698584c030f4c9db1"))
+	check("Coinbase", block.Coinbase(), common.HexToAddress("0x0000000000000000000000008888f1f195afa192cfee860698584c030f4c9db1"))
 	check("MixDigest", block.MixDigest(), common.HexToHash("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498"))
 	check("Root", block.Root(), common.HexToHash("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017"))
 	check("Hash", block.Hash(), common.HexToHash("c7252048cd273fe0dac09650027d07f0e3da4ee0675ebbb26627cea92729c372"))
@@ -112,7 +112,7 @@ func TestDynamicFeeBlockEncoding(t *testing.T) {
 			{0},
 		},
 	}}
-	to := common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+	to := common.HexToAddress("0x000000000000000000000000095e7baea6a6c7c4c2dfeb977efac326af552d87")
 	txdata := &SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      0,
@@ -159,7 +159,7 @@ func TestTypedEnvelopeBlockEncoding(t *testing.T) {
 	check("Difficulty", block.Difficulty(), big.NewInt(131072))
 	check("GasLimit", block.GasLimit(), uint64(3141592))
 	check("GasUsed", block.GasUsed(), uint64(42000))
-	check("Coinbase", block.Coinbase(), common.HexToAddress("8888f1f195afa192cfee860698584c030f4c9db1"))
+	check("Coinbase", block.Coinbase(), common.HexToAddress("0x0000000000000000000000008888f1f195afa192cfee860698584c030f4c9db1"))
 	check("MixDigest", block.MixDigest(), common.HexToHash("bd4472abb6659ebe3ee06ee4d7b72a00a9f4d001caca51342001075469aff498"))
 	check("Root", block.Root(), common.HexToHash("ef1552a40b7165c3cd773806b9e0c165b75356e0314bf0706f279c729f51e017"))
 	check("Nonce", block.Nonce(), uint64(0xa13a5a8c8f2bb1c4))
@@ -171,7 +171,7 @@ func TestTypedEnvelopeBlockEncoding(t *testing.T) {
 
 	// Create ACL tx.
 	addr := common.HexToAddress("0x969b0a11b8a56bacf1ac18f219e7e376e7c213b7e7e7e46cc70a5dd086daff2a")
-	to := common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87")
+	to := common.HexToAddress("0x000000000000000000000000095e7baea6a6c7c4c2dfeb977efac326af552d87")
 	tx2 := NewTx(&SignerTx{
 		ChainID:    big.NewInt(1),
 		Nonce:      0,

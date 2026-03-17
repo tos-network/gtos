@@ -144,19 +144,19 @@ func TestCacheAddDeleteOrder(t *testing.T) {
 
 	accs := []accounts.Account{
 		{
-			Address: common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87"),
+			Address: common.HexToAddress("0x000000000000000000000000095e7baea6a6c7c4c2dfeb977efac326af552d87"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: "-309830980"},
 		},
 		{
-			Address: common.HexToAddress("2cac1adea150210703ba75ed097ddfe24e14f213"),
+			Address: common.HexToAddress("0x0000000000000000000000002cac1adea150210703ba75ed097ddfe24e14f213"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: "ggg"},
 		},
 		{
-			Address: common.HexToAddress("8bda78331c916a08481428e4b07c96d3e916d165"),
+			Address: common.HexToAddress("0x0000000000000000000000008bda78331c916a08481428e4b07c96d3e916d165"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: "zzzzzz-the-very-last-one.keyXXX"},
 		},
 		{
-			Address: common.HexToAddress("d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
+			Address: common.HexToAddress("0x000000000000000000000000d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: "SOMETHING.key"},
 		},
 		{
@@ -192,15 +192,15 @@ func TestCacheAddDeleteOrder(t *testing.T) {
 			t.Errorf("expected hasAccount(%x) to return true", a.Address)
 		}
 	}
-	if cache.hasAddress(common.HexToAddress("fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e")) {
-		t.Errorf("expected hasAccount(%x) to return false", common.HexToAddress("fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e"))
+	if cache.hasAddress(common.HexToAddress("0x000000000000000000000000fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e")) {
+		t.Errorf("expected hasAccount(%x) to return false", common.HexToAddress("0x000000000000000000000000fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e"))
 	}
 
 	// Delete a few keys from the cache.
 	for i := 0; i < len(accs); i += 2 {
 		cache.delete(wantAccounts[i])
 	}
-	cache.delete(accounts.Account{Address: common.HexToAddress("fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e"), URL: accounts.URL{Scheme: KeyStoreScheme, Path: "something"}})
+	cache.delete(accounts.Account{Address: common.HexToAddress("0x000000000000000000000000fd9bd350f08ee3c0c19b85a8e16114a11a60aa4e"), URL: accounts.URL{Scheme: KeyStoreScheme, Path: "something"}})
 
 	// Check content again after deletion.
 	wantAccountsAfterDelete := []accounts.Account{
@@ -229,19 +229,19 @@ func TestCacheFind(t *testing.T) {
 
 	accs := []accounts.Account{
 		{
-			Address: common.HexToAddress("095e7baea6a6c7c4c2dfeb977efac326af552d87"),
+			Address: common.HexToAddress("0x000000000000000000000000095e7baea6a6c7c4c2dfeb977efac326af552d87"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: filepath.Join(dir, "a.key")},
 		},
 		{
-			Address: common.HexToAddress("2cac1adea150210703ba75ed097ddfe24e14f213"),
+			Address: common.HexToAddress("0x0000000000000000000000002cac1adea150210703ba75ed097ddfe24e14f213"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: filepath.Join(dir, "b.key")},
 		},
 		{
-			Address: common.HexToAddress("d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
+			Address: common.HexToAddress("0x000000000000000000000000d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: filepath.Join(dir, "c.key")},
 		},
 		{
-			Address: common.HexToAddress("d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
+			Address: common.HexToAddress("0x000000000000000000000000d49ff4eeb0b2686ed89c0fc0f2b6ea533ddbbd5e"),
 			URL:     accounts.URL{Scheme: KeyStoreScheme, Path: filepath.Join(dir, "c2.key")},
 		},
 	}

@@ -6,9 +6,16 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/internal/testfixtures"
 )
 
 // ---------- helpers ----------
+
+var (
+	testFromAddr      = testfixtures.Secp256k1AddrA
+	testSponsorAddr   = testfixtures.Secp256k1AddrB
+	testRecipientAddr = testfixtures.Secp256k1AddrC
+)
 
 func makeTestHeader() *types.Header {
 	return &types.Header{
@@ -35,7 +42,7 @@ func makeTestTx(to common.Address) *types.Transaction {
 		To:         &to,
 		Value:      big.NewInt(1000),
 		Data:       nil,
-		From:       common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		From:       testFromAddr,
 		SignerType: "secp256k1",
 		V:          big.NewInt(0),
 		R:          big.NewInt(0),
@@ -54,9 +61,9 @@ func makeSponsoredTx(to common.Address) *types.Transaction {
 		To:                &to,
 		Value:             big.NewInt(2000),
 		Data:              nil,
-		From:              common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		From:              testFromAddr,
 		SignerType:        "secp256k1",
-		Sponsor:           common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		Sponsor:           testSponsorAddr,
 		SponsorSignerType: "secp256k1",
 		SponsorNonce:      10,
 		SponsorExpiry:     1700001000,
@@ -73,7 +80,7 @@ func makeSponsoredTx(to common.Address) *types.Transaction {
 // ---------- Tests ----------
 
 func TestBuildFromReceipt(t *testing.T) {
-	to := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := testRecipientAddr
 	tx := makeTestTx(to)
 	txHash := tx.Hash()
 	receipt := makeTestReceipt(txHash)
@@ -96,7 +103,7 @@ func TestBuildFromReceipt(t *testing.T) {
 	if ar.SettledAt != 1700000000 {
 		t.Errorf("SettledAt mismatch: got %d, want 1700000000", ar.SettledAt)
 	}
-	if ar.From != common.HexToAddress("0x1111111111111111111111111111111111111111") {
+	if ar.From != testFromAddr {
 		t.Errorf("From mismatch: got %s", ar.From.Hex())
 	}
 	if ar.To != to {
@@ -118,7 +125,7 @@ func TestBuildFromReceipt(t *testing.T) {
 }
 
 func TestBuildFromReceipt_Sponsored(t *testing.T) {
-	to := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := testRecipientAddr
 	tx := makeSponsoredTx(to)
 	txHash := tx.Hash()
 	receipt := makeTestReceipt(txHash)
@@ -126,7 +133,7 @@ func TestBuildFromReceipt_Sponsored(t *testing.T) {
 
 	ar := BuildFromReceipt(receipt, tx, header)
 
-	expectedSponsor := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	expectedSponsor := testSponsorAddr
 	if ar.Sponsor != expectedSponsor {
 		t.Errorf("Sponsor mismatch: got %s, want %s", ar.Sponsor.Hex(), expectedSponsor.Hex())
 	}
@@ -141,8 +148,8 @@ func TestComputeReceiptHash_Determinism(t *testing.T) {
 		BlockNumber: 100,
 		Status:      1,
 		GasUsed:     21000,
-		From:        common.HexToAddress("0x1111111111111111111111111111111111111111"),
-		To:          common.HexToAddress("0x2222222222222222222222222222222222222222"),
+		From:        testFromAddr,
+		To:          testSponsorAddr,
 		Value:       big.NewInt(500),
 		SettledAt:   1700000000,
 	}
@@ -168,7 +175,7 @@ func TestComputeReceiptHash_Determinism(t *testing.T) {
 }
 
 func TestBuildSponsorAttribution(t *testing.T) {
-	to := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := testRecipientAddr
 	tx := makeSponsoredTx(to)
 	txHash := tx.Hash()
 	receipt := makeTestReceipt(txHash)
@@ -181,7 +188,7 @@ func TestBuildSponsorAttribution(t *testing.T) {
 	if sar.TxHash != txHash {
 		t.Errorf("TxHash mismatch: got %s, want %s", sar.TxHash.Hex(), txHash.Hex())
 	}
-	if sar.SponsorAddress != common.HexToAddress("0x2222222222222222222222222222222222222222") {
+	if sar.SponsorAddress != testSponsorAddr {
 		t.Errorf("SponsorAddress mismatch: got %s", sar.SponsorAddress.Hex())
 	}
 	if sar.SponsorSignerType != "secp256k1" {
@@ -205,7 +212,7 @@ func TestBuildSponsorAttribution(t *testing.T) {
 }
 
 func TestBuildSponsorAttribution_NonSponsored(t *testing.T) {
-	to := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := testRecipientAddr
 	tx := makeTestTx(to)
 	receipt := makeTestReceipt(tx.Hash())
 
@@ -216,7 +223,7 @@ func TestBuildSponsorAttribution_NonSponsored(t *testing.T) {
 }
 
 func TestBuildSettlementTrace(t *testing.T) {
-	to := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	to := testRecipientAddr
 	tx := makeTestTx(to)
 	txHash := tx.Hash()
 	receipt := makeTestReceipt(txHash)
@@ -230,7 +237,7 @@ func TestBuildSettlementTrace(t *testing.T) {
 	if !st.Success {
 		t.Error("Success should be true for successful receipt")
 	}
-	if st.From != common.HexToAddress("0x1111111111111111111111111111111111111111") {
+	if st.From != testFromAddr {
 		t.Errorf("From mismatch: got %s", st.From.Hex())
 	}
 	if st.To != to {

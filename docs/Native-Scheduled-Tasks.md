@@ -41,7 +41,7 @@ Design derived from:
 
 ```go
 // Task Scheduler system contract address.
-TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000108")
+TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000108")
 ```
 
 ```go

@@ -17,6 +17,7 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/internal/testfixtures"
 	"github.com/tos-network/gtos/node"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/rpc"
@@ -41,7 +42,7 @@ var (
 func TestToFilterArg(t *testing.T) {
 	blockHashErr := fmt.Errorf("cannot specify both BlockHash and FromBlock/ToBlock")
 	addresses := []common.Address{
-		common.HexToAddress("0xD36722ADeC3EdCB29c8e7b5a47f352D701393462"),
+		testfixtures.Secp256k1AddrA,
 	}
 	blockHash := common.HexToHash(
 		"0xeb94bb7d78b73657a9d7a99792413f50c0a45c51fc62bdcb08a53f18e9a2b4eb",
