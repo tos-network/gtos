@@ -63,6 +63,19 @@ const (
 	ActionLeaseDeploy ActionKind = "LEASE_DEPLOY"
 	ActionLeaseRenew  ActionKind = "LEASE_RENEW"
 	ActionLeaseClose  ActionKind = "LEASE_CLOSE"
+
+	// Policy wallet primitives.
+	ActionPolicySetSpendCaps      ActionKind = "POLICY_SET_SPEND_CAPS"
+	ActionPolicySetAllowlist      ActionKind = "POLICY_SET_ALLOWLIST"
+	ActionPolicySetTerminalPolicy ActionKind = "POLICY_SET_TERMINAL_POLICY"
+	ActionPolicyAuthorizeDelegate ActionKind = "POLICY_AUTHORIZE_DELEGATE"
+	ActionPolicyRevokeDelegate    ActionKind = "POLICY_REVOKE_DELEGATE"
+	ActionPolicySetGuardian       ActionKind = "POLICY_SET_GUARDIAN"
+	ActionPolicyInitiateRecovery  ActionKind = "POLICY_INITIATE_RECOVERY"
+	ActionPolicyCancelRecovery    ActionKind = "POLICY_CANCEL_RECOVERY"
+	ActionPolicyCompleteRecovery  ActionKind = "POLICY_COMPLETE_RECOVERY"
+	ActionPolicySuspend           ActionKind = "POLICY_SUSPEND"
+	ActionPolicyUnsuspend         ActionKind = "POLICY_UNSUSPEND"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

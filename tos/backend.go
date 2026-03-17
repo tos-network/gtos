@@ -38,7 +38,8 @@ import (
 	"github.com/tos-network/gtos/p2p/dnsdisc"
 	"github.com/tos-network/gtos/p2p/enode"
 	"github.com/tos-network/gtos/params"
-	_ "github.com/tos-network/gtos/referral" // registers REFERRAL_* handlers via init()
+	_ "github.com/tos-network/gtos/policywallet" // registers POLICY_* handlers via init()
+	_ "github.com/tos-network/gtos/referral"     // registers REFERRAL_* handlers via init()
 	"github.com/tos-network/gtos/reputation"
 	"github.com/tos-network/gtos/rlp"
 	"github.com/tos-network/gtos/rpc"

@@ -27,33 +27,41 @@ var (
 	LVMSerialAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000005")
 
 	// Agent-Native system contract addresses (Agent-Native infrastructure).
-	AgentRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000101")
-	CapabilityRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000102")
-	DelegationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000103")
-	ReputationHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000104")
+	AgentRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000101")
+	CapabilityRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000102")
+	DelegationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000103")
+	ReputationHubAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000104")
 
 	// KYC / TNS / Referral system contract addresses.
-	KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000105")
-	TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000106")
-	ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000107")
+	KYCRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000105")
+	TNSRegistryAddress      = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000106")
+	ReferralRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000107")
 
 	// TaskSchedulerAddress stores on-chain scheduled-task state via storage slots.
-	TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000108")
+	TaskSchedulerAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000108")
 
 	// CheckpointSlashIndicatorAddress is the native system-contract style address
 	// that accepts malicious-vote evidence submissions for checkpoint finality.
-	CheckpointSlashIndicatorAddress = common.HexToAddress("0x0000000000000000000000000000000000000109")
+	CheckpointSlashIndicatorAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000109")
 
 	// SponsorRegistryAddress stores protocol-level sponsor nonce state for
 	// native sponsored transactions.
-	SponsorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000110")
+	SponsorRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000110")
 
 	// GroupRegistryAddress stores on-chain Group registration and state commitment data.
-	GroupRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010A")
+	GroupRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010A")
 
 	// LeaseRegistryAddress stores protocol-native lease metadata, expiry indexes,
 	// and tombstones for lease contracts.
-	LeaseRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000010B")
+	LeaseRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010B")
+
+	// PolicyWalletRegistryAddress stores on-chain policy wallet state (spend caps,
+	// allowlists, terminal policies, delegate auth, guardian/recovery).
+	PolicyWalletRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010C")
+
+	// AuditReceiptRegistryAddress stores audit receipt metadata for
+	// intent-to-receipt traceability and proof references.
+	AuditReceiptRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010D")
 )
 
 // DPoS validator stake and reward parameters.
