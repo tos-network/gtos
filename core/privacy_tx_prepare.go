@@ -10,6 +10,7 @@ import (
 	"github.com/tos-network/gtos/core/priv"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
+	"github.com/tos-network/gtos/policywallet"
 )
 
 var errPreparedPrivacyStateMismatch = errors.New("priv: prepared state mismatch")
@@ -299,6 +300,13 @@ func verifyPreparedUnshieldProofs(utx *types.UnshieldTx, zeroedCt priv.Ciphertex
 }
 
 func preparePrivacyTxState(chainID *big.Int, statedb vm.StateDB, tx *types.Transaction) (preparedPrivacyTx, error) {
+	// Privacy terminal access validation: if the sender has privacy terminal
+	// policies configured (policy wallet owner is set), enforce terminal rules.
+	// Accounts without a policy wallet are unaffected (backward-compatible).
+	if err := validatePrivacyTerminalIfConfigured(statedb, tx); err != nil {
+		return nil, err
+	}
+
 	switch tx.Type() {
 	case types.PrivTransferTxType:
 		ptx := tx.PrivTransferInner()
@@ -321,6 +329,54 @@ func preparePrivacyTxState(chainID *big.Int, statedb vm.StateDB, tx *types.Trans
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
+}
+
+// validatePrivacyTerminalIfConfigured checks privacy terminal access rules
+// when the sender has a policy wallet configured. Returns nil if the sender
+// has no policy wallet (owner == zero address), preserving backward compatibility.
+func validatePrivacyTerminalIfConfigured(statedb vm.StateDB, tx *types.Transaction) error {
+	var senderAddr common.Address
+	var actionType string
+	var value *big.Int
+
+	switch tx.Type() {
+	case types.PrivTransferTxType:
+		ptx := tx.PrivTransferInner()
+		if ptx == nil {
+			return nil // let the caller handle the nil-inner error
+		}
+		senderAddr = ptx.FromAddress()
+		actionType = policywallet.PrivacyActionPrivTransfer
+		value = new(big.Int).SetUint64(priv.UNOFeeToWei(ptx.UnoFeeLimit))
+	case types.ShieldTxType:
+		stx := tx.ShieldInner()
+		if stx == nil {
+			return nil
+		}
+		senderAddr = stx.DerivedAddress()
+		actionType = policywallet.PrivacyActionShield
+		value = new(big.Int).SetUint64(priv.UNOFeeToWei(stx.UnoAmount))
+	case types.UnshieldTxType:
+		utx := tx.UnshieldInner()
+		if utx == nil {
+			return nil
+		}
+		senderAddr = utx.DerivedAddress()
+		actionType = policywallet.PrivacyActionUnshield
+		value = new(big.Int).SetUint64(priv.UNOFeeToWei(utx.UnoAmount))
+	default:
+		return nil
+	}
+
+	// Only enforce if the account has a policy wallet (owner is set).
+	owner := policywallet.ReadOwner(statedb, senderAddr)
+	if owner == (common.Address{}) {
+		return nil
+	}
+
+	terminalClass := policywallet.TerminalApp // default terminal class
+	trustTier := policywallet.TrustMedium     // default trust tier
+	return policywallet.ValidatePrivacyTerminalAccess(statedb, senderAddr, terminalClass, trustTier, actionType, value)
 }
 
 func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Transaction, ptx *types.PrivTransferTx) (*preparedPrivTransferTx, error) {

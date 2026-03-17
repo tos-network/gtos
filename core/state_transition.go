@@ -31,6 +31,7 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/policywallet"
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -402,6 +403,17 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	if msg.IsSponsored() {
 		setSponsorNonce(st.state, msg.Sponsor(), getSponsorNonce(st.state, msg.Sponsor())+1)
+
+		// Policy wallet validation: if the sender's account has a policy
+		// wallet owner set, enforce the terminal/sponsor policy rules.
+		// Accounts without a policy wallet (owner == zero) are unaffected.
+		if owner := policywallet.ReadOwner(st.state, msg.From()); owner != (common.Address{}) {
+			terminalClass := policywallet.TerminalApp // default terminal class
+			trustTier := policywallet.TrustMedium     // default trust tier
+			if err := policywallet.ValidateSponsoredExecution(st.state, msg.From(), msg.Sponsor(), msg.Value(), terminalClass, trustTier); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	var vmerr error
