@@ -15,12 +15,14 @@ echo "=== Schema Version Check ==="
 GTOS_VER=$(grep 'SchemaVersion' ~/gtos/boundary/types.go | grep -o '"[^"]*"' | tr -d '"')
 OPENFOX_VER=$(grep 'BOUNDARY_SCHEMA_VERSION' ~/openfox/src/intent/types.ts | grep -o '"[^"]*"' | tr -d '"')
 TOL_VER=$(grep 'SchemaVersion' ~/tolang/metadata/metadata.go | grep -o '"[^"]*"' | head -1 | tr -d '"')
+TOSDK_VER=$(grep 'BOUNDARY_SCHEMA_VERSION' ~/tosdk/src/types/boundary.ts | grep -o "'[^']*'" | tr -d "'")
 
 echo "GTOS:    $GTOS_VER"
 echo "OpenFox: $OPENFOX_VER"
 echo "TOL:     $TOL_VER"
+echo "tosdk:   $TOSDK_VER"
 
-if [ "$GTOS_VER" = "$OPENFOX_VER" ] && [ "$OPENFOX_VER" = "$TOL_VER" ]; then
+if [ "$GTOS_VER" = "$OPENFOX_VER" ] && [ "$OPENFOX_VER" = "$TOL_VER" ] && [ "$TOL_VER" = "$TOSDK_VER" ]; then
   echo "All schema versions match: $GTOS_VER"
 else
   echo "Schema version mismatch!"
