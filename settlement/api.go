@@ -1,6 +1,7 @@
 package settlement
 
 import (
+	"github.com/tos-network/gtos/boundary"
 	"github.com/tos-network/gtos/common"
 )
 
@@ -78,4 +79,17 @@ func (api *PublicSettlementAPI) GetFulfillment(fulfillmentID common.Hash) (*Asyn
 		FulfilledAt:      ReadFulfillmentFulfilledAt(db, fulfillmentID),
 		ReceiptRef:       ReadFulfillmentReceiptRef(db, fulfillmentID),
 	}, nil
+}
+
+// GetBoundaryVersion returns the boundary schema version used by this node.
+func (api *PublicSettlementAPI) GetBoundaryVersion() string {
+	return boundary.SchemaVersion
+}
+
+// GetSchemaVersion returns the boundary schema version and negotiation info.
+func (api *PublicSettlementAPI) GetSchemaVersion() map[string]interface{} {
+	return map[string]interface{}{
+		"schema_version": boundary.SchemaVersion,
+		"namespace":      "settlement",
+	}
 }

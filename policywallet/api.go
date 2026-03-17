@@ -1,6 +1,7 @@
 package policywallet
 
 import (
+	"github.com/tos-network/gtos/boundary"
 	"github.com/tos-network/gtos/common"
 )
 
@@ -111,4 +112,18 @@ func (api *PublicPolicyWalletAPI) GetOwner(account common.Address) (common.Addre
 func (api *PublicPolicyWalletAPI) GetGuardian(account common.Address) (common.Address, error) {
 	db := api.stateReader()
 	return ReadGuardian(db, account), nil
+}
+
+// GetBoundaryVersion returns the boundary schema version used by this node.
+func (api *PublicPolicyWalletAPI) GetBoundaryVersion() string {
+	return boundary.SchemaVersion
+}
+
+// GetSchemaVersion returns the boundary schema version and negotiation info.
+// Clients can pass their own version to check compatibility.
+func (api *PublicPolicyWalletAPI) GetSchemaVersion() map[string]interface{} {
+	return map[string]interface{}{
+		"schema_version": boundary.SchemaVersion,
+		"namespace":      "policyWallet",
+	}
 }

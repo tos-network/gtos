@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"github.com/tos-network/gtos/boundary"
 	"github.com/tos-network/gtos/common"
 )
 
@@ -51,4 +52,17 @@ func (api *PublicGatewayAPI) GetGatewayConfig(agent common.Address) (*GatewayCon
 func (api *PublicGatewayAPI) IsGatewayActive(agent common.Address) (bool, error) {
 	db := api.stateReader()
 	return ReadActive(db, agent), nil
+}
+
+// GetBoundaryVersion returns the boundary schema version used by this node.
+func (api *PublicGatewayAPI) GetBoundaryVersion() string {
+	return boundary.SchemaVersion
+}
+
+// GetSchemaVersion returns the boundary schema version and negotiation info.
+func (api *PublicGatewayAPI) GetSchemaVersion() map[string]interface{} {
+	return map[string]interface{}{
+		"schema_version": boundary.SchemaVersion,
+		"namespace":      "gateway",
+	}
 }

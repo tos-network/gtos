@@ -1,6 +1,7 @@
 package auditreceipt
 
 import (
+	"github.com/tos-network/gtos/boundary"
 	"github.com/tos-network/gtos/common"
 )
 
@@ -59,4 +60,17 @@ func (api *PublicAuditReceiptAPI) GetSessionProof(txHash common.Hash) (*SessionP
 		ExpiresAt:   proof.ExpiresAt,
 		ProofHash:   proof.ProofHash,
 	}, nil
+}
+
+// GetBoundaryVersion returns the boundary schema version used by this node.
+func (api *PublicAuditReceiptAPI) GetBoundaryVersion() string {
+	return boundary.SchemaVersion
+}
+
+// GetSchemaVersion returns the boundary schema version and negotiation info.
+func (api *PublicAuditReceiptAPI) GetSchemaVersion() map[string]interface{} {
+	return map[string]interface{}{
+		"schema_version": boundary.SchemaVersion,
+		"namespace":      "auditReceipt",
+	}
 }
