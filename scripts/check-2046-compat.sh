@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run all 2046 architecture tests across all three repos
+# Run all 2046 architecture tests across all four repos
 set -e
 
 echo "=== GTOS Boundary Tests ==="
@@ -10,6 +10,9 @@ cd ~/openfox && npx vitest run src/__tests__/intent.test.ts src/__tests__/termin
 
 echo "=== TOL Metadata & E2E Tests ==="
 cd ~/tolang && go test ./metadata/... ./e2e/...
+
+echo "=== TOSDK 2046 Tests ==="
+cd ~/tosdk && pnpm test
 
 echo "=== Schema Version Check ==="
 GTOS_VER=$(grep 'SchemaVersion' ~/gtos/boundary/types.go | grep -o '"[^"]*"' | tr -d '"')
