@@ -1424,6 +1424,36 @@ func TestLvmContractDispatch(t *testing.T) {
 		}
 	})
 
+	t.Run("duplicate_fallback_rejected", func(t *testing.T) {
+		// Declaring multiple equivalent fallback keys (e.g. "" and "fallback()")
+		// in the same dispatch table must fail, not silently pick one based on
+		// non-deterministic Lua table iteration order (consensus fork risk).
+		const code = `
+			tos.dispatch({
+				[""] = function() tos.emit("Fallback1") end,
+				["fallback()"] = function() tos.emit("Fallback2") end,
+			})
+		`
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
+		defer cleanup()
+		// Any call should trigger the dispatch parse — which must reject.
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Errorf("expected status=0 (revert on duplicate fallback), got %d", receipts[0].Status)
+		}
+	})
+
 	t.Run("handler_revert_rolls_back", func(t *testing.T) {
 		// A handler that reverts should roll back any state it modified.
 		const code = `

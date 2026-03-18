@@ -46,13 +46,16 @@ func GetPrivNonce(db vm.StateDB, account common.Address) uint64 {
 	return binary.BigEndian.Uint64(nonceWord[24:])
 }
 
-func IncrementPrivNonce(db vm.StateDB, account common.Address) uint64 {
+func IncrementPrivNonce(db vm.StateDB, account common.Address) (uint64, error) {
 	current := GetPrivNonce(db, account)
+	if current == math.MaxUint64 {
+		return 0, ErrNonceOverflow
+	}
 	next := current + 1
 	var word common.Hash
 	binary.BigEndian.PutUint64(word[24:], next)
 	db.SetState(account, NonceSlot, word)
-	return next
+	return next, nil
 }
 
 func IncrementVersion(db vm.StateDB, account common.Address) (uint64, error) {

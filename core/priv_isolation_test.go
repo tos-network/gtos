@@ -69,7 +69,9 @@ func TestPrivNonceIndependentOfPublicNonce(t *testing.T) {
 
 	// Increment PrivNonce to 5.
 	for i := 0; i < 5; i++ {
-		priv.IncrementPrivNonce(st, addr)
+		if _, err := priv.IncrementPrivNonce(st, addr); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got := st.GetNonce(addr); got != 10 {
 		t.Fatalf("public nonce should still be 10 after priv nonce increments, got %d", got)

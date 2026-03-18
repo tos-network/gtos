@@ -18,6 +18,9 @@ var (
 	// ErrVersionOverflow indicates account priv version cannot be incremented.
 	ErrVersionOverflow = errors.New("priv: version overflow")
 
+	// ErrNonceOverflow indicates account priv nonce cannot be incremented.
+	ErrNonceOverflow = errors.New("priv: nonce overflow")
+
 	// ErrProofNotImplemented blocks execution until proof verification is wired.
 	ErrProofNotImplemented = errors.New("priv: proof verification not implemented")
 

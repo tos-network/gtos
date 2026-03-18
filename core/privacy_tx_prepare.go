@@ -92,7 +92,9 @@ func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (uint64, error) 
 	receiverState.Ciphertext = newReceiverCt
 	receiverState.Version++
 	priv.SetAccountState(statedb, p.to, receiverState)
-	priv.IncrementPrivNonce(statedb, p.from)
+	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
+		return 0, err
+	}
 
 	return priv.UNOFeeToWei(p.feePaidGas), nil
 }
@@ -150,7 +152,9 @@ func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 	recipientState.Ciphertext = newCt
 	recipientState.Version++
 	priv.SetAccountState(statedb, recipientAddr, recipientState)
-	priv.IncrementPrivNonce(statedb, p.from)
+	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
+		return 0, err
+	}
 
 	return priv.UNOFeeToWei(stx.UnoFee), nil
 }
@@ -203,7 +207,9 @@ func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 	}
 	accountState.Version++
 	priv.SetAccountState(statedb, p.from, accountState)
-	priv.IncrementPrivNonce(statedb, p.from)
+	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
+		return 0, err
+	}
 
 	statedb.AddBalance(utx.Recipient, new(big.Int).Set(p.amountWei))
 	statedb.SubBalance(utx.Recipient, new(big.Int).SetUint64(p.feeWei))

@@ -68,8 +68,12 @@ func TestGetSetPrivNonce(t *testing.T) {
 	}
 
 	// Increment twice.
-	IncrementPrivNonce(st, addr)
-	IncrementPrivNonce(st, addr)
+	if _, err := IncrementPrivNonce(st, addr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IncrementPrivNonce(st, addr); err != nil {
+		t.Fatal(err)
+	}
 	if got := GetPrivNonce(st, addr); got != 2 {
 		t.Fatalf("after two increments: got %d want 2", got)
 	}
@@ -103,6 +107,20 @@ func TestIncrementVersionOverflow(t *testing.T) {
 	}
 }
 
+func TestIncrementPrivNonceOverflow(t *testing.T) {
+	st := newTestState(t)
+	addr := common.HexToAddress("0xDEAD")
+
+	SetAccountState(st, addr, AccountState{Nonce: math.MaxUint64})
+	_, err := IncrementPrivNonce(st, addr)
+	if err == nil {
+		t.Fatal("expected overflow error")
+	}
+	if err != ErrNonceOverflow {
+		t.Fatalf("expected ErrNonceOverflow, got %v", err)
+	}
+}
+
 func TestPrivNonceDoesNotAffectPublicNonce(t *testing.T) {
 	st := newTestState(t)
 	addr := common.HexToAddress("0xCAFE")
@@ -112,8 +130,12 @@ func TestPrivNonceDoesNotAffectPublicNonce(t *testing.T) {
 
 	// Set priv state with nonce=0, then increment priv nonce.
 	SetAccountState(st, addr, AccountState{Nonce: 0})
-	IncrementPrivNonce(st, addr)
-	IncrementPrivNonce(st, addr)
+	if _, err := IncrementPrivNonce(st, addr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := IncrementPrivNonce(st, addr); err != nil {
+		t.Fatal(err)
+	}
 
 	// Public nonce should be unchanged.
 	if pubNonce := st.GetNonce(addr); pubNonce != 100 {

@@ -43,10 +43,13 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 		as.WriteSlots[params.SponsorRegistryAddress][nonceSlot] = struct{}{}
 	}
 
-	// PrivTransferTx: read/write both sender and receiver priv-account addresses.
-	// Serialized in MVP via PrivacyRouterAddress for deterministic
-	// proof/state handling.
-	if msg.Type() == types.PrivTransferTxType {
+	// Privacy transactions (PrivTransfer, Shield, Unshield) modify encrypted
+	// balance state (CommitmentSlot, HandleSlot, VersionSlot, NonceSlot) on
+	// sender/receiver accounts.  Serialize all privacy tx types via
+	// PrivacyRouterAddress to prevent concurrent execution of any two privacy
+	// txs that could race on overlapping account state.
+	switch msg.Type() {
+	case types.PrivTransferTxType, types.ShieldTxType, types.UnshieldTxType:
 		toAddr := msg.To()
 		as.ReadAddrs[sender] = struct{}{}
 		if toAddr != nil {

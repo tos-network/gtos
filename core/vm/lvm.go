@@ -3630,6 +3630,10 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				return
 			}
 			if name == "fallback" {
+				if fallbackEntry != nil {
+					parseErr = fmt.Errorf("tos.dispatch: duplicate fallback definition: %q conflicts with existing %q", string(sigStr), fallbackEntry.signature)
+					return
+				}
 				entry := handlerEntry{fn: v, signature: string(sigStr), types: nil}
 				fallbackEntry = &entry
 				return

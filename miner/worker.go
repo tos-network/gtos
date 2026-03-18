@@ -17,9 +17,11 @@
 package miner
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,11 +146,18 @@ func (env *environment) copy() *environment {
 }
 
 // unclelist returns the contained uncles as the list format.
+// Sorted by hash to guarantee deterministic ordering (Go map iteration is random).
 func (env *environment) unclelist() []*types.Header {
 	var uncles []*types.Header
 	for _, uncle := range env.uncles {
 		uncles = append(uncles, uncle)
 	}
+	sort.Slice(uncles, func(i, j int) bool {
+		return bytes.Compare(
+			uncles[i].Hash().Bytes(),
+			uncles[j].Hash().Bytes(),
+		) < 0
+	})
 	return uncles
 }
 
