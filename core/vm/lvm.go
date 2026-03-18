@@ -106,6 +106,11 @@ type CallCtx struct {
 	Readonly bool           // if true, all state-mutating primitives raise an error
 	// (EVM STATICCALL semantics; propagates to nested calls)
 
+	// UnoValue is the encrypted deposit (64-byte ciphertext as hex) attached
+	// to a confidential contract call.  When non-empty, TOL exposes it as
+	// msg.value (uno type).  Nil/empty for non-confidential calls.
+	UnoValue string
+
 	// GoCtx is the optional Go context from the originating RPC call.
 	// When non-nil and the context is cancelled/timed-out, the Lua VM aborts
 	// execution on the next instruction.  Nil for block-processing paths.
@@ -845,6 +850,14 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 	}
 
+	// tos.uno_value  → string | nil  (encrypted deposit ciphertext as 128-char hex)
+	//   TOL desugars msg.value in uno context to tos.uno_value.
+	if ctx.UnoValue != "" {
+		L.SetField(tosTable, "uno_value", lua.LString(ctx.UnoValue))
+	} else {
+		L.SetField(tosTable, "uno_value", lua.LNil)
+	}
+
 	// tos.block  (sub-table — static block context values)
 	blockTable := L.NewTable()
 	L.SetField(blockTable, "number", luBig(blockCtx.BlockNumber))
@@ -872,9 +885,14 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// tos.msg  (sub-table — Solidity-compatible aliases)
 	//   msg.sender == tos.caller     (immediate caller for this frame)
-	//   msg.value  == tos.value      (value forwarded to this frame)
+	//   msg.value  == tos.value      (value forwarded to this frame, public TOS)
+	//   msg.uno_value → encrypted deposit ciphertext (hex) | nil
 	//   msg.data   → calldata hex    (this call's calldata)
 	//   msg.sig    → first 4 bytes   (function selector)
+	//
+	//   A transaction carries EITHER public value OR encrypted value, never both.
+	//   TOL payable functions read msg.value; TOL payable(uno) functions read
+	//   msg.uno_value.  The compiler enforces mutual exclusivity at the type level.
 	msgTable := L.NewTable()
 	L.SetField(msgTable, "sender", lua.LString(ctx.From.Hex()))
 	{
@@ -884,6 +902,12 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		} else {
 			L.SetField(msgTable, "value", luBig(v))
 		}
+	}
+	// msg.uno_value: encrypted deposit attached to a confidential contract call.
+	if ctx.UnoValue != "" {
+		L.SetField(msgTable, "uno_value", lua.LString(ctx.UnoValue))
+	} else {
+		L.SetField(msgTable, "uno_value", lua.LNil)
 	}
 	// Extract proof bundle from calldata (if present).  The bundle is
 	// appended after a "PBND" magic marker; strippedData is the original
@@ -4466,7 +4490,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	}))
 
 	// ── Encrypted ciphertext operations (tos.ciphertext.*) ───────────────────
-	registerCiphertextTable(L, tosTable, chargePrimGas, ctx.Readonly, proofBundle)
+	registerCiphertextTable(L, tosTable, chargePrimGas, ctx.Readonly, proofBundle, stateDB, contractAddr)
 
 	// ── Inject globals ────────────────────────────────────────────────────────
 

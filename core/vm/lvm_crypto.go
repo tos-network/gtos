@@ -2,11 +2,15 @@ package vm
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/crypto"
 	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 	lua "github.com/tos-network/tolang"
 )
@@ -44,7 +48,10 @@ const (
 	gasCtRem         uint64 = 200000
 	gasCtLt          uint64 = 160000
 	gasCtGt          uint64 = 160000
+	gasCtLte         uint64 = 160000 // same proof as gt, negated
+	gasCtGte         uint64 = 160000 // same proof as lt, negated
 	gasCtEq          uint64 = 150000
+	gasCtNe          uint64 = 150000 // same proof as eq, negated
 	gasCtMin         uint64 = 170000
 	gasCtMax         uint64 = 170000
 	gasCtSelect      uint64 = 160000
@@ -52,6 +59,16 @@ const (
 	gasCtHandle      uint64 = 100
 	gasCtVerifyXfer  uint64 = 100000
 	gasCtVerifyEq    uint64 = 100000
+	gasCtBalance     uint64 = 2600  // 2× SLOAD (commitment + handle)
+	gasCtTransfer    uint64 = 18000 // 2× SLOAD + homomorphic add + 2× SSTORE + version bump
+)
+
+// Encrypted-balance storage slots — mirrored from core/priv/state.go to avoid
+// a circular import (core/priv imports core/vm).
+var (
+	privCommitmentSlot = crypto.Keccak256Hash([]byte("gtos.priv.commitment"))
+	privHandleSlot     = crypto.Keccak256Hash([]byte("gtos.priv.handle"))
+	privVersionSlot    = crypto.Keccak256Hash([]byte("gtos.priv.version"))
 )
 
 // parseCiphertextHex decodes a 128-char hex string (with optional "0x" prefix)
@@ -199,9 +216,12 @@ func verifyDivRemProof(ctA, ctB, encQ, proof []byte) error {
 }
 
 // registerCiphertextTable creates the tos.ciphertext sub-table and registers
-// all encrypted-type Lua functions on it.
+// all encrypted-type Lua functions on it.  stateDB and contractAddr are needed
+// for the bridge operations (balance, transfer) that read/write native
+// encrypted-balance slots.
 func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
-	chargePrimGas func(uint64), readonly bool, proofBundle *ProofBundle) {
+	chargePrimGas func(uint64), readonly bool, proofBundle *ProofBundle,
+	stateDB StateDB, contractAddr common.Address) {
 
 	ctTable := L.NewTable()
 
@@ -789,6 +809,234 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		return 1
 	}))
 
+	// 15b. lte(a, b) → bool — sugar for !gt(a, b), reuses gt proof bundle.
+	L.SetField(ctTable, "lte", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtLte)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.lte: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.lte: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.lte: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("lte", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.lte: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.lte: bool result must be 1 byte")
+			return 0
+		}
+		// lte(a,b) == !gt(a,b). Proof format identical to gt.
+		gtResult := entry.ResultData[0] != 0
+		if gtResult {
+			// Claimed a > b: proves a-b-1 ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.lte: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.lte: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.lte: range proof verification failed: %v", err2)
+				return 0
+			}
+		} else {
+			// Claimed a <= b: proves b-a ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.lte: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.lte: range proof verification failed: %v", err2)
+				return 0
+			}
+		}
+		// Negate: lte = !gt
+		if gtResult {
+			L.Push(lua.LFalse)
+		} else {
+			L.Push(lua.LTrue)
+		}
+		return 1
+	}))
+
+	// 15c. gte(a, b) → bool — sugar for !lt(a, b), reuses lt proof bundle.
+	L.SetField(ctTable, "gte", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtGte)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.gte: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.gte: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.gte: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("gte", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.gte: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.gte: bool result must be 1 byte")
+			return 0
+		}
+		// gte(a,b) == !lt(a,b). Proof format identical to lt.
+		ltResult := entry.ResultData[0] != 0
+		if ltResult {
+			// Claimed a < b: proves b-a-1 ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.gte: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.gte: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.gte: range proof verification failed: %v", err2)
+				return 0
+			}
+		} else {
+			// Claimed a >= b: proves a-b ∈ [0, 2^64).
+			diff, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.gte: compute diff: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diff[:32], entry.Proof); err2 != nil {
+				L.RaiseError("ciphertext.gte: range proof verification failed: %v", err2)
+				return 0
+			}
+		}
+		// Negate: gte = !lt
+		if ltResult {
+			L.Push(lua.LFalse)
+		} else {
+			L.Push(lua.LTrue)
+		}
+		return 1
+	}))
+
+	// 15d. ne(a, b) → bool — sugar for !eq(a, b), reuses eq proof bundle.
+	L.SetField(ctTable, "ne", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtNe)
+		aHex := L.CheckString(1)
+		bHex := L.CheckString(2)
+		a, err := parseCiphertextHex(aHex)
+		if err != nil {
+			L.RaiseError("ciphertext.ne: %v", err)
+			return 0
+		}
+		b, err := parseCiphertextHex(bHex)
+		if err != nil {
+			L.RaiseError("ciphertext.ne: %v", err)
+			return 0
+		}
+		if proofBundle == nil {
+			L.RaiseError("ciphertext.ne: proof bundle required")
+			return 0
+		}
+		entry, err := proofBundle.Next("ne", a[:], b[:])
+		if err != nil {
+			L.RaiseError("ciphertext.ne: %v", err)
+			return 0
+		}
+		if len(entry.ResultData) != 1 {
+			L.RaiseError("ciphertext.ne: bool result must be 1 byte")
+			return 0
+		}
+		// ne(a,b) == !eq(a,b). Proof format identical to eq.
+		eqResult := entry.ResultData[0] != 0
+		if eqResult {
+			// Equal: proof = two range proofs (1344B).
+			if len(entry.Proof) != 2*rangeProofSingle64Size {
+				L.RaiseError("ciphertext.ne: eq=true proof must be %d bytes, got %d",
+					2*rangeProofSingle64Size, len(entry.Proof))
+				return 0
+			}
+			diffFwd, err2 := cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.ne: compute diff_fwd: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diffFwd[:32], entry.Proof[:rangeProofSingle64Size]); err2 != nil {
+				L.RaiseError("ciphertext.ne: forward range proof failed: %v", err2)
+				return 0
+			}
+			diffBwd, err2 := cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			if err2 != nil {
+				L.RaiseError("ciphertext.ne: compute diff_bwd: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(diffBwd[:32], entry.Proof[rangeProofSingle64Size:]); err2 != nil {
+				L.RaiseError("ciphertext.ne: backward range proof failed: %v", err2)
+				return 0
+			}
+		} else {
+			// Not equal: proof = 1B direction + 672B range proof.
+			if len(entry.Proof) != 1+rangeProofSingle64Size {
+				L.RaiseError("ciphertext.ne: eq=false proof must be %d bytes, got %d",
+					1+rangeProofSingle64Size, len(entry.Proof))
+				return 0
+			}
+			direction := entry.Proof[0]
+			rangeProof := entry.Proof[1:]
+			var diff []byte
+			var err2 error
+			if direction == 0 {
+				diff, err2 = cryptopriv.SubCompressedCiphertexts(a[:], b[:])
+			} else {
+				diff, err2 = cryptopriv.SubCompressedCiphertexts(b[:], a[:])
+			}
+			if err2 != nil {
+				L.RaiseError("ciphertext.ne: compute diff: %v", err2)
+				return 0
+			}
+			shifted, err2 := cryptopriv.SubAmountCompressed(diff, 1)
+			if err2 != nil {
+				L.RaiseError("ciphertext.ne: compute shifted: %v", err2)
+				return 0
+			}
+			if err2 = verifyRangeProof64(shifted[:32], rangeProof); err2 != nil {
+				L.RaiseError("ciphertext.ne: range proof failed: %v", err2)
+				return 0
+			}
+		}
+		// Negate: ne = !eq
+		if eqResult {
+			L.Push(lua.LFalse)
+		} else {
+			L.Push(lua.LTrue)
+		}
+		return 1
+	}))
+
 	// 16. min(a, b) → ciphertext
 	//     Proof = 672B range proof. ResultData must equal a or b.
 	//     If result==a: proves b≥a (range proof on (b-a)). If result==b: proves a≥b.
@@ -1118,6 +1366,88 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 			L.Push(lua.LTrue)
 		}
 		return 1
+	}))
+
+	// ── Bridge: native encrypted-balance ↔ contract ciphertext ──────────────
+
+	// 23. balance(addr) → ciphertext hex | nil
+	//   Reads the on-chain encrypted balance (commitment || handle) of any account.
+	//   Returns a 128-char hex ciphertext, or nil if the account has no encrypted balance.
+	//   Desugared from TOL: uno.balance(addr) → tos.ciphertext.balance(addr)
+	L.SetField(ctTable, "balance", L.NewFunction(func(L *lua.LState) int {
+		chargePrimGas(gasCtBalance)
+		addrHex := L.CheckString(1)
+		addr := common.HexToAddress(addrHex)
+		commitment := stateDB.GetState(addr, privCommitmentSlot)
+		handle := stateDB.GetState(addr, privHandleSlot)
+		if commitment == (common.Hash{}) && handle == (common.Hash{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		var ct [64]byte
+		copy(ct[:32], commitment[:])
+		copy(ct[32:], handle[:])
+		L.Push(lua.LString(ciphertextToHex(ct)))
+		return 1
+	}))
+
+	// 24. transfer(toAddr, ciphertextHex)
+	//   Adds a ciphertext to the recipient's native encrypted balance via
+	//   homomorphic addition and increments the recipient's encrypted-balance
+	//   version.  This is the encrypted-balance analogue of tos.transfer().
+	//   Desugared from TOL: uno.transfer(to, ct) → tos.ciphertext.transfer(to, ct)
+	L.SetField(ctTable, "transfer", L.NewFunction(func(L *lua.LState) int {
+		if readonly {
+			L.RaiseError("ciphertext.transfer: state modification not allowed in staticcall")
+			return 0
+		}
+		chargePrimGas(gasCtTransfer)
+		addrHex := L.CheckString(1)
+		ctHex := L.CheckString(2)
+		to := common.HexToAddress(addrHex)
+		deposit, err := parseCiphertextHex(ctHex)
+		if err != nil {
+			L.RaiseError("ciphertext.transfer: %v", err)
+			return 0
+		}
+
+		// Read recipient's current encrypted balance.
+		curCommit := stateDB.GetState(to, privCommitmentSlot)
+		curHandle := stateDB.GetState(to, privHandleSlot)
+		var curCt [64]byte
+		copy(curCt[:32], curCommit[:])
+		copy(curCt[32:], curHandle[:])
+
+		// Homomorphic addition: newBalance = currentBalance + deposit
+		var newCt [64]byte
+		if curCommit == (common.Hash{}) && curHandle == (common.Hash{}) {
+			// Recipient has no encrypted balance — deposit becomes the balance.
+			newCt = deposit
+		} else {
+			out, err := cryptopriv.AddCompressedCiphertexts(curCt[:], deposit[:])
+			if err != nil {
+				L.RaiseError("ciphertext.transfer: homomorphic add failed: %v", err)
+				return 0
+			}
+			copy(newCt[:], out)
+		}
+
+		// Write updated encrypted balance.
+		stateDB.SetState(to, privCommitmentSlot, common.BytesToHash(newCt[:32]))
+		stateDB.SetState(to, privHandleSlot, common.BytesToHash(newCt[32:]))
+
+		// Increment recipient's encrypted-balance version.
+		versionWord := stateDB.GetState(to, privVersionSlot)
+		version := binary.BigEndian.Uint64(versionWord[24:])
+		if version == math.MaxUint64 {
+			L.RaiseError("ciphertext.transfer: recipient version overflow")
+			return 0
+		}
+		var newVersionWord common.Hash
+		binary.BigEndian.PutUint64(newVersionWord[24:], version+1)
+		stateDB.SetState(to, privVersionSlot, newVersionWord)
+
+		return 0
 	}))
 
 	// ── Register on tos table ────────────────────────────────────────────────

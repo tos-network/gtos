@@ -1282,3 +1282,253 @@ func TestCtRemInvalidProof(t *testing.T) {
 		t.Fatal("expected error for invalid rem proof")
 	}
 }
+
+// ── Bridge: native encrypted-balance ↔ contract ciphertext ──────────────────
+
+func TestCtBalanceEmpty(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xD0}
+	targetAddr := common.Address{0xD1}
+
+	// Balance of an account with no encrypted balance should be nil.
+	src := `
+local bal = tos.ciphertext.balance("` + targetAddr.Hex() + `")
+if bal ~= nil then
+  error("expected nil for empty balance, got " .. tostring(bal))
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("balance(empty): %v", err)
+	}
+	raw := st.GetState(contractAddr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestCtBalanceReadWrite(t *testing.T) {
+	pub, _ := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xD2}
+	targetAddr := common.Address{0xD3}
+
+	// Pre-seed the target account with an encrypted balance (encrypt 42).
+	ct, err := cryptopriv.Encrypt(pub[:], 42)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	st.SetState(targetAddr, privCommitmentSlot, common.BytesToHash(ct[:32]))
+	st.SetState(targetAddr, privHandleSlot, common.BytesToHash(ct[32:]))
+
+	expectedHex := "0x" + hex.EncodeToString(ct)
+
+	src := `
+local bal = tos.ciphertext.balance("` + targetAddr.Hex() + `")
+if bal == nil then
+  error("expected non-nil balance")
+end
+if bal ~= "` + expectedHex + `" then
+  error("balance mismatch: got " .. bal)
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err = runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("balance(seeded): %v", err)
+	}
+	raw := st.GetState(contractAddr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestCtTransferToEmpty(t *testing.T) {
+	pub, priv := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xD4}
+	recipientAddr := common.Address{0xD5}
+
+	// Encrypt 100 as the deposit amount.
+	deposit, err := cryptopriv.Encrypt(pub[:], 100)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	// Transfer to an account with no existing encrypted balance.
+	src := `tos.ciphertext.transfer("` + recipientAddr.Hex() + `", "` + depositHex + `")`
+	_, _, _, err = runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("transfer(empty recipient): %v", err)
+	}
+
+	// Verify the recipient now has the deposited ciphertext.
+	commit := st.GetState(recipientAddr, privCommitmentSlot)
+	handle := st.GetState(recipientAddr, privHandleSlot)
+	if commit != common.BytesToHash(deposit[:32]) {
+		t.Error("stored commitment doesn't match deposit")
+	}
+	if handle != common.BytesToHash(deposit[32:]) {
+		t.Error("stored handle doesn't match deposit")
+	}
+
+	// Version should be 1.
+	versionWord := st.GetState(recipientAddr, privVersionSlot)
+	version := new(big.Int).SetBytes(versionWord[:]).Uint64()
+	if version != 1 {
+		t.Errorf("expected version=1, got %d", version)
+	}
+
+	// Decrypt via DecryptToPoint + SolveDiscreteLog and verify amount.
+	msgPoint, err := cryptopriv.DecryptToPoint(priv[:], deposit)
+	if err != nil {
+		t.Fatalf("DecryptToPoint: %v", err)
+	}
+	plaintext, ok, err := cryptopriv.SolveDiscreteLog(msgPoint, 1<<20)
+	if err != nil {
+		t.Fatalf("SolveDiscreteLog: %v", err)
+	}
+	if !ok {
+		t.Fatal("SolveDiscreteLog: not found")
+	}
+	if plaintext != 100 {
+		t.Errorf("expected plaintext=100, got %d", plaintext)
+	}
+}
+
+func TestCtTransferHomomorphicAdd(t *testing.T) {
+	pub, priv := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xD6}
+	recipientAddr := common.Address{0xD7}
+
+	// Pre-seed recipient with encrypted balance of 50.
+	existingCt, err := cryptopriv.Encrypt(pub[:], 50)
+	if err != nil {
+		t.Fatalf("Encrypt existing: %v", err)
+	}
+	st.SetState(recipientAddr, privCommitmentSlot, common.BytesToHash(existingCt[:32]))
+	st.SetState(recipientAddr, privHandleSlot, common.BytesToHash(existingCt[32:]))
+
+	// Encrypt 30 as deposit.
+	deposit, err := cryptopriv.Encrypt(pub[:], 30)
+	if err != nil {
+		t.Fatalf("Encrypt deposit: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	// Transfer 30 to recipient (already has 50).
+	src := `tos.ciphertext.transfer("` + recipientAddr.Hex() + `", "` + depositHex + `")`
+	_, _, _, err = runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("transfer(existing recipient): %v", err)
+	}
+
+	// Read final balance and decrypt — should be 80 (50+30).
+	commit := st.GetState(recipientAddr, privCommitmentSlot)
+	handle := st.GetState(recipientAddr, privHandleSlot)
+	var finalCt [64]byte
+	copy(finalCt[:32], commit[:])
+	copy(finalCt[32:], handle[:])
+	msgPoint, err := cryptopriv.DecryptToPoint(priv[:], finalCt[:])
+	if err != nil {
+		t.Fatalf("DecryptToPoint: %v", err)
+	}
+	plaintext, ok, err := cryptopriv.SolveDiscreteLog(msgPoint, 1<<20)
+	if err != nil {
+		t.Fatalf("SolveDiscreteLog: %v", err)
+	}
+	if !ok {
+		t.Fatal("SolveDiscreteLog: not found")
+	}
+	if plaintext != 80 {
+		t.Errorf("expected plaintext=80 (50+30), got %d", plaintext)
+	}
+}
+
+func TestCtTransferReadonlyRejected(t *testing.T) {
+	pub, _ := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xD8}
+	recipientAddr := common.Address{0xD9}
+
+	deposit, err := cryptopriv.Encrypt(pub[:], 10)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	// Execute in readonly mode — transfer must fail.
+	ctx := CallCtx{
+		From: common.Address{0xFF}, To: contractAddr,
+		Value: big.NewInt(0), Data: []byte{},
+		TxOrigin: common.Address{0xFF}, TxPrice: big.NewInt(1),
+		Readonly: true,
+	}
+	src := `tos.ciphertext.transfer("` + recipientAddr.Hex() + `", "` + depositHex + `")`
+	_, _, _, err = Execute(st, newBlockCtx(), testChainConfig, ctx, []byte(src), 1_000_000)
+	if err == nil {
+		t.Fatal("expected error for transfer in readonly mode")
+	}
+}
+
+func TestUnoValueExposed(t *testing.T) {
+	pub, _ := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDA}
+
+	// Encrypt a deposit and attach as UnoValue.
+	deposit, err := cryptopriv.Encrypt(pub[:], 77)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	ctx := CallCtx{
+		From: common.Address{0xFF}, To: contractAddr,
+		Value: big.NewInt(0), Data: []byte{},
+		TxOrigin: common.Address{0xFF}, TxPrice: big.NewInt(1),
+		UnoValue: depositHex,
+	}
+	src := `
+local uv = tos.uno_value
+if uv == nil then
+  error("expected non-nil uno_value")
+end
+if uv ~= "` + depositHex + `" then
+  error("uno_value mismatch: got " .. uv)
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err = Execute(st, newBlockCtx(), testChainConfig, ctx, []byte(src), 1_000_000)
+	if err != nil {
+		t.Fatalf("uno_value: %v", err)
+	}
+	raw := st.GetState(contractAddr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
+func TestUnoValueNilWhenEmpty(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDB}
+
+	src := `
+local uv = tos.uno_value
+if uv ~= nil then
+  error("expected nil uno_value, got " .. tostring(uv))
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("uno_value(nil): %v", err)
+	}
+	raw := st.GetState(contractAddr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
