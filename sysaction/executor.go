@@ -20,18 +20,28 @@ type Context struct {
 
 // Handler is implemented by sub-systems that process system actions.
 type Handler interface {
-	CanHandle(kind ActionKind) bool
+	// Actions returns the action kinds this handler processes.
+	Actions() []ActionKind
 	Handle(ctx *Context, sa *SysAction) error
 }
 
-// Registry holds registered handlers.
-type Registry struct{ handlers []Handler }
+// Registry holds registered handlers keyed by action kind.
+type Registry struct{ handlers map[ActionKind]Handler }
 
 // DefaultRegistry is the process-wide handler registry.
-var DefaultRegistry = &Registry{}
+var DefaultRegistry = &Registry{handlers: make(map[ActionKind]Handler)}
 
-// Register adds a handler to the registry.
-func (r *Registry) Register(h Handler) { r.handlers = append(r.handlers, h) }
+// Register adds a handler for each action it declares. It panics if any
+// action is already registered by another handler, preventing silent
+// ordering-dependent overwrites.
+func (r *Registry) Register(h Handler) {
+	for _, action := range h.Actions() {
+		if existing, dup := r.handlers[action]; dup {
+			panic(fmt.Sprintf("sysaction: duplicate handler for %q (existing %T, new %T)", action, existing, h))
+		}
+		r.handlers[action] = h
+	}
+}
 
 // Msg is the minimal message interface for Execute, satisfied by core.Message.
 type Msg interface {
@@ -55,10 +65,8 @@ func Execute(msg Msg, db vmtypes.StateDB, blockNumber *big.Int, chainConfig *par
 		BlockNumber: blockNumber,
 		ChainConfig: chainConfig,
 	}
-	for _, h := range DefaultRegistry.handlers {
-		if h.CanHandle(sa.Action) {
-			return params.SysActionGas, h.Handle(ctx, sa)
-		}
+	if h, ok := DefaultRegistry.handlers[sa.Action]; ok {
+		return params.SysActionGas, h.Handle(ctx, sa)
 	}
 	return params.SysActionGas, fmt.Errorf("unknown system action: %q", sa.Action)
 }
@@ -69,10 +77,8 @@ func ExecuteWithContext(ctx *Context, data []byte) error {
 	if err != nil {
 		return err
 	}
-	for _, h := range DefaultRegistry.handlers {
-		if h.CanHandle(sa.Action) {
-			return h.Handle(ctx, sa)
-		}
+	if h, ok := DefaultRegistry.handlers[sa.Action]; ok {
+		return h.Handle(ctx, sa)
 	}
 	return fmt.Errorf("unknown system action: %q", sa.Action)
 }

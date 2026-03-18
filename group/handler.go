@@ -24,13 +24,11 @@ var (
 
 type groupHandler struct{}
 
-func (h *groupHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionGroupRegister,
-		sysaction.ActionGroupStateCommit:
-		return true
+func (h *groupHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionGroupRegister,
+		sysaction.ActionGroupStateCommit,
 	}
-	return false
 }
 
 func (h *groupHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

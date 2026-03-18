@@ -14,12 +14,8 @@ func init() {
 
 type handler struct{}
 
-func (h *handler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionLeaseRenew, sysaction.ActionLeaseClose:
-		return true
-	}
-	return false
+func (h *handler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionLeaseRenew, sysaction.ActionLeaseClose}
 }
 
 func (h *handler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

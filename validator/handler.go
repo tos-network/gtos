@@ -14,15 +14,13 @@ func init() {
 // validatorHandler implements sysaction.Handler for DPoS validator lifecycle actions.
 type validatorHandler struct{}
 
-func (h *validatorHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionValidatorRegister,
+func (h *validatorHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionValidatorRegister,
 		sysaction.ActionValidatorWithdraw,
 		sysaction.ActionValidatorEnterMaintenance,
-		sysaction.ActionValidatorExitMaintenance:
-		return true
+		sysaction.ActionValidatorExitMaintenance,
 	}
-	return false
 }
 
 func (h *validatorHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

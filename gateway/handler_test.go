@@ -170,7 +170,7 @@ func TestHandleGatewayRegister_Success(t *testing.T) {
 		t.Fatalf("endpoint mismatch: got %q", got)
 	}
 	kinds := ReadSupportedKinds(db, agentAddr)
-	if len(kinds) != 2 || kinds[0] != "signer" || kinds[1] != "paymaster" {
+	if len(kinds) != 2 || kinds[0] != "paymaster" || kinds[1] != "signer" {
 		t.Fatalf("supported kinds mismatch: %v", kinds)
 	}
 	if got := ReadMaxRelayGas(db, agentAddr); got != 500_000 {

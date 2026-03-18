@@ -22,12 +22,8 @@ var TaskScheduledTopic = common.BytesToHash(crypto.Keccak256([]byte("TaskSchedul
 
 type taskHandler struct{}
 
-func (h *taskHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionTaskSchedule, sysaction.ActionTaskCancel:
-		return true
-	}
-	return false
+func (h *taskHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionTaskSchedule, sysaction.ActionTaskCancel}
 }
 
 func (h *taskHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

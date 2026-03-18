@@ -31,6 +31,18 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	// All tx types write sender balance and nonce.
 	as.WriteAddrs[sender] = struct{}{}
 
+	// SEC-3: Sponsored transactions read/write the sponsor's nonce slot at
+	// SponsorRegistryAddress. Two txs sharing the same sponsor must not run
+	// in the same parallel level, otherwise both read the same nonce and
+	// produce a divergent state root.
+	if sponsor := msg.Sponsor(); sponsor != (common.Address{}) {
+		nonceSlot := crypto.Keccak256Hash([]byte("tos.sponsor.nonce"), sponsor.Bytes())
+		if as.WriteSlots[params.SponsorRegistryAddress] == nil {
+			as.WriteSlots[params.SponsorRegistryAddress] = make(map[common.Hash]struct{})
+		}
+		as.WriteSlots[params.SponsorRegistryAddress][nonceSlot] = struct{}{}
+	}
+
 	// PrivTransferTx: read/write both sender and receiver priv-account addresses.
 	// Serialized in MVP via PrivacyRouterAddress for deterministic
 	// proof/state handling.

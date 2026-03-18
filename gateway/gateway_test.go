@@ -165,7 +165,9 @@ func TestWriteReadSupportedKinds(t *testing.T) {
 	if len(got) != len(kinds) {
 		t.Fatalf("kinds count mismatch: got %d, want %d", len(got), len(kinds))
 	}
-	for i, k := range kinds {
+	// WriteSupportedKinds sorts the input, so expect sorted order.
+	want := []string{"oracle", "paymaster", "signer"}
+	for i, k := range want {
 		if got[i] != k {
 			t.Errorf("kind %d mismatch: got %q, want %q", i, got[i], k)
 		}
@@ -237,7 +239,7 @@ func TestMultipleGateways(t *testing.T) {
 		t.Errorf("gateway A kinds mismatch: %v", kindsA)
 	}
 	kindsB := ReadSupportedKinds(db, gwAddrB)
-	if len(kindsB) != 2 || kindsB[0] != "paymaster" || kindsB[1] != "oracle" {
+	if len(kindsB) != 2 || kindsB[0] != "oracle" || kindsB[1] != "paymaster" {
 		t.Errorf("gateway B kinds mismatch: %v", kindsB)
 	}
 
@@ -284,7 +286,7 @@ func TestGatewayConfig_RoundTrip(t *testing.T) {
 		t.Errorf("Endpoint: got %q, want %q", got, cfg.Endpoint)
 	}
 	kinds := ReadSupportedKinds(db, addr)
-	if len(kinds) != 2 || kinds[0] != "signer" || kinds[1] != "paymaster" {
+	if len(kinds) != 2 || kinds[0] != "paymaster" || kinds[1] != "signer" {
 		t.Errorf("SupportedKinds: got %v", kinds)
 	}
 	if got := ReadMaxRelayGas(db, addr); got != cfg.MaxRelayGas {

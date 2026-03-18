@@ -20,17 +20,15 @@ const registrarBit uint8 = 0
 
 type agentHandler struct{}
 
-func (h *agentHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionAgentRegister,
+func (h *agentHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionAgentRegister,
 		sysaction.ActionAgentUpdateProfile,
 		sysaction.ActionAgentIncreaseStake,
 		sysaction.ActionAgentDecreaseStake,
 		sysaction.ActionAgentSuspend,
-		sysaction.ActionAgentUnsuspend:
-		return true
+		sysaction.ActionAgentUnsuspend,
 	}
-	return false
 }
 
 func (h *agentHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

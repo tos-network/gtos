@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/common/indexmap"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
@@ -13,11 +14,11 @@ import (
 // writeBufSnapshot is a point-in-time copy of all overlay maps, used to
 // support Snapshot/RevertToSnapshot for LVM contract execution.
 type writeBufSnapshot struct {
-	balances map[common.Address]*big.Int
-	nonces   map[common.Address]uint64
-	codes    map[common.Address][]byte
-	storage  map[common.Address]map[common.Hash]common.Hash
-	created  map[common.Address]bool
+	balances *indexmap.IndexMap[common.Address, *big.Int]
+	nonces   *indexmap.IndexMap[common.Address, uint64]
+	codes    *indexmap.IndexMap[common.Address, []byte]
+	storage  *indexmap.IndexMap[common.Address, *indexmap.IndexMap[common.Hash, common.Hash]]
+	created  *indexmap.IndexMap[common.Address, bool]
 	logLen   int
 }
 
@@ -28,14 +29,18 @@ type writeBufSnapshot struct {
 // This is used by parallel tx execution: each tx in a level gets its own
 // WriteBufStateDB backed by the same frozen snapshot. After execution, the
 // overlay is merged into the real statedb serially.
+//
+// All overlay maps use indexmap.IndexMap to guarantee deterministic
+// (insertion-order) iteration, eliminating consensus-critical non-determinism
+// from Go's built-in map randomised traversal.
 type WriteBufStateDB struct {
-	parent   *state.StateDB // frozen snapshot — read-only
+	parent *state.StateDB // frozen snapshot — read-only
 
-	balances map[common.Address]*big.Int
-	nonces   map[common.Address]uint64
-	codes    map[common.Address][]byte
-	storage  map[common.Address]map[common.Hash]common.Hash
-	created  map[common.Address]bool
+	balances *indexmap.IndexMap[common.Address, *big.Int]
+	nonces   *indexmap.IndexMap[common.Address, uint64]
+	codes    *indexmap.IndexMap[common.Address, []byte]
+	storage  *indexmap.IndexMap[common.Address, *indexmap.IndexMap[common.Hash, common.Hash]]
+	created  *indexmap.IndexMap[common.Address, bool]
 
 	snapshots []writeBufSnapshot
 
@@ -47,19 +52,19 @@ type WriteBufStateDB struct {
 	// per-transaction access list (mirrors state.StateDB.accessList).
 	// GTOS has no warm/cold gas distinction, but tracking is kept for
 	// serial/parallel consistency and future compatibility.
-	alAddrs  map[common.Address]bool
-	alSlots  map[common.Address]map[common.Hash]bool
+	alAddrs map[common.Address]bool
+	alSlots map[common.Address]map[common.Hash]bool
 }
 
 // NewWriteBufStateDB creates a new overlay backed by parent.
 func NewWriteBufStateDB(parent *state.StateDB) *WriteBufStateDB {
 	return &WriteBufStateDB{
-		parent:  parent,
-		balances: make(map[common.Address]*big.Int),
-		nonces:   make(map[common.Address]uint64),
-		codes:    make(map[common.Address][]byte),
-		storage:  make(map[common.Address]map[common.Hash]common.Hash),
-		created:  make(map[common.Address]bool),
+		parent:   parent,
+		balances: indexmap.New[common.Address, *big.Int](0),
+		nonces:   indexmap.New[common.Address, uint64](0),
+		codes:    indexmap.New[common.Address, []byte](0),
+		storage:  indexmap.New[common.Address, *indexmap.IndexMap[common.Hash, common.Hash]](0),
+		created:  indexmap.New[common.Address, bool](0),
 	}
 }
 
@@ -78,14 +83,18 @@ func (b *WriteBufStateDB) Logs() []*types.Log {
 // Balances are applied as deltas relative to the parent snapshot, so that
 // multiple WriteBufs (each backed by the same parent) can be merged serially
 // without overwriting each other.
+//
+// All iterations use IndexMap.Range which visits entries in deterministic
+// (insertion) order, ensuring identical state roots across all nodes.
 func (b *WriteBufStateDB) Merge(dst *state.StateDB) {
 	// Propagate newly created accounts first, so subsequent balance/nonce/code
 	// writes target an account that exists in dst.
-	for addr := range b.created {
+	b.created.Range(func(addr common.Address, _ bool) bool {
 		dst.CreateAccount(addr)
-	}
+		return true
+	})
 	// Apply balance deltas: overlay stores absolute values; compute delta vs parent.
-	for addr, bal := range b.balances {
+	b.balances.Range(func(addr common.Address, bal *big.Int) bool {
 		parentBal := b.parent.GetBalance(addr)
 		delta := new(big.Int).Sub(bal, parentBal)
 		if delta.Sign() > 0 {
@@ -93,27 +102,32 @@ func (b *WriteBufStateDB) Merge(dst *state.StateDB) {
 		} else if delta.Sign() < 0 {
 			dst.SubBalance(addr, new(big.Int).Neg(delta))
 		}
-	}
+		return true
+	})
 	// Apply nonces (absolute).
-	for addr, nonce := range b.nonces {
+	b.nonces.Range(func(addr common.Address, nonce uint64) bool {
 		dst.SetNonce(addr, nonce)
-	}
+		return true
+	})
 	// Apply code (absolute).
-	for addr, code := range b.codes {
+	b.codes.Range(func(addr common.Address, code []byte) bool {
 		dst.SetCode(addr, code)
-	}
+		return true
+	})
 	// Apply storage (absolute).
-	for addr, slots := range b.storage {
-		for slot, val := range slots {
+	b.storage.Range(func(addr common.Address, slots *indexmap.IndexMap[common.Hash, common.Hash]) bool {
+		slots.Range(func(slot common.Hash, val common.Hash) bool {
 			dst.SetState(addr, slot, val)
-		}
-	}
+			return true
+		})
+		return true
+	})
 }
 
 // ─── vm.StateDB implementation ───────────────────────────────────────────────
 
 func (b *WriteBufStateDB) GetBalance(addr common.Address) *big.Int {
-	if bal, ok := b.balances[addr]; ok {
+	if bal, ok := b.balances.Get(addr); ok {
 		return new(big.Int).Set(bal)
 	}
 	return b.parent.GetBalance(addr)
@@ -121,35 +135,35 @@ func (b *WriteBufStateDB) GetBalance(addr common.Address) *big.Int {
 
 func (b *WriteBufStateDB) AddBalance(addr common.Address, amount *big.Int) {
 	cur := b.getBalance(addr)
-	b.balances[addr] = new(big.Int).Add(cur, amount)
+	b.balances.Set(addr, new(big.Int).Add(cur, amount))
 }
 
 func (b *WriteBufStateDB) SubBalance(addr common.Address, amount *big.Int) {
 	cur := b.getBalance(addr)
-	b.balances[addr] = new(big.Int).Sub(cur, amount)
+	b.balances.Set(addr, new(big.Int).Sub(cur, amount))
 }
 
 // getBalance returns the current balance from overlay or parent (no copy).
 func (b *WriteBufStateDB) getBalance(addr common.Address) *big.Int {
-	if bal, ok := b.balances[addr]; ok {
+	if bal, ok := b.balances.Get(addr); ok {
 		return bal
 	}
 	return b.parent.GetBalance(addr)
 }
 
 func (b *WriteBufStateDB) GetNonce(addr common.Address) uint64 {
-	if n, ok := b.nonces[addr]; ok {
+	if n, ok := b.nonces.Get(addr); ok {
 		return n
 	}
 	return b.parent.GetNonce(addr)
 }
 
 func (b *WriteBufStateDB) SetNonce(addr common.Address, nonce uint64) {
-	b.nonces[addr] = nonce
+	b.nonces.Set(addr, nonce)
 }
 
 func (b *WriteBufStateDB) GetCodeHash(addr common.Address) common.Hash {
-	if code, ok := b.codes[addr]; ok {
+	if code, ok := b.codes.Get(addr); ok {
 		if len(code) == 0 {
 			return emptyCodeHash
 		}
@@ -161,14 +175,14 @@ func (b *WriteBufStateDB) GetCodeHash(addr common.Address) common.Hash {
 var emptyCodeHash = common.HexToHash("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
 
 func (b *WriteBufStateDB) GetCode(addr common.Address) []byte {
-	if code, ok := b.codes[addr]; ok {
+	if code, ok := b.codes.Get(addr); ok {
 		return code
 	}
 	return b.parent.GetCode(addr)
 }
 
 func (b *WriteBufStateDB) SetCode(addr common.Address, code []byte) {
-	b.codes[addr] = code
+	b.codes.Set(addr, code)
 }
 
 func (b *WriteBufStateDB) GetCodeSize(addr common.Address) int {
@@ -176,8 +190,8 @@ func (b *WriteBufStateDB) GetCodeSize(addr common.Address) int {
 }
 
 func (b *WriteBufStateDB) GetState(addr common.Address, slot common.Hash) common.Hash {
-	if slots, ok := b.storage[addr]; ok {
-		if val, ok2 := slots[slot]; ok2 {
+	if slots, ok := b.storage.Get(addr); ok {
+		if val, ok2 := slots.Get(slot); ok2 {
 			return val
 		}
 	}
@@ -185,10 +199,12 @@ func (b *WriteBufStateDB) GetState(addr common.Address, slot common.Hash) common
 }
 
 func (b *WriteBufStateDB) SetState(addr common.Address, slot common.Hash, val common.Hash) {
-	if b.storage[addr] == nil {
-		b.storage[addr] = make(map[common.Hash]common.Hash)
+	slots, ok := b.storage.Get(addr)
+	if !ok {
+		slots = indexmap.New[common.Hash, common.Hash](0)
+		b.storage.Set(addr, slots)
 	}
-	b.storage[addr][slot] = val
+	slots.Set(slot, val)
 }
 
 // GetCommittedState always returns the pre-tx (parent) state, ignoring the overlay.
@@ -203,11 +219,11 @@ func (b *WriteBufStateDB) AddLog(log *types.Log) {
 }
 
 func (b *WriteBufStateDB) CreateAccount(addr common.Address) {
-	b.created[addr] = true
+	b.created.Set(addr, true)
 }
 
 func (b *WriteBufStateDB) Exist(addr common.Address) bool {
-	if b.created[addr] {
+	if b.created.Has(addr) {
 		return true
 	}
 	return b.parent.Exist(addr)
@@ -227,40 +243,47 @@ func (b *WriteBufStateDB) HasSuicided(_ common.Address) bool { panic("WriteBufSt
 func (b *WriteBufStateDB) AddRefund(_ uint64)                {} // no-op: GTOS LVM has no SSTORE gas refund model
 func (b *WriteBufStateDB) SubRefund(_ uint64)                {} // no-op: GTOS LVM has no SSTORE gas refund model
 func (b *WriteBufStateDB) GetRefund() uint64                 { return 0 } // no-op: GTOS LVM has no SSTORE gas refund model
-func (b *WriteBufStateDB) AddPreimage(_ common.Hash, _ []byte)  {}
+func (b *WriteBufStateDB) AddPreimage(_ common.Hash, _ []byte) {}
+
 // Snapshot captures a deep copy of the current overlay state and returns an
 // opaque ID that can be passed to RevertToSnapshot. Used by lvm.Call to undo
 // state changes when an LVM contract reverts.
 func (b *WriteBufStateDB) Snapshot() int {
 	snap := writeBufSnapshot{
-		balances: make(map[common.Address]*big.Int, len(b.balances)),
-		nonces:   make(map[common.Address]uint64, len(b.nonces)),
-		codes:    make(map[common.Address][]byte, len(b.codes)),
-		storage:  make(map[common.Address]map[common.Hash]common.Hash, len(b.storage)),
-		created:  make(map[common.Address]bool, len(b.created)),
+		balances: indexmap.New[common.Address, *big.Int](b.balances.Len()),
+		nonces:   indexmap.New[common.Address, uint64](b.nonces.Len()),
+		codes:    indexmap.New[common.Address, []byte](b.codes.Len()),
+		storage:  indexmap.New[common.Address, *indexmap.IndexMap[common.Hash, common.Hash]](b.storage.Len()),
+		created:  indexmap.New[common.Address, bool](b.created.Len()),
 		logLen:   len(b.logs),
 	}
-	for addr, bal := range b.balances {
-		snap.balances[addr] = new(big.Int).Set(bal)
-	}
-	for addr, n := range b.nonces {
-		snap.nonces[addr] = n
-	}
-	for addr, code := range b.codes {
+	b.balances.Range(func(addr common.Address, bal *big.Int) bool {
+		snap.balances.Set(addr, new(big.Int).Set(bal))
+		return true
+	})
+	b.nonces.Range(func(addr common.Address, n uint64) bool {
+		snap.nonces.Set(addr, n)
+		return true
+	})
+	b.codes.Range(func(addr common.Address, code []byte) bool {
 		cp := make([]byte, len(code))
 		copy(cp, code)
-		snap.codes[addr] = cp
-	}
-	for addr, slots := range b.storage {
-		snapSlots := make(map[common.Hash]common.Hash, len(slots))
-		for k, v := range slots {
-			snapSlots[k] = v
-		}
-		snap.storage[addr] = snapSlots
-	}
-	for addr, v := range b.created {
-		snap.created[addr] = v
-	}
+		snap.codes.Set(addr, cp)
+		return true
+	})
+	b.storage.Range(func(addr common.Address, slots *indexmap.IndexMap[common.Hash, common.Hash]) bool {
+		snapSlots := indexmap.New[common.Hash, common.Hash](slots.Len())
+		slots.Range(func(k common.Hash, v common.Hash) bool {
+			snapSlots.Set(k, v)
+			return true
+		})
+		snap.storage.Set(addr, snapSlots)
+		return true
+	})
+	b.created.Range(func(addr common.Address, v bool) bool {
+		snap.created.Set(addr, v)
+		return true
+	})
 	id := len(b.snapshots)
 	b.snapshots = append(b.snapshots, snap)
 	return id

@@ -37,8 +37,8 @@ func TestAPIGetGatewayConfig(t *testing.T) {
 	if result.Endpoint != "https://relay.example.com" {
 		t.Errorf("Endpoint = %s, want https://relay.example.com", result.Endpoint)
 	}
-	if len(result.SupportedKinds) != 2 || result.SupportedKinds[0] != "signer" || result.SupportedKinds[1] != "paymaster" {
-		t.Errorf("SupportedKinds = %v, want [signer paymaster]", result.SupportedKinds)
+	if len(result.SupportedKinds) != 2 || result.SupportedKinds[0] != "paymaster" || result.SupportedKinds[1] != "signer" {
+		t.Errorf("SupportedKinds = %v, want [paymaster signer]", result.SupportedKinds)
 	}
 	if result.MaxRelayGas != 500000 {
 		t.Errorf("MaxRelayGas = %d, want 500000", result.MaxRelayGas)

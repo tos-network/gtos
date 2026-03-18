@@ -14,8 +14,8 @@ func init() {
 
 type referralHandler struct{}
 
-func (h *referralHandler) CanHandle(kind sysaction.ActionKind) bool {
-	return kind == sysaction.ActionReferralBind
+func (h *referralHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionReferralBind}
 }
 
 func (h *referralHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

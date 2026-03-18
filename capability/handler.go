@@ -16,14 +16,12 @@ const registrarBit uint8 = 0
 
 type capabilityHandler struct{}
 
-func (h *capabilityHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionCapabilityRegister,
+func (h *capabilityHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionCapabilityRegister,
 		sysaction.ActionCapabilityGrant,
-		sysaction.ActionCapabilityRevoke:
-		return true
+		sysaction.ActionCapabilityRevoke,
 	}
-	return false
 }
 
 func (h *capabilityHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

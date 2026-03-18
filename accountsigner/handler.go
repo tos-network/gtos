@@ -10,8 +10,8 @@ func init() {
 
 type handler struct{}
 
-func (h *handler) CanHandle(kind sysaction.ActionKind) bool {
-	return kind == sysaction.ActionAccountSetSigner
+func (h *handler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionAccountSetSigner}
 }
 
 func (h *handler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

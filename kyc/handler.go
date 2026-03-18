@@ -15,12 +15,8 @@ func init() {
 
 type kycHandler struct{}
 
-func (h *kycHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionKYCSet, sysaction.ActionKYCSuspend:
-		return true
-	}
-	return false
+func (h *kycHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionKYCSet, sysaction.ActionKYCSuspend}
 }
 
 func (h *kycHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

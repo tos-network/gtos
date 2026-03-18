@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/binary"
 	"math/big"
+	"sort"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
@@ -200,12 +201,17 @@ func ReadSupportedKinds(db stateDB, addr common.Address) []string {
 // WriteSupportedKinds stores the supported kinds. Each kind is stored in a single
 // 32-byte slot (max 31 chars per kind, first byte = length).
 func WriteSupportedKinds(db stateDB, addr common.Address, kinds []string) {
+	// Sort a copy so storage layout is deterministic regardless of input order.
+	sorted := make([]string, len(kinds))
+	copy(sorted, kinds)
+	sort.Strings(sorted)
+
 	var countVal common.Hash
-	binary.BigEndian.PutUint64(countVal[24:], uint64(len(kinds)))
+	binary.BigEndian.PutUint64(countVal[24:], uint64(len(sorted)))
 	db.SetState(registry, gwSlot(addr, "kindsCount"), countVal)
 
 	baseSlot := kindsBaseSlot(addr).Big()
-	for i, kind := range kinds {
+	for i, kind := range sorted {
 		var val common.Hash
 		val[0] = byte(len(kind))
 		copy(val[1:], []byte(kind))

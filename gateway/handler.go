@@ -15,14 +15,12 @@ func init() {
 
 type gatewayHandler struct{}
 
-func (h *gatewayHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionGatewayRegister,
+func (h *gatewayHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionGatewayRegister,
 		sysaction.ActionGatewayUpdate,
-		sysaction.ActionGatewayDeregister:
-		return true
+		sysaction.ActionGatewayDeregister,
 	}
-	return false
 }
 
 func (h *gatewayHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

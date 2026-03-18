@@ -379,7 +379,7 @@ func TestAllowedFutureBlock(t *testing.T) {
 	chain := &fakeChainReader{}
 
 	now := uint64(time.Now().UnixMilli())
-	grace := 3 * d.config.TargetBlockPeriodMs()
+	grace := 2 * d.config.TargetBlockPeriodMs() // matches reduced 2× tolerance (Issue #9)
 
 	// Slightly below grace window: allowed.
 	hAllowed := &types.Header{

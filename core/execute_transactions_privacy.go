@@ -64,7 +64,16 @@ func executeTransactionsSerial(
 		fallbackFrom := len(pending)
 		if err := verifyPreparedPrivacyBatch(batchPrepared); err == nil {
 			for idx, candidate := range pending {
-				if err := applyPreparedPrivacyExecution(candidate.prepared, statedb, blockCtx.Coinbase); err != nil {
+				// Re-prepare against the real statedb so that
+				// inputState always reflects the current on-chain
+				// state, not the speculative pendingState copy.
+				// Proofs were already batch-verified above.
+				fresh, prepErr := preparePrivacyTxState(config.ChainID, statedb, candidate.tx)
+				if prepErr != nil {
+					fallbackFrom = idx
+					break
+				}
+				if err := applyPreparedPrivacyExecution(fresh, statedb, blockCtx.Coinbase); err != nil {
 					fallbackFrom = idx
 					break
 				}
@@ -83,6 +92,9 @@ func executeTransactionsSerial(
 
 		for _, candidate := range pending[fallbackFrom:] {
 			statedb.Prepare(candidate.tx.Hash(), candidate.index)
+			// Re-prepare against the current statedb to ensure
+			// the fallback path uses fresh state, not stale
+			// prepared state from the speculative pendingState.
 			prepared, err := preparePrivacyTxState(config.ChainID, statedb, candidate.tx)
 			if err == nil {
 				err = prepared.VerifyProofs()

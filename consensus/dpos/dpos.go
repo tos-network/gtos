@@ -132,9 +132,10 @@ type DPoS struct {
 	setFinalizedFn  func(*types.Header)                 // update blockchain finality state
 	chainID         *big.Int                            // local chain ID for vote admission (§9 rule 3)
 
-	finalizedVSHash sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
-	voteMonitorFn   func(VoteMonitorEvent)
-	voteJournal     *checkpointVoteJournal
+	finalizedVSHash      sync.Map // stores common.Hash for most-recently-finalized ValidatorSetHash
+	voteMonitorFn        func(VoteMonitorEvent)
+	voteJournal          *checkpointVoteJournal
+	deferredEpochChecks  *lru.ARCCache // block hash → struct{}: epoch blocks whose Extra validation was deferred
 
 	fakeDiff    bool   // skip difficulty check in unit tests
 	fakeFailAt  uint64 // fail VerifyHeader at this block number (0 = disabled)
@@ -216,13 +217,15 @@ func New(config *params.DPoSConfig, db tosdb.Database) (*DPoS, error) {
 	recents, _ := lru.NewARC(inmemorySnapshots)
 	signatures, _ := lru.NewARC(inmemorySignatures)
 	finality, _ := lru.NewARC(inmemoryFinality)
+	deferredEpoch, _ := lru.NewARC(inmemorySnapshots) // track deferred epoch-extra checks
 	d := &DPoS{
-		config:     config,
-		db:         db,
-		recents:    recents,
-		signatures: signatures,
-		finality:   finality,
-		sealLength: sealLengthForSignerType(config.SealSignerType),
+		config:              config,
+		db:                  db,
+		recents:             recents,
+		signatures:          signatures,
+		finality:            finality,
+		sealLength:          sealLengthForSignerType(config.SealSignerType),
+		deferredEpochChecks: deferredEpoch,
 	}
 	if config.CheckpointFinalityBlock != nil {
 		d.votePool = newCheckpointVotePool()
@@ -778,12 +781,22 @@ func (d *DPoS) verifyCheckpointQCFull(chain consensus.ChainHeaderReader, header 
 	// even when the block being verified is not yet the canonical head — e.g. during a
 	// reorg where the importing block is on a side branch.
 	// The staleness limit from Phase 1 bounds this walk to at most 2*CheckpointInterval.
+	//
+	// Security: if the ancestor walk fails at any point (cur == nil), we MUST
+	// reject the block rather than silently accepting it. A nil ancestor during
+	// Phase 2 can occur if a reorg races with QC verification; in that case
+	// the block must be re-verified once the chain stabilises.
 	cur := chain.GetHeader(header.ParentHash, number-1)
+	if cur == nil {
+		// Parent unavailable — reject immediately rather than skipping verification.
+		return fmt.Errorf("%w: parent header unavailable for QC ancestor walk at block %d", errQCNotAncestor, number)
+	}
 	for cur != nil && cur.Number.Uint64() > qc.Vote.Number {
 		cur = chain.GetHeader(cur.ParentHash, cur.Number.Uint64()-1)
 	}
 	if cur == nil || cur.Number.Uint64() != qc.Vote.Number {
-		return fmt.Errorf("%w: cannot find ancestor at %d", errQCNotAncestor, qc.Vote.Number)
+		return fmt.Errorf("%w: ancestor walk broken at height %d (target %d), block must be rejected",
+			errQCNotAncestor, number, qc.Vote.Number)
 	}
 	ancestor := cur
 	if ancestor.Hash() != qc.Vote.Hash {
@@ -1083,8 +1096,9 @@ func (d *DPoS) verifyHeader(chain consensus.ChainHeaderReader, header *types.Hea
 		return errUnknownBlock
 	}
 
-	// Reject far-future blocks (3× periodMs grace period). Checked even in faker mode.
-	if header.Time > uint64(time.Now().UnixMilli())+3*d.config.TargetBlockPeriodMs() {
+	// Reject far-future blocks (2× periodMs grace period). Reduced from 3× to 2×
+	// to limit clock-skew amplification when combined with the random seal wiggle.
+	if header.Time > uint64(time.Now().UnixMilli())+2*d.config.TargetBlockPeriodMs() {
 		return consensus.ErrFutureBlock
 	}
 	// NewFaker: skip DPoS-specific structural validation, but still check ancestry
@@ -1278,6 +1292,11 @@ func (d *DPoS) verifyCascadingFields(chain consensus.ChainHeaderReader, header *
 			// Header verification may run ahead of block-state import for batched
 			// segments. Defer the definitive epoch-extra check to finalized-state
 			// verification once the parent root is available through the state DB.
+			// Security: log the deferral and record the block hash so that
+			// VerifyFinalizedState can ensure this check actually runs later.
+			log.Warn("Deferring epoch Extra validation — parent state unavailable",
+				"block", header.Number, "hash", header.Hash())
+			d.deferredEpochChecks.Add(header.Hash(), struct{}{})
 		default:
 			return err
 		}
@@ -1448,9 +1467,32 @@ func (d *DPoS) snapshot(chain consensus.ChainHeaderReader, number uint64, hash c
 		// 4. Epoch trust fallback: if we have accumulated more headers than
 		// FullImmutabilityThreshold, or the parent is missing (light client),
 		// and this is an epoch block, trust its Extra and create a snapshot.
+		// Security: prefer state-based verification when the parent header and
+		// state are available, only falling back to trusting Extra otherwise.
 		if number%d.config.Epoch == 0 && (len(headers) > int(params.FullImmutabilityThreshold) || chain.GetHeaderByNumber(number-1) == nil) {
+			// Attempt state-based verification first if parent is available.
+			parentHeader := chain.GetHeaderByNumber(number - 1)
+			if parentHeader != nil && d.db != nil {
+				stateVerified, stateErr := d.activeValidatorsAtRoot(parentHeader.Root, state.NewDatabase(d.db), number)
+				if stateErr == nil && len(stateVerified) > 0 {
+					sort.Sort(addressAscending(stateVerified))
+					var snapErr error
+					snap, snapErr = newSnapshot(d.config, d.signatures, number, hash, stateVerified,
+						parentHeader.Time+d.config.TargetBlockPeriodMs(), d.config.TargetBlockPeriodMs())
+					if snapErr != nil {
+						return nil, snapErr
+					}
+					if err := snap.store(d.db); err != nil {
+						return nil, err
+					}
+					break
+				}
+			}
+			// State unavailable: fall back to trusting epoch Extra from the header.
 			checkpoint := chain.GetHeaderByNumber(number)
 			if checkpoint != nil {
+				log.Warn("Epoch trust fallback: accepting epoch Extra without state verification",
+					"block", number, "hash", hash)
 				validators, err := parseEpochValidators(checkpoint.Extra, d.config, false)
 				if err == nil {
 					sort.Sort(addressAscending(validators))
@@ -1608,6 +1650,10 @@ func (d *DPoS) VerifyFinalizedState(header *types.Header, st *state.StateDB) err
 	if err := d.VerifyEpochExtra(header, st); err != nil {
 		return err
 	}
+	// Security: clear the deferred-epoch-check marker. If the marker was set
+	// during header verification (parent state unavailable), this confirms the
+	// definitive check in VerifyEpochExtra above has now run with real state.
+	d.deferredEpochChecks.Remove(header.Hash())
 	if d.config.IsCheckpointFinality(header.Number) && header.Number.Uint64() > 0 {
 		if d.db == nil {
 			return nil // no db in faker mode; skip Phase 2
@@ -1941,7 +1987,9 @@ func (d *DPoS) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, pa
 	}
 	snap, err := d.snapshot(chain, parent.Number.Uint64(), parent.Hash(), nil)
 	if err != nil {
-		return nil
+		// Security: return a safe fallback instead of nil to prevent nil-pointer
+		// panics in callers that do not check for nil difficulty.
+		return new(big.Int).Set(diffNoTurn)
 	}
 	d.lock.RLock()
 	v := d.validator

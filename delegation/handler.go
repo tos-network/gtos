@@ -14,12 +14,8 @@ func init() {
 
 type delegationHandler struct{}
 
-func (h *delegationHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionDelegationMarkUsed, sysaction.ActionDelegationRevoke:
-		return true
-	}
-	return false
+func (h *delegationHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionDelegationMarkUsed, sysaction.ActionDelegationRevoke}
 }
 
 func (h *delegationHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

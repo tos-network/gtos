@@ -2,6 +2,7 @@ package sysaction
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -61,6 +62,9 @@ func RegisterProofVerifier(proofType string, verifier ProofVerifier) {
 	}
 	proofVerifierRegistry.mu.Lock()
 	defer proofVerifierRegistry.mu.Unlock()
+	if _, dup := proofVerifierRegistry.byType[normalized]; dup {
+		panic(fmt.Sprintf("sysaction: duplicate proof verifier for type %q", normalized))
+	}
 	proofVerifierRegistry.byType[normalized] = verifier
 }
 
@@ -73,6 +77,9 @@ func RegisterProofVerifierAddress(addr common.Address, verifier ProofVerifier) {
 	}
 	proofVerifierRegistry.mu.Lock()
 	defer proofVerifierRegistry.mu.Unlock()
+	if _, dup := proofVerifierRegistry.byAddress[addr]; dup {
+		panic(fmt.Sprintf("sysaction: duplicate proof verifier for address %s", addr.Hex()))
+	}
 	proofVerifierRegistry.byAddress[addr] = verifier
 }
 

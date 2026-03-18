@@ -141,11 +141,16 @@ func (s *Snapshot) recentlySignedAt(slot uint64, validator common.Address) bool 
 		left = slot - window
 	}
 	seen := uint64(0)
-	for seenSlot, signer := range s.Recents {
+	recentSlots := make([]uint64, 0, len(s.Recents))
+	for seenSlot := range s.Recents {
+		recentSlots = append(recentSlots, seenSlot)
+	}
+	sort.Slice(recentSlots, func(i, j int) bool { return recentSlots[i] < recentSlots[j] })
+	for _, seenSlot := range recentSlots {
 		if seenSlot <= left {
 			continue
 		}
-		if signer == validator {
+		if s.Recents[seenSlot] == validator {
 			seen++
 		}
 	}
@@ -183,7 +188,12 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 		limit := snap.recentSignerWindowSize()
 		if slot >= limit {
 			staleThreshold := slot - limit
+			pruneSlots := make([]uint64, 0, len(snap.Recents))
 			for seenSlot := range snap.Recents {
+				pruneSlots = append(pruneSlots, seenSlot)
+			}
+			sort.Slice(pruneSlots, func(i, j int) bool { return pruneSlots[i] < pruneSlots[j] })
+			for _, seenSlot := range pruneSlots {
 				if seenSlot <= staleThreshold {
 					delete(snap.Recents, seenSlot)
 				}
@@ -224,7 +234,12 @@ func (s *Snapshot) apply(headers []*types.Header) (*Snapshot, error) {
 			newLimit := snap.recentSignerWindowSize()
 			if slot >= newLimit {
 				staleThreshold := slot - newLimit
+				epochPruneSlots := make([]uint64, 0, len(snap.Recents))
 				for seenSlot := range snap.Recents {
+					epochPruneSlots = append(epochPruneSlots, seenSlot)
+				}
+				sort.Slice(epochPruneSlots, func(i, j int) bool { return epochPruneSlots[i] < epochPruneSlots[j] })
+				for _, seenSlot := range epochPruneSlots {
 					if seenSlot <= staleThreshold {
 						delete(snap.Recents, seenSlot)
 					}

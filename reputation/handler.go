@@ -18,13 +18,11 @@ const registrarBit uint8 = 0
 
 type reputationHandler struct{}
 
-func (h *reputationHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionReputationAuthorizeScorer,
-		sysaction.ActionReputationRecordScore:
-		return true
+func (h *reputationHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionReputationAuthorizeScorer,
+		sysaction.ActionReputationRecordScore,
 	}
-	return false
 }
 
 func (h *reputationHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

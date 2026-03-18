@@ -14,9 +14,9 @@ func init() {
 
 type policyWalletHandler struct{}
 
-func (h *policyWalletHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionPolicySetSpendCaps,
+func (h *policyWalletHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionPolicySetSpendCaps,
 		sysaction.ActionPolicySetAllowlist,
 		sysaction.ActionPolicySetTerminalPolicy,
 		sysaction.ActionPolicyAuthorizeDelegate,
@@ -26,10 +26,8 @@ func (h *policyWalletHandler) CanHandle(kind sysaction.ActionKind) bool {
 		sysaction.ActionPolicyCancelRecovery,
 		sysaction.ActionPolicyCompleteRecovery,
 		sysaction.ActionPolicySuspend,
-		sysaction.ActionPolicyUnsuspend:
-		return true
+		sysaction.ActionPolicyUnsuspend,
 	}
-	return false
 }
 
 func (h *policyWalletHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {

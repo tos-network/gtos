@@ -5,6 +5,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/log"
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -14,14 +15,12 @@ func init() {
 
 type settlementHandler struct{}
 
-func (h *settlementHandler) CanHandle(kind sysaction.ActionKind) bool {
-	switch kind {
-	case sysaction.ActionSettlementRegisterCallback,
+func (h *settlementHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{
+		sysaction.ActionSettlementRegisterCallback,
 		sysaction.ActionSettlementExecuteCallback,
-		sysaction.ActionSettlementFulfillAsync:
-		return true
+		sysaction.ActionSettlementFulfillAsync,
 	}
-	return false
 }
 
 func (h *settlementHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -103,8 +102,15 @@ func (h *settlementHandler) handleRegisterCallback(ctx *sysaction.Context, sa *s
 		return ErrTTLTooLong
 	}
 
-	// 2. Mint callback ID.
+	// 2. Mint callback ID using counter as nonce.
 	nonce := ReadCallbackCount(ctx.StateDB)
+	blockNum := ctx.BlockNumber.Uint64()
+
+	// Guard: warn if counter is unexpectedly zero past genesis.
+	if nonce == 0 && blockNum > 0 {
+		log.Warn("Settlement callback counter is zero past genesis, possible state corruption", "block", blockNum)
+	}
+
 	callbackID := mintCallbackID(ctx.From, txHash, cbType, nonce)
 
 	// 3. Parse optional hex fields.
@@ -118,7 +124,6 @@ func (h *settlementHandler) handleRegisterCallback(ctx *sysaction.Context, sa *s
 	}
 
 	// 4. Write callback state.
-	blockNum := ctx.BlockNumber.Uint64()
 	WriteCallbackExists(ctx.StateDB, callbackID)
 	WriteCallbackTxHash(ctx.StateDB, callbackID, txHash)
 	WriteCallbackType(ctx.StateDB, callbackID, cbType)
@@ -131,6 +136,11 @@ func (h *settlementHandler) handleRegisterCallback(ctx *sysaction.Context, sa *s
 	WriteCallbackStatus(ctx.StateDB, callbackID, StatusPending)
 	WriteCallbackCreator(ctx.StateDB, callbackID, ctx.From)
 	IncrementCallbackCount(ctx.StateDB)
+
+	// Monotonicity check: verify counter incremented to exactly nonce+1.
+	if post := ReadCallbackCount(ctx.StateDB); post != nonce+1 {
+		log.Warn("Settlement callback counter monotonicity violation", "expected", nonce+1, "got", post, "block", blockNum)
+	}
 
 	return nil
 }
@@ -188,8 +198,15 @@ func (h *settlementHandler) handleFulfillAsync(ctx *sysaction.Context, sa *sysac
 		return ErrInvalidTxHash
 	}
 
-	// 2. Mint fulfillment ID.
+	// 2. Mint fulfillment ID using counter as nonce.
 	nonce := ReadFulfillmentCount(ctx.StateDB)
+	blockNum := ctx.BlockNumber.Uint64()
+
+	// Guard: warn if counter is unexpectedly zero past genesis.
+	if nonce == 0 && blockNum > 0 {
+		log.Warn("Settlement fulfillment counter is zero past genesis, possible state corruption", "block", blockNum)
+	}
+
 	fulfillmentID := mintFulfillmentID(ctx.From, origTxHash, nonce)
 
 	// 3. Parse optional hex fields.
@@ -203,7 +220,6 @@ func (h *settlementHandler) handleFulfillAsync(ctx *sysaction.Context, sa *sysac
 	}
 
 	// 4. Write fulfillment state.
-	blockNum := ctx.BlockNumber.Uint64()
 	WriteFulfillmentExists(ctx.StateDB, fulfillmentID)
 	WriteFulfillmentOriginalTxHash(ctx.StateDB, fulfillmentID, origTxHash)
 	WriteFulfillmentFulfiller(ctx.StateDB, fulfillmentID, ctx.From)
@@ -212,6 +228,11 @@ func (h *settlementHandler) handleFulfillAsync(ctx *sysaction.Context, sa *sysac
 	WriteFulfillmentFulfilledAt(ctx.StateDB, fulfillmentID, blockNum)
 	WriteFulfillmentReceiptRef(ctx.StateDB, fulfillmentID, receiptRef)
 	IncrementFulfillmentCount(ctx.StateDB)
+
+	// Monotonicity check: verify counter incremented to exactly nonce+1.
+	if post := ReadFulfillmentCount(ctx.StateDB); post != nonce+1 {
+		log.Warn("Settlement fulfillment counter monotonicity violation", "expected", nonce+1, "got", post, "block", blockNum)
+	}
 
 	return nil
 }

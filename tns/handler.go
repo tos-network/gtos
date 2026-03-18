@@ -16,8 +16,8 @@ func init() {
 
 type tnsHandler struct{}
 
-func (h *tnsHandler) CanHandle(kind sysaction.ActionKind) bool {
-	return kind == sysaction.ActionTNSRegister
+func (h *tnsHandler) Actions() []sysaction.ActionKind {
+	return []sysaction.ActionKind{sysaction.ActionTNSRegister}
 }
 
 func (h *tnsHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAction) error {
