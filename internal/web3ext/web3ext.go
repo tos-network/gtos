@@ -24,6 +24,7 @@ var Modules = map[string]string{
 	"tosash":   TosashJs,
 	"debug":    DebugJs,
 	"tos":      TOSJs,
+	"tns":      TNSJs,
 	"miner":    MinerJs,
 	"net":      NetJs,
 	"personal": PersonalJs,
@@ -32,6 +33,26 @@ var Modules = map[string]string{
 	"les":      LESJs,
 	"vflux":    VfluxJs,
 }
+
+const TNSJs = `
+web3._extend({
+	property: 'tns',
+	methods: [
+		new web3._extend.Method({
+			name: 'resolve',
+			call: 'tns_resolve',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'reverse',
+			call: 'tns_reverse',
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter]
+		}),
+	],
+	properties: []
+});
+`
 
 const CliqueJs = `
 web3._extend({

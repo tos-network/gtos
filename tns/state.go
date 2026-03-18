@@ -6,12 +6,15 @@ import (
 	"github.com/tos-network/gtos/params"
 )
 
-// stateDB is the minimal storage interface required by this package.
+// StateDB is the minimal storage interface required by this package.
 // Avoids an import cycle with core/vm (which imports this package).
-type stateDB interface {
+type StateDB interface {
 	GetState(common.Address, common.Hash) common.Hash
 	SetState(common.Address, common.Hash, common.Hash)
 }
+
+// stateDB is an alias kept for internal use.
+type stateDB = StateDB
 
 func nameToAddrSlot(nameHash common.Hash) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(

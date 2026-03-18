@@ -6,6 +6,7 @@ import (
 	"github.com/tos-network/gtos/policywallet"
 	"github.com/tos-network/gtos/rpc"
 	"github.com/tos-network/gtos/settlement"
+	"github.com/tos-network/gtos/tns"
 )
 
 // Register2046APIs returns the RPC API descriptors for the 2046 architecture
@@ -34,6 +35,12 @@ func Register2046APIs(stateReader func() policywallet.StateDB) []rpc.API {
 		{
 			Namespace: "settlement",
 			Service: settlement.NewPublicSettlementAPI(func() settlement.StateDB {
+				return stateReader()
+			}),
+		},
+		{
+			Namespace: "tns",
+			Service: tns.NewPublicTNSAPI(func() tns.StateDB {
 				return stateReader()
 			}),
 		},
