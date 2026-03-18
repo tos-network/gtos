@@ -146,7 +146,7 @@ The table below separates what GTOS already provides from what should still be i
 | Contract-local escrow / release / slash | Available / foundational | TOL agent-native design assumes `tos.escrow`, `tos.release`, and `tos.slash` style contract-local escrow primitives. | If any of these are incomplete in runtime, they are high-priority foundational gaps. |
 | Scheduled activation / delayed execution | Available | Scheduled task infrastructure already exists and can support keeper-triggered oracle activation. | Optional higher-level oracle keeper helpers only. |
 | Canonical oracle result ABI helper | Missing | There is no finalized runtime/library helper yet. | Add canonical encode / decode / hash helpers for bounded oracle results. |
-| Generic proof verification hook | Missing | No generic host-callable proof hook exists yet. | Add a contract-callable proof verification gateway. |
+| Generic proof verification hook | Available / foundational | `sysaction.ValidateProofHook` now provides contract-callable proof dispatch with deterministic failure semantics and pluggable verifier registration by proof type or verifier address. | Keep adding concrete verifier backends and conventions. |
 | zkTLS / TLSNotary verifier backend | Missing | No verifier backend exists in runtime today. | Add native verifier backend and public-input conventions. |
 | SNARK verifier backend | Missing | No general oracle-oriented succinct-proof verifier exists. | Add a generic verifier interface and backend plumbing. |
 | Oracle-specific global operator registry | Not needed in GTOS core | Agent registry already exists. | Leave to user contracts if they want local registries. |
@@ -187,7 +187,7 @@ These should be implemented as generic contract-local escrow primitives, not ora
 GTOS should provide a standard way to encode, decode, and hash bounded oracle results so that different oracle contracts can emit interoperable outputs.
 
 #### D. Generic proof verification hook
-GTOS should provide a generic host hook that contracts can call when they want authenticated-evidence or succinct-proof verification.
+GTOS now provides a generic host hook surface via `sysaction.ValidateProofHook`, including built-in hash-based modes and pluggable verifier dispatch for future authenticated-evidence or succinct-proof backends.
 
 #### E. Verifier backends
 GTOS should later add native backends for:
@@ -414,7 +414,18 @@ GTOS should **not** add highly opinionated oracle business reads such as:
 unless GTOS later explicitly chooses to define a common oracle-contract profile. In this design, those are intentionally omitted from core runtime because they would implicitly define a chain-level oracle storage model.
 
 ### 10.3 Generic proof verification hook
-Recommended conceptual host hook:
+Current implementation shape:
+
+```text
+ValidateProofHook(
+  proof_type,
+  proof_data,
+  expected_root,
+  verifier_address
+) -> bool | error
+```
+
+Conceptual contract-facing host hook:
 
 ```text
 tos.verifyproof(
@@ -541,7 +552,7 @@ Ship:
 No built-in oracle protocol.
 
 ### Phase 2 — Generic proof verification hook
-Ship:
+Shipped foundation:
 
 - contract-callable proof verification interface
 - deterministic verifier dispatch API
