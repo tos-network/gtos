@@ -2126,8 +2126,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Address utilities + constants ─────────────────────────────────────────
 
-		// tos.ZERO_ADDRESS  — the all-zeros 32-byte TOS address.
-		// Equivalent to the zero-value address in GTOS.
+	// tos.ZERO_ADDRESS  — the all-zeros 32-byte TOS address.
+	// Equivalent to the zero-value address in GTOS.
 	//
 	//   require(to ~= tos.ZERO_ADDRESS, "transfer to zero address")
 	L.SetField(tosTable, "ZERO_ADDRESS", lua.LString(common.Address{}.Hex()))
@@ -2141,9 +2141,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		L.SetField(tosTable, "MAX_UINT256", luBig(max))
 	}
 
-		// tos.isAddress(str) → bool
-		//   Returns true if str is a syntactically valid TOS address:
-		//   optional "0x"/"0X" prefix followed by exactly 64 hex characters.
+	// tos.isAddress(str) → bool
+	//   Returns true if str is a syntactically valid TOS address:
+	//   optional "0x"/"0X" prefix followed by exactly 64 hex characters.
 	//   Does NOT check whether the address has deployed code or a non-zero balance.
 	//
 	//   require(tos.isAddress(to), "invalid address")
@@ -2165,10 +2165,10 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 1
 	}))
 
-		// tos.toAddress(str) → string
-		//   Normalise any hex string to a canonical checksum "0x"-prefixed 32-byte
-		//   TOS address string. Short inputs are zero-padded on the left; extra
-		//   leading bytes are truncated via common.HexToAddress semantics.
+	// tos.toAddress(str) → string
+	//   Normalise any hex string to a canonical checksum "0x"-prefixed 32-byte
+	//   TOS address string. Short inputs are zero-padded on the left; extra
+	//   leading bytes are truncated via common.HexToAddress semantics.
 	//
 	//   Useful to ensure consistent storage keys regardless of how callers format
 	//   addresses:
@@ -3607,8 +3607,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 
 		type handlerEntry struct {
-			fn    lua.LValue
-			types []string
+			fn        lua.LValue
+			signature string
+			types     []string
 		}
 		handlerMap := make(map[string]handlerEntry)
 		var fallbackEntry *handlerEntry
@@ -3629,13 +3630,17 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				return
 			}
 			if name == "fallback" {
-				entry := handlerEntry{fn: v, types: nil}
+				entry := handlerEntry{fn: v, signature: string(sigStr), types: nil}
 				fallbackEntry = &entry
 				return
 			}
 			h := crypto.Keccak256([]byte(string(sigStr)))
 			sel := "0x" + common.Bytes2Hex(h[:4])
-			handlerMap[sel] = handlerEntry{fn: v, types: types}
+			if existing, dup := handlerMap[sel]; dup {
+				parseErr = fmt.Errorf("tos.dispatch: selector collision %s between %q and %q", sel, existing.signature, string(sigStr))
+				return
+			}
+			handlerMap[sel] = handlerEntry{fn: v, signature: string(sigStr), types: types}
 		})
 		if parseErr != nil {
 			L.RaiseError("%v", parseErr)

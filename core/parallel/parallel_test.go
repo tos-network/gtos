@@ -159,6 +159,9 @@ func TestAnalyzeTxSysAction(t *testing.T) {
 	if _, ok := as.WriteAddrs[params.ValidatorRegistryAddress]; !ok {
 		t.Error("ValidatorRegistryAddress should be in WriteAddrs for sysaction")
 	}
+	if _, ok := as.WriteAddrs[params.LVMSerialAddress]; !ok {
+		t.Error("LVMSerialAddress should be in WriteAddrs for sysaction")
+	}
 }
 
 func TestAnalyzeTxTwoSysActionsConflict(t *testing.T) {
@@ -166,6 +169,57 @@ func TestAnalyzeTxTwoSysActionsConflict(t *testing.T) {
 	b := AnalyzeTx(sysActionMsg(addr("0xBB"), 0), nil)
 	if !a.Conflicts(&b) {
 		t.Error("two system actions should conflict via ValidatorRegistryAddress")
+	}
+}
+
+func TestAnalyzeTxSysActionConflictsWithPlainTransfer(t *testing.T) {
+	sysSet := AnalyzeTx(sysActionMsg(addr("0xA1"), 0), nil)
+	plainSet := AnalyzeTx(plainMsg(addr("0xA2"), addr("0xB2"), 0, 1), nil)
+	if !sysSet.Conflicts(&plainSet) {
+		t.Error("system action must conflict with plain transfer via LVMSerialAddress")
+	}
+}
+
+func TestAnalyzeTxSysActionConflictsWithLVMCall(t *testing.T) {
+	db := newTestStateDB(t)
+	lvmContract := addr("0xCC20")
+	db.SetCode(lvmContract, []byte{0x01, 0x02})
+
+	sysSet := AnalyzeTx(sysActionMsg(addr("0xA3"), 0), nil)
+	lvmSet := AnalyzeTx(plainMsg(addr("0xA4"), lvmContract, 0, 0), db)
+	if !sysSet.Conflicts(&lvmSet) {
+		t.Error("system action must conflict with LVM contract call via LVMSerialAddress")
+	}
+}
+
+func TestAnalyzeTxSlashIndicatorReadsValidatorRegistry(t *testing.T) {
+	sender := addr("0x55")
+	to := params.CheckpointSlashIndicatorAddress
+	msg := types.NewMessage(sender, &to, 0, big.NewInt(0),
+		params.TxGas+params.SysActionGas, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+		[]byte{0xde, 0xad, 0xbe, 0xef}, nil, true)
+	as := AnalyzeTx(msg, nil)
+
+	if _, ok := as.WriteAddrs[params.CheckpointSlashIndicatorAddress]; !ok {
+		t.Error("CheckpointSlashIndicatorAddress should be in WriteAddrs for slash-indicator tx")
+	}
+	if _, ok := as.ReadAddrs[params.ValidatorRegistryAddress]; !ok {
+		t.Error("ValidatorRegistryAddress should be in ReadAddrs for slash-indicator tx")
+	}
+	if _, ok := as.WriteAddrs[params.LVMSerialAddress]; !ok {
+		t.Error("LVMSerialAddress should be in WriteAddrs for slash-indicator tx")
+	}
+}
+
+func TestAnalyzeTxSlashIndicatorConflictsWithValidatorSysAction(t *testing.T) {
+	slashTo := params.CheckpointSlashIndicatorAddress
+	slashMsg := types.NewMessage(addr("0x56"), &slashTo, 0, big.NewInt(0),
+		params.TxGas+params.SysActionGas, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+		[]byte{0xde, 0xad, 0xbe, 0xef}, nil, true)
+	slashSet := AnalyzeTx(slashMsg, nil)
+	sysSet := AnalyzeTx(sysActionMsg(addr("0x57"), 0), nil)
+	if !slashSet.Conflicts(&sysSet) {
+		t.Error("slash-indicator tx must conflict with validator-affecting system actions")
 	}
 }
 

@@ -1328,6 +1328,35 @@ func TestLvmContractDispatch(t *testing.T) {
 		}
 	})
 
+	t.Run("selector_collision_reverts", func(t *testing.T) {
+		// These two distinct signatures intentionally share the same 4-byte
+		// selector: 0x02b64254.
+		const code = `
+			tos.dispatch({
+				["ybshi(address,bytes,uint8)"] = function(_, _, _) tos.emit("First") end,
+				["xwqsqid(address,address)"] = function(_, _) tos.emit("Second") end,
+			})
+		`
+		bc, contractAddr, cleanup := lvmTestSetup(t, code)
+		defer cleanup()
+
+		key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		signer := types.LatestSigner(bc.Config())
+		tx, _ := signTestSignerTx(signer, key1, 0, contractAddr, big.NewInt(0), 500_000, big.NewInt(1), nil)
+		genesis := bc.GetBlockByNumber(0)
+		blocks, _ := GenerateChain(bc.Config(), genesis, dpos.NewFaker(), bc.db, 1, func(i int, b *BlockGen) {
+			b.AddTx(tx)
+		})
+		bc.InsertChain(blocks)
+		receipts := rawdb.ReadReceipts(bc.db, blocks[0].Hash(), blocks[0].NumberU64(), bc.Config())
+		if len(receipts) == 0 {
+			t.Fatal("no receipt")
+		}
+		if receipts[0].Status != types.ReceiptStatusFailed {
+			t.Fatalf("expected status=0 on selector collision, got %d", receipts[0].Status)
+		}
+	})
+
 	t.Run("fallback_on_unknown_selector", func(t *testing.T) {
 		// fallback function is called when selector doesn't match any handler.
 		const code = `

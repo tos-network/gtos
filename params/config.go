@@ -449,6 +449,15 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, head *big.Int) *Confi
 				Fatal:        true,
 			}
 		}
+		if c.DPoS.RecentSignerWindow != newcfg.DPoS.RecentSignerWindow {
+			return &ConfigCompatError{
+				What:         "DPoS recentSignerWindow",
+				StoredConfig: new(big.Int).SetUint64(c.DPoS.RecentSignerWindow),
+				NewConfig:    new(big.Int).SetUint64(newcfg.DPoS.RecentSignerWindow),
+				RewindTo:     0,
+				Fatal:        true,
+			}
+		}
 		if c.DPoS.MaintenanceMaxBlocksEffective() != newcfg.DPoS.MaintenanceMaxBlocksEffective() {
 			return &ConfigCompatError{
 				What:         "DPoS maintenanceMaxBlocks",

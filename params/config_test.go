@@ -234,6 +234,18 @@ func TestCheckCompatible(t *testing.T) {
 			},
 		},
 		{
+			stored: &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, RecentSignerWindow: 0, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			new:    &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, RecentSignerWindow: 9, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
+			head:   10,
+			wantErr: &ConfigCompatError{
+				What:         "DPoS recentSignerWindow",
+				StoredConfig: big.NewInt(0),
+				NewConfig:    big.NewInt(9),
+				RewindTo:     0,
+				Fatal:        true,
+			},
+		},
+		{
 			stored:  &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: "ed25519"}},
 			new:     &ChainConfig{ChainID: big.NewInt(1), DPoS: &DPoSConfig{Epoch: 100, PeriodMs: 360, MaxValidators: 15, TurnLength: DPoSTurnLength, SealSignerType: ""}},
 			head:    10,

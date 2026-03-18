@@ -76,20 +76,27 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 
 	switch *to {
 	case params.SystemActionAddress:
-		// System action: conflicts with any other system action via ValidatorRegistryAddress.
+		// System actions can mutate or query multiple native registries (lease,
+		// policy wallet, tasks, agent/capability state, etc.) that are not fully
+		// captured by static decoding. Conservatively serialize them with all
+		// normal/LVM txs via LVMSerialAddress to preserve batch/per-tx parity.
 		as.WriteAddrs[params.ValidatorRegistryAddress] = struct{}{}
+		as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
 		if sa, err := sysaction.Decode(msg.Data()); err == nil && sa.Action == sysaction.ActionLeaseDeploy {
 			contractAddr := crypto.CreateAddress(sender, msg.Nonce())
 			as.WriteAddrs[params.LeaseRegistryAddress] = struct{}{}
 			as.WriteAddrs[contractAddr] = struct{}{}
 			as.ReadAddrs[contractAddr] = struct{}{}
-			as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
 		}
 
 	case params.CheckpointSlashIndicatorAddress:
-		// SlashIndicator evidence submission mutates a single fixed storage account
-		// and is serialized with other evidence submissions.
+		// Slash-indicator execution both mutates its own registry and reads the
+		// validator registry to confirm the signer is currently registered.
+		// Serialize it with validator-changing system actions and with the wider
+		// tx set for deterministic native-state visibility.
 		as.WriteAddrs[params.CheckpointSlashIndicatorAddress] = struct{}{}
+		as.ReadAddrs[params.ValidatorRegistryAddress] = struct{}{}
+		as.WriteAddrs[params.LVMSerialAddress] = struct{}{}
 
 	default:
 		// Plain TOS transfer: writes recipient balance.

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
@@ -11,7 +12,9 @@ import (
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 func TestExecuteTransactionsBatchVsPerTxParity(t *testing.T) {
@@ -68,6 +71,7 @@ func TestExecuteTransactionsBatchVsPerTxParity(t *testing.T) {
 		GetHash:     func(uint64) common.Hash { return common.Hash{} },
 		Coinbase:    coinbase,
 		BlockNumber: blockNumber,
+		Time:        big.NewInt(0),
 		GasLimit:    10_000_000,
 		BaseFee:     big.NewInt(1),
 	}
@@ -133,6 +137,157 @@ func TestExecuteTransactionsBatchVsPerTxParity(t *testing.T) {
 		if br.Status != sr.Status {
 			t.Fatalf("receipt[%d] status mismatch: batch=%d single=%d", i, br.Status, sr.Status)
 		}
+	}
+}
+
+func TestExecuteTransactionsLeaseCloseCallParity(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS: &params.DPoSConfig{
+			PeriodMs:      3000,
+			Epoch:         208,
+			MaxValidators: 21,
+			TurnLength:    params.DPoSTurnLength,
+		},
+	}
+	coinbase := common.HexToAddress("0xCAFE")
+	owner := common.HexToAddress("0xAA10")
+	caller := common.HexToAddress("0xAA11")
+	contractAddr := common.HexToAddress("0xCC10")
+	leaseBlocks := uint64(100)
+	closeGasLimit := uint64(200_000)
+
+	makeState := func() *state.StateDB {
+		db, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+		if err != nil {
+			t.Fatalf("state.New: %v", err)
+		}
+		return db
+	}
+	makeCloseTx := func(nonce uint64, contractAddr common.Address) (*types.Transaction, types.Message) {
+		payload, err := sysaction.MakeSysAction(sysaction.ActionLeaseClose, lease.CloseAction{
+			ContractAddr: contractAddr,
+		})
+		if err != nil {
+			t.Fatalf("MakeSysAction(LEASE_CLOSE): %v", err)
+		}
+		to := params.SystemActionAddress
+		tx := types.NewTx(&types.SignerTx{
+			ChainID: big.NewInt(1),
+			Nonce:   nonce,
+			To:      &to,
+			Gas:     closeGasLimit,
+			Value:   big.NewInt(0),
+			Data:    payload,
+			V:       new(big.Int),
+			R:       new(big.Int),
+			S:       new(big.Int),
+		})
+		msg := types.NewMessage(owner, &to, nonce, big.NewInt(0),
+			closeGasLimit, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+			payload, nil, true)
+		return tx, msg
+	}
+	makeCallTx := func(nonce uint64, to common.Address) (*types.Transaction, types.Message) {
+		tx := types.NewTx(&types.SignerTx{
+			ChainID: big.NewInt(1),
+			Nonce:   nonce,
+			To:      &to,
+			Gas:     lvmDefaultTxGasLimit,
+			Value:   big.NewInt(0),
+			V:       new(big.Int),
+			R:       new(big.Int),
+			S:       new(big.Int),
+		})
+		msg := types.NewMessage(caller, &to, nonce, big.NewInt(0),
+			lvmDefaultTxGasLimit, params.TxPrice(), params.TxPrice(), params.TxPrice(),
+			nil, nil, true)
+		return tx, msg
+	}
+
+	baseState := makeState()
+	huge := new(big.Int)
+	huge.SetString("100000000000000000000", 10)
+	baseState.AddBalance(owner, new(big.Int).Set(huge))
+	baseState.AddBalance(caller, new(big.Int).Set(huge))
+
+	code := []byte(`tos.emit("Ping")`)
+	baseState.SetCode(contractAddr, code)
+	deposit, err := lease.DepositFor(uint64(len(code)), leaseBlocks)
+	if err != nil {
+		t.Fatalf("DepositFor: %v", err)
+	}
+	if _, err := lease.Activate(baseState, contractAddr, owner, 10, leaseBlocks, uint64(len(code)), deposit, config); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	baseState.AddBalance(params.LeaseRegistryAddress, deposit)
+	baseState.Finalise(false)
+
+	closeTx, closeMsg := makeCloseTx(0, contractAddr)
+	callTx, callMsg := makeCallTx(0, contractAddr)
+	txs := types.Transactions{closeTx, callTx}
+	msgs := []types.Message{closeMsg, callMsg}
+
+	blockHash := common.HexToHash("0x2222")
+	blockNumber := big.NewInt(25)
+	blockCtx := vm.BlockContext{
+		CanTransfer: CanTransfer,
+		Transfer:    Transfer,
+		GetHash:     func(uint64) common.Hash { return common.Hash{} },
+		Coinbase:    coinbase,
+		BlockNumber: blockNumber,
+		Time:        big.NewInt(0),
+		GasLimit:    10_000_000,
+		BaseFee:     big.NewInt(1),
+	}
+
+	dbBatch := baseState.Copy()
+	gpBatch := new(GasPool).AddGas(10_000_000)
+	if _, _, _, err := ExecuteTransactions(
+		config, blockCtx, dbBatch, txs, blockHash, blockNumber, gpBatch, msgs,
+	); !errors.Is(err, lease.ErrLeaseExpired) {
+		t.Fatalf("batch execute: want %v, got %v", lease.ErrLeaseExpired, err)
+	}
+	batchMeta, ok := lease.ReadMeta(dbBatch, contractAddr)
+	if !ok {
+		t.Fatal("batch path lost lease metadata after LEASE_CLOSE")
+	}
+	if batchMeta.ExpireAtBlock != 25 || batchMeta.GraceUntilBlock != 25 {
+		t.Fatalf("batch path close meta mismatch: expire=%d grace=%d", batchMeta.ExpireAtBlock, batchMeta.GraceUntilBlock)
+	}
+	batchRoot, err := dbBatch.Commit(false)
+	if err != nil {
+		t.Fatalf("batch commit: %v", err)
+	}
+
+	dbSingle := baseState.Copy()
+	gpSingle := new(GasPool).AddGas(10_000_000)
+	if _, _, _, err := ExecuteTransactions(
+		config, blockCtx, dbSingle,
+		types.Transactions{closeTx}, blockHash, blockNumber, gpSingle, []types.Message{closeMsg},
+	); err != nil {
+		t.Fatalf("single close execute: %v", err)
+	}
+	if _, _, _, err := ExecuteTransactions(
+		config, blockCtx, dbSingle,
+		types.Transactions{callTx}, blockHash, blockNumber, gpSingle, []types.Message{callMsg},
+	); !errors.Is(err, lease.ErrLeaseExpired) {
+		t.Fatalf("single call execute: want %v, got %v", lease.ErrLeaseExpired, err)
+	}
+	singleMeta, ok := lease.ReadMeta(dbSingle, contractAddr)
+	if !ok {
+		t.Fatal("single path lost lease metadata after LEASE_CLOSE")
+	}
+	if singleMeta.ExpireAtBlock != 25 || singleMeta.GraceUntilBlock != 25 {
+		t.Fatalf("single path close meta mismatch: expire=%d grace=%d", singleMeta.ExpireAtBlock, singleMeta.GraceUntilBlock)
+	}
+	singleRoot, err := dbSingle.Commit(false)
+	if err != nil {
+		t.Fatalf("single commit: %v", err)
+	}
+
+	if batchRoot != singleRoot {
+		t.Fatalf("state root mismatch after LEASE_CLOSE parity test: batch=%s single=%s", batchRoot.Hex(), singleRoot.Hex())
 	}
 }
 
