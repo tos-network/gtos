@@ -1290,11 +1290,21 @@ func TestCtBalanceEmpty(t *testing.T) {
 	contractAddr := common.Address{0xD0}
 	targetAddr := common.Address{0xD1}
 
-	// Balance of an account with no encrypted balance should be nil.
+	// Balance of an account with no encrypted balance should return encrypted
+	// zero (type closure), not nil.  This ensures bal.add(x) always works.
 	src := `
 local bal = tos.ciphertext.balance("` + targetAddr.Hex() + `")
-if bal ~= nil then
-  error("expected nil for empty balance, got " .. tostring(bal))
+if type(bal) ~= "string" then
+  error("expected string (encrypted zero), got " .. type(bal))
+end
+-- Must be a valid 130-char ciphertext hex (0x + 128 hex chars)
+if #bal ~= 130 then
+  error("expected 130-char ciphertext hex, got " .. #bal)
+end
+-- Must equal tos.ciphertext.zero()
+local z = tos.ciphertext.zero()
+if bal ~= z then
+  error("empty balance should equal encrypted zero")
 end
 tos.sstore("ok", 1)
 `
@@ -1512,20 +1522,26 @@ tos.sstore("ok", 1)
 	}
 }
 
-func TestUnoValueNilWhenEmpty(t *testing.T) {
+func TestUnoValueZeroWhenEmpty(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xDB}
 
+	// uno_value without a deposit should return encrypted zero (not nil)
+	// so that msg.value.add(x) always works without nil checks.
 	src := `
 local uv = tos.uno_value
-if uv ~= nil then
-  error("expected nil uno_value, got " .. tostring(uv))
+if type(uv) ~= "string" then
+  error("expected string (encrypted zero), got " .. type(uv))
+end
+local z = tos.ciphertext.zero()
+if uv ~= z then
+  error("empty uno_value should equal encrypted zero")
 end
 tos.sstore("ok", 1)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
-		t.Fatalf("uno_value(nil): %v", err)
+		t.Fatalf("uno_value(zero): %v", err)
 	}
 	raw := st.GetState(contractAddr, StorageSlot("ok"))
 	if raw.Big().Int64() != 1 {

@@ -71,6 +71,20 @@ var (
 	privVersionSlot    = crypto.Keccak256Hash([]byte("gtos.priv.version"))
 )
 
+// zeroCiphertextHex is the canonical encrypted-zero value as a "0x..." hex string.
+// Computed once at init time so every balance/uno_value default shares the same value.
+var zeroCiphertextHex string
+
+func init() {
+	out, err := cryptopriv.ZeroCiphertextCompressed()
+	if err != nil {
+		panic("lvm_crypto: failed to compute zero ciphertext: " + err.Error())
+	}
+	var z [64]byte
+	copy(z[:], out)
+	zeroCiphertextHex = ciphertextToHex(z)
+}
+
 // parseCiphertextHex decodes a 128-char hex string (with optional "0x" prefix)
 // into a [64]byte.
 func parseCiphertextHex(s string) ([64]byte, error) {
@@ -1381,7 +1395,9 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		commitment := stateDB.GetState(addr, privCommitmentSlot)
 		handle := stateDB.GetState(addr, privHandleSlot)
 		if commitment == (common.Hash{}) && handle == (common.Hash{}) {
-			L.Push(lua.LNil)
+			// No encrypted balance → return encrypted zero (not nil) to
+			// preserve type closure: uno.balance(addr).add(x) always works.
+			L.Push(lua.LString(zeroCiphertextHex))
 			return 1
 		}
 		var ct [64]byte

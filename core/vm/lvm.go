@@ -850,12 +850,14 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 	}
 
-	// tos.uno_value  → string | nil  (encrypted deposit ciphertext as 128-char hex)
+	// tos.uno_value  → string  (encrypted deposit ciphertext as 128-char hex)
 	//   TOL desugars msg.value in uno context to tos.uno_value.
+	//   Returns encrypted zero when no deposit is attached (type closure:
+	//   msg.value.add(x) always works without nil checks).
 	if ctx.UnoValue != "" {
 		L.SetField(tosTable, "uno_value", lua.LString(ctx.UnoValue))
 	} else {
-		L.SetField(tosTable, "uno_value", lua.LNil)
+		L.SetField(tosTable, "uno_value", lua.LString(zeroCiphertextHex))
 	}
 
 	// tos.block  (sub-table — static block context values)
@@ -904,10 +906,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 	}
 	// msg.uno_value: encrypted deposit attached to a confidential contract call.
+	// Returns encrypted zero when no deposit (type closure, not nil).
 	if ctx.UnoValue != "" {
 		L.SetField(msgTable, "uno_value", lua.LString(ctx.UnoValue))
 	} else {
-		L.SetField(msgTable, "uno_value", lua.LNil)
+		L.SetField(msgTable, "uno_value", lua.LString(zeroCiphertextHex))
 	}
 	// Extract proof bundle from calldata (if present).  The bundle is
 	// appended after a "PBND" magic marker; strippedData is the original
