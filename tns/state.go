@@ -26,10 +26,14 @@ func addrToNameSlot(addr common.Address) common.Hash {
 		append([]byte("tns\x00a2n\x00"), addr.Bytes()...)))
 }
 
-// HashName returns keccak256 of the canonical (lowercase) name string.
+// TNSSuffix is the canonical domain suffix appended to bare names before hashing.
+const TNSSuffix = "@tos.network"
+
+// HashName returns keccak256 of the canonical name with the @tos.network suffix.
+// e.g. HashName("alice") = keccak256("alice@tos.network").
 // This is the on-chain key; callers who know the name can recompute it.
 func HashName(name string) common.Hash {
-	return common.BytesToHash(crypto.Keccak256([]byte(name)))
+	return common.BytesToHash(crypto.Keccak256([]byte(name + TNSSuffix)))
 }
 
 // Resolve returns the address registered for nameHash, or zero address if not found.

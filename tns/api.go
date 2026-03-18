@@ -1,6 +1,8 @@
 package tns
 
 import (
+	"strings"
+
 	"github.com/tos-network/gtos/common"
 )
 
@@ -29,14 +31,24 @@ func NewPublicTNSAPI(stateReader func() stateDB) *PublicTNSAPI {
 	return &PublicTNSAPI{stateReader: stateReader}
 }
 
+// NormalizeName strips the @tos.network suffix if present and lowercases.
+// Both "alice" and "alice@tos.network" resolve identically.
+func NormalizeName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	n = strings.TrimSuffix(n, TNSSuffix)
+	return n
+}
+
 // Resolve resolves a TNS name to an address.
+// Accepts both "alice" and "alice@tos.network".
 // RPC: tns_resolve
 func (api *PublicTNSAPI) Resolve(name string) (*TNSResolveResult, error) {
 	db := api.stateReader()
-	nameHash := HashName(name)
+	bare := NormalizeName(name)
+	nameHash := HashName(bare)
 	addr := Resolve(db, nameHash)
 	return &TNSResolveResult{
-		Name:     name,
+		Name:     bare + TNSSuffix,
 		NameHash: nameHash,
 		Address:  addr,
 		Found:    addr != (common.Address{}),
