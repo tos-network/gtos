@@ -56,15 +56,15 @@ func (p *preparedPrivTransferTx) VerifyProofs() error {
 func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	ptx := p.tx.PrivTransferInner()
 	if ptx == nil {
-		return nil, errors.New("priv: message does not contain PrivTransferTx")
+		return common.Big0, errors.New("priv: message does not contain PrivTransferTx")
 	}
 	senderState := priv.GetAccountState(statedb, p.from)
 	if !accountStateEqual(senderState, p.inputSenderState) {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 	receiverState := priv.GetAccountState(statedb, p.to)
 	if !accountStateEqual(receiverState, p.inputReceiverState) {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 
 	senderState.Ciphertext = priv.Ciphertext{
@@ -74,7 +74,7 @@ func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (*big.Int, error
 	if p.feeRefundGas > 0 {
 		refundedCt, err := priv.AddScalarToCiphertext(senderState.Ciphertext, p.feeRefundGas)
 		if err != nil {
-			return nil, err
+			return common.Big0, err
 		}
 		senderState.Ciphertext = refundedCt
 	}
@@ -87,13 +87,13 @@ func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (*big.Int, error
 	}
 	newReceiverCt, err := priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
 	if err != nil {
-		return nil, err
+		return common.Big0, err
 	}
 	receiverState.Ciphertext = newReceiverCt
 	receiverState.Version++
 	priv.SetAccountState(statedb, p.to, receiverState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return nil, err
+		return common.Big0, err
 	}
 
 	return priv.UnomiToTomiBig(p.feePaidGas), nil
@@ -129,15 +129,15 @@ func (p *preparedShieldTx) VerifyProofs() error {
 func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	stx := p.tx.ShieldInner()
 	if stx == nil {
-		return nil, errors.New("priv: message does not contain ShieldTx")
+		return common.Big0, errors.New("priv: message does not contain ShieldTx")
 	}
 	if statedb.GetBalance(p.from).Cmp(p.inputSenderBalance) != 0 {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 	recipientAddr := stx.RecipientAddress()
 	recipientState := priv.GetAccountState(statedb, recipientAddr)
 	if !accountStateEqual(recipientState, p.inputRecipientState) {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 
 	statedb.SubBalance(p.from, new(big.Int).Set(p.totalCostWei))
@@ -147,13 +147,13 @@ func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	}
 	newCt, err := priv.AddCiphertexts(recipientState.Ciphertext, depositCt)
 	if err != nil {
-		return nil, err
+		return common.Big0, err
 	}
 	recipientState.Ciphertext = newCt
 	recipientState.Version++
 	priv.SetAccountState(statedb, recipientAddr, recipientState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return nil, err
+		return common.Big0, err
 	}
 
 	return priv.UnomiToTomiBig(stx.UnoFee), nil
@@ -191,14 +191,14 @@ func (p *preparedUnshieldTx) VerifyProofs() error {
 func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	utx := p.tx.UnshieldInner()
 	if utx == nil {
-		return nil, errors.New("priv: message does not contain UnshieldTx")
+		return common.Big0, errors.New("priv: message does not contain UnshieldTx")
 	}
 	accountState := priv.GetAccountState(statedb, p.from)
 	if !accountStateEqual(accountState, p.inputAccountState) {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 	if statedb.GetBalance(utx.Recipient).Cmp(p.inputRecipientBalance) != 0 {
-		return nil, errPreparedPrivacyStateMismatch
+		return common.Big0, errPreparedPrivacyStateMismatch
 	}
 
 	accountState.Ciphertext = priv.Ciphertext{
@@ -208,7 +208,7 @@ func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	accountState.Version++
 	priv.SetAccountState(statedb, p.from, accountState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return nil, err
+		return common.Big0, err
 	}
 
 	net := new(big.Int).Sub(p.amountWei, p.feeWei)

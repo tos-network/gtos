@@ -171,7 +171,7 @@ func executeTransactionsSerial(
 				)
 				continue
 			}
-			if feeWei != nil && feeWei.Sign() > 0 {
+			if feeWei.Sign() > 0 {
 				pendingState.AddBalance(blockCtx.Coinbase, feeWei)
 			}
 			pendingState.Finalise(true)
@@ -235,7 +235,7 @@ func applyPreparedPrivacyExecution(prepared preparedPrivacyTx, statedb *state.St
 		statedb.RevertToSnapshot(snap)
 		return err
 	}
-	if feeWei != nil && feeWei.Sign() > 0 {
+	if feeWei.Sign() > 0 {
 		statedb.AddBalance(coinbase, feeWei)
 	}
 	statedb.Finalise(true)

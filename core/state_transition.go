@@ -775,7 +775,7 @@ func (st *StateTransition) applyPrivTransfer() error {
 	if err != nil {
 		return err
 	}
-	if feeWei != nil && feeWei.Sign() > 0 {
+	if feeWei.Sign() > 0 {
 		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
 	}
 	return nil
@@ -834,7 +834,7 @@ func (st *StateTransition) applyShield() error {
 	if err != nil {
 		return err
 	}
-	if feeWei != nil && feeWei.Sign() > 0 {
+	if feeWei.Sign() > 0 {
 		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
 	}
 	return nil
@@ -856,7 +856,7 @@ func (st *StateTransition) applyUnshield() error {
 	if err != nil {
 		return err
 	}
-	if feeWei != nil && feeWei.Sign() > 0 {
+	if feeWei.Sign() > 0 {
 		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
 	}
 	return nil
