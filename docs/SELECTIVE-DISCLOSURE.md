@@ -151,13 +151,57 @@ Verifier:
 | Transcript binding | Merlin with chain ID, block number, account address |
 | Selective | Per-ciphertext — user chooses which to disclose |
 
-### Use Cases
+### Real-World Scenarios
 
-- User proves encrypted balance ≥ collateral requirement to a lending protocol.
-- Merchant proves to an arbitrator that a specific encrypted payment was received.
-- Exchange verifies a user's encrypted balance meets a minimum before allowing withdrawal.
-- DAO governance verifies a member's encrypted stake exceeds voting threshold.
-- Insurance contract verifies a claim amount against an encrypted policy limit.
+**Scenario 1: DeFi Collateral Verification**
+
+Alice wants to borrow from a confidential lending protocol. The protocol
+requires proof that her encrypted UNO balance exceeds the collateral
+threshold (e.g., 10,000 UNO) but should not learn her exact balance.
+
+- Alice generates a **range proof**: `balance ≥ 10,000 UNO` (672 bytes).
+- The lending contract verifies the proof on-chain via `tos.ciphertext.verify_eq`
+  or off-chain via the protocol's verification service.
+- Alice's exact balance remains hidden. The protocol only learns: "sufficient."
+
+**Scenario 2: Dispute Arbitration**
+
+Bob pays Carol 500 UNO for goods via PrivTransfer. Carol claims she received
+less. A third-party arbitrator is appointed.
+
+- Carol can decrypt the received amount (she is the recipient, `D = r·PK_carol`).
+  She shows: "I received 500 UNO."
+- Bob generates an **exact disclosure proof** (128 bytes) proving the
+  ciphertext he sent encrypts exactly 500 UNO.
+- The arbitrator verifies both proofs independently without either party
+  revealing their private keys.
+- Neither the arbitrator nor any observer learns Bob's remaining balance.
+
+**Scenario 3: Exchange Withdrawal Gate**
+
+An exchange requires users to prove their on-chain encrypted balance exceeds
+the withdrawal amount before initiating an off-chain withdrawal process.
+
+- User generates a **range proof**: `balance ≥ withdrawal_amount`.
+- Exchange verifies off-chain. No on-chain transaction is needed for the proof.
+- The user's full balance is never disclosed to the exchange.
+
+**Scenario 4: DAO Governance Threshold**
+
+A DAO requires members to hold ≥ 1,000 encrypted governance tokens to vote.
+
+- Voter generates a **range proof**: `token_balance ≥ 1,000`.
+- The DAO governance contract verifies the proof before accepting the vote.
+- Individual token holdings remain private; only the threshold check is disclosed.
+
+**Scenario 5: Insurance Claim**
+
+An insurance contract needs to verify that a claimed loss (encrypted) does
+not exceed the policy limit (also encrypted).
+
+- Claimant generates a **range proof**: `policy_limit − claim_amount ≥ 0`.
+- Insurer verifies without learning the exact claim amount or remaining limit.
+- If disputed, the claimant can generate an **exact proof** for the arbitrator.
 
 ---
 
@@ -204,11 +248,61 @@ elliptic-curve discrete logarithm assumption.
 | Batch-friendly | User generates N tokens for N ciphertexts in a single pass |
 | Revocable | Tokens are per-ciphertext; user controls which ciphertexts are disclosed |
 
-### Use Cases
+### Real-World Scenarios
 
-- Annual audit: user exports tokens for all balance snapshots in the fiscal year.
-- Dispute resolution: user discloses specific transactions relevant to the dispute.
-- Tax reporting: user provides tokens for all Shield/Unshield events (public-private boundary crossings).
+**Scenario 1: Annual Financial Audit**
+
+A company holds its treasury in encrypted UNO. At fiscal year-end, an
+external auditor needs to verify all quarterly balance snapshots and
+material transactions.
+
+- The company's treasury agent generates DecryptionTokens for:
+  - 4 quarterly balance ciphertexts (balance at each quarter-end)
+  - N material transactions above the audit threshold
+- Tokens are exported as a batch file: `[(C₁, token₁), ..., (Cₙ, tokenₙ)]`.
+- The auditor decrypts each token, recovers plaintext amounts via BSGS, and
+  verifies the treasury reconciliation.
+- The auditor requests a **DLEQ proof** for each token to confirm the tokens
+  were computed honestly (same `sk` that owns the account).
+- The company's private key never leaves its custody.
+
+**Scenario 2: Tax Reporting**
+
+An individual uses Shield/Unshield to move funds between public and private
+balances. Tax authority requires disclosure of all public-private boundary
+crossings for the tax year.
+
+- User generates DecryptionTokens for all Shield and Unshield transactions
+  in the reporting period (these are identifiable on-chain by tx type).
+- Tax preparer decrypts the amounts and computes capital gains/losses.
+- Non-boundary transactions (private-to-private PrivTransfers) are not
+  disclosed unless specifically requested.
+
+**Scenario 3: Dispute Evidence Package**
+
+In a commercial dispute, one party must demonstrate a pattern of payments to
+the other over a six-month period.
+
+- The disclosing party generates tokens only for the transactions relevant
+  to the dispute (e.g., 12 monthly payments to the counterparty's address).
+- The legal team verifies each amount using the tokens.
+- Unrelated transactions (payments to other counterparties, personal
+  transfers) are not disclosed — the token mechanism is per-ciphertext.
+- If the opposing party contests authenticity, the discloser provides DLEQ
+  proofs binding the tokens to their on-chain public key.
+
+**Scenario 4: Institutional Fund Verification**
+
+A fund manager operates an encrypted treasury on behalf of investors.
+Investors periodically request verification that the fund holds at least
+their proportional share.
+
+- Fund manager generates a DecryptionToken for the current balance ciphertext.
+- An independent verifier decrypts and confirms: `total_balance ≥ sum(investor_shares)`.
+- Individual investor allocations can be verified separately using
+  per-investor sub-account tokens.
+- The fund's exact balance and trading positions remain undisclosed to
+  any single investor.
 
 ### Proof of Correct Token (Optional)
 
@@ -301,11 +395,80 @@ When the auditor key is rotated:
 | Auditor key management | On-chain, rotatable by guardian |
 | Retroactive disclosure | Only for transactions after `AuditorPubKey` was set |
 
-### Use Cases
+### Real-World Scenarios
 
-- Regulated financial institution: all confidential transactions auditable by compliance officer.
-- Custodial agent wallet: operator can verify all transactions without holding spending keys.
-- Legal hold: court order mandates disclosure; guardian sets auditor key; no user cooperation needed.
+**Scenario 1: Licensed Financial Institution**
+
+A bank operates on TOS with encrypted customer accounts. The banking
+regulator requires real-time transaction visibility for all customer
+accounts under its jurisdiction.
+
+- The bank's guardian (compliance officer) calls
+  `SetAuditorKey(customerAddr, regulatorPubKey)` for each regulated account.
+- From that point forward, every Shield, PrivTransfer, and Unshield
+  transaction from these accounts automatically includes `D_audit`.
+- The regulator runs a monitoring node that decrypts all `D_audit` handles
+  using `sk_audit`, building a real-time transaction ledger.
+- Customers cannot circumvent disclosure — it is enforced at the consensus
+  layer. Transactions without a valid `AuditHandle` are rejected.
+- The regulator can decrypt amounts but cannot spend funds (no access to
+  customer `sk`).
+
+**Scenario 2: Custodial Agent Wallet**
+
+An enterprise deploys AI agents that manage encrypted treasury operations.
+The enterprise's security team needs to monitor all agent transactions
+without holding spending keys.
+
+- The enterprise guardian sets `AuditorPubKey` to the security team's key.
+- Every automated agent transaction (e.g., paying service providers,
+  settling bounties, funding sub-agents) includes an `AuditHandle`.
+- The security team's monitoring system decrypts all transactions in real
+  time, flagging anomalies (unusually large transfers, unexpected recipients,
+  rapid sequential transfers).
+- If an agent is compromised, the security team can detect the breach from
+  the audit stream and trigger guardian suspension — without needing the
+  agent's cooperation.
+
+**Scenario 3: Court-Ordered Disclosure**
+
+A court issues a disclosure order requiring visibility into a specific
+account's encrypted transactions for a defined period.
+
+- The account's guardian (or a court-appointed guardian) calls
+  `SetAuditorKey(targetAddr, courtAuditorPubKey)`.
+- All future transactions become decryptable by the court-appointed auditor.
+- Historical transactions before the order are NOT retroactively disclosed
+  (the mechanism is forward-only).
+- When the order expires, the guardian calls `SetAuditorKey(targetAddr, 0x0)`
+  to remove the auditor key. Subsequent transactions are private again.
+- Transactions during the disclosure window remain permanently decryptable
+  by the court's key (the `D_audit` values are recorded on-chain).
+
+**Scenario 4: Anti-Money-Laundering (AML) Compliance**
+
+A jurisdiction requires all accounts above a certain balance or transaction
+volume to have continuous regulatory visibility.
+
+- Policy wallet rules automatically set `AuditorPubKey` when an account
+  crosses the AML threshold (e.g., total Shield volume > 100,000 UNO in
+  a rolling 30-day window).
+- The AML authority's key is pre-registered as a system parameter.
+- Accounts below the threshold operate with full privacy.
+- If an account later falls below the threshold, the guardian can remove
+  the auditor key, restoring full privacy for future transactions.
+
+**Scenario 5: Multi-Regulator Jurisdiction**
+
+An account operates across jurisdictions that each require independent
+audit access.
+
+- The policy wallet supports multiple auditor keys (extension: `AuditorPubKeys`
+  as a list, each transaction includes one `D_audit` per registered key).
+- Each regulator decrypts independently using their own key.
+- No single regulator can impersonate another or access the account holder's
+  spending authority.
+- Key rotation for one regulator does not affect the others.
 
 ---
 
