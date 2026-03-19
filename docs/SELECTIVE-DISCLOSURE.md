@@ -95,6 +95,16 @@ This is needed when the verifier cannot decrypt the ciphertext themselves —
 they are not the recipient, not the sender, and do not hold any key related
 to the encrypted balance.
 
+### When Is This Needed?
+
+| Scenario | Who proves | To whom | Why DisclosureProof is needed |
+|----------|-----------|---------|------------------------------|
+| Balance proof | Account holder | Lender / exchange | Prove "my encrypted balance ≥ X" — the verifier cannot decrypt the balance |
+| Third-party verification | Sender | Arbitrator / guarantor | A party outside the transaction needs to confirm the amount |
+| Contract interaction proof | User | Contract / DAO | Prove the encrypted amount deposited into a contract meets a condition |
+| Solvency proof | Institution | Regulator / auditor | Prove balance ≥ threshold without disclosing the exact amount |
+| Pre-trade credit check | Buyer | Seller / escrow | Prove sufficient funds before entering a confidential trade |
+
 ### Variants
 
 **Exact amount proof** — "This ciphertext encrypts exactly 500 UNO."
@@ -212,6 +222,16 @@ not exceed the policy limit (also encrypted).
 A user generates a per-ciphertext token that allows an auditor to decrypt
 the encrypted amount without learning the private key. The token is a
 single elliptic-curve point (32 bytes) per ciphertext.
+
+### When Is This Needed?
+
+| Scenario | Who generates tokens | To whom | Why DecryptionToken is needed |
+|----------|---------------------|---------|-------------------------------|
+| Annual audit | Company treasury | External auditor | Auditor must verify actual amounts across many transactions; range proofs alone are insufficient |
+| Tax reporting | Individual user | Tax preparer / authority | Exact amounts of all Shield/Unshield crossings needed for capital gains calculation |
+| Dispute evidence | Litigating party | Court / legal counsel | Selective disclosure of only the transactions relevant to the dispute |
+| Fund verification | Fund manager | Independent verifier / investors | Verify total holdings match reported NAV without revealing trading positions |
+| Forensic investigation | Account holder (voluntary) | Investigator | Cooperating party provides tokens for a specific time window to assist investigation |
 
 ### Construction
 
@@ -334,6 +354,16 @@ A policy wallet mandates that all UNO transactions for a regulated account
 include a secondary encryption under a designated auditor's public key. The
 auditor can independently decrypt every transaction without any cooperation
 from the account holder.
+
+### When Is This Needed?
+
+| Scenario | Who sets the key | Auditor | Why AuditorKey is needed |
+|----------|-----------------|---------|--------------------------|
+| Banking regulation | Bank compliance officer (guardian) | Banking regulator | Real-time visibility into all customer transactions; user cooperation not feasible at scale |
+| Custodial agent monitoring | Enterprise security team (guardian) | Internal security | AI agents operate autonomously; monitoring must not depend on agent cooperation |
+| Court-ordered disclosure | Court-appointed guardian | Court auditor | Legal mandate; account holder may be uncooperative or unavailable |
+| AML/CTF compliance | Automated policy rule | AML authority | Threshold-triggered; accounts above transaction volume limits must be transparent |
+| Multi-jurisdictional regulation | Guardian per jurisdiction | Multiple regulators | Each jurisdiction independently decrypts; no single regulator has exclusive access |
 
 ### On-Chain State
 
