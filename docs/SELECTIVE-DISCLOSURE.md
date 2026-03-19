@@ -14,9 +14,14 @@ disclosure scenarios drive the design:
 
 | Scenario | Recipient | What is revealed | Frequency |
 |----------|-----------|------------------|-----------|
-| Counterparty verification | Trading partner | Amount in a specific transaction | Per-transaction, on demand |
+| Third-party verification | Lender, arbitrator, DAO, exchange | Amount or threshold proof | Per-ciphertext, on demand |
 | Audit inspection | External auditor | Balance at a point in time, or a set of transactions | Periodic, batch |
 | Regulatory compliance | Regulator / compliance officer | All transactions for an account | Continuous, mandatory |
+
+**Note:** Direct transaction recipients (the person you send to) can already
+decrypt the amount using their own private key — no disclosure mechanism is
+needed for that case. The three layers below address scenarios where the
+verifier is NOT the transaction recipient.
 
 Each scenario has different trust assumptions, latency requirements, and
 cryptographic cost profiles. A single mechanism cannot serve all three
@@ -51,15 +56,54 @@ spending authority. All disclosure mechanisms must therefore avoid revealing
 
 ---
 
-## Layer 1: DisclosureProof — Counterparty Verification
+## Note: Direct Transfer Recipients Can Already Decrypt
+
+In a standard PrivTransfer, the receiver **already has decryption ability**
+because the ciphertext handle is encrypted under the receiver's public key:
+
+```
+D = r · PK_receiver
+Receiver decrypts:  amount·G = C − sk_receiver · D
+```
+
+This means the most common "counterparty disclosure" scenario — the receiver
+verifying the amount they received — requires **no additional mechanism**.
+The receiver simply decrypts with their own key.
+
+The three disclosure layers below address scenarios where the verifier is
+**not** the transaction recipient:
+
+| Scenario | Why receiver decryption is insufficient |
+|----------|---------------------------------------|
+| Prove balance to a lender | Lender is not the recipient of any transfer |
+| Third-party arbitration | Arbitrator is neither sender nor receiver |
+| Prove solvency to an exchange | Exchange cannot decrypt your on-chain balance |
+| Prove deposit amount to a DAO | Contract cannot hold a private key to decrypt |
+| Regulatory threshold check | Regulator needs proof without being a party |
+
+---
+
+## Layer 1: DisclosureProof — Third-Party Amount Verification
 
 ### Purpose
 
-A user proves to a counterparty that a specific ciphertext encrypts a
-claimed plaintext amount, without revealing the private key or the
-encryption randomness.
+A user proves to a **third party** (not the transaction recipient) that a
+specific ciphertext encrypts a claimed plaintext amount, without revealing
+the private key or the encryption randomness.
 
-### Construction
+This is needed when the verifier cannot decrypt the ciphertext themselves —
+they are not the recipient, not the sender, and do not hold any key related
+to the encrypted balance.
+
+### Variants
+
+**Exact amount proof** — "This ciphertext encrypts exactly 500 UNO."
+
+**Range proof** — "My encrypted balance is at least 1000 UNO." (Does not
+reveal the exact amount; uses Bulletproofs range proof on the difference
+`balance − threshold`.)
+
+### Construction (Exact Amount)
 
 Given public information `(C, D, PK)` and claimed amount `a`, the prover
 (who knows randomness `r`) executes a Sigma protocol:
@@ -78,22 +122,42 @@ Verifier:
     Check  z₂·PK         ==  A₂ + e·D
 ```
 
+### Construction (Range / Threshold Proof)
+
+To prove `balance ≥ threshold` without revealing the exact amount:
+
+```
+Prover:
+    1. Compute diff_ct = balance_ct − Encrypt(threshold, r')
+       (homomorphic subtraction: result encrypts balance − threshold)
+    2. Generate a Bulletproofs range proof that diff_ct encrypts
+       a value in [0, 2^64)
+
+Verifier:
+    Verify the range proof against diff_ct's commitment component.
+    If valid, balance ≥ threshold (the difference is non-negative).
+```
+
 ### Properties
 
 | Property | Value |
 |----------|-------|
-| Proof size | 128 bytes (A₁ 32B + A₂ 32B + z₁ 32B + z₂ 32B) |
-| Reveals | Plaintext amount `a` |
+| Exact proof size | 128 bytes (A₁ 32B + A₂ 32B + z₁ 32B + z₂ 32B) |
+| Range proof size | 672 bytes (single 64-bit Bulletproofs) |
+| Reveals (exact) | Plaintext amount `a` |
+| Reveals (range) | Only that `balance ≥ threshold` |
 | Does NOT reveal | Private key `sk`, randomness `r` |
 | Verification | Off-chain, no state change |
 | Transcript binding | Merlin with chain ID, block number, account address |
-| Selective | Per-ciphertext — user chooses which transactions to disclose |
+| Selective | Per-ciphertext — user chooses which to disclose |
 
 ### Use Cases
 
-- Counterparty confirms received transfer amount before releasing goods.
-- Confidential token contract verifies a deposit amount for KYC threshold.
-- User voluntarily proves solvency to a lender.
+- User proves encrypted balance ≥ collateral requirement to a lending protocol.
+- Merchant proves to an arbitrator that a specific encrypted payment was received.
+- Exchange verifies a user's encrypted balance meets a minimum before allowing withdrawal.
+- DAO governance verifies a member's encrypted stake exceeds voting threshold.
+- Insurance contract verifies a claim amount against an encrypted policy limit.
 
 ---
 
@@ -249,7 +313,7 @@ When the auditor key is rotated:
 
 | | DisclosureProof | DecryptionToken | AuditorKey |
 |---|---|---|---|
-| **Disclosed to** | Counterparty | Auditor | Regulator |
+| **Disclosed to** | Third party (lender, arbitrator, DAO) | Auditor | Regulator |
 | **Granularity** | Per-ciphertext | Per-ciphertext (batchable) | All transactions (automatic) |
 | **User cooperation** | Required (user generates proof) | Required (user generates tokens) | Not required (consensus-enforced) |
 | **On-chain state** | None | None | AuditorPubKey in policy wallet |
