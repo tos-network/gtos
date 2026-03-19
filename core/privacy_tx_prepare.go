@@ -167,7 +167,7 @@ type preparedUnshieldTx struct {
 	zeroedCiphertext      priv.Ciphertext
 	transcriptContext     []byte
 	amountWei             *big.Int
-	feeWei                uint64
+	feeWei                *big.Int
 }
 
 func (p *preparedUnshieldTx) Transaction() *types.Transaction {
@@ -211,10 +211,17 @@ func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 		return 0, err
 	}
 
-	statedb.AddBalance(utx.Recipient, new(big.Int).Set(p.amountWei))
-	statedb.SubBalance(utx.Recipient, new(big.Int).SetUint64(p.feeWei))
+	net := new(big.Int).Sub(p.amountWei, p.feeWei)
+	if net.Sign() >= 0 {
+		statedb.AddBalance(utx.Recipient, net)
+	} else {
+		statedb.SubBalance(utx.Recipient, new(big.Int).Neg(net))
+	}
 
-	return p.feeWei, nil
+	if !p.feeWei.IsUint64() {
+		return 0, errors.New("priv: fee exceeds uint64")
+	}
+	return p.feeWei.Uint64(), nil
 }
 
 func verifyPreparedPrivacyBatch(prepared []preparedPrivacyTx) error {
@@ -353,7 +360,7 @@ func validatePrivacyTerminalIfConfigured(statedb vm.StateDB, tx *types.Transacti
 		}
 		senderAddr = ptx.FromAddress()
 		actionType = policywallet.PrivacyActionPrivTransfer
-		value = new(big.Int).SetUint64(priv.UnomiToTomi(ptx.UnoFeeLimit))
+		value = priv.UnomiToTomiBig(ptx.UnoFeeLimit)
 	case types.ShieldTxType:
 		stx := tx.ShieldInner()
 		if stx == nil {
@@ -361,7 +368,7 @@ func validatePrivacyTerminalIfConfigured(statedb vm.StateDB, tx *types.Transacti
 		}
 		senderAddr = stx.DerivedAddress()
 		actionType = policywallet.PrivacyActionShield
-		value = new(big.Int).SetUint64(priv.UnomiToTomi(stx.UnoAmount))
+		value = priv.UnomiToTomiBig(stx.UnoAmount)
 	case types.UnshieldTxType:
 		utx := tx.UnshieldInner()
 		if utx == nil {
@@ -369,7 +376,7 @@ func validatePrivacyTerminalIfConfigured(statedb vm.StateDB, tx *types.Transacti
 		}
 		senderAddr = utx.DerivedAddress()
 		actionType = policywallet.PrivacyActionUnshield
-		value = new(big.Int).SetUint64(priv.UnomiToTomi(utx.UnoAmount))
+		value = priv.UnomiToTomiBig(utx.UnoAmount)
 	default:
 		return nil
 	}
@@ -513,7 +520,7 @@ func prepareShieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transact
 		return nil, priv.ErrInsufficientFee
 	}
 
-	totalCostWei := new(big.Int).SetUint64(priv.UnomiToTomi(stx.UnoAmount + stx.UnoFee))
+	totalCostWei := new(big.Int).Add(priv.UnomiToTomiBig(stx.UnoAmount), priv.UnomiToTomiBig(stx.UnoFee))
 	senderBalance := new(big.Int).Set(statedb.GetBalance(senderAddr))
 	if senderBalance.Cmp(totalCostWei) < 0 {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, senderAddr.Hex())
@@ -599,11 +606,11 @@ func prepareUnshieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transa
 		return nil, priv.ErrNonceMismatch
 	}
 
-	amountWei := new(big.Int).SetUint64(priv.UnomiToTomi(utx.UnoAmount))
-	feeWei := priv.UnomiToTomi(utx.UnoFee)
+	amountWei := priv.UnomiToTomiBig(utx.UnoAmount)
+	feeWei := priv.UnomiToTomiBig(utx.UnoFee)
 	recipientBalance := new(big.Int).Set(statedb.GetBalance(recipientAddr))
 	availablePublic := new(big.Int).Add(new(big.Int).Set(recipientBalance), amountWei)
-	if availablePublic.Cmp(new(big.Int).SetUint64(feeWei)) < 0 {
+	if availablePublic.Cmp(feeWei) < 0 {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, recipientAddr.Hex())
 	}
 
