@@ -292,12 +292,84 @@ However, the public-side amount conversion uses `uint64` multiplication and over
 
 # 5. Areas Requiring Manual Verification
 
-- `tos/state_accessor.go` does not replay block-start scheduled tasks inside `stateAtTransaction(...)`, so trace / replay state at a tx index can disagree with true consensus state.
-- Privacy batch verification has separate `cgo` and `nocgo` backends in `crypto/ed25519/`. I did not find differential tests proving identical acceptance behavior across build variants.
-- The `nocgo` batch verifier uses random batch weights. That does not immediately break determinism because execution falls back to single-proof verification on batch failure, but backend parity should still be verified explicitly.
-- Privacy transcript context truncates `chainID` to `uint64`. That is probably acceptable on the current chain, but it is not future-proof.
-- Equal-fee tx ordering uses local first-seen time. That is miner-local nondeterminism, not a consensus split by itself, but it does mean different miners can construct different valid blocks from the same mempool.
-- DPoS future-block admission depends on local wall clock. That is a liveness sensitivity and should be operationally monitored with clock discipline.
+The following items were manually verified after the initial audit write-up.
+
+## 5.1 `stateAtTransaction(...)` scheduled-task replay gap
+
+- Status: Confirmed
+- Evidence:
+  - `core/state_processor.go` runs `RunScheduledTasks(...)` before user transactions.
+  - `tos/state_accessor.go` reconstructs tx-start state from the parent block and replays prior txs with `ApplyMessage(...)`, but does not call `RunScheduledTasks(...)`.
+  - Existing test coverage in `tos/state_accessor_test.go` only verifies pre-block signer resolution, not scheduled-task replay parity.
+- Conclusion:
+  `stateAtTransaction(...)` can return a tx-start state that differs from the true consensus state for any block where scheduled tasks executed before the first user transaction.
+- Risk:
+  Tooling / tracing / RPC correctness issue. Not a direct block-validation fork bug.
+
+## 5.2 Privacy batch verifier backend parity (`nocgo` vs `cgo + ed25519c`)
+
+- Status: Unresolved, and stronger issue found
+- Evidence:
+  - Default backend tests pass: `go test ./core/priv -run 'TestBatchVerifier|TestBatch' -count=1`
+  - Attempting to test the alternate backend with `CGO_ENABLED=1 go test -tags ed25519c ./core/priv -run 'TestBatchVerifier|TestBatch' -count=1` fails to build.
+  - Missing symbols are implemented only in nocgo files such as:
+    - `crypto/ed25519/priv_nocgo_point_ops.go`
+    - `crypto/ed25519/priv_nocgo_disclosure.go`
+    - `crypto/ed25519/priv_nocgo_mul_proof.go`
+  - I did not find corresponding `cgo + ed25519c` implementations for those APIs.
+- Conclusion:
+  Backend parity is not established. More importantly, the `cgo + ed25519c` privacy path appears incomplete in this environment and currently cannot be validated as a working alternative backend.
+- Risk:
+  Heterogeneous-build safety cannot be claimed. This is more severe than a simple testing gap.
+
+## 5.3 Randomized batch weights in the nocgo verifier
+
+- Status: Confirmed, with limited but real residual risk
+- Evidence:
+  - `crypto/ed25519/priv_batch_verify_nocgo.go` samples random batch scalars via `crypto/rand`.
+  - `core/execute_transactions_privacy.go` falls back to single-proof verification when batch verification fails.
+  - `core/tx_pool.go` uses the same pattern in the txpool privacy batching path.
+- Conclusion:
+  This is not ordinary execution nondeterminism in the block processor, because a batch-verification failure does not directly change acceptance semantics; execution falls back to per-proof verification. However, it still leaves residual cryptographic / backend-consistency risk because the fast path itself is randomized.
+- Risk:
+  Low to moderate residual risk, mainly in cryptographic soundness and backend-equivalence assurance rather than classic scheduler nondeterminism.
+
+## 5.4 Privacy transcript `chainID` truncation to `uint64`
+
+- Status: Confirmed, conditional low risk
+- Evidence:
+  - `core/priv/context.go` encodes `chainID` via `chainIDToU64(...)`.
+  - If `chainID.IsUint64()` is false, the code encodes `^uint64(0)`.
+  - Existing transcript-context tests only cover normal small chain IDs and `nil`, not chain IDs above `uint64`.
+- Conclusion:
+  If the chain ID always remains within the `uint64` range, there is no practical issue. If a future deployment uses a larger chain ID, transcript domain separation degrades because all oversized chain IDs collapse to the same encoded value.
+- Risk:
+  Low today if the configured chain ID is small, but not future-proof.
+
+## 5.5 Equal-fee tx ordering depends on local first-seen time
+
+- Status: Confirmed
+- Evidence:
+  - `core/types/transaction.go` sets `tx.time = time.Now()` on decode.
+  - `TxByPriceAndTime.Less(...)` uses `tx.time` as the tie-breaker when miner fee is equal.
+  - `miner/worker.go` selects candidate transactions via `NewTransactionsByPriceAndNonce(...)`.
+- Conclusion:
+  Nodes with the same mempool contents but different arrival order can build different valid blocks when competing transactions have equal fee priority.
+- Risk:
+  Miner-local nondeterminism only. This is not by itself a consensus split, but it does make block construction non-canonical across nodes.
+
+## 5.6 DPoS future-block handling depends on local wall clock
+
+- Status: Confirmed
+- Evidence:
+  - `consensus/dpos/dpos.go` rejects sufficiently far-future headers relative to `time.Now().UnixMilli()`.
+  - `consensus/dpos/dpos.go` also raises locally produced `header.Time` up to local wall-clock time.
+  - Seal delay computation also references local time.
+  - `consensus/dpos/dpos_test.go` explicitly tests the future-block grace-window behavior.
+- Conclusion:
+  This code intentionally depends on local wall clock for block admissibility and local sealing behavior.
+- Risk:
+  Liveness / operational sensitivity to clock skew. This is not the same as state-execution nondeterminism, but poor clock discipline can cause temporary block rejection or timing instability.
 
 # 6. Final Risk Assessment
 
