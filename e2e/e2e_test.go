@@ -172,7 +172,7 @@ func TestFullIntentToReceiptFlow(t *testing.T) {
 		t.Fatal("gateway endpoint mismatch")
 	}
 	kinds := gateway.ReadSupportedKinds(db, gatewayAddr)
-	if len(kinds) != 2 || kinds[0] != "signer" || kinds[1] != "paymaster" {
+	if len(kinds) != 2 || kinds[0] != "paymaster" || kinds[1] != "signer" {
 		t.Fatalf("gateway supported kinds mismatch: %v", kinds)
 	}
 	if gateway.ReadGatewayCount(db) != 1 {
