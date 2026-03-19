@@ -198,7 +198,7 @@ func TestPrivacyTxTerminalPolicy_ShieldAllowed(t *testing.T) {
 	// Test directly via validatePrivacyTerminalIfConfigured, which is the
 	// function wired into preparePrivacyTxState.
 	actionType := policywallet.PrivacyActionShield
-	value := new(big.Int).SetUint64(priv.UnomiToTomi(100))
+	value := priv.UnomiToTomiBig(100)
 	err := policywallet.ValidatePrivacyTerminalAccess(
 		st, sender,
 		policywallet.TerminalApp, policywallet.TrustMedium,
@@ -226,7 +226,7 @@ func TestPrivacyTxTerminalPolicy_ShieldDenied(t *testing.T) {
 		MinTrustTier:      policywallet.TrustHigh,
 	})
 
-	value := new(big.Int).SetUint64(priv.UnomiToTomi(50))
+	value := priv.UnomiToTomiBig(50)
 	err := policywallet.ValidatePrivacyTerminalAccess(
 		st, sender,
 		policywallet.TerminalPOS, policywallet.TrustHigh,
@@ -501,7 +501,7 @@ func TestPrivacyTxTerminalContext_CardLowTrustRejected(t *testing.T) {
 	})
 
 	// Directly test with Low trust -> should be rejected.
-	value := new(big.Int).SetUint64(priv.UnomiToTomi(100))
+	value := priv.UnomiToTomiBig(100)
 	err := policywallet.ValidatePrivacyTerminalAccess(
 		st, sender,
 		policywallet.TerminalApp, policywallet.TrustLow,
@@ -533,7 +533,7 @@ func TestPrivacyTxTerminalContext_AppFullTrustAllowed(t *testing.T) {
 		MinTrustTier:      policywallet.TrustMedium,
 	})
 
-	value := new(big.Int).SetUint64(priv.UnomiToTomi(100))
+	value := priv.UnomiToTomiBig(100)
 	err := policywallet.ValidatePrivacyTerminalAccess(
 		st, sender,
 		policywallet.TerminalApp, policywallet.TrustFull,
@@ -565,7 +565,7 @@ func TestPrivacyTxTerminalContext_ZeroFieldsBackwardCompat(t *testing.T) {
 
 	// With zero fields -> defaults to TerminalApp + TrustFull, which meets
 	// the TrustFull requirement.
-	value := new(big.Int).SetUint64(priv.UnomiToTomi(100))
+	value := priv.UnomiToTomiBig(100)
 	err := policywallet.ValidatePrivacyTerminalAccess(
 		st, sender,
 		policywallet.TerminalApp, policywallet.TrustFull,

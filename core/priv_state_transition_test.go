@@ -322,7 +322,7 @@ func TestApplyShield_InsufficientFee(t *testing.T) {
 
 	senderPub, _ := mustElgamalKeypair(t)
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
-	st.AddBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(priv.EstimateShieldFee())+1))
+	st.AddBalance(addr, new(big.Int).Add(priv.UnomiToTomiBig(priv.EstimateShieldFee()), big.NewInt(1)))
 	priv.SetAccountState(st, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -357,11 +357,11 @@ func TestApplyShield_Success(t *testing.T) {
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	fee := priv.EstimateShieldFee()              // 1 UNO base unit
 	amount := uint64(500)                         // 500 UNO base units = 5 UNO
-	totalCostWei := priv.UnomiToTomi(amount + fee) // (amount+fee) * UNOUnit Wei
-	feeWei := priv.UnomiToTomi(fee)
-	initialPublic := totalCostWei + 12345
+	totalCostWei := priv.UnomiToTomiBig(amount + fee) // (amount+fee) * UNOUnit Wei
+	feeWei := priv.UnomiToTomiBig(fee)
+	initialPublic := new(big.Int).Add(totalCostWei, big.NewInt(12345))
 
-	st.AddBalance(addr, new(big.Int).SetUint64(initialPublic))
+	st.AddBalance(addr, initialPublic)
 	priv.SetAccountState(st, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -426,11 +426,12 @@ func TestApplyShield_Success(t *testing.T) {
 		t.Fatalf("expected successful shield, got %v", res.Err)
 	}
 
-	if got := st.GetBalance(addr).Uint64(); got != initialPublic-totalCostWei {
-		t.Fatalf("public balance = %d, want %d", got, initialPublic-totalCostWei)
+	wantPublic := new(big.Int).Sub(initialPublic, totalCostWei)
+	if got := st.GetBalance(addr); got.Cmp(wantPublic) != 0 {
+		t.Fatalf("public balance = %s, want %s", got, wantPublic)
 	}
-	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
-		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)
+	if got := st.GetBalance(coinbase); got.Cmp(feeWei) != 0 {
+		t.Fatalf("coinbase balance = %s, want %s", got, feeWei)
 	}
 	accountState := priv.GetAccountState(st, addr)
 	wantCt := priv.Ciphertext{Commitment: commitment, Handle: handle}
@@ -513,7 +514,7 @@ func TestApplyUnshield_Success(t *testing.T) {
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	recipientAddr := common.HexToAddress("0xBEEF")
 	fee := priv.EstimateUnshieldFee()       // 1 UNO base unit
-	feeWei := priv.UnomiToTomi(fee)         // 1e16 Wei
+	feeWei := priv.UnomiToTomiBig(fee)         // 1e16 Wei
 	senderBalance := uint64(700)             // 700 UNO base units (encrypted balance)
 	amount := uint64(500)                    // 500 UNO base units withdrawal
 	newBalance := senderBalance - amount     // 200 UNO base units
@@ -598,12 +599,13 @@ func TestApplyUnshield_Success(t *testing.T) {
 		t.Fatalf("expected successful unshield, got %v", res.Err)
 	}
 
-	amountWei := priv.UnomiToTomi(amount)
-	if got := st.GetBalance(recipientAddr).Uint64(); got != amountWei-feeWei {
-		t.Fatalf("recipient public balance = %d, want %d", got, amountWei-feeWei)
+	amountWei := priv.UnomiToTomiBig(amount)
+	wantRecipient := new(big.Int).Sub(amountWei, feeWei)
+	if got := st.GetBalance(recipientAddr); got.Cmp(wantRecipient) != 0 {
+		t.Fatalf("recipient public balance = %s, want %s", got, wantRecipient)
 	}
-	if got := st.GetBalance(coinbase).Uint64(); got != feeWei {
-		t.Fatalf("coinbase balance = %d, want %d", got, feeWei)
+	if got := st.GetBalance(coinbase); got.Cmp(feeWei) != 0 {
+		t.Fatalf("coinbase balance = %s, want %s", got, feeWei)
 	}
 	accountState := priv.GetAccountState(st, senderAddr)
 	wantCt := priv.Ciphertext{Commitment: sourceCommitment, Handle: zeroedCt.Handle}

@@ -20,7 +20,7 @@ type preparedPrivacyTx interface {
 	From() common.Address
 	AddToBatch(batch *priv.BatchVerifier) error
 	VerifyProofs() error
-	ApplyState(statedb vm.StateDB) (uint64, error)
+	ApplyState(statedb vm.StateDB) (*big.Int, error)
 }
 
 type preparedPrivTransferTx struct {
@@ -53,18 +53,18 @@ func (p *preparedPrivTransferTx) VerifyProofs() error {
 	return verifyPreparedPrivTransferProofs(ptx, p.newSenderBalance, p.transcriptContext)
 }
 
-func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (uint64, error) {
+func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	ptx := p.tx.PrivTransferInner()
 	if ptx == nil {
-		return 0, errors.New("priv: message does not contain PrivTransferTx")
+		return nil, errors.New("priv: message does not contain PrivTransferTx")
 	}
 	senderState := priv.GetAccountState(statedb, p.from)
 	if !accountStateEqual(senderState, p.inputSenderState) {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 	receiverState := priv.GetAccountState(statedb, p.to)
 	if !accountStateEqual(receiverState, p.inputReceiverState) {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 
 	senderState.Ciphertext = priv.Ciphertext{
@@ -74,7 +74,7 @@ func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (uint64, error) 
 	if p.feeRefundGas > 0 {
 		refundedCt, err := priv.AddScalarToCiphertext(senderState.Ciphertext, p.feeRefundGas)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		senderState.Ciphertext = refundedCt
 	}
@@ -87,16 +87,16 @@ func (p *preparedPrivTransferTx) ApplyState(statedb vm.StateDB) (uint64, error) 
 	}
 	newReceiverCt, err := priv.AddCiphertexts(receiverState.Ciphertext, receiverCt)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	receiverState.Ciphertext = newReceiverCt
 	receiverState.Version++
 	priv.SetAccountState(statedb, p.to, receiverState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return priv.UnomiToTomi(p.feePaidGas), nil
+	return priv.UnomiToTomiBig(p.feePaidGas), nil
 }
 
 type preparedShieldTx struct {
@@ -126,18 +126,18 @@ func (p *preparedShieldTx) VerifyProofs() error {
 	return verifyPreparedShieldProofs(stx, p.transcriptContext)
 }
 
-func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
+func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	stx := p.tx.ShieldInner()
 	if stx == nil {
-		return 0, errors.New("priv: message does not contain ShieldTx")
+		return nil, errors.New("priv: message does not contain ShieldTx")
 	}
 	if statedb.GetBalance(p.from).Cmp(p.inputSenderBalance) != 0 {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 	recipientAddr := stx.RecipientAddress()
 	recipientState := priv.GetAccountState(statedb, recipientAddr)
 	if !accountStateEqual(recipientState, p.inputRecipientState) {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 
 	statedb.SubBalance(p.from, new(big.Int).Set(p.totalCostWei))
@@ -147,16 +147,16 @@ func (p *preparedShieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 	}
 	newCt, err := priv.AddCiphertexts(recipientState.Ciphertext, depositCt)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	recipientState.Ciphertext = newCt
 	recipientState.Version++
 	priv.SetAccountState(statedb, recipientAddr, recipientState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return priv.UnomiToTomi(stx.UnoFee), nil
+	return priv.UnomiToTomiBig(stx.UnoFee), nil
 }
 
 type preparedUnshieldTx struct {
@@ -188,17 +188,17 @@ func (p *preparedUnshieldTx) VerifyProofs() error {
 	return verifyPreparedUnshieldProofs(utx, p.zeroedCiphertext, p.transcriptContext)
 }
 
-func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
+func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (*big.Int, error) {
 	utx := p.tx.UnshieldInner()
 	if utx == nil {
-		return 0, errors.New("priv: message does not contain UnshieldTx")
+		return nil, errors.New("priv: message does not contain UnshieldTx")
 	}
 	accountState := priv.GetAccountState(statedb, p.from)
 	if !accountStateEqual(accountState, p.inputAccountState) {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 	if statedb.GetBalance(utx.Recipient).Cmp(p.inputRecipientBalance) != 0 {
-		return 0, errPreparedPrivacyStateMismatch
+		return nil, errPreparedPrivacyStateMismatch
 	}
 
 	accountState.Ciphertext = priv.Ciphertext{
@@ -208,7 +208,7 @@ func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 	accountState.Version++
 	priv.SetAccountState(statedb, p.from, accountState)
 	if _, err := priv.IncrementPrivNonce(statedb, p.from); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	net := new(big.Int).Sub(p.amountWei, p.feeWei)
@@ -218,10 +218,7 @@ func (p *preparedUnshieldTx) ApplyState(statedb vm.StateDB) (uint64, error) {
 		statedb.SubBalance(utx.Recipient, new(big.Int).Neg(net))
 	}
 
-	if !p.feeWei.IsUint64() {
-		return 0, errors.New("priv: fee exceeds uint64")
-	}
-	return p.feeWei.Uint64(), nil
+	return new(big.Int).Set(p.feeWei), nil
 }
 
 func verifyPreparedPrivacyBatch(prepared []preparedPrivacyTx) error {
@@ -412,9 +409,6 @@ func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Tr
 	if err := priv.ValidateEncryptedMemoSize(ptx.EncryptedMemo); err != nil {
 		return nil, fmt.Errorf("priv: encrypted memo too large: %w", err)
 	}
-	if ptx.UnoFeeLimit > priv.MaxSafeUnomi {
-		return nil, priv.ErrUnomiOverflow
-	}
 	if ptx.UnoFee > ptx.UnoFeeLimit {
 		return nil, priv.ErrFeeLimitExceeded
 	}
@@ -518,9 +512,6 @@ func prepareShieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transact
 	senderAddr := stx.DerivedAddress()
 	recipientAddr := stx.RecipientAddress()
 
-	if stx.UnoAmount > priv.MaxSafeUnomi || stx.UnoFee > priv.MaxSafeUnomi {
-		return nil, priv.ErrUnomiOverflow
-	}
 	requiredFee := priv.EstimateShieldFee()
 	if stx.UnoFee < requiredFee {
 		return nil, priv.ErrInsufficientFee
@@ -602,9 +593,6 @@ func prepareUnshieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transa
 	senderAddr := utx.DerivedAddress()
 	recipientAddr := utx.Recipient
 
-	if utx.UnoAmount > priv.MaxSafeUnomi || utx.UnoFee > priv.MaxSafeUnomi {
-		return nil, priv.ErrUnomiOverflow
-	}
 	requiredFee := priv.EstimateUnshieldFee()
 	if utx.UnoFee < requiredFee {
 		return nil, priv.ErrInsufficientFee

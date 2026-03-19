@@ -775,7 +775,9 @@ func (st *StateTransition) applyPrivTransfer() error {
 	if err != nil {
 		return err
 	}
-	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feeWei))
+	if feeWei != nil && feeWei.Sign() > 0 {
+		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
+	}
 	return nil
 }
 
@@ -832,7 +834,9 @@ func (st *StateTransition) applyShield() error {
 	if err != nil {
 		return err
 	}
-	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feeWei))
+	if feeWei != nil && feeWei.Sign() > 0 {
+		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
+	}
 	return nil
 }
 
@@ -852,7 +856,9 @@ func (st *StateTransition) applyUnshield() error {
 	if err != nil {
 		return err
 	}
-	st.state.AddBalance(st.blockCtx.Coinbase, new(big.Int).SetUint64(feeWei))
+	if feeWei != nil && feeWei.Sign() > 0 {
+		st.state.AddBalance(st.blockCtx.Coinbase, feeWei)
+	}
 	return nil
 }
 
