@@ -83,7 +83,7 @@ The three disclosure layers below address scenarios where the verifier is
 
 ---
 
-## Layer 1: DisclosureProof — Third-Party Amount Verification
+## Layer 1: DisclosureProof — Third-Party Amount Verification ✅
 
 ### Purpose
 
@@ -215,7 +215,7 @@ not exceed the policy limit (also encrypted).
 
 ---
 
-## Layer 2: DecryptionToken — Audit Inspection
+## Layer 2: DecryptionToken — Audit Inspection ✅
 
 ### Purpose
 
@@ -346,7 +346,7 @@ Proof size: 96 bytes (A₁ 32B + A₂ 32B + z 32B)
 
 ---
 
-## Layer 3: AuditorKey — Regulatory Compliance
+## Layer 3: AuditorKey — Regulatory Compliance ✅
 
 ### Purpose
 
@@ -520,7 +520,7 @@ audit access.
 
 ## Implementation Plan
 
-### Phase 1: DisclosureProof (off-chain, no consensus changes)
+### Phase 1: DisclosureProof (off-chain, no consensus changes) ✅
 
 **Scope**: Pure cryptography + CLI tooling.
 
@@ -534,7 +534,7 @@ audit access.
 - [x] SDK: `tosdk/src/types/disclosure.ts` — `DisclosureProofParams`, `DisclosureProofResult`, `VerifyDisclosureParams`
 - [x] SDK functions: `client.privProveDisclosure()` / `client.privVerifyDisclosure()` in `tosdk/src/clients/createPublicClient.ts`
 
-### Phase 2: DecryptionToken (off-chain, no consensus changes)
+### Phase 2: DecryptionToken (off-chain, no consensus changes) ✅
 
 **Scope**: Scalar multiplication + optional DLEQ proof + CLI/RPC.
 
@@ -549,7 +549,7 @@ audit access.
 - [x] SDK: `tosdk/src/types/disclosure.ts` — `DecryptionToken`, `DecryptionTokenParams`, `TokenDecryptResult`
 - [x] SDK functions: `client.privGenerateDecryptionToken()` / `client.privVerifyDecryptionToken()` / `client.privDecryptWithToken()` in `tosdk/src/clients/createPublicClient.ts`
 
-### Phase 3: AuditorKey (consensus change)
+### Phase 3: AuditorKey (consensus change) ✅
 
 **Scope**: On-chain state + tx validation + policy wallet integration.
 
