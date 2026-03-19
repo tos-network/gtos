@@ -72,7 +72,7 @@ func newCanonical(engine consensus.Engine, n int, full bool) (tosdb.Database, *B
 }
 
 func newGwei(n int64) *big.Int {
-	return new(big.Int).Mul(big.NewInt(n), big.NewInt(params.GWei))
+	return new(big.Int).Mul(big.NewInt(n), big.NewInt(params.Gtomi))
 }
 
 // Test fork of length N starting from block i
@@ -1752,7 +1752,7 @@ func testSideImport(t *testing.T, numCanonBlocksInSidechain, blocksBetweenCommon
 		gspec.Config.TerminalTotalDifficulty = big.NewInt(0)
 	}
 	blocks, _ := GenerateChain(&chainConfig, genesis, genEngine, db, 2*TriesInMemory, func(i int, gen *BlockGen) {
-		tx, err := signTestSignerTx(signer, key, nonce, common.HexToAddress("deadbeef"), big.NewInt(100), 21000, big.NewInt(int64(i+1)*params.GWei), nil)
+		tx, err := signTestSignerTx(signer, key, nonce, common.HexToAddress("deadbeef"), big.NewInt(100), 21000, big.NewInt(int64(i+1)*params.Gtomi), nil)
 		if err != nil {
 			t.Fatalf("failed to create tx: %v", err)
 		}

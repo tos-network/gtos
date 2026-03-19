@@ -131,7 +131,7 @@ func DepositFor(codeBytes uint64, leaseBlocks uint64) (*big.Int, error) {
 	if depositGas.Sign() == 0 {
 		depositGas.SetUint64(1)
 	}
-	return depositGas.Mul(depositGas, big.NewInt(params.TxPriceWei)), nil
+	return depositGas.Mul(depositGas, big.NewInt(params.TxPriceTomi)), nil
 }
 
 // RefundFor returns the refundable portion of the remaining deposit.

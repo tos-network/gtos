@@ -17,11 +17,15 @@
 package params
 
 // These are the multipliers for tos denominations.
-// Example: To get the wei value of an amount in 'gwei', use
+// Example: To get the tomi value of an amount in 'gtomi', use
 //
-//	new(big.Int).Mul(value, big.NewInt(params.GWei))
+//	new(big.Int).Mul(value, big.NewInt(params.Gtomi))
 const (
-	Wei  = 1
-	GWei = 1e9
-	TOS  = 1e18
+	Tomi  = 1
+	Gtomi = 1e9
+	TOS   = 1e18
+
+	// Backward-compatible aliases.
+	Wei  = Tomi
+	GWei = Gtomi
 )

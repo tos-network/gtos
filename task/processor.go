@@ -94,7 +94,7 @@ func ProcessDueTasks(
 		if refundGas > 0 {
 			refund := new(big.Int).Mul(
 				new(big.Int).SetUint64(refundGas),
-				big.NewInt(params.TxPriceWei),
+				big.NewInt(params.TxPriceTomi),
 			)
 			db.SubBalance(params.TaskSchedulerAddress, refund)
 			db.AddBalance(rec.Scheduler, refund)
@@ -129,7 +129,7 @@ func ProcessDueTasks(
 			// Re-deposit gas for the next run (charged from scheduler balance).
 			reDeposit := new(big.Int).Mul(
 				new(big.Int).SetUint64(rec.GasLimit),
-				big.NewInt(params.TxPriceWei),
+				big.NewInt(params.TxPriceTomi),
 			)
 			if db.GetBalance(rec.Scheduler).Cmp(reDeposit) >= 0 {
 				db.SubBalance(rec.Scheduler, reDeposit)

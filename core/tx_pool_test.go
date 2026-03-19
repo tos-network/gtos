@@ -488,7 +488,7 @@ func TestValidateShieldTxRejectsBadSchnorrSignature(t *testing.T) {
 	addr := common.BytesToAddress(crypto.Keccak256(pubkey[:]))
 	fee := priv.EstimateShieldFee()
 	amount := uint64(123) // UNO base units
-	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(amount+fee)))
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(amount+fee)))
 
 	stx := &types.ShieldTx{
 		ChainID:   new(big.Int).Set(params.TestChainConfig.ChainID),
@@ -556,7 +556,7 @@ func TestAddRemoteShieldTxUsesPrivNonceForPromotion(t *testing.T) {
 	fee := priv.EstimateShieldFee()
 	amount := uint64(300) // UNO base units
 
-	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(amount+fee)+123))
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(amount+fee)+123))
 	priv.SetAccountState(pool.currentState, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      5,
@@ -585,7 +585,7 @@ func TestAddRemoteShieldTxRejectsInvalidProof(t *testing.T) {
 	fee := priv.EstimateShieldFee()
 	amount := uint64(200) // UNO base units
 
-	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(amount+fee)+123))
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(amount+fee)+123))
 	priv.SetAccountState(pool.currentState, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -623,8 +623,8 @@ func TestAddRemotePrivacyBatchFallsBackToSequentialOnBatchFailure(t *testing.T) 
 	amountA := uint64(320)
 	amountB := uint64(240)
 
-	pool.currentState.SetBalance(addrA, new(big.Int).SetUint64(priv.UNOFeeToWei(amountA+fee)+123))
-	pool.currentState.SetBalance(addrB, new(big.Int).SetUint64(priv.UNOFeeToWei(amountB+fee)+123))
+	pool.currentState.SetBalance(addrA, new(big.Int).SetUint64(priv.UnomiToTomi(amountA+fee)+123))
+	pool.currentState.SetBalance(addrB, new(big.Int).SetUint64(priv.UnomiToTomi(amountB+fee)+123))
 	priv.SetAccountState(pool.currentState, addrA, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
 	priv.SetAccountState(pool.currentState, addrB, priv.AccountState{Ciphertext: priv.ZeroCiphertext(), Nonce: 0, Version: 0})
 	pool.pendingNonces = newTxNoncer(pool.currentState)
@@ -763,7 +763,7 @@ func TestAddRemotePrivacyBatchReplaysDependencies(t *testing.T) {
 	shieldAmount := uint64(500)   // UNO base units
 	unshieldAmount := uint64(200) // UNO base units
 
-	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(shieldAmount+shieldFee)+12345))
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(shieldAmount+shieldFee)+12345))
 	priv.SetAccountState(pool.currentState, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -797,7 +797,7 @@ func TestAddRemotePrivacyTxReplaysExistingPoolState(t *testing.T) {
 	shieldAmount := uint64(400)   // UNO base units
 	unshieldAmount := uint64(200) // UNO base units
 
-	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(shieldAmount+shieldFee)+12345))
+	pool.currentState.SetBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(shieldAmount+shieldFee)+12345))
 	priv.SetAccountState(pool.currentState, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,

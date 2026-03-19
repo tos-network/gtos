@@ -2024,7 +2024,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 		deposit := new(big.Int).Mul(
 			new(big.Int).SetUint64(gasLimit),
-			big.NewInt(params.TxPriceWei),
+			big.NewInt(params.TxPriceTomi),
 		)
 		if stateDB.GetBalance(contractAddr).Cmp(deposit) < 0 {
 			L.Push(lua.LNil)
@@ -2100,7 +2100,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 		deposit := new(big.Int).Mul(
 			new(big.Int).SetUint64(rec.GasLimit),
-			big.NewInt(params.TxPriceWei),
+			big.NewInt(params.TxPriceTomi),
 		)
 		stateDB.SubBalance(params.TaskSchedulerAddress, deposit)
 		stateDB.AddBalance(rec.Scheduler, deposit)

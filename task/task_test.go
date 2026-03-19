@@ -56,7 +56,7 @@ func doSchedule(t *testing.T, db vmtypes.StateDB, blockNum uint64, from common.A
 	if ReadActiveCount(db, from) >= params.TaskMaxPerContract {
 		return common.Hash{}, ErrTaskActiveLimit
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), big.NewInt(params.TxPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), big.NewInt(params.TxPriceTomi))
 	if db.GetBalance(from).Cmp(deposit) < 0 {
 		return common.Hash{}, ErrTaskInsufficientDeposit
 	}
@@ -90,7 +90,7 @@ func doCancel(db vmtypes.StateDB, from common.Address, taskId common.Hash) error
 	if from != rec.Scheduler {
 		return ErrTaskNotScheduler
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(rec.GasLimit), big.NewInt(params.TxPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(rec.GasLimit), big.NewInt(params.TxPriceTomi))
 	db.SubBalance(params.TaskSchedulerAddress, deposit)
 	db.AddBalance(rec.Scheduler, deposit)
 	rec.Status = TaskCancelled
@@ -320,7 +320,7 @@ func TestCancelByScheduler(t *testing.T) {
 	if ReadActiveCount(db, from) != 0 {
 		t.Error("active count should be 0 after cancel")
 	}
-	deposit := new(big.Int).Mul(new(big.Int).SetUint64(params.TaskMinGasLimit), big.NewInt(params.TxPriceWei))
+	deposit := new(big.Int).Mul(new(big.Int).SetUint64(params.TaskMinGasLimit), big.NewInt(params.TxPriceTomi))
 	expected := new(big.Int).Add(balBefore, deposit)
 	if db.GetBalance(from).Cmp(expected) != 0 {
 		t.Errorf("balance after cancel: got %v want %v", db.GetBalance(from), expected)
@@ -485,7 +485,7 @@ func TestProcessDueTasksPartialRefund(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	refund := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit-gasUsed), big.NewInt(params.TxPriceWei))
+	refund := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit-gasUsed), big.NewInt(params.TxPriceTomi))
 	expected := new(big.Int).Add(balBefore, refund)
 	if db.GetBalance(sched).Cmp(expected) != 0 {
 		t.Errorf("partial refund: got %v want %v", db.GetBalance(sched), expected)

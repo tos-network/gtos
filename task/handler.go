@@ -84,7 +84,7 @@ func (h *taskHandler) handleSchedule(ctx *sysaction.Context, sa *sysaction.SysAc
 	// 5. Compute deposit and check balance.
 	deposit := new(big.Int).Mul(
 		new(big.Int).SetUint64(p.GasLimit),
-		big.NewInt(params.TxPriceWei),
+		big.NewInt(params.TxPriceTomi),
 	)
 	if ctx.StateDB.GetBalance(ctx.From).Cmp(deposit) < 0 {
 		return ErrTaskInsufficientDeposit
@@ -170,7 +170,7 @@ func (h *taskHandler) handleCancel(ctx *sysaction.Context, sa *sysaction.SysActi
 	// 3. Refund full deposit.
 	deposit := new(big.Int).Mul(
 		new(big.Int).SetUint64(rec.GasLimit),
-		big.NewInt(params.TxPriceWei),
+		big.NewInt(params.TxPriceTomi),
 	)
 	ctx.StateDB.SubBalance(params.TaskSchedulerAddress, deposit)
 	ctx.StateDB.AddBalance(rec.Scheduler, deposit)

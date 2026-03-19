@@ -322,7 +322,7 @@ func TestApplyShield_InsufficientFee(t *testing.T) {
 
 	senderPub, _ := mustElgamalKeypair(t)
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
-	st.AddBalance(addr, new(big.Int).SetUint64(priv.UNOFeeToWei(priv.EstimateShieldFee())+1))
+	st.AddBalance(addr, new(big.Int).SetUint64(priv.UnomiToTomi(priv.EstimateShieldFee())+1))
 	priv.SetAccountState(st, addr, priv.AccountState{
 		Ciphertext: priv.ZeroCiphertext(),
 		Nonce:      0,
@@ -357,8 +357,8 @@ func TestApplyShield_Success(t *testing.T) {
 	addr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	fee := priv.EstimateShieldFee()              // 1 UNO base unit
 	amount := uint64(500)                         // 500 UNO base units = 5 UNO
-	totalCostWei := priv.UNOFeeToWei(amount + fee) // (amount+fee) * UNOUnit Wei
-	feeWei := priv.UNOFeeToWei(fee)
+	totalCostWei := priv.UnomiToTomi(amount + fee) // (amount+fee) * UNOUnit Wei
+	feeWei := priv.UnomiToTomi(fee)
 	initialPublic := totalCostWei + 12345
 
 	st.AddBalance(addr, new(big.Int).SetUint64(initialPublic))
@@ -513,7 +513,7 @@ func TestApplyUnshield_Success(t *testing.T) {
 	senderAddr := common.BytesToAddress(crypto.Keccak256(senderPub[:]))
 	recipientAddr := common.HexToAddress("0xBEEF")
 	fee := priv.EstimateUnshieldFee()       // 1 UNO base unit
-	feeWei := priv.UNOFeeToWei(fee)         // 1e16 Wei
+	feeWei := priv.UnomiToTomi(fee)         // 1e16 Wei
 	senderBalance := uint64(700)             // 700 UNO base units (encrypted balance)
 	amount := uint64(500)                    // 500 UNO base units withdrawal
 	newBalance := senderBalance - amount     // 200 UNO base units
@@ -598,7 +598,7 @@ func TestApplyUnshield_Success(t *testing.T) {
 		t.Fatalf("expected successful unshield, got %v", res.Err)
 	}
 
-	amountWei := priv.UNOFeeToWei(amount)
+	amountWei := priv.UnomiToTomi(amount)
 	if got := st.GetBalance(recipientAddr).Uint64(); got != amountWei-feeWei {
 		t.Fatalf("recipient public balance = %d, want %d", got, amountWei-feeWei)
 	}

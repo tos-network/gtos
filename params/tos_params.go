@@ -81,7 +81,7 @@ var (
 	AgentMinStake = new(big.Int).Mul(big.NewInt(1_000), big.NewInt(1e18)) // 1,000 TOS
 
 	// TNSRegistrationFee is the fee required for TNS_REGISTER (0.1 TOS).
-	TNSRegistrationFee = new(big.Int).Mul(big.NewInt(1e17), big.NewInt(1)) // 0.1 TOS (1e17 wei)
+	TNSRegistrationFee = new(big.Int).Mul(big.NewInt(1e17), big.NewInt(1)) // 0.1 TOS (1e17 tomi)
 )
 
 // Account Abstraction constants.
@@ -148,9 +148,12 @@ const (
 // UNO (Untraceable Native cOin) unit system.
 // 1 TOS = 1 UNO; UNO has 2 decimal places.
 const (
-	UNODecimals       = 2
-	UNOUnit    uint64 = 1e16 // 1 UNO base unit = 0.01 TOS = 10^16 Wei
-	UNOBaseFee uint64 = 1    // base fee per priv tx in UNO base units (0.01 UNO)
+	UNODecimals      = 2
+	Unomi     uint64 = 1e16 // 1 UNO base unit = 0.01 TOS = 10^16 tomi
+	UNOBaseFee uint64 = 1   // base fee per priv tx in UNO base units (0.01 UNO)
+
+	// Backward-compatible alias.
+	UNOUnit = Unomi
 )
 
 // Privacy proof size limits.
@@ -158,13 +161,16 @@ const (
 	PrivMaxProofBytes = 96 * 1024
 )
 
-// TxPriceWei is the protocol-fixed tx price for GTOS transactions.
-// 10 gwei = 10,000,000,000 wei.
-const TxPriceWei int64 = 10_000_000_000
+// TxPriceTomi is the protocol-fixed tx price for GTOS transactions.
+// 10 gtomi = 10,000,000,000 tomi.
+const TxPriceTomi int64 = 10_000_000_000
+
+// Backward-compatible alias.
+const TxPriceWei = TxPriceTomi
 
 // TxPrice returns the protocol-fixed tx price as a new big.Int.
 func TxPrice() *big.Int {
-	return big.NewInt(TxPriceWei)
+	return big.NewInt(TxPriceTomi)
 }
 
 // DPoS consensus parameters.
