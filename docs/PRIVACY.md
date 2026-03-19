@@ -48,7 +48,7 @@
 
 **Core Principles**:
 - **Supported tx types**: PrivTransfer (private-to-private), Shield (public→private, `ShieldTxType=0x02`), and Unshield (private→public, `UnshieldTxType=0x03`) — all three are implemented and wired into consensus (see PRIVACY-ROADMAP.md for details)
-- Fees are `uint64` values denominated in UNO base units (1 UNO base unit = 0.01 UNO = 10^16 Wei). UNOBaseFee = 1. `UNOFeeToWei()` converts to Wei on-chain. Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
+- Fees are `uint64` values denominated in UNO base units (1 UNO base unit = 0.01 UNO = 10^16 tomi). UNOBaseFee = 1. `UnomiToTomi()` converts to tomi on-chain. Fee revenue is credited to the block coinbase as public TOS (same path as gas fees)
 - Private transactions use a dedicated `PrivTransferTxType` transaction type, no longer routed via `To == PrivRouterAddress`
 - Private transactions reuse the existing TxPool. The pool dispatches by `tx.Type()` for nonce lookup and validation
 - PrivTransferTx uses `gas() == 0` and a plaintext UnoFee/UnoFeeLimit model in UNO base units instead of the gas model. Block assembly and miner gas-limit checks must skip gas accounting for PrivTransferTxType

@@ -24,8 +24,4 @@ const (
 	Tomi  = 1
 	Gtomi = 1e9
 	TOS   = 1e18
-
-	// Backward-compatible aliases.
-	Wei  = Tomi
-	GWei = Gtomi
 )

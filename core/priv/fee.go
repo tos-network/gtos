@@ -14,24 +14,15 @@ func UnomiToTomi(feeUNO uint64) uint64 {
 	return feeUNO * params.Unomi
 }
 
-// Backward-compatible alias.
-var UNOFeeToWei = UnomiToTomi
-
 // TomiToUnomi converts tomi to UNO base units (truncating).
 func TomiToUnomi(tomi uint64) uint64 {
 	return tomi / params.Unomi
 }
 
-// Backward-compatible alias.
-var WeiToUNO = TomiToUnomi
-
 // TomiToUnomiRemainder returns the tomi remainder after UNO conversion.
 func TomiToUnomiRemainder(tomi uint64) uint64 {
 	return tomi % params.Unomi
 }
-
-// Backward-compatible alias.
-var WeiToUNORemainder = TomiToUnomiRemainder
 
 // EstimateRequiredFee returns the minimum fee (in UNO base units) for a PrivTransferTx.
 func EstimateRequiredFee(txSize int) uint64 {

@@ -27,7 +27,7 @@ GTOS has a working confidential transfer pipeline (Level 1) and a complete Shiel
 | RPC endpoints | privTransfer / privShield / privUnshield / privGetBalance / privGetNonce | Functional |
 | TxPool handling | Real proof admission + batch verification | Pool admission now does real privacy proof verification, batch sigma/range verification, and pool-local private-state replay; malformed proofs and bad Schnorr signatures are rejected before admission |
 | Execution-path batch verification | Shared prepared-proof flow | Blocks containing privacy txs reuse the same prepared verification model and batch-verify consecutive privacy runs before apply |
-| Fee model | UNO base units | UNOBaseFee = 1 (0.01 UNO = 10^16 Wei); `UNOFeeToWei()` converts to Wei on-chain |
+| Fee model | UNO base units | UNOBaseFee = 1 (0.01 UNO = 10^16 tomi); `UnomiToTomi()` converts to tomi on-chain |
 | EncryptedMemo | ECDH + ChaCha20-Poly1305 | Per-tx nonce from txHash; integrity-protected by Schnorr signature |
 | Genesis seeding | Full support | Helper script generates encrypted balances for genesis accounts |
 | Miner/Worker | All priv tx types gas bypass | Correct zero-gas handling in block assembly for PrivTransfer/Shield/Unshield |
@@ -77,11 +77,11 @@ Resolved in commit `f358af8`. Full details:
 - **Transaction types**: `ShieldTxType=0x02` and `UnshieldTxType=0x03` defined with complete TxData interface, RLP encoding, and SigningHash
 - **Third-party support**: Shield `Recipient` field (ElGamal pubkey) and Unshield `Recipient` field (address) allow deposits/withdrawals to any account
 - **Consensus execution**: `applyShield()` (11 steps) and `applyUnshield()` (12 steps) in `state_transition.go`, bypassing gas pipeline like PrivTransfer
-- **Shield flow**: Deducts `(UnoAmount + UnoFee) × UNOUnit` Wei from sender → verifies ShieldProof under Recipient's key + RangeProof → adds ciphertext to recipient's encrypted balance
-- **Unshield flow**: Computes `zeroedCt` via ciphertext subtraction → verifies CommitmentEqProof + RangeProof → updates sender's encrypted balance → credits `UnoAmount × UNOUnit` Wei to recipient's public balance, deducts `UnoFee × UNOUnit` Wei from recipient
+- **Shield flow**: Deducts `(UnoAmount + UnoFee) × Unomi` tomi from sender → verifies ShieldProof under Recipient's key + RangeProof → adds ciphertext to recipient's encrypted balance
+- **Unshield flow**: Computes `zeroedCt` via ciphertext subtraction → verifies CommitmentEqProof + RangeProof → updates sender's encrypted balance → credits `UnoAmount × Unomi` tomi to recipient's public balance, deducts `UnoFee × Unomi` tomi from recipient
 - **Proof context**: 131-byte Shield context (actionTag=0x11), 163-byte Unshield context (actionTag=0x12), bound to chain/nonce/fee/amount/address
 - **Shared PrivNonce**: All 3 tx types (Transfer, Shield, Unshield) share the same PrivNonce counter per account
-- **Fee**: UNOBaseFee = 1 UNO base unit (0.01 UNO = 10^16 Wei); fee fields are UNO base units, charged on-chain via `UNOFeeToWei()`
+- **Fee**: UNOBaseFee = 1 UNO base unit (0.01 UNO = 10^16 tomi); fee fields are UNO base units, charged on-chain via `UnomiToTomi()`
 
 ---
 
@@ -108,13 +108,13 @@ Resolved in commit `f358af8`. Full details:
 
 ### ~~Phase 1d: UNO unit system~~ ✅ DONE
 
-**Goal**: Replace Wei-denominated privacy balances with UNO base units (2 decimal places) to make BSGS discrete-log decryption feasible.
+**Goal**: Replace tomi-denominated privacy balances with UNO base units (2 decimal places) to make BSGS discrete-log decryption feasible.
 
 **Tasks**:
-- [x] `params.UNOUnit = 1e16` (1 UNO base unit = 0.01 TOS = 10^16 Wei), `params.UNOBaseFee = 1`
-- [x] Replace gas-based fee model (`PrivBaseFee × TxPriceWei`) with direct UNO base unit fees
-- [x] `UNOFeeToWei()` / `WeiToUNO()` / `WeiToUNORemainder()` conversion functions
-- [x] Shield/Unshield convert UNO↔Wei at public balance boundary; PrivTransfer ciphertext arithmetic in UNO base units
+- [x] `params.Unomi = 1e16` (1 UNO base unit = 0.01 TOS = 10^16 tomi), `params.UNOBaseFee = 1`
+- [x] Replace gas-based fee model (`PrivBaseFee × TxPriceTomi`) with direct UNO base unit fees
+- [x] `UnomiToTomi()` / `TomiToUnomi()` / `TomiToUnomiRemainder()` conversion functions
+- [x] Shield/Unshield convert UNO↔tomi at public balance boundary; PrivTransfer ciphertext arithmetic in UNO base units
 - [x] Rename tx fields for unit clarity: `Fee→UnoFee`, `Amount→UnoAmount`, `FeeLimit→UnoFeeLimit`
 - [x] BSGS precomputed table (L1=26, ~350 MB) — decrypts full 5B TOS supply in ~62ms
 - [x] `toskey priv-balance` displays balance as `X.XX UNO`
