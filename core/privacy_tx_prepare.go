@@ -412,6 +412,9 @@ func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Tr
 	if err := priv.ValidateEncryptedMemoSize(ptx.EncryptedMemo); err != nil {
 		return nil, fmt.Errorf("priv: encrypted memo too large: %w", err)
 	}
+	if ptx.UnoFeeLimit > priv.MaxSafeUnomi {
+		return nil, priv.ErrUnomiOverflow
+	}
 	if ptx.UnoFee > ptx.UnoFeeLimit {
 		return nil, priv.ErrFeeLimitExceeded
 	}
@@ -515,6 +518,9 @@ func prepareShieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transact
 	senderAddr := stx.DerivedAddress()
 	recipientAddr := stx.RecipientAddress()
 
+	if stx.UnoAmount > priv.MaxSafeUnomi || stx.UnoFee > priv.MaxSafeUnomi {
+		return nil, priv.ErrUnomiOverflow
+	}
 	requiredFee := priv.EstimateShieldFee()
 	if stx.UnoFee < requiredFee {
 		return nil, priv.ErrInsufficientFee
@@ -596,6 +602,9 @@ func prepareUnshieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transa
 	senderAddr := utx.DerivedAddress()
 	recipientAddr := utx.Recipient
 
+	if utx.UnoAmount > priv.MaxSafeUnomi || utx.UnoFee > priv.MaxSafeUnomi {
+		return nil, priv.ErrUnomiOverflow
+	}
 	requiredFee := priv.EstimateUnshieldFee()
 	if utx.UnoFee < requiredFee {
 		return nil, priv.ErrInsufficientFee

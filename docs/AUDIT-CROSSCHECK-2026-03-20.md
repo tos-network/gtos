@@ -15,12 +15,12 @@ The external auditor reported 6 findings: 3 critical, 1 critical security,
 |---------|-----------------|---------------|
 | F1: System-action access sets incomplete | Critical | **FALSE POSITIVE** — already serialized via LVMSerialAddress |
 | F2: Slash-indicator dependency | Critical | **FALSE POSITIVE** — already reads ValidatorRegistryAddress + writes LVMSerialAddress |
-| F3: Sponsored tx dependency | Critical | **FALSE POSITIVE** — sponsor nonce slot modeled since SEC-3 fix |
-| F4: UNO-to-Wei overflow | Critical | **TRUE — ALREADY FIXED** (commit c7bf6f8) |
+| F3: Sponsored tx dependency | Critical | **PARTIALLY TRUE — FIXED**. SEC-3 handled same-sponsor nonce, but sponsor *balance* was missing from access set. Fixed: sponsor address now in WriteAddrs+ReadAddrs. Coinbase fallback also extended to sponsor-as-gas-payer. |
+| F4: UNO-to-Wei overflow | Critical | **PARTIALLY TRUE — NOW FULLY FIXED**. Core arithmetic fixed in c7bf6f8, but ApplyState paths still had panic-on-overflow. Fixed: early rejection via MaxSafeUnomi validation in all three prepare functions. |
 | F5: Txpool sponsor nonce pipelining | Medium | **TRUE** — liveness limitation, not consensus bug |
 | F6: Sponsor-expiry time units | Medium | **TRUE** — unit mismatch between txpool and consensus |
 
-**Net result: 0 open critical bugs. 2 medium-severity items to address.**
+**Net result after fixes: 0 open critical bugs. 2 medium-severity items to address.**
 
 ---
 
@@ -86,57 +86,58 @@ operations.
 
 ---
 
-### Finding 3: Sponsored tx dependency — FALSE POSITIVE
+### Finding 3: Sponsored tx dependency — PARTIALLY TRUE, FIXED
 
 **Auditor's claim**: Scheduler only models sender-side writes for sponsored
 txs, missing sponsor state.
 
-**Actual code** (`core/parallel/analyze.go:34-44`):
+**Initial assessment was wrong**: The initial cross-check dismissed this as a
+false positive because SEC-3 handles the same-sponsor nonce slot conflict.
+However, manual verification confirmed the auditor was **partially correct**:
 
-```go
-// SEC-3: Sponsored transactions read/write the sponsor's nonce slot at
-// SponsorRegistryAddress.
-if sponsor := msg.Sponsor(); sponsor != (common.Address{}) {
-    nonceSlot := crypto.Keccak256Hash([]byte("tos.sponsor.nonce"), sponsor.Bytes())
-    if as.WriteSlots[params.SponsorRegistryAddress] == nil {
-        as.WriteSlots[params.SponsorRegistryAddress] = make(map[common.Hash]struct{})
-    }
-    as.WriteSlots[params.SponsorRegistryAddress][nonceSlot] = struct{}{}
-}
-```
+**What SEC-3 already handled**: Two sponsored txs with the same sponsor both
+write the same `nonceSlot` at `SponsorRegistryAddress` → serialized. Correct.
 
-**Why it's safe**: Two sponsored txs with the same sponsor both write the
-same `nonceSlot` at `SponsorRegistryAddress`. This creates a write-write
-slot conflict detected by `AccessSet.Conflicts()`, forcing them into
-different levels.
+**What was missing**: The execution path uses the sponsor as gas payer
+(`gasPayer()` at `state_transition.go:231`), which reads/writes the
+**sponsor's balance** (`buyGas` at line 258, `refundGas` at line 867). But
+`AnalyzeTx` did NOT include the sponsor address in `WriteAddrs`.
 
-The SEC-3 fix was specifically designed for this case and is clearly
-documented in the code comments.
+This means a sponsored tx and the sponsor's own plain transfer could run in
+parallel, both modifying the sponsor's balance on stale snapshots.
 
-**The auditor's scenario** ("tx0 and tx1 with same sponsor run in parallel")
-is **impossible** because both write the same sponsor nonce slot.
+**Fix applied**: Added sponsor address to both `WriteAddrs` and `ReadAddrs`
+in `AnalyzeTx`. Also extended `hasCoinbaseSender` to check
+`msg.Sponsor() == coinbase`.
 
-**Regarding coinbase fallback**: The coinbase fallback handles **balance**
-delta merging (coinbase receives fees from all txs). Sponsor nonce
-serialization is handled separately via slot-level conflict detection. These
-are orthogonal concerns.
-
-**Verified**: sponsored txs are properly serialized via sponsor nonce slot.
+**Verified**: sponsored txs now properly conflict with any tx touching the
+sponsor's balance.
 
 ---
 
-### Finding 4: UNO-to-Wei overflow — TRUE, ALREADY FIXED
+### Finding 4: UNO-to-Wei overflow — TRUE, NOW FULLY FIXED
 
 **Auditor's analysis is correct**: `UnomiToTomi(uint64)` overflows at
 ~18.44 TOS.
 
-**Status**: Fixed in commit c7bf6f8 (2026-03-19):
-- `UnomiToTomiBig()` returns `*big.Int` (no overflow)
-- `UnomiToTomi()` now panics on overflow instead of silent wrap
-- All callers in `privacy_tx_prepare.go` updated to use `big.Int`
-- Shield cost computed as separate `big.Int` additions
+**Previous fix (c7bf6f8)**: Core amount calculations changed to `big.Int` via
+`UnomiToTomiBig()`. `UnomiToTomi()` changed from silent wrap to panic.
 
-**Verified**: fix is correct and complete.
+**What was still broken**: Two `ApplyState` paths (`privacy_tx_prepare.go`
+lines 99 and 159) still called `UnomiToTomi()` for fee conversion. Since
+`UnoFee` and `UnoFeeLimit` are user-supplied with no upper bound validation,
+a tx with `UnoFee > 1844` would **panic and crash the node** in consensus.
+
+**Additional fix applied**:
+- Added `MaxSafeUnomi` constant and `ErrUnomiOverflow` error to `core/priv/fee.go`
+- Added early validation in all three prepare functions
+  (`preparePrivTransferState`, `prepareShieldState`, `prepareUnshieldState`):
+  reject txs where `UnoFee`, `UnoFeeLimit`, or `UnoAmount` exceed
+  `MaxSafeUnomi` before reaching `ApplyState`
+- This converts the panic path into a clean tx rejection
+
+**Verified**: `UnomiToTomi(1845)` is now unreachable in consensus paths —
+rejected at prepare time with `ErrUnomiOverflow`.
 
 ---
 
@@ -202,10 +203,19 @@ The external audit correctly identified several positive design aspects:
 
 ## Conclusion
 
-The external audit's 3 "critical" findings about the parallel scheduler
-(F1, F2, F3) are **all false positives**. The auditor appears to have
-reviewed an older version of the code or missed the SEC-1/SEC-2/SEC-3
-security fixes and the `LVMSerialAddress` serialization mechanism.
+**Corrected conclusion** (updated after manual re-verification):
 
-The overflow finding (F4) was valid but already fixed. The two medium
-findings (F5, F6) are real and should be addressed for production hardening.
+- F1 (system actions): FALSE POSITIVE — `LVMSerialAddress` serializes all
+- F2 (slash indicator): FALSE POSITIVE — properly modeled
+- F3 (sponsored tx balance): **REAL BUG, NOW FIXED** — sponsor address was
+  missing from access set `WriteAddrs`. The SEC-3 nonce-slot fix was
+  incomplete; sponsor balance dependency was unmodeled.
+- F4 (UNO overflow): **REAL BUG, NOW FULLY FIXED** — core arithmetic fixed
+  earlier, but ApplyState panic paths were still reachable. Now rejected at
+  prepare time via `MaxSafeUnomi` validation.
+- F5 (txpool sponsor nonce): Real limitation, medium priority
+- F6 (sponsor-expiry units): Real mismatch, medium priority
+
+The external auditor correctly identified a real gap in F3 that the initial
+cross-check incorrectly dismissed. Credit to the manual re-verification for
+catching this.

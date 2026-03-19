@@ -31,11 +31,15 @@ func AnalyzeTx(msg types.Message, statedb StateReader) AccessSet {
 	// All tx types write sender balance and nonce.
 	as.WriteAddrs[sender] = struct{}{}
 
-	// SEC-3: Sponsored transactions read/write the sponsor's nonce slot at
-	// SponsorRegistryAddress. Two txs sharing the same sponsor must not run
-	// in the same parallel level, otherwise both read the same nonce and
-	// produce a divergent state root.
+	// SEC-3: Sponsored transactions use the sponsor as gas payer. The
+	// execution path reads/writes sponsor balance (buyGas, refundGas) and
+	// sponsor nonce slot at SponsorRegistryAddress. The sponsor address
+	// must be in both WriteAddrs (balance) and WriteSlots (nonce) so that:
+	//   (a) two sponsored txs with the same sponsor are serialized (nonce slot conflict)
+	//   (b) a sponsored tx and the sponsor's own plain tx are serialized (address conflict)
 	if sponsor := msg.Sponsor(); sponsor != (common.Address{}) {
+		as.WriteAddrs[sponsor] = struct{}{}
+		as.ReadAddrs[sponsor] = struct{}{}
 		nonceSlot := crypto.Keccak256Hash([]byte("tos.sponsor.nonce"), sponsor.Bytes())
 		if as.WriteSlots[params.SponsorRegistryAddress] == nil {
 			as.WriteSlots[params.SponsorRegistryAddress] = make(map[common.Hash]struct{})

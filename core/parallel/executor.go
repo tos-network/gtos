@@ -269,6 +269,11 @@ func hasCoinbaseSender(msgs []types.Message, coinbase common.Address) bool {
 		if msg.From() == coinbase {
 			return true
 		}
+		// A sponsored tx uses the sponsor as gas payer — if the sponsor is
+		// the coinbase, the same delta-merge hazard applies.
+		if msg.IsSponsored() && msg.Sponsor() == coinbase {
+			return true
+		}
 	}
 	return false
 }

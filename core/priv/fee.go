@@ -1,10 +1,19 @@
 package priv
 
 import (
+	"errors"
+	"math"
 	"math/big"
 
 	"github.com/tos-network/gtos/params"
 )
+
+// MaxSafeUnomi is the largest unomi value that can be converted to tomi
+// without overflowing uint64. Values above this MUST use UnomiToTomiBig.
+var MaxSafeUnomi = math.MaxUint64 / params.Unomi
+
+// ErrUnomiOverflow indicates a UNO base-unit value exceeds the safe uint64 range.
+var ErrUnomiOverflow = errors.New("priv: unomi value exceeds safe uint64 range")
 
 // Fee fields in PrivTransferTx / ShieldTx / UnshieldTx are denominated in
 // UNO base units (unomi). 1 unomi = 0.01 UNO = 0.01 TOS = 10^16 tomi.
