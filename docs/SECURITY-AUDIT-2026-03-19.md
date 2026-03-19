@@ -19,8 +19,8 @@ decisions, but has 1 high-severity bug that needs fixing before production.**
 | Severity | Count | Summary |
 |----------|-------|---------|
 | **Critical** | 0 | No chain-fork bugs found |
-| **High** | 1 | `UnomiToTomi` uint64 overflow (silently wraps fees/amounts > 18.44 UNO) |
-| **Medium** | 2 | Shield cost addition overflow; Unshield non-atomic balance update |
+| **High** | 1 | `UnomiToTomi` uint64 overflow — **FIXED** (commit c7bf6f8) |
+| **Medium** | 2 | Shield cost addition overflow; Unshield non-atomic balance — **BOTH FIXED** (commit c7bf6f8) |
 | **Low** | 2 | PrivNonce stuck at 2^64; preimage write order |
 | **False Positive** | 1 | StateDB map iteration (safe — MPT is order-independent) |
 
