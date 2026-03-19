@@ -32,6 +32,10 @@ type ShieldTx struct {
 	ShieldProof [96]byte  // proves (Commitment, Handle) is valid encryption of Amount under Recipient
 	RangeProof  [672]byte // proves committed amount in [0, 2^64)
 
+	// Auditor fields (Phase 3 selective disclosure)
+	AuditorHandle    [32]byte // r·PK_audit (zero if no auditor configured)
+	AuditorDLEQProof []byte   // DLEQ proof for same-randomness (nil if no auditor)
+
 	// ElGamal Schnorr signature (by sender)
 	S [32]byte
 	E [32]byte
@@ -40,22 +44,24 @@ type ShieldTx struct {
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *ShieldTx) copy() TxData {
 	cpy := &ShieldTx{
-		PrivNonce:   tx.PrivNonce,
-		UnoFee:      tx.UnoFee,
-		Pubkey:      tx.Pubkey,
-		Recipient:   tx.Recipient,
-		UnoAmount:   tx.UnoAmount,
-		Commitment:  tx.Commitment,
-		Handle:      tx.Handle,
-		ShieldProof: tx.ShieldProof,
-		RangeProof:  tx.RangeProof,
-		S:           tx.S,
-		E:           tx.E,
-		ChainID:     new(big.Int),
+		PrivNonce:     tx.PrivNonce,
+		UnoFee:        tx.UnoFee,
+		Pubkey:        tx.Pubkey,
+		Recipient:     tx.Recipient,
+		UnoAmount:     tx.UnoAmount,
+		Commitment:    tx.Commitment,
+		Handle:        tx.Handle,
+		ShieldProof:   tx.ShieldProof,
+		RangeProof:    tx.RangeProof,
+		AuditorHandle: tx.AuditorHandle,
+		S:             tx.S,
+		E:             tx.E,
+		ChainID:       new(big.Int),
 	}
 	if tx.ChainID != nil {
 		cpy.ChainID.Set(tx.ChainID)
 	}
+	cpy.AuditorDLEQProof = common.CopyBytes(tx.AuditorDLEQProof)
 	return cpy
 }
 
@@ -111,6 +117,8 @@ func (tx *ShieldTx) SigningHash() common.Hash {
 		tx.Handle,
 		tx.ShieldProof,
 		tx.RangeProof,
+		tx.AuditorHandle,
+		tx.AuditorDLEQProof,
 	})
 	var h common.Hash
 	sha.Read(h[:])

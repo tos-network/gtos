@@ -382,7 +382,7 @@ func TestApplyShield_Success(t *testing.T) {
 	}
 	commitment := bytesToArray32(commitmentBytes)
 	handle := bytesToArray32(handleBytes)
-	ctx := priv.BuildShieldTranscriptContext(cfg.ChainID, 0, fee, amount, addr, commitment, handle)
+	ctx := priv.BuildShieldTranscriptContext(cfg.ChainID, 0, fee, amount, addr, commitment, handle, [32]byte{})
 	shieldProof, _, _, err := cryptopriv.ProveShieldProofWithContext(senderPub[:], amount, opening, ctx)
 	if err != nil {
 		t.Fatalf("ProveShieldProofWithContext: %v", err)
@@ -549,7 +549,7 @@ func TestApplyUnshield_Success(t *testing.T) {
 		t.Fatalf("CommitmentNew: %v", err)
 	}
 	sourceCommitment := bytesToArray32(sourceCommitmentBytes)
-	ctx := priv.BuildUnshieldTranscriptContext(cfg.ChainID, 0, fee, amount, senderAddr, zeroedCt, sourceCommitment)
+	ctx := priv.BuildUnshieldTranscriptContext(cfg.ChainID, 0, fee, amount, senderAddr, zeroedCt, sourceCommitment, [32]byte{})
 	zeroedCt64 := append(append([]byte{}, zeroedCt.Commitment[:]...), zeroedCt.Handle[:]...)
 	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
 		senderPriv[:], senderPub[:],

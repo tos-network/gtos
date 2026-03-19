@@ -32,6 +32,9 @@ func init() {
 		commandPrivShield,
 		commandPrivUnshield,
 		commandPrivGenerateTable,
+		commandPrivDisclose,
+		commandPrivGenerateToken,
+		commandPrivDecryptToken,
 	}
 }
 

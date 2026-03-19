@@ -23,6 +23,7 @@ import (
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	corepriv "github.com/tos-network/gtos/core/priv"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 	"github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/lease"
@@ -2219,6 +2220,76 @@ type RPCUnshieldArgs struct {
 	E                 hexutil.Bytes   `json:"e"`                 // 32B Schnorr sig
 }
 
+// RPCPrivDisclosureArgs holds arguments for tos_privProveDisclosure RPC.
+type RPCPrivDisclosureArgs struct {
+	Privkey     hexutil.Bytes   `json:"privkey"`     // 32B ElGamal private key
+	Pubkey      hexutil.Bytes   `json:"pubkey"`      // 32B ElGamal public key
+	Commitment  hexutil.Bytes   `json:"commitment"`  // 32B
+	Handle      hexutil.Bytes   `json:"handle"`      // 32B
+	Amount      *hexutil.Uint64 `json:"amount"`
+	BlockNumber *hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivDisclosureResult holds the result for tos_privProveDisclosure RPC.
+type RPCPrivDisclosureResult struct {
+	Proof       hexutil.Bytes  `json:"proof"`       // 96B DLEQ proof
+	BlockNumber hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivVerifyDisclosureArgs holds arguments for tos_privVerifyDisclosure RPC.
+type RPCPrivVerifyDisclosureArgs struct {
+	Pubkey      hexutil.Bytes   `json:"pubkey"`      // 32B ElGamal public key
+	Commitment  hexutil.Bytes   `json:"commitment"`  // 32B
+	Handle      hexutil.Bytes   `json:"handle"`      // 32B
+	Amount      *hexutil.Uint64 `json:"amount"`
+	Proof       hexutil.Bytes   `json:"proof"`       // 96B DLEQ proof
+	BlockNumber *hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivDecryptionTokenArgs holds arguments for tos_privGenerateDecryptionToken RPC.
+type RPCPrivDecryptionTokenArgs struct {
+	Privkey     hexutil.Bytes   `json:"privkey"`     // 32B ElGamal private key
+	Pubkey      hexutil.Bytes   `json:"pubkey"`      // 32B ElGamal public key
+	Commitment  hexutil.Bytes   `json:"commitment"`  // 32B
+	Handle      hexutil.Bytes   `json:"handle"`      // 32B
+	BlockNumber *hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivDecryptionTokenResult holds the result for tos_privGenerateDecryptionToken RPC.
+type RPCPrivDecryptionTokenResult struct {
+	Token       hexutil.Bytes  `json:"token"`       // 32B decryption token
+	DLEQProof   hexutil.Bytes  `json:"dleqProof"`   // 96B DLEQ proof
+	BlockNumber hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivVerifyDecryptionTokenArgs holds arguments for tos_privVerifyDecryptionToken RPC.
+type RPCPrivVerifyDecryptionTokenArgs struct {
+	Pubkey      hexutil.Bytes   `json:"pubkey"`      // 32B ElGamal public key
+	Commitment  hexutil.Bytes   `json:"commitment"`  // 32B
+	Handle      hexutil.Bytes   `json:"handle"`      // 32B
+	Token       hexutil.Bytes   `json:"token"`       // 32B decryption token
+	DLEQProof   hexutil.Bytes   `json:"dleqProof"`   // 96B DLEQ proof
+	BlockNumber *hexutil.Uint64 `json:"blockNumber"`
+}
+
+// RPCPrivDecryptAuditorArgs holds arguments for tos_privDecryptWithAuditorKey RPC.
+type RPCPrivDecryptAuditorArgs struct {
+	AuditorPrivkey hexutil.Bytes `json:"auditorPrivkey"` // 32B auditor ElGamal private key
+	TxHash         common.Hash   `json:"txHash"`
+}
+
+// RPCPrivDecryptAuditorResult holds the result for tos_privDecryptWithAuditorKey RPC.
+type RPCPrivDecryptAuditorResult struct {
+	Amount hexutil.Uint64 `json:"amount"`
+	TxType string         `json:"txType"`
+}
+
+// RPCPrivDecryptWithTokenArgs holds arguments for tos_privDecryptWithToken RPC.
+type RPCPrivDecryptWithTokenArgs struct {
+	Token      hexutil.Bytes `json:"token"`      // 32B decryption token
+	Commitment hexutil.Bytes `json:"commitment"` // 32B
+}
+
 func (s *TOSAPI) retainBlocks() uint64 { return rpcDefaultRetainBlocks }
 
 func (s *TOSAPI) snapshotInterval() uint64 { return rpcDefaultSnapshotInterval }
@@ -3464,4 +3535,259 @@ func (s *TOSAPI) PrivUnshield(ctx context.Context, args RPCUnshieldArgs) (common
 
 	tx := types.NewTx(utx)
 	return tx.Hash(), s.b.SendTx(ctx, tx)
+}
+
+// PrivProveDisclosure generates a selective disclosure proof that proves
+// the encrypted balance is exactly the specified amount.
+func (s *TOSAPI) PrivProveDisclosure(ctx context.Context, args RPCPrivDisclosureArgs) (*RPCPrivDisclosureResult, error) {
+	if len(args.Privkey) != 32 {
+		return nil, fmt.Errorf("privkey must be 32 bytes")
+	}
+	if len(args.Pubkey) != 32 {
+		return nil, fmt.Errorf("pubkey must be 32 bytes")
+	}
+	if len(args.Commitment) != 32 {
+		return nil, fmt.Errorf("commitment must be 32 bytes")
+	}
+	if len(args.Handle) != 32 {
+		return nil, fmt.Errorf("handle must be 32 bytes")
+	}
+	if args.Amount == nil {
+		return nil, fmt.Errorf("amount is required")
+	}
+
+	var privkey, pubkey [32]byte
+	copy(privkey[:], args.Privkey)
+	copy(pubkey[:], args.Pubkey)
+
+	var ct corepriv.Ciphertext
+	copy(ct.Commitment[:], args.Commitment)
+	copy(ct.Handle[:], args.Handle)
+
+	blockNum := uint64(0)
+	if args.BlockNumber != nil {
+		blockNum = uint64(*args.BlockNumber)
+	}
+
+	chainID := s.b.ChainConfig().ChainID
+	proof, err := corepriv.ProveDisclosure(privkey, pubkey, ct, uint64(*args.Amount), chainID, blockNum)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RPCPrivDisclosureResult{
+		Proof:       proof,
+		BlockNumber: hexutil.Uint64(blockNum),
+	}, nil
+}
+
+// PrivVerifyDisclosure verifies a selective disclosure proof.
+func (s *TOSAPI) PrivVerifyDisclosure(ctx context.Context, args RPCPrivVerifyDisclosureArgs) (bool, error) {
+	if len(args.Pubkey) != 32 {
+		return false, fmt.Errorf("pubkey must be 32 bytes")
+	}
+	if len(args.Commitment) != 32 {
+		return false, fmt.Errorf("commitment must be 32 bytes")
+	}
+	if len(args.Handle) != 32 {
+		return false, fmt.Errorf("handle must be 32 bytes")
+	}
+	if args.Amount == nil {
+		return false, fmt.Errorf("amount is required")
+	}
+	if len(args.Proof) != 96 {
+		return false, fmt.Errorf("proof must be 96 bytes")
+	}
+	if args.BlockNumber == nil {
+		return false, fmt.Errorf("blockNumber is required")
+	}
+
+	var pubkey [32]byte
+	copy(pubkey[:], args.Pubkey)
+	var ct corepriv.Ciphertext
+	copy(ct.Commitment[:], args.Commitment)
+	copy(ct.Handle[:], args.Handle)
+	var proof96 [96]byte
+	copy(proof96[:], args.Proof)
+
+	claim := corepriv.DisclosureClaim{
+		Pubkey:      pubkey,
+		Ciphertext:  ct,
+		Amount:      uint64(*args.Amount),
+		Proof:       proof96,
+		BlockNumber: uint64(*args.BlockNumber),
+	}
+
+	chainID := s.b.ChainConfig().ChainID
+	return corepriv.VerifyDisclosure(claim, chainID) == nil, nil
+}
+
+// PrivGenerateDecryptionToken generates a decryption token with DLEQ proof.
+func (s *TOSAPI) PrivGenerateDecryptionToken(ctx context.Context, args RPCPrivDecryptionTokenArgs) (*RPCPrivDecryptionTokenResult, error) {
+	if len(args.Privkey) != 32 || len(args.Pubkey) != 32 || len(args.Commitment) != 32 || len(args.Handle) != 32 {
+		return nil, fmt.Errorf("privkey, pubkey, commitment, and handle must each be 32 bytes")
+	}
+
+	var privkey, pubkey [32]byte
+	copy(privkey[:], args.Privkey)
+	copy(pubkey[:], args.Pubkey)
+	var ct corepriv.Ciphertext
+	copy(ct.Commitment[:], args.Commitment)
+	copy(ct.Handle[:], args.Handle)
+
+	blockNum := uint64(0)
+	if args.BlockNumber != nil {
+		blockNum = uint64(*args.BlockNumber)
+	}
+
+	chainID := s.b.ChainConfig().ChainID
+	dt, err := corepriv.BuildDecryptionToken(privkey, pubkey, ct, chainID, blockNum)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RPCPrivDecryptionTokenResult{
+		Token:       dt.Token[:],
+		DLEQProof:   dt.DLEQProof[:],
+		BlockNumber: hexutil.Uint64(blockNum),
+	}, nil
+}
+
+// PrivVerifyDecryptionToken verifies a decryption token's DLEQ proof.
+func (s *TOSAPI) PrivVerifyDecryptionToken(ctx context.Context, args RPCPrivVerifyDecryptionTokenArgs) (bool, error) {
+	if len(args.Pubkey) != 32 || len(args.Commitment) != 32 || len(args.Handle) != 32 || len(args.Token) != 32 {
+		return false, fmt.Errorf("pubkey, commitment, handle, and token must each be 32 bytes")
+	}
+	if len(args.DLEQProof) != 96 {
+		return false, fmt.Errorf("dleqProof must be 96 bytes")
+	}
+	if args.BlockNumber == nil {
+		return false, fmt.Errorf("blockNumber is required")
+	}
+
+	dt := &corepriv.DecryptionToken{
+		BlockNumber: uint64(*args.BlockNumber),
+	}
+	copy(dt.Pubkey[:], args.Pubkey)
+	copy(dt.Ciphertext.Commitment[:], args.Commitment)
+	copy(dt.Ciphertext.Handle[:], args.Handle)
+	copy(dt.Token[:], args.Token)
+	copy(dt.DLEQProof[:], args.DLEQProof)
+
+	chainID := s.b.ChainConfig().ChainID
+	return corepriv.VerifyDecryptionToken(dt, chainID) == nil, nil
+}
+
+// PrivDecryptWithToken decrypts an encrypted balance using a decryption token.
+func (s *TOSAPI) PrivDecryptWithToken(ctx context.Context, args RPCPrivDecryptWithTokenArgs) (*hexutil.Uint64, error) {
+	if len(args.Token) != 32 || len(args.Commitment) != 32 {
+		return nil, fmt.Errorf("token and commitment must each be 32 bytes")
+	}
+
+	dt := &corepriv.DecryptionToken{}
+	copy(dt.Token[:], args.Token)
+	copy(dt.Ciphertext.Commitment[:], args.Commitment)
+
+	amount, err := corepriv.DecryptTokenAmount(dt)
+	if err != nil {
+		return nil, err
+	}
+
+	result := hexutil.Uint64(amount)
+	return &result, nil
+}
+
+// PrivDecryptWithAuditorKey decrypts a privacy transaction's amount using the
+// auditor's private key. The transaction must contain a non-zero AuditorHandle.
+func (s *TOSAPI) PrivDecryptWithAuditorKey(ctx context.Context, args RPCPrivDecryptAuditorArgs) (*RPCPrivDecryptAuditorResult, error) {
+	if len(args.AuditorPrivkey) != 32 {
+		return nil, fmt.Errorf("auditorPrivkey must be 32 bytes")
+	}
+
+	// Look up the transaction
+	tx, _, _, _, err := s.b.GetTransaction(ctx, args.TxHash)
+	if err != nil {
+		return nil, err
+	}
+	if tx == nil {
+		return nil, fmt.Errorf("transaction not found")
+	}
+
+	var commitment, auditorHandle [32]byte
+	var txType string
+
+	switch tx.Type() {
+	case types.PrivTransferTxType:
+		ptx := tx.PrivTransferInner()
+		if ptx == nil {
+			return nil, fmt.Errorf("invalid priv transfer tx")
+		}
+		var zero [32]byte
+		if ptx.AuditorHandle == zero {
+			return nil, fmt.Errorf("transaction has no auditor handle")
+		}
+		commitment = ptx.Commitment
+		auditorHandle = ptx.AuditorHandle
+		txType = "privTransfer"
+
+	case types.ShieldTxType:
+		stx := tx.ShieldInner()
+		if stx == nil {
+			return nil, fmt.Errorf("invalid shield tx")
+		}
+		var zero [32]byte
+		if stx.AuditorHandle == zero {
+			return nil, fmt.Errorf("transaction has no auditor handle")
+		}
+		commitment = stx.Commitment
+		auditorHandle = stx.AuditorHandle
+		txType = "shield"
+
+	case types.UnshieldTxType:
+		utx := tx.UnshieldInner()
+		if utx == nil {
+			return nil, fmt.Errorf("invalid unshield tx")
+		}
+		// Unshield has a known plaintext amount, but the auditor might
+		// still want to verify via decryption. Use SourceCommitment.
+		var zero [32]byte
+		if utx.AuditorHandle == zero {
+			return nil, fmt.Errorf("transaction has no auditor handle")
+		}
+		// For unshield, the amount is public (UnoAmount), but we can still decrypt
+		// the source commitment to verify. Return the public amount directly.
+		return &RPCPrivDecryptAuditorResult{
+			Amount: hexutil.Uint64(utx.UnoAmount),
+			TxType: "unshield",
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("not a privacy transaction")
+	}
+
+	// Generate decryption token: sk_audit * D_audit
+	token, err := cryptopriv.GenerateDecryptionToken(args.AuditorPrivkey, auditorHandle[:])
+	if err != nil {
+		return nil, fmt.Errorf("token generation failed: %w", err)
+	}
+
+	// Decrypt: amount*G = C - token
+	amountPoint, err := cryptopriv.DecryptWithToken(token, commitment[:])
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+
+	// Solve ECDLP
+	amount, found, err := cryptopriv.SolveDiscreteLog(amountPoint, 1<<32)
+	if err != nil {
+		return nil, fmt.Errorf("ECDLP solve failed: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("amount not found (exceeds search range)")
+	}
+
+	return &RPCPrivDecryptAuditorResult{
+		Amount: hexutil.Uint64(amount),
+		TxType: txType,
+	}, nil
 }

@@ -63,6 +63,9 @@ func (pool *TxPool) preparePrivTransferTx(tx *types.Transaction, from common.Add
 	if err := priv.ValidateRangeProofShape(ptx.RangeProof); err != nil {
 		return nil, err
 	}
+	if len(ptx.AuditorDLEQProof) > 0 && len(ptx.AuditorDLEQProof) != 96 {
+		return nil, priv.ErrInvalidPayload
+	}
 	if ptx.UnoFee > ptx.UnoFeeLimit {
 		return nil, priv.ErrFeeLimitExceeded
 	}
@@ -114,6 +117,9 @@ func (pool *TxPool) prepareShieldTx(tx *types.Transaction, from common.Address, 
 	if err := priv.ValidateRangeProofShape(stx.RangeProof[:]); err != nil {
 		return nil, err
 	}
+	if len(stx.AuditorDLEQProof) > 0 && len(stx.AuditorDLEQProof) != 96 {
+		return nil, priv.ErrInvalidPayload
+	}
 	if stx.UnoFee < priv.EstimateShieldFee() {
 		return nil, priv.ErrInsufficientFee
 	}
@@ -161,6 +167,9 @@ func (pool *TxPool) prepareUnshieldTx(tx *types.Transaction, from common.Address
 	}
 	if err := priv.ValidateRangeProofShape(utx.RangeProof[:]); err != nil {
 		return nil, err
+	}
+	if len(utx.AuditorDLEQProof) > 0 && len(utx.AuditorDLEQProof) != 96 {
+		return nil, priv.ErrInvalidPayload
 	}
 	if utx.UnoFee < priv.EstimateUnshieldFee() {
 		return nil, priv.ErrInsufficientFee

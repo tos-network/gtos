@@ -131,6 +131,38 @@ func BuildTransferProofs(
 	return
 }
 
+// BuildAuditorHandle generates an auditor decrypt handle and the DLEQ proof
+// of same-randomness. The opening must be the same randomness used to generate
+// the main transfer/shield ciphertext.
+func BuildAuditorHandle(
+	opening []byte,
+	auditorPub [32]byte,
+	receiverPub [32]byte,
+	receiverHandle [32]byte,
+	context []byte,
+) (auditorHandle [32]byte, auditorDLEQProof []byte, err error) {
+	// Generate auditor handle: r·PK_auditor
+	aHandle, err := cryptopriv.DecryptHandleWithOpening(auditorPub[:], opening)
+	if err != nil {
+		return auditorHandle, nil, fmt.Errorf("auditor handle generation failed: %w", err)
+	}
+	copy(auditorHandle[:], aHandle)
+
+	// Generate DLEQ proof of same-randomness
+	auditorDLEQProof, err = cryptopriv.ProveAuditorHandleDLEQ(
+		opening,
+		auditorPub[:],
+		receiverPub[:],
+		aHandle,
+		receiverHandle[:],
+		context,
+	)
+	if err != nil {
+		return auditorHandle, nil, fmt.Errorf("auditor DLEQ proof failed: %w", err)
+	}
+	return
+}
+
 // BuildShieldProofs generates the proofs required for a ShieldTx.
 // recipientPub is the ElGamal pubkey under which the deposit is encrypted.
 //

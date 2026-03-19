@@ -105,6 +105,7 @@ func makeTransferProofBundle(tb testing.TB, chainID *big.Int) ([32]byte, [32]byt
 		transferCt,
 		receiverCt,
 		sourceCommitment,
+		[32]byte{},
 	)
 
 	ctValidityProof, _, _, _, err := cryptopriv.ProveCTValidityProofWithContext(
@@ -157,7 +158,7 @@ func makeShieldProofBundle(tb testing.TB, chainID *big.Int, senderPub, receiverP
 	}
 	commitment := batchArray32(tb, commitmentBytes)
 	handle := batchArray32(tb, handleBytes)
-	ctx := BuildShieldTranscriptContext(chainID, 0, fee, amount, senderAddr, commitment, handle)
+	ctx := BuildShieldTranscriptContext(chainID, 0, fee, amount, senderAddr, commitment, handle, [32]byte{})
 	proof, _, _, err := cryptopriv.ProveShieldProofWithContext(receiverPub[:], amount, opening, ctx)
 	if err != nil {
 		tb.Fatalf("ProveShieldProofWithContext: %v", err)
@@ -195,7 +196,7 @@ func makeUnshieldProofBundle(tb testing.TB, chainID *big.Int) ([32]byte, Ciphert
 		tb.Fatalf("CommitmentNew: %v", err)
 	}
 	sourceCommitment := batchArray32(tb, sourceCommitmentBytes)
-	ctx := BuildUnshieldTranscriptContext(chainID, 0, 0, amount, senderAddr, zeroedCt, sourceCommitment)
+	ctx := BuildUnshieldTranscriptContext(chainID, 0, 0, amount, senderAddr, zeroedCt, sourceCommitment, [32]byte{})
 	zeroedCt64 := append(append([]byte{}, zeroedCt.Commitment[:]...), zeroedCt.Handle[:]...)
 	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
 		senderPriv[:], senderPub[:], zeroedCt64, sourceCommitmentBytes, sourceOpening, newBalance, ctx,

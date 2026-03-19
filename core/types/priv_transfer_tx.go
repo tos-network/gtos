@@ -33,6 +33,10 @@ type PrivTransferTx struct {
 	CommitmentEqProof []byte // ~192 bytes
 	RangeProof        []byte // aggregated transfer range proof; legacy concatenated proofs are still accepted by verifiers
 
+	// Auditor fields (Phase 3 selective disclosure)
+	AuditorHandle    [32]byte // r·PK_audit (zero if no auditor configured)
+	AuditorDLEQProof []byte   // DLEQ proof for same-randomness (nil if no auditor)
+
 	// Encrypted memo
 	EncryptedMemo      []byte // ChaCha20Poly1305 ciphertext
 	MemoSenderHandle   [32]byte
@@ -55,6 +59,7 @@ func (tx *PrivTransferTx) copy() TxData {
 		SenderHandle:       tx.SenderHandle,
 		ReceiverHandle:     tx.ReceiverHandle,
 		SourceCommitment:   tx.SourceCommitment,
+		AuditorHandle:      tx.AuditorHandle,
 		MemoSenderHandle:   tx.MemoSenderHandle,
 		MemoReceiverHandle: tx.MemoReceiverHandle,
 		S:                  tx.S,
@@ -67,6 +72,7 @@ func (tx *PrivTransferTx) copy() TxData {
 	cpy.CtValidityProof = common.CopyBytes(tx.CtValidityProof)
 	cpy.CommitmentEqProof = common.CopyBytes(tx.CommitmentEqProof)
 	cpy.RangeProof = common.CopyBytes(tx.RangeProof)
+	cpy.AuditorDLEQProof = common.CopyBytes(tx.AuditorDLEQProof)
 	cpy.EncryptedMemo = common.CopyBytes(tx.EncryptedMemo)
 	return cpy
 }
@@ -134,6 +140,8 @@ func (tx *PrivTransferTx) SigningHash() common.Hash {
 		tx.CtValidityProof,
 		tx.CommitmentEqProof,
 		tx.RangeProof,
+		tx.AuditorHandle,
+		tx.AuditorDLEQProof,
 		tx.EncryptedMemo,
 		tx.MemoSenderHandle,
 		tx.MemoReceiverHandle,

@@ -265,3 +265,17 @@ func WriteRecoveryState(db stateDB, wallet common.Address, rs RecoveryState) {
 	copy(guardian[common.HashLength-common.AddressLength:], rs.Guardian.Bytes())
 	db.SetState(registry, walletSlot(wallet, "recoveryGuardian"), guardian)
 }
+
+// ---------- Auditor key ----------
+
+// ReadAuditorKey returns the 32-byte auditor ElGamal public key for wallet.
+// Returns zero if not set.
+func ReadAuditorKey(db stateDB, wallet common.Address) [32]byte {
+	raw := db.GetState(registry, walletSlot(wallet, "auditorKey"))
+	return raw
+}
+
+// WriteAuditorKey writes the 32-byte auditor ElGamal public key for wallet.
+func WriteAuditorKey(db stateDB, wallet common.Address, key [32]byte) {
+	db.SetState(registry, walletSlot(wallet, "auditorKey"), common.Hash(key))
+}

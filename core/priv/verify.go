@@ -189,3 +189,13 @@ func VerifyShieldProofWithContext(commitment, handle [32]byte, pubkey [32]byte, 
 		ctx,
 	))
 }
+
+// VerifyAuditorHandleDLEQ verifies that the auditor handle uses the same
+// randomness as the receiver handle, bound to the transcript context.
+func VerifyAuditorHandleDLEQ(auditorHandle [32]byte, receiverHandle [32]byte, auditorPubkey [32]byte, receiverPubkey [32]byte, proof []byte, ctx []byte) error {
+	if len(proof) != 96 {
+		return ErrInvalidPayload
+	}
+	decoded := append([]byte(nil), proof...)
+	return mapCryptoVerifyError(cryptopriv.VerifyAuditorHandleDLEQ(decoded, auditorPubkey[:], receiverPubkey[:], auditorHandle[:], receiverHandle[:], ctx))
+}

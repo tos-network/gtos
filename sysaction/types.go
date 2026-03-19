@@ -86,6 +86,7 @@ const (
 	ActionPolicyCompleteRecovery  ActionKind = "POLICY_COMPLETE_RECOVERY"
 	ActionPolicySuspend           ActionKind = "POLICY_SUSPEND"
 	ActionPolicyUnsuspend         ActionKind = "POLICY_UNSUSPEND"
+	ActionPolicySetAuditorKey     ActionKind = "POLICY_SET_AUDITOR_KEY"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

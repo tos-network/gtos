@@ -63,6 +63,7 @@ func TestBuildPrivTransferTranscriptContext(t *testing.T) {
 		aliceAddr, bobAddr,
 		senderCt, receiverCt,
 		srcCommit,
+		[32]byte{},
 	)
 
 	// 1+8+1+1+32+32+8+8+8+64+64+32 = 259 bytes.
@@ -131,6 +132,7 @@ func TestBuildPrivTransferTranscriptContext_NilChainID(t *testing.T) {
 		common.Address{}, common.Address{},
 		ZeroCiphertext(), ZeroCiphertext(),
 		[32]byte{},
+		[32]byte{},
 	)
 	if len(ctx) != 259 {
 		t.Fatalf("context length: got %d want 259", len(ctx))
@@ -157,6 +159,7 @@ func TestBuildShieldTranscriptContext(t *testing.T) {
 		aliceAddr,
 		commitment,
 		handle,
+		[32]byte{},
 	)
 
 	// 1+8+1+1+32+8+8+8+32+32 = 131 bytes
@@ -218,6 +221,7 @@ func TestBuildUnshieldTranscriptContext(t *testing.T) {
 		aliceAddr,
 		zeroedCt,
 		srcCommit,
+		[32]byte{},
 	)
 
 	// 1+8+1+1+32+8+8+8+64+32 = 163 bytes

@@ -32,6 +32,10 @@ type UnshieldTx struct {
 	CommitmentEqProof [192]byte // proves SourceCommitment matches computed balance
 	RangeProof        [672]byte // proves committed amount in [0, 2^64)
 
+	// Auditor fields (Phase 3 selective disclosure)
+	AuditorHandle    [32]byte // r·PK_audit (zero if no auditor configured)
+	AuditorDLEQProof []byte   // DLEQ proof for same-randomness (nil if no auditor)
+
 	// ElGamal Schnorr signature (by sender)
 	S [32]byte
 	E [32]byte
@@ -48,6 +52,7 @@ func (tx *UnshieldTx) copy() TxData {
 		SourceCommitment:  tx.SourceCommitment,
 		CommitmentEqProof: tx.CommitmentEqProof,
 		RangeProof:        tx.RangeProof,
+		AuditorHandle:     tx.AuditorHandle,
 		S:                 tx.S,
 		E:                 tx.E,
 		ChainID:           new(big.Int),
@@ -55,6 +60,7 @@ func (tx *UnshieldTx) copy() TxData {
 	if tx.ChainID != nil {
 		cpy.ChainID.Set(tx.ChainID)
 	}
+	cpy.AuditorDLEQProof = common.CopyBytes(tx.AuditorDLEQProof)
 	return cpy
 }
 
@@ -104,6 +110,8 @@ func (tx *UnshieldTx) SigningHash() common.Hash {
 		tx.SourceCommitment,
 		tx.CommitmentEqProof,
 		tx.RangeProof,
+		tx.AuditorHandle,
+		tx.AuditorDLEQProof,
 	})
 	var h common.Hash
 	sha.Read(h[:])

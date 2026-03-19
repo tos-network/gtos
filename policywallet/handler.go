@@ -27,6 +27,7 @@ func (h *policyWalletHandler) Actions() []sysaction.ActionKind {
 		sysaction.ActionPolicyCompleteRecovery,
 		sysaction.ActionPolicySuspend,
 		sysaction.ActionPolicyUnsuspend,
+		sysaction.ActionPolicySetAuditorKey,
 	}
 }
 
@@ -54,6 +55,8 @@ func (h *policyWalletHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAc
 		return h.handleSuspend(ctx, sa)
 	case sysaction.ActionPolicyUnsuspend:
 		return h.handleUnsuspend(ctx, sa)
+	case sysaction.ActionPolicySetAuditorKey:
+		return h.handleSetAuditorKey(ctx, sa)
 	}
 	return nil
 }
@@ -348,5 +351,20 @@ func (h *policyWalletHandler) handleUnsuspend(ctx *sysaction.Context, sa *sysact
 		return ErrWalletNotSuspended
 	}
 	WriteSuspended(ctx.StateDB, p.Account, false)
+	return nil
+}
+
+func (h *policyWalletHandler) handleSetAuditorKey(ctx *sysaction.Context, sa *sysaction.SysAction) error {
+	var p SetAuditorKeyPayload
+	if err := json.Unmarshal(sa.Payload, &p); err != nil {
+		return err
+	}
+	if err := requireOwner(ctx, p.Account); err != nil {
+		return err
+	}
+	if err := requireNotSuspended(ctx.StateDB, p.Account); err != nil {
+		return err
+	}
+	WriteAuditorKey(ctx.StateDB, p.Account, p.AuditorKey)
 	return nil
 }

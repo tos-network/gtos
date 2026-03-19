@@ -1,6 +1,6 @@
 # Selective Disclosure for UNO Confidential Balances
 
-**Status**: Design — not yet implemented
+**Status**: Implemented (all three phases complete)
 **Last updated**: 2026-03-19
 
 ---
@@ -524,34 +524,51 @@ audit access.
 
 **Scope**: Pure cryptography + CLI tooling.
 
-- [ ] `crypto/priv/disclosure.go` — `GenerateDisclosureProof(sk, amount, r, C, D, PK, context)` and `VerifyDisclosureProof(proof, amount, C, D, PK, context)`
-- [ ] Merlin transcript label `"disclosure-proof"` with chain context binding
-- [ ] `cmd/toskey/priv-disclose.go` — CLI command to generate/verify disclosure proofs
-- [ ] RPC: `priv_generateDisclosureProof(address, txHash)` — returns proof + amount
-- [ ] SDK: `generateDisclosureProof()` / `verifyDisclosureProof()` in tosdk
+- [x] `crypto/ed25519/priv_nocgo_disclosure.go` — DLEQ proof (`ProvePrivDisclosureExact` / `VerifyPrivDisclosureExact`)
+- [x] `crypto/priv/disclosure.go` — high-level wrappers (`ProveDisclosureExact` / `VerifyDisclosureExact`)
+- [x] `core/priv/disclosure.go` — chain-layer `DisclosureClaim` type, `BuildDisclosureContext`, `ProveDisclosure`, `VerifyDisclosure`
+- [x] Merlin transcript label `"disclosure-exact"` with chain context binding (chainID, pubkey, ciphertext, blockNumber)
+- [x] `cmd/toskey/priv_disclosure.go` — CLI `priv-disclose` command to generate disclosure proofs
+- [x] RPC: `PrivProveDisclosure` / `PrivVerifyDisclosure` in `internal/tosapi/api.go`
+- [x] Tests: `crypto/priv/disclosure_test.go` (5 tests), `core/priv/disclosure_test.go` (1 test)
+- [x] SDK: `tosdk/src/types/disclosure.ts` — `DisclosureProofParams`, `DisclosureProofResult`, `VerifyDisclosureParams`
+- [x] SDK functions: `client.privProveDisclosure()` / `client.privVerifyDisclosure()` in `tosdk/src/clients/createPublicClient.ts`
 
 ### Phase 2: DecryptionToken (off-chain, no consensus changes)
 
 **Scope**: Scalar multiplication + optional DLEQ proof + CLI/RPC.
 
-- [ ] `crypto/priv/token.go` — `GenerateDecryptionToken(sk, D)` and `VerifyDecryptionTokenDLEQ(proof, PK, D, token)`
-- [ ] Batch API: `GenerateDecryptionTokenBatch(sk, handles []D)` — returns `[]token`
-- [ ] `cmd/toskey/priv-audit-token.go` — CLI for token generation and batch export
-- [ ] RPC: `priv_generateDecryptionTokens(address, fromBlock, toBlock)` — returns tokens for all UNO txs in range
-- [ ] SDK: `generateDecryptionTokens()` / `decryptWithToken()` in tosdk
+- [x] `crypto/ed25519/priv_nocgo_point_ops.go` — `ScalarMultPoint`, `PointSubtract` primitives
+- [x] `crypto/priv/decryption_token.go` — `GenerateDecryptionToken(sk, D)` and `DecryptWithToken(token, C)`
+- [x] `core/priv/decryption_token.go` — `DecryptionToken` struct, `BuildDecryptionToken` (with DLEQ proof), `VerifyDecryptionToken`, `DecryptTokenAmount`
+- [x] DLEQ proof of honest token generation reuses Phase 1 disclosure-exact construction
+- [x] `cmd/toskey/priv_token.go` — CLI `priv-generate-token` and `priv-decrypt-token` commands
+- [x] RPC: `PrivGenerateDecryptionToken`, `PrivVerifyDecryptionToken`, `PrivDecryptWithToken` in `internal/tosapi/api.go`
+- [x] Tests: `crypto/priv/decryption_token_test.go` (3 tests), `core/priv/decryption_token_test.go` (2 tests)
+- [x] Batch API: `BuildDecryptionTokenBatch` in `core/priv/decryption_token.go`
+- [x] SDK: `tosdk/src/types/disclosure.ts` — `DecryptionToken`, `DecryptionTokenParams`, `TokenDecryptResult`
+- [x] SDK functions: `client.privGenerateDecryptionToken()` / `client.privVerifyDecryptionToken()` / `client.privDecryptWithToken()` in `tosdk/src/clients/createPublicClient.ts`
 
 ### Phase 3: AuditorKey (consensus change)
 
 **Scope**: On-chain state + tx validation + policy wallet integration.
 
-- [ ] `policywallet/state.go` — `ReadAuditorKey(db, addr)` / `WriteAuditorKey(db, addr, pubkey)`
-- [ ] `policywallet/handler.go` — `SET_AUDITOR_KEY` system action
-- [ ] Transaction types: add optional `AuditHandle [32]byte` field to PrivTransferTx, ShieldTx, UnshieldTx
-- [ ] `core/state_transition.go` — validate `AuditHandle` when `AuditorPubKey` is set; reject tx if missing
-- [ ] `core/priv/context.go` — extend Merlin transcript with `AuditHandle`
-- [ ] TxPool: pre-validate `AuditHandle` presence
-- [ ] RPC: `priv_decryptWithAuditorKey(auditorPrivKey, txHash)` — auditor-side decryption
-- [ ] `core/parallel/analyze.go` — ensure AuditorKey txs are serialized correctly
+- [x] `policywallet/state.go` — `ReadAuditorKey(db, addr)` / `WriteAuditorKey(db, addr, pubkey)`
+- [x] `policywallet/handler.go` — `POLICY_SET_AUDITOR_KEY` system action handler
+- [x] `policywallet/types.go` — `SetAuditorKeyPayload`
+- [x] `sysaction/types.go` — `ActionPolicySetAuditorKey` constant
+- [x] Transaction types: `AuditorHandle [32]byte` + `AuditorDLEQProof []byte` added to PrivTransferTx, ShieldTx, UnshieldTx (with `copy()` and `SigningHash()` updates)
+- [x] `crypto/ed25519/priv_nocgo_disclosure.go` — `ProveAuditorHandleDLEQ` / `VerifyAuditorHandleDLEQ` (same-randomness DLEQ)
+- [x] `crypto/priv/disclosure.go` — auditor DLEQ wrappers
+- [x] `core/priv/verify.go` — `VerifyAuditorHandleDLEQ`
+- [x] `core/priv/batch_verify.go` — `AddAuditorHandleDLEQ`
+- [x] `core/priv/prover.go` — `BuildAuditorHandle(opening, auditorPub, receiverPub, receiverHandle, ctx)`
+- [x] `core/privacy_tx_prepare.go` — validate AuditorHandle presence + DLEQ proof when AuditorKey is set (all 3 tx types)
+- [x] `core/tx_pool_privacy_verify.go` — `AuditorDLEQProof` shape validation (0 or 96 bytes)
+- [x] `core/priv/context.go` — context version bumped to 2 when AuditorHandle is non-zero; all three builders extended
+- [x] RPC: `PrivDecryptWithAuditorKey` in `internal/tosapi/api.go` — auditor-side decryption by tx hash
+- [x] SDK: `tosdk/src/types/disclosure.ts` — `AuditorDecryptParams`, `AuditorDecryptResult`
+- [x] SDK function: `client.privDecryptWithAuditorKey()` in `tosdk/src/clients/createPublicClient.ts`
 
 ---
 

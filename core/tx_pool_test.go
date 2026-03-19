@@ -138,7 +138,7 @@ func mustMakeShieldTx(t *testing.T, chainID *big.Int, senderPub, senderPriv, rec
 	}
 	commitment := bytesToArray32(commitmentBytes)
 	handle := bytesToArray32(handleBytes)
-	ctx := priv.BuildShieldTranscriptContext(chainID, nonce, fee, amount, senderAddr, commitment, handle)
+	ctx := priv.BuildShieldTranscriptContext(chainID, nonce, fee, amount, senderAddr, commitment, handle, [32]byte{})
 	shieldProof, _, _, err := cryptopriv.ProveShieldProofWithContext(recipientPub[:], amount, opening, ctx)
 	if err != nil {
 		t.Fatalf("ProveShieldProofWithContext: %v", err)
@@ -186,7 +186,7 @@ func mustMakeUnshieldTx(t *testing.T, chainID *big.Int, senderPub, senderPriv [3
 		t.Fatalf("CommitmentNew: %v", err)
 	}
 	sourceCommitment := bytesToArray32(sourceCommitmentBytes)
-	ctx := priv.BuildUnshieldTranscriptContext(chainID, nonce, fee, amount, senderAddr, zeroedCt, sourceCommitment)
+	ctx := priv.BuildUnshieldTranscriptContext(chainID, nonce, fee, amount, senderAddr, zeroedCt, sourceCommitment, [32]byte{})
 	zeroedCt64 := append(append([]byte{}, zeroedCt.Commitment[:]...), zeroedCt.Handle[:]...)
 	commitmentEqProof, err := cryptopriv.ProveCommitmentEqProof(
 		senderPriv[:], senderPub[:],
@@ -278,6 +278,7 @@ func mustMakePrivTransferTx(t *testing.T, chainID *big.Int, senderPub, senderPri
 		senderTransferCt,
 		receiverTransferCt,
 		sourceCommitment,
+		[32]byte{},
 	)
 	ctValidityProof, _, _, _, err := cryptopriv.ProveCTValidityProofWithContext(
 		senderPub[:], receiverPub[:], amount, opening, true, transcriptCtx,

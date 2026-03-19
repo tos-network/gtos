@@ -127,6 +127,12 @@ type SuspendPayload struct {
 	Account common.Address `json:"account"`
 }
 
+// SetAuditorKeyPayload is the payload for ActionPolicySetAuditorKey.
+type SetAuditorKeyPayload struct {
+	Account    common.Address `json:"account"`
+	AuditorKey [32]byte       `json:"auditor_key"`
+}
+
 // Sentinel errors returned by policy wallet handlers.
 var (
 	ErrNotOwner              = errors.New("policywallet: caller is not wallet owner")

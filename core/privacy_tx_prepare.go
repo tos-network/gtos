@@ -428,6 +428,26 @@ func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Tr
 		return nil, errInvalidPrivSchnorrSignature
 	}
 
+	// Validate auditor handle if auditor key is configured.
+	auditorKey := policywallet.ReadAuditorKey(statedb, fromAddr)
+	var zeroKey [32]byte
+	if auditorKey != zeroKey {
+		if ptx.AuditorHandle == zeroKey {
+			return nil, fmt.Errorf("priv: auditor key configured but AuditorHandle is zero")
+		}
+		if len(ptx.AuditorDLEQProof) != 96 {
+			return nil, fmt.Errorf("priv: auditor DLEQ proof must be 96 bytes")
+		}
+	} else {
+		// No auditor key: auditor fields must be empty
+		if ptx.AuditorHandle != zeroKey {
+			return nil, fmt.Errorf("priv: AuditorHandle set but no auditor key configured")
+		}
+		if len(ptx.AuditorDLEQProof) > 0 {
+			return nil, fmt.Errorf("priv: AuditorDLEQProof set but no auditor key configured")
+		}
+	}
+
 	senderState := priv.GetAccountState(statedb, fromAddr)
 	receiverState := priv.GetAccountState(statedb, toAddr)
 	if senderState.Version == math.MaxUint64 || receiverState.Version == math.MaxUint64 {
@@ -450,7 +470,19 @@ func preparePrivTransferState(chainID *big.Int, statedb vm.StateDB, tx *types.Tr
 		fromAddr, toAddr,
 		senderCt, receiverCt,
 		ptx.SourceCommitment,
+		ptx.AuditorHandle,
 	)
+	// Verify auditor handle DLEQ if present.
+	if auditorKey != zeroKey {
+		if err := priv.VerifyAuditorHandleDLEQ(
+			ptx.AuditorHandle, ptx.ReceiverHandle,
+			auditorKey, ptx.To,
+			ptx.AuditorDLEQProof, transcriptCtx,
+		); err != nil {
+			return nil, fmt.Errorf("priv: auditor handle DLEQ verification failed: %w", err)
+		}
+	}
+
 	outputCt, err := priv.AddScalarToCiphertext(senderCt, ptx.UnoFeeLimit)
 	if err != nil {
 		return nil, err
@@ -497,9 +529,50 @@ func prepareShieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transact
 		return nil, errInvalidPrivSchnorrSignature
 	}
 
+	// Validate auditor handle if auditor key is configured.
+	shieldAuditorKey := policywallet.ReadAuditorKey(statedb, senderAddr)
+	var shieldZeroKey [32]byte
+	if shieldAuditorKey != shieldZeroKey {
+		if stx.AuditorHandle == shieldZeroKey {
+			return nil, fmt.Errorf("priv: auditor key configured but AuditorHandle is zero")
+		}
+		if len(stx.AuditorDLEQProof) != 96 {
+			return nil, fmt.Errorf("priv: auditor DLEQ proof must be 96 bytes")
+		}
+	} else {
+		if stx.AuditorHandle != shieldZeroKey {
+			return nil, fmt.Errorf("priv: AuditorHandle set but no auditor key configured")
+		}
+		if len(stx.AuditorDLEQProof) > 0 {
+			return nil, fmt.Errorf("priv: AuditorDLEQProof set but no auditor key configured")
+		}
+	}
+
 	recipientState := priv.GetAccountState(statedb, recipientAddr)
 	if recipientState.Version == math.MaxUint64 {
 		return nil, priv.ErrVersionOverflow
+	}
+
+	shieldTranscriptCtx := priv.BuildShieldTranscriptContext(
+		chainID,
+		stx.PrivNonce,
+		stx.UnoFee,
+		stx.UnoAmount,
+		senderAddr,
+		stx.Commitment,
+		stx.Handle,
+		stx.AuditorHandle,
+	)
+
+	// Verify auditor handle DLEQ if present.
+	if shieldAuditorKey != shieldZeroKey {
+		if err := priv.VerifyAuditorHandleDLEQ(
+			stx.AuditorHandle, stx.Handle,
+			shieldAuditorKey, stx.Recipient,
+			stx.AuditorDLEQProof, shieldTranscriptCtx,
+		); err != nil {
+			return nil, fmt.Errorf("priv: auditor handle DLEQ verification failed: %w", err)
+		}
 	}
 
 	return &preparedShieldTx{
@@ -507,16 +580,8 @@ func prepareShieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transact
 		from:                senderAddr,
 		inputSenderBalance:  senderBalance,
 		inputRecipientState: recipientState,
-		transcriptContext: priv.BuildShieldTranscriptContext(
-			chainID,
-			stx.PrivNonce,
-			stx.UnoFee,
-			stx.UnoAmount,
-			senderAddr,
-			stx.Commitment,
-			stx.Handle,
-		),
-		totalCostWei: totalCostWei,
+		transcriptContext:   shieldTranscriptCtx,
+		totalCostWei:        totalCostWei,
 	}, nil
 }
 
@@ -547,6 +612,25 @@ func prepareUnshieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transa
 		return nil, errInvalidPrivSchnorrSignature
 	}
 
+	// Validate auditor handle if auditor key is configured.
+	unshieldAuditorKey := policywallet.ReadAuditorKey(statedb, senderAddr)
+	var unshieldZeroKey [32]byte
+	if unshieldAuditorKey != unshieldZeroKey {
+		if utx.AuditorHandle == unshieldZeroKey {
+			return nil, fmt.Errorf("priv: auditor key configured but AuditorHandle is zero")
+		}
+		if len(utx.AuditorDLEQProof) != 96 {
+			return nil, fmt.Errorf("priv: auditor DLEQ proof must be 96 bytes")
+		}
+	} else {
+		if utx.AuditorHandle != unshieldZeroKey {
+			return nil, fmt.Errorf("priv: AuditorHandle set but no auditor key configured")
+		}
+		if len(utx.AuditorDLEQProof) > 0 {
+			return nil, fmt.Errorf("priv: AuditorDLEQProof set but no auditor key configured")
+		}
+	}
+
 	accountState := priv.GetAccountState(statedb, senderAddr)
 	if accountState.Version == math.MaxUint64 {
 		return nil, priv.ErrVersionOverflow
@@ -560,23 +644,38 @@ func prepareUnshieldState(chainID *big.Int, statedb vm.StateDB, tx *types.Transa
 	if err != nil {
 		return nil, err
 	}
+
+	unshieldTranscriptCtx := priv.BuildUnshieldTranscriptContext(
+		chainID,
+		utx.PrivNonce,
+		utx.UnoFee,
+		utx.UnoAmount,
+		senderAddr,
+		zeroedCt,
+		utx.SourceCommitment,
+		utx.AuditorHandle,
+	)
+
+	// Verify auditor handle DLEQ if present.
+	if unshieldAuditorKey != unshieldZeroKey {
+		if err := priv.VerifyAuditorHandleDLEQ(
+			utx.AuditorHandle, accountState.Ciphertext.Handle,
+			unshieldAuditorKey, utx.Pubkey,
+			utx.AuditorDLEQProof, unshieldTranscriptCtx,
+		); err != nil {
+			return nil, fmt.Errorf("priv: auditor handle DLEQ verification failed: %w", err)
+		}
+	}
+
 	return &preparedUnshieldTx{
 		tx:                    tx,
 		from:                  senderAddr,
 		inputAccountState:     accountState,
 		inputRecipientBalance: recipientBalance,
 		zeroedCiphertext:      zeroedCt,
-		transcriptContext: priv.BuildUnshieldTranscriptContext(
-			chainID,
-			utx.PrivNonce,
-			utx.UnoFee,
-			utx.UnoAmount,
-			senderAddr,
-			zeroedCt,
-			utx.SourceCommitment,
-		),
-		amountWei: amountWei,
-		feeWei:    feeWei,
+		transcriptContext:     unshieldTranscriptCtx,
+		amountWei:             amountWei,
+		feeWei:                feeWei,
 	}, nil
 }
 

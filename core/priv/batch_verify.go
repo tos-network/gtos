@@ -108,6 +108,15 @@ func (b *BatchVerifier) AddSingleRangeProof(commitment [32]byte, proof []byte) e
 	return mapCryptoVerifyError(b.inner.AddRangeProof(decoded, commitment[:], []byte{64}, 1))
 }
 
+func (b *BatchVerifier) AddAuditorHandleDLEQ(auditorHandle [32]byte, receiverHandle [32]byte, auditorPubkey [32]byte, receiverPubkey [32]byte, proof []byte, ctx []byte) error {
+	if len(proof) != 96 {
+		return ErrInvalidPayload
+	}
+	// Auditor handle DLEQ verification is done individually (not batched)
+	// because the ed25519 batch verifier doesn't have a native method for it.
+	return VerifyAuditorHandleDLEQ(auditorHandle, receiverHandle, auditorPubkey, receiverPubkey, proof, ctx)
+}
+
 func (b *BatchVerifier) Verify() error {
 	return mapCryptoVerifyError(b.inner.Verify())
 }
