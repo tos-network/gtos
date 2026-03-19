@@ -85,6 +85,22 @@ range-proof encoding so historical data can still be verified.
 
 - GTOS does not implement the `~/x` ZKP cache model
 
+## Selective Disclosure Verification ✅
+
+The selective disclosure system (see `docs/SELECTIVE-DISCLOSURE.md`) adds three
+new proof types to the verification surface:
+
+| Proof | Size | Verification | Batch support |
+|-------|------|-------------|---------------|
+| **DisclosureProof** (DLEQ exact amount) | 96B | Off-chain only (`core/priv.VerifyDisclosure`) | N/A (off-chain) |
+| **DecryptionToken** DLEQ honesty proof | 96B | Off-chain only (`core/priv.VerifyDecryptionToken`) | N/A (off-chain) |
+| **AuditorHandle DLEQ** (same-randomness) | 96B | On-chain (`core/priv.VerifyAuditorHandleDLEQ`) | Via `BatchVerifier.AddAuditorHandleDLEQ` |
+
+The AuditorHandle DLEQ is verified at consensus time in `core/privacy_tx_prepare.go`
+and can be added to the batch verifier via `AddAuditorHandleDLEQ` in
+`core/priv/batch_verify.go`. Shape validation (0 or 96 bytes) occurs at txpool
+admission in `core/tx_pool_privacy_verify.go`.
+
 ## Suggested Completion Order
 
 1. Treat the current batch-verification work as complete for functional parity.

@@ -206,4 +206,25 @@ Encrypted storage and confidential computation (FHE/MPC/TEE) are active research
 | **Minimally viable** | 0 + 1 + 1b + 1c + 1d + 1e | (~72%). Amounts hidden, funds flow freely, UNO unit system with feasible BSGS decryption, key/decrypt tooling exists, privacy txs are batch-verified in txpool and execution |
 | **Contract-ready** | + 5 | ← **We are here** (~80%). Contracts can manipulate encrypted values via `uno` type. All 22 ciphertext ops have real ZK verification. |
 
-**All planned privacy phases are complete. All ZK verifications are real. No remaining hardening items.**
+### Phase 6: Selective Disclosure ✅
+
+Three-layer selective disclosure for UNO confidential balances, enabling
+account holders to prove properties about encrypted balances to third parties
+without revealing private keys. See `docs/SELECTIVE-DISCLOSURE.md`.
+
+| Sub-phase | Work | Status |
+|-----------|------|--------|
+| **6a: DisclosureProof** | DLEQ Sigma proof of exact balance amount (off-chain) | ✅ DONE |
+| **6b: DecryptionToken** | Per-ciphertext `sk·D` token with DLEQ honesty proof (off-chain) | ✅ DONE |
+| **6c: AuditorKey** | Policy-wallet-enforced dual encryption, consensus-validated AuditorHandle + DLEQ | ✅ DONE |
+
+Implementation: crypto layer (`crypto/ed25519/priv_nocgo_disclosure.go`,
+`crypto/priv/disclosure.go`, `crypto/priv/decryption_token.go`), core layer
+(`core/priv/disclosure.go`, `core/priv/decryption_token.go`), consensus
+(`core/privacy_tx_prepare.go`, `core/tx_pool_privacy_verify.go`), policy
+wallet (`policywallet/state.go`, `policywallet/handler.go`), tx types
+(`AuditorHandle` + `AuditorDLEQProof` on all three priv tx types), CLI
+(`toskey priv-disclose`, `priv-generate-token`, `priv-decrypt-token`),
+RPC (6 new methods), SDK (`tosdk` 0.5.0, 6 new `PublicClient` methods).
+
+**All planned privacy phases are complete. All ZK verifications are real. Selective disclosure is fully operational. No remaining hardening items.**

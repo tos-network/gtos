@@ -224,7 +224,20 @@ Phase 3 (Decoy outputs)
 Phase 5 (Agent privacy tiers)
     │
 Phase 6 (Private contracts)      ← aspirational
+    │
+Phase 7 (Selective disclosure)   ← DONE ✅
 ```
+
+### Phase 7: Selective Disclosure ✅
+
+Supersedes the aspirational Phase 6 private-contracts work with a practical
+three-layer selective disclosure system. See `docs/SELECTIVE-DISCLOSURE.md`.
+
+- **Layer 1 — DisclosureProof ✅**: DLEQ Sigma protocol (96B) for exact amount proof. Off-chain, no consensus change.
+- **Layer 2 — DecryptionToken ✅**: Per-ciphertext `sk·D` token (32B) + DLEQ honesty proof. Off-chain, batchable.
+- **Layer 3 — AuditorKey ✅**: Consensus-enforced dual encryption. PolicyWallet `POLICY_SET_AUDITOR_KEY` action stores auditor pubkey; all priv txs must include `AuditorHandle` + same-randomness DLEQ when configured.
+
+Implementation spans crypto, core, policywallet, sysaction, tx types, CLI, RPC, and SDK layers.
 
 ## Verification Strategy
 

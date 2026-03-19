@@ -1035,3 +1035,27 @@ Follow-up batch-verification alignment work is tracked in `docs/PRIVACY-BATCH-VE
 **Core v1 functionality: 100% complete.** All validator execution paths (state transition, proof verification, fee deduction, coinbase credit), TxPool (type-aware nonce, validation), miner (gas-free block assembly), genesis, RPC, CLI, and crypto layers are implemented and tested. The old legacy system has been fully removed.
 
 **Client-side proof generation: 100% complete.** CommitmentEqProof and aggregated RangeProof provers are exposed through the full stack (C backend, CGO wrapper, nocgo stubs, crypto/priv wrapper, core/priv/prover.go). The `toskey priv-transfer` CLI command can generate all three transfer proofs.
+
+### Selective Disclosure ✅
+
+Three-layer selective disclosure is fully implemented, enabling account holders
+to prove properties about encrypted balances to authorized third parties without
+revealing private keys. See `docs/SELECTIVE-DISCLOSURE.md` for full design.
+
+| Layer | Mechanism | Recipient | On-chain | Status |
+|-------|-----------|-----------|----------|--------|
+| **DisclosureProof** | DLEQ Sigma proof (96B) | Lender, arbitrator, DAO | No (off-chain) | ✅ |
+| **DecryptionToken** | `sk·D` token (32B) + DLEQ honesty proof | Auditor | No (off-chain) | ✅ |
+| **AuditorKey** | Consensus-enforced dual encryption (+32B/tx) | Regulator | Yes (AuditorHandle in tx) | ✅ |
+
+Key files:
+
+- `crypto/ed25519/priv_nocgo_disclosure.go` — DLEQ prove/verify + auditor handle same-randomness DLEQ
+- `crypto/priv/disclosure.go`, `crypto/priv/decryption_token.go` — high-level wrappers
+- `core/priv/disclosure.go`, `core/priv/decryption_token.go` — chain-layer types and context binding
+- `policywallet/state.go` — `ReadAuditorKey` / `WriteAuditorKey`
+- `core/types/{priv_transfer,shield,unshield}_tx.go` — `AuditorHandle` + `AuditorDLEQProof` fields
+- `core/privacy_tx_prepare.go` — AuditorHandle validation and DLEQ verification
+- CLI: `toskey priv-disclose`, `priv-generate-token`, `priv-decrypt-token`
+- RPC: `PrivProveDisclosure`, `PrivVerifyDisclosure`, `PrivGenerateDecryptionToken`, `PrivVerifyDecryptionToken`, `PrivDecryptWithToken`, `PrivDecryptWithAuditorKey`
+- SDK: `@tosnetwork/tosdk` 0.5.0 — 6 new `PublicClient` methods

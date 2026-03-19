@@ -170,6 +170,14 @@ not constitute "privacy as a first-class property."
 - **Optional privacy mode** for Agent Registry (ZK-proven stake and
   capabilities without revealing identity).
 
+### Medium Term (added) — Selective Disclosure ✅
+
+- **Selective disclosure mechanisms** — three-layer system for regulator,
+  auditor, and counterparty views. DisclosureProof (DLEQ ZK proof of exact
+  amount), DecryptionToken (per-ciphertext auditor token with honesty proof),
+  AuditorKey (consensus-enforced dual encryption via policy wallet). Fully
+  implemented — see `docs/SELECTIVE-DISCLOSURE.md`.
+
 ### Long Term — Reach ~90%+
 
 - **Network-layer privacy** (Tor integration or mixnet relay).
