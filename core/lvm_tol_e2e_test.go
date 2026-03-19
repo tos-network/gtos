@@ -41,8 +41,8 @@ contract TRC20 {
   event Transfer(agent from indexed, agent to indexed, u256 value)
 
   constructor(u256 initialSupply) {
-    total_supply = initialSupply;
-    balances[msg.sender] = initialSupply;
+    set total_supply = initialSupply;
+    set balances[msg.sender] = initialSupply;
     emit Transfer(NOBODY, msg.sender, initialSupply);
     return;
   }
@@ -58,8 +58,8 @@ contract TRC20 {
   function transfer(agent to, u256 value) public returns (bool ok) {
     require(balances[msg.sender] >= value, "INSUFFICIENT");
     require(to != NOBODY, "NOBODY");
-    balances[msg.sender] -= value;
-    balances[to] += value;
+    set balances[msg.sender] -= value;
+    set balances[to] += value;
     emit Transfer(msg.sender, to, value);
     return true;
   }
