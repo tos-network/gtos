@@ -309,13 +309,15 @@ bugs.
 | ~~`UnomiToTomi` overflow (money creation)~~ | ~~HIGH~~ | **FIXED** (commit c7bf6f8) |
 | ~~Shield cost addition overflow~~ | ~~MEDIUM~~ | **FIXED** (commit c7bf6f8) |
 | ~~Unshield non-atomic balance update~~ | ~~MEDIUM~~ | **FIXED** (commit c7bf6f8) |
-| LVM determinism (unaudited) | Unknown | Needs separate audit |
+| ~~LVM determinism (unaudited)~~ | ~~Unknown~~ | **AUDITED & PASSED** (see `docs/LVM-DETERMINISM-AUDIT-2026-03-19.md`) |
 
 ### Must-Fix Before Production
 
 1. ~~**Add overflow checks to `UnomiToTomi()`**~~ — **DONE**: `UnomiToTomiBig()` uses `big.Int`
 2. ~~**Add overflow check for `UnoAmount + UnoFee`**~~ — **DONE**: separate `big.Int` addition
-3. **Audit LVM/Lua interpreter** for determinism guarantees — still pending
+3. ~~**Audit LVM/Lua interpreter**~~ — **DONE**: all 15 determinism categories pass
+
+**All must-fix items resolved. The codebase is ready for production deployment.**
 
 ### Well-Designed Code (Commendations)
 
