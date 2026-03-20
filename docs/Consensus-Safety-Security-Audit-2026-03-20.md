@@ -33,8 +33,8 @@ I found:
 - Finding 2: ✅ Not a bug — slash txs already read `ValidatorRegistryAddress` + write `LVMSerialAddress` (cross-check verified)
 - Finding 3: ✅ Fixed — sponsor address added to `WriteAddrs`/`ReadAddrs`; coinbase fallback extended
 - Finding 4: ✅ Fixed — tomi layer converted to full `big.Int`; `UnomiToTomi(uint64)` deleted
-- Finding 5: Open — txpool sponsor nonce pipelining (liveness, not consensus)
-- Finding 6: Open — sponsor-expiry time unit mismatch (not consensus)
+- Finding 5: ✅ Fixed — sponsor nonce pipelining (`sponsorNoncer`, sponsor-aware promotion + miner selection)
+- Finding 6: ✅ Fixed — sponsor-expiry unified to Unix milliseconds
 
 Positive findings:
 - Pre-block sender resolution is handled carefully in `core/state_processor.go`.
@@ -279,7 +279,7 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   Principle: unomi stays uint64 (50B TOS = 5e11, safe); tomi must be
   `big.Int` (50B TOS = 5e27, overflows uint64).
 
-## Finding 5 — Open (liveness, not consensus)
+## Finding 5 ✅ Fixed (commit 8488cfb)
 
 - Severity: Medium
 - Title: Txpool cannot pipeline valid sponsored tx sequences across different senders
@@ -518,7 +518,7 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   **Risk**: No consensus rule change; affects txpool admission/promotion and
   local miner candidate ordering only.
 
-## Finding 6 — Open (correctness, not consensus)
+## Finding 6 ✅ Fixed (commit 8488cfb)
 
 - Severity: Medium
 - Title: Sponsor-expiry checks use inconsistent time units between txpool and consensus
@@ -709,13 +709,13 @@ The following items were manually verified after the initial audit write-up.
 
 - Main security risks:
   - ~~privacy shield / unshield public-settlement overflow~~ ✅ Fixed (tomi layer full `big.Int`)
-  - sponsor-feature liveness failure in txpool (medium, not consensus)
-  - sponsor-expiry unit mismatch (medium, not consensus)
+  - ~~sponsor-feature liveness failure in txpool~~ ✅ Fixed (sponsorNoncer + sponsor-aware promotion)
+  - ~~sponsor-expiry unit mismatch~~ ✅ Fixed (Unix milliseconds everywhere)
 
 - Must-fix items before production:
   - ~~disable or heavily serialize parallel execution for system actions, slash txs, and sponsored txs until exact access-set modeling exists~~ ✅ Already serialized / fixed
   - ~~fix privacy UNO-to-Wei arithmetic with overflow-safe `big.Int` accounting~~ ✅ Done
-  - add txpool support for virtual sponsor nonces (medium priority, liveness improvement)
-  - unify sponsor-expiry units (medium priority, correctness improvement)
+  - ~~add txpool support for virtual sponsor nonces~~ ✅ Done (`core/sponsor_noncer.go`, sponsor-aware `promoteExecutables`, miner sender-head parking)
+  - ~~unify sponsor-expiry units~~ ✅ Done (`time.Now().UnixMilli()` in txpool, matching `header.Time`)
   - ~~add explicit parity tests for serial vs parallel execution on all custom native actions~~ ✅ Existing tests pass (`TestParallelDeterminism`, `TestParallelSerialEquivalence`)
   - add differential tests for privacy proof verification across build backends (low priority — `cgo` backend is incomplete)
