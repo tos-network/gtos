@@ -347,15 +347,24 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   // sponsorNonce > expected → queued (not rejected), same as sender nonce
   ```
 
-  **Step 4: Advance sponsor nonce on promotion**
+  **Step 4: Advance sponsor nonce exactly once on promotion**
 
-  In `addTx` success path (line 936, where `pool.pendingNonces.set(addr, tx.Nonce()+1)`):
+  Extend `promoteTx()` itself (where `pool.pendingNonces.set(addr, tx.Nonce()+1)`
+  already lives) so the promotion-time nonce updates stay in one place:
   ```go
+  // Existing sender-side advance.
+  pool.pendingNonces.set(addr, tx.Nonce()+1)
+
+  // New sponsor-side advance.
   if tx.IsSponsored() {
+      sponsor, _ := tx.SponsorFrom()
       sponsorNonce, _ := tx.SponsorNonce()
       pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
   }
   ```
+  This must be the **only** promotion-time update site for
+  `sponsorPendingNonces`. Caller-side loops should invoke `promoteTx(...)`
+  but must not increment sponsor nonce a second time.
 
   **Step 5: Lower sponsor nonce on removal/demotion**
 
@@ -389,29 +398,33 @@ However, the public-side amount conversion uses `uint64` multiplication and over
           for _, tx := range list.PeekReady(senderNonce) {
               if !tx.IsSponsored() {
                   // Non-sponsored: promote immediately.
-                  list.Remove(tx); promoteTx(tx); progress = true
+                  list.Remove(tx)
+                  promoteTx(addr, tx.Hash(), tx)
+                  progress = true
                   continue
               }
+              sponsor, _ := tx.SponsorFrom()
               sponsorNonce, _ := tx.SponsorNonce()
               expected := pool.sponsorPendingNonces.get(sponsor)
-              if sponsorNonce == expected {
-                  // Sponsor-ready: promote and advance both nonces.
-                  list.Remove(tx); promoteTx(tx)
-                  pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
-                  progress = true
+              if sponsorNonce != expected {
+                  // Head tx is sponsor-blocked; later txs from the same
+                  // sender cannot be promoted yet either.
+                  break
               }
-              // sponsorNonce > expected: leave in queue, try again
-              // after another sender's tx unblocks the sponsor.
-              break // sender nonce gap — stop for this account
+              list.Remove(tx)
+              promoteTx(addr, tx.Hash(), tx)  // advances both sender and sponsor nonces
+              progress = true
           }
       }
   }
   ```
 
   `PeekReady(threshold)` is a new helper on `txList` that returns
-  sender-ready txs (nonce >= threshold, continuous) **without removing
+  sender-ready txs (beginning at `threshold`, continuous) **without removing
   them**. Only after both sender and sponsor readiness are confirmed does
-  the loop call `Remove()` + `promoteTx()`.
+  the loop call `Remove()` + `promoteTx()`. `promoteTx()` owns all nonce
+  advancement; the fixed-point loop must not update `sponsorPendingNonces`
+  directly.
 
   The fixed-point loop converges because each iteration either promotes at
   least one tx (advancing a nonce) or terminates. Worst-case iterations =
@@ -425,55 +438,69 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   gap, OOG) but wrong for sponsor nonce blocking. A sponsor nonce mismatch
   is cross-sender and temporary — another sender's tx may fill the gap.
 
-  Correct approach: **defer-and-revisit**, not `Pop()`.
+  A simple tx-level `deferred` map plus `iter.Shift()` is still not enough:
+  after shifting past a sponsor-blocked head, the next higher-nonce tx from
+  the same sender will hit the existing `tx.Nonce() > expected { iter.Pop() }`
+  path in `worker.go:912`, discarding that sender's remaining sequence.
+
+  Correct approach: **park blocked senders at their current head**, and only
+  expose one head tx per sender to the price heap. This is best implemented as
+  a sponsor-aware selector (or wrapper around `TransactionsByPriceAndNonce`)
+  that tracks sender heads plus sponsor readiness:
 
   ```go
+  nextNonce := make(map[common.Address]uint64)
   nextSponsorNonce := make(map[common.Address]uint64)
-  deferred := make(map[common.Hash]*types.Transaction)
+  heads := newPriceHeap()  // one current head tx per sender
+  pausedBySponsor := make(map[common.Address][]*senderCursor)
 
-  for {
-      tx := iter.Peek()
-      if tx == nil { break }
+  for heads.Len() > 0 {
+      cur := heads.PopBest()
+      tx := cur.Head()
 
       if tx.IsSponsored() {
-          sponsor := tx.Sponsor()
+          sponsor, _ := tx.SponsorFrom()
           if _, ok := nextSponsorNonce[sponsor]; !ok {
               nextSponsorNonce[sponsor] = getSponsorNonce(env.state, sponsor)
           }
           sponsorNonce, _ := tx.SponsorNonce()
           if sponsorNonce != nextSponsorNonce[sponsor] {
-              // Temporarily blocked by another sender's sponsor tx.
-              // Shift to next candidate without discarding this sender.
-              deferred[tx.Hash()] = tx
-              iter.Shift()  // advance to next tx, keep sender alive
+              // Park this sender at its current head. Do not expose higher
+              // nonces from the same sender until the head is unblocked.
+              pausedBySponsor[sponsor] = append(pausedBySponsor[sponsor], cur)
               continue
           }
-          nextSponsorNonce[sponsor] = sponsorNonce + 1
       }
 
       // ... commit tx as normal ...
 
-      // After committing, check if any deferred tx is now unblocked.
-      for hash, dtx := range deferred {
-          sn, _ := dtx.SponsorNonce()
-          if sn == nextSponsorNonce[dtx.Sponsor()] {
-              // Re-inject into selection — simplest: commit it now.
-              delete(deferred, hash)
-              // ... commit dtx ...
-              nextSponsorNonce[dtx.Sponsor()] = sn + 1
+      nextNonce[cur.from]++
+      if tx.IsSponsored() {
+          sponsor, _ := tx.SponsorFrom()
+          nextSponsorNonce[sponsor]++
+          for _, paused := range pausedBySponsor[sponsor] {
+              if head := paused.Head(); head != nil {
+                  sn, _ := head.SponsorNonce()
+                  if sn == nextSponsorNonce[sponsor] {
+                      heads.Push(paused)
+                  }
+              }
           }
+          delete(pausedBySponsor, sponsor)
+      }
+
+      cur.AdvanceToNextNonceValidHead(nextNonce[cur.from])
+      if cur.Head() != nil {
+          heads.Push(cur)
       }
   }
   ```
 
-  `Shift()` is a new method on `TransactionsByPriceAndNonce` that skips the
-  current tx but keeps the sender's remaining txs in the heap (unlike
-  `Pop()` which removes the entire sender). If `Shift()` is too invasive,
-  an alternative is a two-pass approach: first pass collects all
-  non-sponsored txs; second pass inserts sponsored txs in sponsor-nonce
-  order.
+  The key property is: when a sender's current head is sponsor-blocked, that
+  sender is paused **at the head transaction**. Higher-nonce txs from the same
+  sender are not surfaced until the blocked head is committed or discarded.
 
-  **Step 8: Tests (`core/tx_pool_test.go`)**
+  **Step 8: Tests (`core/tx_pool_test.go`, `miner/worker_test.go`)**
 
   Add tests:
   - `TestSponsorNoncePipelining`: Alice (nonce 0) + Bob (nonce 1) with same
@@ -484,9 +511,12 @@ However, the public-side amount conversion uses `uint64` multiplication and over
     correctly
   - `TestMinerSponsorOrdering`: miner selects sponsor nonce 0 before 1,
     even if nonce 1 has higher fee
+  - `TestMinerPausedSenderResumes`: a sender blocked on sponsor nonce is
+    re-considered after another sender fills the sponsor gap
 
   **Estimated scope**: ~150 lines new code + ~100 lines tests.
-  **Risk**: Zero consensus impact — txpool only.
+  **Risk**: No consensus rule change; affects txpool admission/promotion and
+  local miner candidate ordering only.
 
 ## Finding 6 — Open (correctness, not consensus)
 
