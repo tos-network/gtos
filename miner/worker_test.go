@@ -768,3 +768,57 @@ func TestSelectTransactionsResumesPausedSenderAfterSponsorGap(t *testing.T) {
 		t.Fatalf("sponsor nonce order mismatch: have [%d %d %d] want [0 1 2]", msgs[0].SponsorNonce(), msgs[1].SponsorNonce(), msgs[2].SponsorNonce())
 	}
 }
+
+// TestSelectTransactionsLocalPausedResumedByRemoteGapFiller verifies that a
+// local tx paused on sponsor nonce N is resumed when the remote pass includes
+// the gap-filler for nonce N-1. This is the regression test for the bug where
+// pausedBySponsor was scoped inside each doSelect call.
+func TestSelectTransactionsLocalPausedResumedByRemoteGapFiller(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, dposChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	env := newSelectionEnv(t, w, b)
+	signer := types.MakeSigner(dposChainConfig, env.header.Number)
+	sponsorKey, _ := crypto.GenerateKey()
+
+	// local tx: sponsor nonce 1 (blocked, needs nonce 0 first)
+	var localTx *types.Transaction
+	var localHash common.Hash
+	for i := 0; i < 256; i++ {
+		localKey, _ := crypto.GenerateKey()
+		localTx = mustSignSponsoredWorkerTx(t, signer, localKey, sponsorKey, 0, 1, []byte{byte(i), 0x44})
+		localHash = localTx.Hash()
+		// We don't need hash ordering tricks for this test — any hash works.
+		break
+	}
+
+	// remote tx: sponsor nonce 0 (gap-filler)
+	remoteKey, _ := crypto.GenerateKey()
+	remoteTx := mustSignSponsoredWorkerTx(t, signer, remoteKey, sponsorKey, 0, 0, []byte{0x55})
+
+	localFrom, _ := localTx.SignerFrom()
+	remoteFrom, _ := remoteTx.SignerFrom()
+
+	localTxs := map[common.Address]types.Transactions{
+		localFrom: {localTx},
+	}
+	remoteTxs := map[common.Address]types.Transactions{
+		remoteFrom: {remoteTx},
+	}
+
+	selected, msgs, interrupted := w.selectTransactions(env, localTxs, remoteTxs, nil)
+	if interrupted {
+		t.Fatal("selection interrupted")
+	}
+	// Both should be selected: remote (nonce 0) then local (nonce 1).
+	if len(selected) != 2 {
+		t.Fatalf("selected count = %d, want 2 (local paused tx should resume after remote gap-filler)", len(selected))
+	}
+	if msgs[0].SponsorNonce() != 0 || msgs[1].SponsorNonce() != 1 {
+		t.Fatalf("sponsor nonce order: have [%d %d] want [0 1]", msgs[0].SponsorNonce(), msgs[1].SponsorNonce())
+	}
+	_ = localHash // suppress unused
+}

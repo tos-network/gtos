@@ -3290,6 +3290,115 @@ func TestSponsoredTxExpiryUsesUnixMilliseconds(t *testing.T) {
 }
 
 func BenchmarkPoolBatchInsert100(b *testing.B)   { benchmarkPoolBatchInsert(b, 100, false) }
+// TestSponsorNonceGapAfterReplacement verifies that replacing a pending
+// sponsored tx with a different sponsor nonce does NOT advance the sponsor
+// frontier past a gap. This is the regression test for the bug where
+// rebuildSponsorPendingNoncesLocked used max(nonce)+1 instead of contiguous
+// prefix from chain state.
+func TestSponsorNonceGapAfterReplacement(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	senderKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, sender, big.NewInt(10))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(big.NewInt(10), gasCost))
+
+	// Add (sender nonce 0, sponsor nonce 0).
+	tx0 := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(tx0); err != nil {
+		t.Fatalf("addRemoteSync(tx0): %v", err)
+	}
+
+	// Try to replace with (sender nonce 0, sponsor nonce 1) — must be rejected
+	// because it would create a sponsor nonce gap.
+	tx0alt := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 1, 0, big.NewInt(1), nil)
+	if err := pool.addRemoteSync(tx0alt); err == nil {
+		t.Fatal("expected replacement with different sponsor nonce to be rejected")
+	}
+
+	// Sponsor frontier should still be at 1 (nonce 0 present).
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 1 {
+		t.Fatalf("sponsor pending nonce = %d, want 1", got)
+	}
+
+	// A valid sponsor nonce 1 tx from another sender should still be accepted.
+	sender2Key, _ := crypto.GenerateKey()
+	sender2 := crypto.PubkeyToAddress(sender2Key.PublicKey)
+	testAddBalance(pool, sender2, big.NewInt(0))
+	tx1 := mustSignSponsoredPoolTx(t, signer, sender2Key, sponsorKey, 0, 1, 0, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(tx1); err != nil {
+		t.Fatalf("addRemoteSync(tx1): %v", err)
+	}
+
+	pending, _ := pool.Content()
+	if len(pending[sender]) != 1 || len(pending[sender2]) != 1 {
+		t.Fatalf("pending: sender=%d sender2=%d, want 1 each", len(pending[sender]), len(pending[sender2]))
+	}
+}
+
+// TestSponsorNonceContiguousPrefixAfterRemoval verifies that removing a
+// pending sponsored tx with a low sponsor nonce correctly resets the sponsor
+// frontier to the gap, not max+1.
+func TestSponsorNonceContiguousPrefixAfterRemoval(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	aliceKey, _ := crypto.GenerateKey()
+	bobKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	alice := crypto.PubkeyToAddress(aliceKey.PublicKey)
+	bob := crypto.PubkeyToAddress(bobKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, alice, big.NewInt(0))
+	testAddBalance(pool, bob, big.NewInt(0))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(big.NewInt(10), gasCost))
+
+	// Add sponsor nonce 0 (alice) and nonce 1 (bob).
+	tx0 := mustSignSponsoredPoolTx(t, signer, aliceKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	tx1 := mustSignSponsoredPoolTx(t, signer, bobKey, sponsorKey, 0, 1, 0, big.NewInt(0), nil)
+	errs := pool.AddRemotesSync([]*types.Transaction{tx0, tx1})
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("AddRemotesSync[%d]: %v", i, err)
+		}
+	}
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 2 {
+		t.Fatalf("sponsor pending nonce after add = %d, want 2", got)
+	}
+
+	// Remove sponsor nonce 0 (alice).
+	pool.removeTx(tx0.Hash(), false)
+
+	// Frontier should drop to 0 (gap at nonce 0), not stay at 2.
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 0 {
+		t.Fatalf("sponsor pending nonce after removal = %d, want 0 (gap at nonce 0)", got)
+	}
+
+	// A new sponsor nonce 0 tx should be accepted.
+	carolKey, _ := crypto.GenerateKey()
+	carol := crypto.PubkeyToAddress(carolKey.PublicKey)
+	testAddBalance(pool, carol, big.NewInt(0))
+	tx0new := mustSignSponsoredPoolTx(t, signer, carolKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(tx0new); err != nil {
+		t.Fatalf("addRemoteSync(tx0new): %v (sponsor nonce 0 rejected after gap)", err)
+	}
+}
+
 func BenchmarkPoolBatchInsert1000(b *testing.B)  { benchmarkPoolBatchInsert(b, 1000, false) }
 func BenchmarkPoolBatchInsert10000(b *testing.B) { benchmarkPoolBatchInsert(b, 10000, false) }
 

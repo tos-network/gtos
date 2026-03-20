@@ -983,6 +983,10 @@ func (w *worker) selectTransactions(
 	nextNonce := make(map[common.Address]uint64)
 	nextSponsorNonce := make(map[common.Address]uint64)
 	remainingGas := env.gasPool.Gas()
+	// pausedBySponsor is shared across local and remote passes so that a
+	// local tx paused on sponsor nonce N is resumed when the remote pass
+	// includes the gap-filler for nonce N-1 (or vice versa).
+	pausedBySponsor := make(map[common.Address][]*pricedSenderCursor)
 
 	doSelect := func(m map[common.Address]types.Transactions) bool {
 		if len(m) == 0 {
@@ -997,7 +1001,16 @@ func (w *worker) selectTransactions(
 				heap.Push(&heads, cursor)
 			}
 		}
-		pausedBySponsor := make(map[common.Address][]*pricedSenderCursor)
+		// Re-inject cursors paused in a previous pass whose sponsor nonce
+		// may now be satisfied (e.g., local tx paused, remote gap-filler added).
+		for sponsor, cursors := range pausedBySponsor {
+			expected, ok := nextSponsorNonce[sponsor]
+			if !ok {
+				continue
+			}
+			resumePausedSponsorCursors(&heads, pausedBySponsor, sponsor, expected)
+			_ = cursors // used via pausedBySponsor map
+		}
 		for {
 			if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
 				return true

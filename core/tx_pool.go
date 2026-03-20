@@ -1859,20 +1859,26 @@ func (pool *TxPool) canDirectlyReplacePendingTx(old, tx *types.Transaction) bool
 	if !tx.IsSponsored() {
 		return true
 	}
-	sponsor, _ := tx.SponsorFrom()
-	sponsorNonce, _ := tx.SponsorNonce()
+	// A pending sponsored tx can only be replaced by another tx that uses
+	// the SAME sponsor nonce slot. Allowing a different sponsor nonce would
+	// create a gap in the contiguous sponsor nonce prefix, causing
+	// rebuildSponsorPendingNoncesLocked to advance past the gap and reject
+	// valid gap-filler txs as ErrNonceTooLow.
 	if old != nil && old.IsSponsored() {
+		sponsor, _ := tx.SponsorFrom()
+		sponsorNonce, _ := tx.SponsorNonce()
 		oldSponsor, _ := old.SponsorFrom()
 		oldSponsorNonce, _ := old.SponsorNonce()
 		if oldSponsor == sponsor && oldSponsorNonce == sponsorNonce {
 			return true
 		}
 	}
-	return sponsorNonce == pool.sponsorPendingNonces.get(sponsor)
+	return false
 }
 
 func (pool *TxPool) rebuildSponsorPendingNoncesLocked() {
-	nonces := make(map[common.Address]uint64)
+	// Collect all pending sponsored nonces per sponsor.
+	sponsorTxNonces := make(map[common.Address]map[uint64]struct{})
 	for _, list := range pool.pending {
 		for _, tx := range list.Flatten() {
 			if !tx.IsSponsored() {
@@ -1880,11 +1886,26 @@ func (pool *TxPool) rebuildSponsorPendingNoncesLocked() {
 			}
 			sponsor, _ := tx.SponsorFrom()
 			sponsorNonce, _ := tx.SponsorNonce()
-			next := sponsorNonce + 1
-			if current, ok := nonces[sponsor]; !ok || current < next {
-				nonces[sponsor] = next
+			if sponsorTxNonces[sponsor] == nil {
+				sponsorTxNonces[sponsor] = make(map[uint64]struct{})
 			}
+			sponsorTxNonces[sponsor][sponsorNonce] = struct{}{}
 		}
+	}
+	// Derive the next nonce from the contiguous prefix starting at chain
+	// state. If there's a gap (e.g., nonce 0 missing but nonce 1 present),
+	// the frontier stops at the gap — it does NOT skip ahead to max+1.
+	nonces := make(map[common.Address]uint64)
+	for sponsor, nonceSet := range sponsorTxNonces {
+		chainNonce := getSponsorNonce(pool.currentState, sponsor)
+		next := chainNonce
+		for {
+			if _, ok := nonceSet[next]; !ok {
+				break
+			}
+			next++
+		}
+		nonces[sponsor] = next
 	}
 	pool.sponsorPendingNonces.setAll(nonces)
 }
