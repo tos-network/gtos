@@ -367,42 +367,111 @@ However, the public-side amount conversion uses `uint64` multiplication and over
 
   **Step 6: Make `promoteExecutables()` sponsor-aware (line 1482)**
 
-  Current flow: `list.Ready(pool.pendingNonces.getForType(addr, ...))` per sender.
+  Current flow: `list.Ready(pool.pendingNonces.getForType(addr, ...))` per
+  sender. `Ready()` removes returned txs from the queue (`tx_list.go:383`),
+  and `promoteTx()` pushes them into pending and advances the sender nonce
+  (`tx_pool.go:907`). This is irreversible — there is no way to "un-promote"
+  a tx back to queued.
 
-  After sender readiness is resolved, iterate promoted sponsored txs and
-  check sponsor nonce continuity:
+  Therefore sponsor readiness **must be checked before `Ready()`/`promoteTx()`**,
+  not after. The correct approach is a **sponsor-aware fixed-point promotion
+  loop**:
+
   ```go
-  // After standard sender promotion loop:
-  for _, tx := range promoted {
-      if tx.IsSponsored() {
-          sponsorNonce, _ := tx.SponsorNonce()
-          expected := pool.sponsorPendingNonces.get(sponsor)
-          if sponsorNonce == expected {
-              pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
+  // Fixed-point loop: repeat until no new tx is promoted.
+  for progress := true; progress; {
+      progress = false
+      for _, addr := range accounts {
+          list := pool.queue[addr]
+          if list == nil { continue }
+          // Peek at next sender-ready tx WITHOUT removing it.
+          senderNonce := pool.pendingNonces.getForType(addr, ...)
+          for _, tx := range list.PeekReady(senderNonce) {
+              if !tx.IsSponsored() {
+                  // Non-sponsored: promote immediately.
+                  list.Remove(tx); promoteTx(tx); progress = true
+                  continue
+              }
+              sponsorNonce, _ := tx.SponsorNonce()
+              expected := pool.sponsorPendingNonces.get(sponsor)
+              if sponsorNonce == expected {
+                  // Sponsor-ready: promote and advance both nonces.
+                  list.Remove(tx); promoteTx(tx)
+                  pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
+                  progress = true
+              }
+              // sponsorNonce > expected: leave in queue, try again
+              // after another sender's tx unblocks the sponsor.
+              break // sender nonce gap — stop for this account
           }
-          // sponsorNonce > expected: tx stays queued
       }
   }
   ```
-  Run a fixed-point loop: promoting one sender's tx may unblock another
-  sender's queued tx that was waiting on the same sponsor nonce.
+
+  `PeekReady(threshold)` is a new helper on `txList` that returns
+  sender-ready txs (nonce >= threshold, continuous) **without removing
+  them**. Only after both sender and sponsor readiness are confirmed does
+  the loop call `Remove()` + `promoteTx()`.
+
+  The fixed-point loop converges because each iteration either promotes at
+  least one tx (advancing a nonce) or terminates. Worst-case iterations =
+  total sponsored txs in pool.
 
   **Step 7: Miner sponsor nonce ordering (`miner/worker.go:870`)**
 
-  Current block assembly uses `NewTransactionsByPriceAndNonce` which only
-  tracks `nextNonce[from]`. Add a parallel `nextSponsorNonce[sponsor]` map:
+  Current block assembly uses `NewTransactionsByPriceAndNonce` iterator.
+  `iter.Pop()` discards the current sender's entire remaining tx sequence
+  (`transaction.go:808`), which is correct for sender-local blocking (nonce
+  gap, OOG) but wrong for sponsor nonce blocking. A sponsor nonce mismatch
+  is cross-sender and temporary — another sender's tx may fill the gap.
+
+  Correct approach: **defer-and-revisit**, not `Pop()`.
+
   ```go
   nextSponsorNonce := make(map[common.Address]uint64)
-  ```
-  Before committing a sponsored tx, check:
-  ```go
-  if tx.IsSponsored() {
-      expected := nextSponsorNonce[sponsor]  // 0 if first seen
-      if sponsorNonce != expected { iter.Pop(); continue }
-      nextSponsorNonce[sponsor] = sponsorNonce + 1
+  deferred := make(map[common.Hash]*types.Transaction)
+
+  for {
+      tx := iter.Peek()
+      if tx == nil { break }
+
+      if tx.IsSponsored() {
+          sponsor := tx.Sponsor()
+          if _, ok := nextSponsorNonce[sponsor]; !ok {
+              nextSponsorNonce[sponsor] = getSponsorNonce(env.state, sponsor)
+          }
+          sponsorNonce, _ := tx.SponsorNonce()
+          if sponsorNonce != nextSponsorNonce[sponsor] {
+              // Temporarily blocked by another sender's sponsor tx.
+              // Shift to next candidate without discarding this sender.
+              deferred[tx.Hash()] = tx
+              iter.Shift()  // advance to next tx, keep sender alive
+              continue
+          }
+          nextSponsorNonce[sponsor] = sponsorNonce + 1
+      }
+
+      // ... commit tx as normal ...
+
+      // After committing, check if any deferred tx is now unblocked.
+      for hash, dtx := range deferred {
+          sn, _ := dtx.SponsorNonce()
+          if sn == nextSponsorNonce[dtx.Sponsor()] {
+              // Re-inject into selection — simplest: commit it now.
+              delete(deferred, hash)
+              // ... commit dtx ...
+              nextSponsorNonce[dtx.Sponsor()] = sn + 1
+          }
+      }
   }
   ```
-  Initialize `nextSponsorNonce[sponsor]` from chain state on first encounter.
+
+  `Shift()` is a new method on `TransactionsByPriceAndNonce` that skips the
+  current tx but keeps the sender's remaining txs in the heap (unlike
+  `Pop()` which removes the entire sender). If `Shift()` is too invasive,
+  an alternative is a two-pass approach: first pass collects all
+  non-sponsored txs; second pass inserts sponsored txs in sponsor-nonce
+  order.
 
   **Step 8: Tests (`core/tx_pool_test.go`)**
 
@@ -473,14 +542,16 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   if expiry := st.msg.SponsorExpiry(); expiry != 0 && ...
   ```
 
-  **Step 4: Verify RPC and SDK consistency**
+  **Step 4: Verify RPC and external SDK consistency**
 
-  - `internal/tosapi/api.go`: check any RPC that constructs `SponsorExpiry`
-    uses milliseconds
-  - `tosdk/src/types/transaction.ts`: add JSDoc comment
-    `/** Unix timestamp in milliseconds */`
-  - Check `tosdk` serialization: `numberToHex(sponsorExpiry)` — value is
-    opaque uint64, no unit conversion needed in SDK (caller provides ms)
+  - `internal/tosapi/api.go`: this file only serializes `SponsorExpiry` to
+    RPC output (`api.go:1281`); it does not construct the field. No code
+    change needed here, but add a comment confirming the unit is milliseconds.
+  - **External follow-up** (`~/tosdk`): add JSDoc comment to the
+    `sponsorExpiry` field in `tosdk/src/types/transaction.ts`:
+    `/** Unix timestamp in milliseconds (matches header.Time) */`.
+    This is in a separate repository and should be tracked as an external
+    follow-up item, not a change in this codebase.
 
   **Step 5: Update existing tests**
 
