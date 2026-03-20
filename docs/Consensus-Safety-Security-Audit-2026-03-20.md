@@ -304,6 +304,121 @@ However, the public-side amount conversion uses `uint64` multiplication and over
 - Fix recommendation:
   Add a virtual sponsor-nonce tracker to the pool and integrate it into validation, promotion, and selection logic.
 
+- Implementation plan:
+
+  **Step 1: New file `core/sponsor_noncer.go`**
+
+  Create a `sponsorNoncer` struct mirroring `txNoncer` (`core/tx_noncer.go`):
+  ```go
+  type sponsorNoncer struct {
+      fallback *state.StateDB
+      nonces   map[common.Address]uint64  // keyed by sponsor address
+      lock     sync.Mutex
+  }
+  ```
+  - `get(sponsor)`: returns virtual nonce, falls back to
+    `getSponsorNonce(fallback, sponsor)` (via `core/sponsor_state.go:22`)
+  - `set(sponsor, nonce)`: updates virtual nonce after promotion
+  - `setIfLower(sponsor, nonce)`: lowers on removal/demotion
+
+  **Step 2: Register in TxPool (`core/tx_pool.go`)**
+
+  - Add field `sponsorPendingNonces *sponsorNoncer` alongside existing
+    `pendingNonces *txNoncer` (line 233)
+  - Initialize in `reset()` (line 1469, alongside `pool.pendingNonces = ...`):
+    ```go
+    pool.sponsorPendingNonces = newSponsorNoncer(statedb)
+    ```
+
+  **Step 3: Change `validateTx` sponsor nonce check (`core/tx_pool.go:650-652`)**
+
+  Current (strict equality, rejects future nonces):
+  ```go
+  if getSponsorNonce(pool.currentState, sponsor) != sponsorNonce {
+      return ErrNonceTooLow
+  }
+  ```
+  Change to sender-style semantics:
+  ```go
+  expectedSponsorNonce := pool.sponsorPendingNonces.get(sponsor)
+  if sponsorNonce < expectedSponsorNonce {
+      return ErrNonceTooLow  // replay
+  }
+  // sponsorNonce > expected → queued (not rejected), same as sender nonce
+  ```
+
+  **Step 4: Advance sponsor nonce on promotion**
+
+  In `addTx` success path (line 936, where `pool.pendingNonces.set(addr, tx.Nonce()+1)`):
+  ```go
+  if tx.IsSponsored() {
+      sponsorNonce, _ := tx.SponsorNonce()
+      pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
+  }
+  ```
+
+  **Step 5: Lower sponsor nonce on removal/demotion**
+
+  In these existing paths, add parallel sponsor nonce lowering:
+  - `removeTx()` (line 1192): `pool.sponsorPendingNonces.setIfLower(sponsor, sponsorNonce)`
+  - `truncatePending()` (line 1608/1635): same pattern
+  - `demoteUnexecutables()` (line 1702): same pattern
+  - `reset()` (line 1469): rebuild from scratch
+
+  **Step 6: Make `promoteExecutables()` sponsor-aware (line 1482)**
+
+  Current flow: `list.Ready(pool.pendingNonces.getForType(addr, ...))` per sender.
+
+  After sender readiness is resolved, iterate promoted sponsored txs and
+  check sponsor nonce continuity:
+  ```go
+  // After standard sender promotion loop:
+  for _, tx := range promoted {
+      if tx.IsSponsored() {
+          sponsorNonce, _ := tx.SponsorNonce()
+          expected := pool.sponsorPendingNonces.get(sponsor)
+          if sponsorNonce == expected {
+              pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
+          }
+          // sponsorNonce > expected: tx stays queued
+      }
+  }
+  ```
+  Run a fixed-point loop: promoting one sender's tx may unblock another
+  sender's queued tx that was waiting on the same sponsor nonce.
+
+  **Step 7: Miner sponsor nonce ordering (`miner/worker.go:870`)**
+
+  Current block assembly uses `NewTransactionsByPriceAndNonce` which only
+  tracks `nextNonce[from]`. Add a parallel `nextSponsorNonce[sponsor]` map:
+  ```go
+  nextSponsorNonce := make(map[common.Address]uint64)
+  ```
+  Before committing a sponsored tx, check:
+  ```go
+  if tx.IsSponsored() {
+      expected := nextSponsorNonce[sponsor]  // 0 if first seen
+      if sponsorNonce != expected { iter.Pop(); continue }
+      nextSponsorNonce[sponsor] = sponsorNonce + 1
+  }
+  ```
+  Initialize `nextSponsorNonce[sponsor]` from chain state on first encounter.
+
+  **Step 8: Tests (`core/tx_pool_test.go`)**
+
+  Add tests:
+  - `TestSponsorNoncePipelining`: Alice (nonce 0) + Bob (nonce 1) with same
+    sponsor → both enter pool, both promotable
+  - `TestSponsorNonceFuture`: tx with sponsor nonce 5 when chain is at 3 →
+    queued, not rejected
+  - `TestSponsorNonceReorg`: after reorg, sponsor nonce tracker rebuilds
+    correctly
+  - `TestMinerSponsorOrdering`: miner selects sponsor nonce 0 before 1,
+    even if nonce 1 has higher fee
+
+  **Estimated scope**: ~150 lines new code + ~100 lines tests.
+  **Risk**: Zero consensus impact — txpool only.
+
 ## Finding 6 — Open (correctness, not consensus)
 
 - Severity: Medium
@@ -325,6 +440,76 @@ However, the public-side amount conversion uses `uint64` multiplication and over
   No direct fund-loss issue.
 - Fix recommendation:
   Standardize sponsor-expiry units across txpool, signing, and execution, and add explicit unit tests.
+
+- Implementation plan:
+
+  **Canonical unit**: Unix milliseconds (matching `header.Time` in DPoS,
+  set via `time.Now().UnixMilli()` at `consensus/dpos/dpos.go:1571`).
+
+  **Step 1: Fix txpool check (`core/tx_pool.go:656`)**
+
+  Current (seconds):
+  ```go
+  now := uint64(time.Now().Unix())
+  if now > sponsorExpiry {
+  ```
+  Fix (milliseconds):
+  ```go
+  now := uint64(time.Now().UnixMilli())
+  if now > sponsorExpiry {
+  ```
+  One-line change.
+
+  **Step 2: Add comment to `SponsorExpiry` field (`core/types/signer_tx.go:26`)**
+
+  ```go
+  SponsorExpiry uint64 // Unix timestamp in milliseconds (matches header.Time)
+  ```
+
+  **Step 3: Add comment to consensus check (`core/state_transition.go:287`)**
+
+  ```go
+  // SponsorExpiry and blockCtx.Time are both Unix milliseconds.
+  if expiry := st.msg.SponsorExpiry(); expiry != 0 && ...
+  ```
+
+  **Step 4: Verify RPC and SDK consistency**
+
+  - `internal/tosapi/api.go`: check any RPC that constructs `SponsorExpiry`
+    uses milliseconds
+  - `tosdk/src/types/transaction.ts`: add JSDoc comment
+    `/** Unix timestamp in milliseconds */`
+  - Check `tosdk` serialization: `numberToHex(sponsorExpiry)` — value is
+    opaque uint64, no unit conversion needed in SDK (caller provides ms)
+
+  **Step 5: Update existing tests**
+
+  Search all test files for `SponsorExpiry` construction and verify values
+  are in milliseconds. Common pattern:
+  ```go
+  // Before (ambiguous):
+  SponsorExpiry: uint64(time.Now().Unix()) + 3600,
+  // After (explicit ms):
+  SponsorExpiry: uint64(time.Now().UnixMilli()) + 3600_000,
+  ```
+
+  **Step 6: Add parity tests (`core/tx_pool_test.go`)**
+
+  - `TestSponsorExpiryUnits`: create a sponsored tx with
+    `SponsorExpiry = time.Now().UnixMilli() + 10_000` (10s future).
+    Verify: txpool admits it, and state transition accepts it against a
+    block with `header.Time = time.Now().UnixMilli() + 5_000`.
+  - `TestSponsorExpiryExpired`: create a sponsored tx with
+    `SponsorExpiry = time.Now().UnixMilli() - 1`. Verify: txpool rejects
+    it, and state transition rejects it.
+  - `TestSponsorExpiryZero`: verify `SponsorExpiry = 0` bypasses the check
+    (current behavior preserved).
+  - `TestSponsorExpiryBoundary`: `expiry == now` → accepted (not expired);
+    `expiry == now - 1` → rejected.
+
+  **Estimated scope**: ~5 lines production code + ~60 lines tests.
+  **Risk**: Zero consensus impact — txpool admission only; consensus check
+  already uses milliseconds correctly.
 
 # 5. Areas Requiring Manual Verification
 
