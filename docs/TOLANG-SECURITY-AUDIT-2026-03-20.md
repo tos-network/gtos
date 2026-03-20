@@ -21,7 +21,10 @@ nondeterminism sources and bounds all resources.**
 |----------|-------|---------|
 | Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
 | High | 0 | — |
-| Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk (open) |
+| Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk — **FIXED** (tolang commit 46c706a) |
+| Medium | 1 | Default build artifacts not reproducible (host path in SourceName) — open |
+| Medium | 1 | VM `SetInterrupt` bypasses gas-only termination model — open |
+| Low | 1 | Table hash tombstones accumulate without bound — open |
 | ~~Low~~ | 0 | ~~Table.Next() stale key after deletion~~ — **FIXED** (tolang commit f4554f8): `isValidNextKey()` accepts stale keys, rejects invalid keys; next/pairs semantics unified |
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
@@ -120,6 +123,94 @@ didn't accurately reflect all register usage.
 
 **Tests**: 205 lines of new bytecode validation tests covering malformed
 constant index, register overflow, invalid jump target, etc.
+
+---
+
+### T-4: Default Build Artifacts Not Reproducible (Medium) — Open
+
+**Location**: `bytecode.go:166`, `tol_artifact.go:198`, `tol_api.go:450,513`,
+`tol_package.go:302,355`
+
+**Issue**: `EncodeFunctionProto` writes `p.SourceName` (the host filesystem
+path) into bytecode. `CompileArtifactWithOptions` defaults to
+`IncludeSourceMap=true`. `CompileBytecodeWithOptions` only strips debug info
+when `IncludeSourceMap` is explicitly set to `false`.
+
+This means the same TOL source compiled from different filesystem paths
+produces different `.toc`/`.tor` artifacts:
+```
+CompileSourceToBytecode("/tmp/a.lua") ≠ CompileSourceToBytecode("/var/tmp/b.lua")
+```
+
+**Consensus impact**: None at runtime — bytecode execution ignores
+`SourceName`. The VMID and bytecode hash are computed over the full payload
+including `SourceName`, so different paths produce different hashes. This is
+a **build reproducibility** issue: deterministic deployment requires callers
+to either strip source maps or use consistent paths.
+
+**Reference**: Official Lua's `luaU_dump` also includes source/debug by
+default, but has an explicit `strip` parameter (`ldump.c:229`).
+
+**Recommendation**: Either default `IncludeSourceMap=false` for `.toc`/`.tor`
+production builds, or normalize `SourceName` to a stable logical name (e.g.,
+contract name) instead of the host path.
+
+---
+
+### T-5: VM SetInterrupt Bypasses Gas-Only Termination (Medium) — Open
+
+**Location**: `value.go:231,254`, `vm.go:49`
+
+**Issue**: `LState` exposes `SetInterrupt(ch <-chan struct{})` which the main
+loop checks every instruction. When the channel is closed/readable, the VM
+raises `"execution aborted"` immediately, regardless of remaining gas.
+
+This is not exploitable from contract code (contracts cannot call
+`SetInterrupt`). However, it is a **dangerous host API surface**: if a
+validator or execution path connects this channel to a timeout or
+cancellation context, different nodes may abort at different instructions
+depending on local timing — breaking consensus determinism.
+
+**Reproduction**: Set a closed channel via `SetInterrupt`, then execute any
+script → `"execution aborted"` instead of normal completion.
+
+**Consensus impact**: Not directly. Gas is the consensus termination
+mechanism. But `SetInterrupt` creates a parallel termination path that, if
+misused by the host, causes nondeterministic execution.
+
+**Recommendation**: Remove `SetInterrupt` from the consensus build path, or
+gate it behind a `debug`/`off-chain` build tag. Document that consensus
+execution must use gas-only termination.
+
+---
+
+### T-6: Table Hash Tombstones Accumulate Without Bound (Low) — Open
+
+**Location**: `table.go:216,243` (delete path), `table.go:352`
+(`isValidNextKey` depends on `k2i`)
+
+**Issue**: When a string or hash key is deleted via `RawSetString(key, LNil)`
+or `RawSetH(key, LNil)`, the entry is removed from `strdict`/`dict` but
+**not** from `keys` slice or `k2i` map. The `isValidNextKey` fix (T-1)
+intentionally depends on stale entries remaining in `k2i`.
+
+After 1000 insert-delete cycles on unique keys, `strdict` is empty but
+`keys` and `k2i` hold 1000 tombstone entries. This memory is not reclaimable
+and not charged by gas (gas meters instructions, not memory).
+
+**Reference**: Official Lua's `luaH_next` supports stale keys via internal
+table node/abstkey mechanism (`ltable.c:343`), not a permanently growing
+sidecar slice.
+
+**Consensus impact**: None directly. This is a **resource exhaustion / DoS**
+vector: a contract can inflate host memory by churning unique keys, with the
+cost hidden from gas metering.
+
+**Recommendation**: Introduce tombstone compaction — when the stale ratio
+exceeds a threshold (e.g., 50%), rebuild `keys`/`k2i` from live entries.
+This preserves `isValidNextKey` semantics while bounding memory growth.
+Alternatively, charge gas for table key allocation (not just instruction
+count).
 
 ---
 
