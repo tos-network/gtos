@@ -17,6 +17,7 @@
 | 6 | [SECURITY-AUDIT-2026-03-20-PASS2.md](SECURITY-AUDIT-2026-03-20-PASS2.md) | 2026-03-20 | Claude Opus 4.6 | Full re-audit: block pipeline, state transition, miner, txpool, RLP, hashing, crypto | ✅ Zero new findings |
 | 7 | [SPONSOR-NONCE-REVIEW-2026-03-20.md](SPONSOR-NONCE-REVIEW-2026-03-20.md) | 2026-03-20 | Codex + Claude Opus 4.6 | F5 sponsor nonce implementation review: frontier gap, cross-pass cursor, pending invariant | ✅ 3 bugs fixed |
 | 8 | (third-pass verbal sign-off) | 2026-03-20 | Codex | Re-verify sponsor nonce fixes + consensus critical paths | ✅ Zero new findings, all 3 sponsor issues confirmed closed |
+| 9 | [TOLANG-SECURITY-AUDIT-2026-03-20.md](TOLANG-SECURITY-AUDIT-2026-03-20.md) | 2026-03-20 | Claude Opus 4.6 | tolang VM/compiler: execution, bytecode, tables, sandbox, crypto, resource limits | ✅ 1 low, 0 consensus risk |
 
 ---
 
