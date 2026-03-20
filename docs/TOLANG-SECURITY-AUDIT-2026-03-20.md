@@ -19,15 +19,42 @@ nondeterminism sources and bounds all resources.**
 
 | Severity | Count | Summary |
 |----------|-------|---------|
-| Critical | 0 | — |
+| Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
 | High | 0 | — |
-| Medium | 0 | — |
-| Low | 1 | Table.Next() stale key after deletion (no consensus impact today) |
+| Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk (open) |
+| Low | 2 | Table.Next() stale key; bytecode decoder accepts malformed constants (open) |
 | False Positive | 1 | Bytecode endianness "inconsistency" (deterministic, not a bug) |
 
 ---
 
 ## Findings
+
+### T-0: ToStringMeta() Leaks Go Heap Pointer (Critical) ✅ Fixed
+
+**Location**: `auxlib.go:473`, called from `baselib.go:290` and
+`stringlib.go:301`
+
+**Issue**: `ToStringMeta()` used `fmt.Sprintf("%s: %p", name, pt)` for
+tables/userdata with `__name` metatable. `%p` outputs the Go heap pointer
+address, which differs across nodes. If a contract stores, hashes, or emits
+this string, nodes diverge — **immediate chain fork**.
+
+**Reproduction**:
+```lua
+local t = {}
+setmetatable(t, { __name = "Foo" })
+local s = tostring(t)  -- "Foo: 0xc000228ae0" (node-dependent!)
+```
+
+**Fix** (tolang commit b308666): Replaced `%p` with a deterministic
+monotonic `objectIDCounter` on `LState`. Output is now
+`"Foo: 0x00000001"`, `"Foo: 0x00000002"`, etc. — deterministic within a
+single execution context.
+
+**Consensus impact**: CRITICAL → **FIXED**. No pointer addresses leak into
+contract execution.
+
+---
 
 ### T-1: Table.Next() Stale Key After Deletion (Low)
 
@@ -51,6 +78,44 @@ reads. No consensus-critical path calls `Next()` on deleted keys.
 
 **Recommendation**: Fix the TODO — remove deleted keys from `keys` and `k2i`.
 Add a test for `Next()` after key deletion.
+
+### T-2: GitHub Import Allows Mutable Refs (Medium) — Open
+
+**Location**: `tol_api.go:29,168-205`
+
+**Issue**: The compiler's import resolver supports `github.com/...@ref`
+imports where `ref` can be a branch name or tag (not just commit SHA). This
+means the same source file can compile to different bytecode at different
+times if the remote branch is updated. The HTTP fetch also has no response
+body size limit.
+
+**Consensus impact**: None at runtime (compilation is off-chain). This is a
+**supply chain / build reproducibility** risk. A malicious upstream can
+silently change contract behavior between compilations.
+
+**Recommendation**: Restrict `ref` to commit SHAs only, or pin resolved SHAs
+in a lockfile. Add response body size limit.
+
+---
+
+### T-3: Bytecode Decoder Accepts Malformed Constants (Low) — Open
+
+**Location**: `bytecode.go:445`, `auxlib.go:422`, `tol_artifact.go:373`
+
+**Issue**: The bytecode decoder validates opcode range, CLOSURE sub-proto
+index, and SETLIST extra words, but does NOT validate constant indices,
+register indices, or jump targets. Malformed bytecode with `LOADK Bx=1` but
+`len(Constants)=0` passes decoding. Under PCall, this becomes
+`ApiErrorPanic`; under unprotected `Call`, it's a raw Go panic.
+
+**Consensus impact**: LOW. All gtos execution paths use PCall (protected).
+The panic is caught and produces a deterministic error. But it's a hardening
+gap — bytecode validation should reject this at decode time.
+
+**Recommendation**: Add bounds checks during decode for constant indices,
+register operands, and jump targets.
+
+---
 
 ### FP-1: Bytecode Endianness Inconsistency — FALSE POSITIVE
 
