@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: **PASS** — all findings resolved; no consensus fork risks
+**Verdict**: T-0 through T-6 resolved; T-7 (string DoS) and T-8 (map iteration) open
 
 ---
 
@@ -28,8 +28,9 @@ have now been closed.**
 | ~~Low~~ | 0 | ~~Table hash tombstones accumulate~~ — **FIXED** (tolang 11e22b5): `nextIterated` tracking + `compactNextIterationState()` |
 | ~~Low~~ | 0 | ~~Table.Next() stale key after deletion~~ — **FIXED** (tolang commit f4554f8): `isValidNextKey()` accepts stale keys, rejects invalid keys; next/pairs semantics unified |
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
+| High | 1 | Unbounded string construction bypasses gas metering (T-7) — open |
+| Medium | 1 | `.tor` import fallback uses nondeterministic map iteration (T-8) — open |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
-| False Positive | 1 | Bytecode endianness "inconsistency" (deterministic, not a bug) |
 
 ---
 
@@ -216,6 +217,76 @@ cost hidden from gas metering.
 active stale-key iteration semantics. `nextIterated` tracking and
 `compactNextIterationState()` rebuild the sidecar index once traversal ends,
 bounding memory growth under key churn.
+
+---
+
+### T-7: Unbounded String Construction Bypasses Gas Metering (High) — Open
+
+**Location**: `stringlib.go:253` (`string.format`), `vm.go:2354` (`..`
+concat opcode), `tablelib.go:59` (`table.concat`),
+`cryptolib.go:381,398` (`__tol_str_concat`, `__tol_bytes_concat`)
+
+**Issue**: `string.rep` and `gsub` enforce a 1 MiB result cap
+(`stringlib.go:427,655`), but several other string-producing paths have no
+size limit:
+
+- `string.format("%2000000s", "x")` — allocates 2 MB with one instruction
+- `s = s .. s` in a loop — doubles string size per opcode (24 iterations →
+  16 MB at gas cost of ~50 instructions)
+- `table.concat` — delegates to the `..` opcode path, no cap
+- `__tol_str_concat` / `__tol_bytes_concat` — TOL lowering helpers, no cap
+
+**Reproduction** (all at `gasLimit=1000`):
+```lua
+string.len(string.format("%2000000s","x"))  -- 2000000
+local s="a"; for i=1,24 do s=s..s end      -- 16777216
+string.len(__tol_str_concat(a,b))           -- 1200000
+```
+
+**Consensus impact**: Not a semantic fork — all nodes produce the same
+oversized string. This is a **resource exhaustion / DoS** vector: an
+attacker can inflate host memory far beyond what gas metering accounts for,
+because gas charges per-instruction, not per-byte of allocation.
+
+**Reference**: Official Lua's `string.rep` has a result size guard
+(`lstrlib.c:139`); `string.format` only limits the format spec length, not
+output size (`lstrlib.c:1277`). Acceptable for a general interpreter, but
+not for a consensus VM.
+
+**Recommendation**: Apply a unified string result cap (e.g., 1 MiB matching
+`rep`/`gsub`) to:
+1. `string.format` output
+2. `..` concat opcode result
+3. `table.concat` result
+4. `__tol_str_concat` / `__tol_bytes_concat` results
+
+Alternatively, charge gas proportional to allocation size (per-byte gas)
+rather than only per-instruction.
+
+---
+
+### T-8: `.tor` Import Fallback Uses Nondeterministic Map Iteration (Medium) — Open
+
+**Location**: `tol_api.go:327,359`, `tol_package.go:29`
+
+**Issue**: `artifactToInterfaceSource` first searches by manifest; if the
+interface is not declared in the manifest, it falls back to scanning
+`tor.Files` (a `map[string][]byte`) for any `.abi` file declaring the
+requested interface name. Go map iteration order is randomized, so when
+multiple unmanifested `.abi` files declare the same interface, different
+iterations may select different files.
+
+**Reproduction**: A `.tor` with two unmanifested `.abi` files both declaring
+`IFoo`. Calling `Resolve("pkg.tor", "IFoo")` 200 times returns 2 different
+results (~182/18 split).
+
+**Consensus impact**: None at runtime (import resolution is off-chain
+compilation). This is a **build determinism** issue: the same input package
+can produce different compiled output on repeated imports.
+
+**Recommendation**: Sort `tor.Files` keys before scanning in the fallback
+path, or reject ambiguous imports (error if multiple unmanifested `.abi`
+files declare the same interface).
 
 ---
 
