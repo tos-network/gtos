@@ -3289,7 +3289,8 @@ func TestSponsoredTxExpiryUsesUnixMilliseconds(t *testing.T) {
 	}
 }
 
-func BenchmarkPoolBatchInsert100(b *testing.B)   { benchmarkPoolBatchInsert(b, 100, false) }
+func BenchmarkPoolBatchInsert100(b *testing.B) { benchmarkPoolBatchInsert(b, 100, false) }
+
 // TestSponsorNonceGapAfterReplacement verifies that replacing a pending
 // sponsored tx with a different sponsor nonce does NOT advance the sponsor
 // frontier past a gap. This is the regression test for the bug where
@@ -3396,6 +3397,52 @@ func TestSponsorNonceContiguousPrefixAfterRemoval(t *testing.T) {
 	tx0new := mustSignSponsoredPoolTx(t, signer, carolKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
 	if err := pool.addRemoteSync(tx0new); err != nil {
 		t.Fatalf("addRemoteSync(tx0new): %v (sponsor nonce 0 rejected after gap)", err)
+	}
+}
+
+// TestPendingExcludesSponsorGapTransactions verifies that when removing a low
+// sponsor nonce creates a sponsor gap, the higher sponsor nonce tx is demoted
+// back into the queue and no longer appears in Pending().
+func TestPendingExcludesSponsorGapTransactions(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	aliceKey, _ := crypto.GenerateKey()
+	bobKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	alice := crypto.PubkeyToAddress(aliceKey.PublicKey)
+	bob := crypto.PubkeyToAddress(bobKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, alice, big.NewInt(0))
+	testAddBalance(pool, bob, big.NewInt(0))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(big.NewInt(10), gasCost))
+
+	tx0 := mustSignSponsoredPoolTx(t, signer, aliceKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	tx1 := mustSignSponsoredPoolTx(t, signer, bobKey, sponsorKey, 0, 1, 0, big.NewInt(0), nil)
+	errs := pool.AddRemotesSync([]*types.Transaction{tx0, tx1})
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("AddRemotesSync[%d]: %v", i, err)
+		}
+	}
+
+	pool.removeTx(tx0.Hash(), false)
+
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 0 {
+		t.Fatalf("sponsor pending nonce after removal = %d, want 0", got)
+	}
+	if pending := pool.Pending(false); len(pending[bob]) != 0 {
+		t.Fatalf("pending still contains sponsor-gap tx: have %d want 0", len(pending[bob]))
+	}
+	_, queued := pool.Content()
+	if len(queued[bob]) != 1 || queued[bob][0].Hash() != tx1.Hash() {
+		t.Fatalf("queued tx mismatch after sponsor-gap demotion: have %d", len(queued[bob]))
 	}
 }
 

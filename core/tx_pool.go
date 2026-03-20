@@ -833,7 +833,7 @@ func (pool *TxPool) addValidatedTx(tx *types.Transaction, hash common.Hash, from
 		pool.queueTxEvent(tx)
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
 		if old != nil && (old.IsSponsored() || tx.IsSponsored()) {
-			pool.rebuildSponsorPendingNoncesLocked()
+			pool.normalizeSponsoredPendingLocked()
 		}
 
 		// Successful promotion, bump the heartbeat
@@ -1203,7 +1203,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 			}
 			// Update the account nonce if needed
 			pool.pendingNonces.setIfLowerForType(addr, tx.Nonce(), tx.Type())
-			pool.rebuildSponsorPendingNoncesLocked()
+			pool.normalizeSponsoredPendingLocked()
 			// Reduce the pending counter
 			pendingGauge.Dec(int64(1 + len(invalids)))
 			return
@@ -1489,7 +1489,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
 	senderCacher.recover(pool.signer, reinject)
 	pool.addTxsLocked(reinject, false)
-	pool.rebuildSponsorPendingNoncesLocked()
+	pool.normalizeSponsoredPendingLocked()
 
 }
 
@@ -1709,7 +1709,7 @@ func (pool *TxPool) truncatePending() {
 		}
 	}
 	if removedAny {
-		pool.rebuildSponsorPendingNoncesLocked()
+		pool.normalizeSponsoredPendingLocked()
 	}
 	pendingRateLimitMeter.Mark(int64(pendingBeforeCap - pending))
 }
@@ -1834,7 +1834,7 @@ func (pool *TxPool) demoteUnexecutables() {
 		}
 	}
 	if changed {
-		pool.rebuildSponsorPendingNoncesLocked()
+		pool.normalizeSponsoredPendingLocked()
 	}
 }
 
@@ -1908,6 +1908,53 @@ func (pool *TxPool) rebuildSponsorPendingNoncesLocked() {
 		nonces[sponsor] = next
 	}
 	pool.sponsorPendingNonces.setAll(nonces)
+}
+
+// normalizeSponsoredPendingLocked restores the invariant that pool.pending
+// contains only the contiguous sponsor-nonce prefix starting at chain state.
+// Any sponsored tx beyond the current sponsor frontier is demoted back into the
+// queue so Pending() remains "currently processable" for sponsored txs too.
+//
+// Note, this method assumes the pool lock is held.
+func (pool *TxPool) normalizeSponsoredPendingLocked() {
+	pool.rebuildSponsorPendingNoncesLocked()
+
+	demotedAny := false
+	for addr, list := range pool.pending {
+		var firstGap *types.Transaction
+		for _, tx := range list.Flatten() {
+			if !tx.IsSponsored() {
+				continue
+			}
+			sponsor, _ := tx.SponsorFrom()
+			sponsorNonce, _ := tx.SponsorNonce()
+			if sponsorNonce >= pool.sponsorPendingNonces.get(sponsor) {
+				firstGap = tx
+				break
+			}
+		}
+		if firstGap == nil {
+			continue
+		}
+		removed, invalids := list.Remove(firstGap)
+		if !removed {
+			continue
+		}
+		demotedAny = true
+		pool.pendingNonces.setIfLowerForType(addr, firstGap.Nonce(), firstGap.Type())
+
+		pool.enqueueTx(firstGap.Hash(), firstGap, false, false)
+		for _, tx := range invalids {
+			pool.enqueueTx(tx.Hash(), tx, false, false)
+		}
+		pendingGauge.Dec(int64(1 + len(invalids)))
+		if list.Empty() {
+			delete(pool.pending, addr)
+		}
+	}
+	if demotedAny {
+		pool.rebuildSponsorPendingNoncesLocked()
+	}
 }
 
 func (pool *TxPool) filterUnpayableTxs(addr common.Address, list *txList) (types.Transactions, types.Transactions) {
