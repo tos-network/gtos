@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: **PASS** — all 9 findings (T-0 through T-8) resolved; no consensus fork risks
+**Verdict**: T-0 through T-8 resolved; T-9/T-10/T-11 open (no verified fork risk)
 
 ---
 
@@ -30,6 +30,9 @@ have now been closed.**
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | ~~High~~ | 0 | ~~Unbounded string construction bypasses gas metering (T-7)~~ — **FIXED** (tolang 510b0ac): unified 1 MiB cap across format/concat/TOL helpers |
 | ~~Medium~~ | 0 | ~~`.tor` import fallback uses nondeterministic map iteration (T-8)~~ — **FIXED** (tolang 510b0ac): sorted scan + ambiguity rejection |
+| High | 1 | `table.sort` host CPU cost not metered by gas (T-9) — open |
+| Medium | 1 | Multi-contract `.tor` default package name depends on source basename (T-10) — open |
+| Medium | 1 | `SetLineHook` still exposed in production API (T-11) — open |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 
 ---
@@ -287,6 +290,86 @@ can produce different compiled output on repeated imports.
 **Recommendation**: Sort `tor.Files` keys before scanning in the fallback
 path, or reject ambiguous imports (error if multiple unmanifested `.abi`
 files declare the same interface).
+
+---
+
+### T-9: `table.sort` Host CPU Cost Not Metered by Gas (High) — Open
+
+**Location**: `tablelib.go:22,28`
+
+**Issue**: `table.sort` delegates directly to Go's `sort.Sort`, executing
+O(n log n) comparisons entirely on the host side. The VM's per-instruction
+gas counter only charges the few Lua opcodes around the call, not the Go
+sorting work.
+
+**Reproduction** (`gasLimit=20`):
+```lua
+-- t is a pre-filled 100000-element table
+table.sort(t)   -- gas used: 5; entire table sorted on host
+```
+
+**Consensus impact**: Not a semantic fork — all nodes produce the same
+sorted result. This is a **resource amplification DoS** vector: a contract
+can force O(n log n) host CPU work with near-zero gas cost.
+
+**Reference**: Official Lua has no gas model, so this is not a Lua bug.
+But for tolang's consensus VM, host-side work must be metered.
+
+**Recommendation**: Charge gas proportional to the number of comparisons
+performed by `sort.Sort`. Implement via a comparison wrapper that increments
+gas per comparison, or charge `n * ceil(log2(n))` gas upfront before sorting.
+
+---
+
+### T-10: Multi-Contract `.tor` Default Package Name Depends on Source Basename (Medium) — Open
+
+**Location**: `tol_package.go:90,93`
+
+**Issue**: `CompilePackage` defaults `pkgName` to
+`filepath.Base(name)` with the extension stripped. Same source compiled
+from different filenames produces different `.tor` manifests:
+
+```
+CompilePackage(src, "alpha.tol", nil) → manifest.name = "alpha"
+CompilePackage(src, "beta.tol", nil)  → manifest.name = "beta"
+```
+
+**Consensus impact**: None at runtime. This is a **build reproducibility**
+issue — the same source produces non-identical `.tor` packages depending on
+the caller's filename.
+
+**Recommendation**: Require `PackageOptions.PackageName` to be set
+explicitly, or derive the default from the contract name in the source
+(e.g., the first `contract` declaration) rather than the filesystem path.
+
+---
+
+### T-11: `SetLineHook` Still Exposed in Production API (Medium) — Open
+
+**Location**: `value.go:243,246`, `vm.go:38`
+
+**Issue**: `LState` exposes `SetLineHook(fn func(string, int))` and the VM
+calls it every instruction. A host that installs a hook can alter execution
+behavior (e.g., panic, modify state, inject delays).
+
+**Reproduction**:
+```go
+L.SetLineHook(func(string, int) { panic("hook boom") })
+L.DoString("x = 1 + 2")  // → *lua.ApiError instead of success
+```
+
+**Consensus impact**: Not exploitable from contract code. Like the removed
+`SetInterrupt` (T-5), this is a **dangerous host API surface**. If a
+validator installs a line hook that behaves differently across nodes,
+execution results diverge.
+
+**Reference**: Official Lua exposes `lua_sethook` (`lua.h:481`,
+`ldebug.c:133`). Acceptable for a general interpreter, but tolang already
+removed `SetInterrupt` for this reason.
+
+**Recommendation**: Remove `SetLineHook` from the consensus build path, or
+gate it behind a `debug` build tag. The consensus VM should have no
+host-injectable per-instruction callbacks.
 
 ---
 
