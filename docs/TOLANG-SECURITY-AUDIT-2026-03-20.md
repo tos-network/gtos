@@ -22,7 +22,7 @@ nondeterminism sources and bounds all resources.**
 | Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
 | High | 0 | — |
 | Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk (open) |
-| Low | 1 | Table.Next() stale key after deletion (open, no consensus impact) |
+| ~~Low~~ | 0 | ~~Table.Next() stale key after deletion~~ — **FIXED** (tolang commit f4554f8): `isValidNextKey()` accepts stale keys, rejects invalid keys; next/pairs semantics unified |
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 | False Positive | 1 | Bytecode endianness "inconsistency" (deterministic, not a bug) |
