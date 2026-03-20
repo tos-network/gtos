@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: T-0 through T-21 resolved; T-22 through T-28 open (final sweep gas gaps)
+**Verdict**: **PASS** — all 29 findings (T-0 through T-28) resolved; no consensus fork risks
 
 ---
 
@@ -43,13 +43,13 @@ have now been closed.**
 | ~~Medium~~ | 0 | ~~`table.Len()/MaxN()` O(n) linear scan unmetered (T-21)~~ — **FIXED** (current tolang tree): internal length scans now return cost and are metered |
 | ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
 | ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
-| Medium | 1 | OP_VARARG copies O(n) args without gas (T-22) — open |
-| Medium | 1 | OP_SETLIST bulk table init O(n) without gas (T-23) — open |
-| Low | 1 | `string.char(...)` O(n) args without gas (T-24) — open |
-| Low | 1 | `string.reverse` O(n) copy without gas (T-25) — open |
-| Low | 1 | `string.lower` O(n) without gas (T-26) — open |
-| Low | 1 | `string.upper` O(n) without gas (T-27) — open |
-| Medium | 1 | PM `opBrace` loop missing step callback (T-28) — open |
+| ~~Medium~~ | 0 | ~~OP_VARARG copies O(n) args without gas (T-22)~~ — **FIXED** (tolang d63f05a): `chargeGas(n)` before copy |
+| ~~Medium~~ | 0 | ~~OP_SETLIST bulk table init O(n) without gas (T-23)~~ — **FIXED** (tolang d63f05a): `chargeGas(1)` per element |
+| ~~Low~~ | 0 | ~~`string.char(...)` O(n) args (T-24)~~ — **FIXED** (tolang d63f05a): `chargeGas(1)` per arg |
+| ~~Low~~ | 0 | ~~`string.reverse` O(n) (T-25)~~ — **FIXED** (tolang d63f05a): `chargeChunkedWorkGas` by length |
+| ~~Low~~ | 0 | ~~`string.lower` O(n) (T-26)~~ — **FIXED** (tolang d63f05a): `chargeChunkedWorkGas` by length |
+| ~~Low~~ | 0 | ~~`string.upper` O(n) (T-27)~~ — **FIXED** (tolang d63f05a): `chargeChunkedWorkGas` by length |
+| ~~Medium~~ | 0 | ~~PM `opBrace` loop missing step (T-28)~~ — **FIXED** (tolang d63f05a): `step()` in brace loop |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 
 ---
