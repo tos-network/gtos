@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: T-0 through T-8 resolved; T-9/T-10/T-11 open (no verified fork risk)
+**Verdict**: **PASS** — all 12 findings (T-0 through T-11) resolved; no consensus fork risks
 
 ---
 
@@ -30,9 +30,9 @@ have now been closed.**
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | ~~High~~ | 0 | ~~Unbounded string construction bypasses gas metering (T-7)~~ — **FIXED** (tolang 510b0ac): unified 1 MiB cap across format/concat/TOL helpers |
 | ~~Medium~~ | 0 | ~~`.tor` import fallback uses nondeterministic map iteration (T-8)~~ — **FIXED** (tolang 510b0ac): sorted scan + ambiguity rejection |
-| High | 1 | `table.sort` host CPU cost not metered by gas (T-9) — open |
-| Medium | 1 | Multi-contract `.tor` default package name depends on source basename (T-10) — open |
-| Medium | 1 | `SetLineHook` still exposed in production API (T-11) — open |
+| ~~High~~ | 0 | ~~`table.sort` host CPU cost not metered by gas (T-9)~~ — **FIXED** (tolang bcafe0c): `chargeGas()` per compare/swap |
+| ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
+| ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 
 ---
