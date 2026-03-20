@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: T-0 through T-11 resolved; T-12 through T-21 open (resource amplification, no verified fork)
+**Verdict**: T-0 through T-21 resolved; no verified fork risk found in the current tolang tree
 
 ---
 
@@ -31,16 +31,16 @@ have now been closed.**
 | ~~High~~ | 0 | ~~Unbounded string construction bypasses gas metering (T-7)~~ — **FIXED** (tolang 510b0ac): unified 1 MiB cap across format/concat/TOL helpers |
 | ~~Medium~~ | 0 | ~~`.tor` import fallback uses nondeterministic map iteration (T-8)~~ — **FIXED** (tolang 510b0ac): sorted scan + ambiguity rejection |
 | ~~High~~ | 0 | ~~`table.sort` host CPU cost not metered by gas (T-9)~~ — **FIXED** (tolang bcafe0c): `chargeGas()` per compare/swap |
-| Critical | 1 | Sparse array write materializes huge slice at near-zero gas (T-12) — open |
-| High | 1 | `#t` / `next` / `table.remove` / `table.insert` unmetered on large arrays (T-13) — open |
-| Medium | 1 | Hash builtins (sha256/keccak256/ripemd160) CPU not metered by input size (T-14) — open |
-| Medium | 1 | `math.max/min(table)` O(n) iteration unmetered (T-15) — open |
-| Medium | 1 | `table.insert(t, pos, v)` O(n) array copy unmetered (T-16) — open |
-| Low | 1 | `table.Append()` O(n) backward scan on sparse arrays (T-17) — open |
-| Medium | 1 | `string.byte(s, 1, n)` pushes O(n) values unmetered (T-18) — open |
-| Medium | 1 | `unpack(t, 1, n)` pushes O(n) values unmetered (T-19) — open |
-| High | 1 | Regex backtracking `pm.recursiveVM` potential O(2^n) (T-20) — open |
-| Medium | 1 | `table.Len()/MaxN()` O(n) linear scan unmetered (T-21) — open |
+| ~~Critical~~ | 0 | ~~Sparse array write materializes huge slice at near-zero gas (T-12)~~ — **FIXED** (current tolang tree): sparse high indices now fall back to hash instead of materializing huge array holes |
+| ~~High~~ | 0 | ~~`#t` / `next` / `table.remove` / `table.insert` unmetered on large arrays (T-13)~~ — **FIXED** (current tolang tree): large-table scans and shifts now charge host gas |
+| ~~Medium~~ | 0 | ~~Hash builtins (sha256/keccak256/ripemd160) CPU not metered by input size (T-14)~~ — **FIXED** (current tolang tree): hash/ABI helpers now charge by input size |
+| ~~Medium~~ | 0 | ~~`math.max/min(table)` O(n) iteration unmetered (T-15)~~ — **FIXED** (current tolang tree): table extremum iteration now charges per element |
+| ~~Medium~~ | 0 | ~~`table.insert(t, pos, v)` O(n) array copy unmetered (T-16)~~ — **FIXED** (current tolang tree): insertion shifts now charge host gas |
+| ~~Low~~ | 0 | ~~`table.Append()` O(n) backward scan on sparse arrays (T-17)~~ — **FIXED** (current tolang tree): sparse-array strategy no longer creates giant trailing holes |
+| ~~Medium~~ | 0 | ~~`string.byte(s, 1, n)` pushes O(n) values unmetered (T-18)~~ — **FIXED** (current tolang tree): per-return-value gas is now charged |
+| ~~Medium~~ | 0 | ~~`unpack(t, 1, n)` pushes O(n) values unmetered (T-19)~~ — **FIXED** (current tolang tree): unpack now charges per pushed value |
+| ~~High~~ | 0 | ~~Regex backtracking `pm.recursiveVM` potential O(2^n) (T-20)~~ — **FIXED** (current tolang tree): pattern VM now charges host gas per step/backtrack |
+| ~~Medium~~ | 0 | ~~`table.Len()/MaxN()` O(n) linear scan unmetered (T-21)~~ — **FIXED** (current tolang tree): internal length scans now return cost and are metered |
 | ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
 | ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
@@ -233,7 +233,7 @@ bounding memory growth under key churn.
 
 ---
 
-### T-7: Unbounded String Construction Bypasses Gas Metering (High) — Open
+### T-7: Unbounded String Construction Bypasses Gas Metering (High) ✅ Fixed
 
 **Location**: `stringlib.go:253` (`string.format`), `vm.go:2354` (`..`
 concat opcode), `tablelib.go:59` (`table.concat`),
@@ -278,7 +278,7 @@ rather than only per-instruction.
 
 ---
 
-### T-8: `.tor` Import Fallback Uses Nondeterministic Map Iteration (Medium) — Open
+### T-8: `.tor` Import Fallback Uses Nondeterministic Map Iteration (Medium) ✅ Fixed
 
 **Location**: `tol_api.go:327,359`, `tol_package.go:29`
 
@@ -303,7 +303,7 @@ files declare the same interface).
 
 ---
 
-### T-9: `table.sort` Host CPU Cost Not Metered by Gas (High) — Open
+### T-9: `table.sort` Host CPU Cost Not Metered by Gas (High) ✅ Fixed
 
 **Location**: `tablelib.go:22,28`
 
@@ -331,7 +331,7 @@ gas per comparison, or charge `n * ceil(log2(n))` gas upfront before sorting.
 
 ---
 
-### T-10: Multi-Contract `.tor` Default Package Name Depends on Source Basename (Medium) — Open
+### T-10: Multi-Contract `.tor` Default Package Name Depends on Source Basename (Medium) ✅ Fixed
 
 **Location**: `tol_package.go:90,93`
 
@@ -354,7 +354,7 @@ explicitly, or derive the default from the contract name in the source
 
 ---
 
-### T-11: `SetLineHook` Still Exposed in Production API (Medium) — Open
+### T-11: `SetLineHook` Still Exposed in Production API (Medium) ✅ Fixed
 
 **Location**: `value.go:243,246`, `vm.go:38`
 
@@ -383,7 +383,7 @@ host-injectable per-instruction callbacks.
 
 ---
 
-### T-12: Sparse Array Write Materializes Huge Slice at Near-Zero Gas (Critical) — Open
+### T-12: Sparse Array Write Materializes Huge Slice at Near-Zero Gas (Critical) ✅ Fixed
 
 **Location**: `utils.go:104` (`isArrayKey`), `config.go:14`
 (`MaxArrayIndex = 67108864`), `table.go:159,195` (array extend path)
@@ -420,7 +420,7 @@ Either:
 
 ---
 
-### T-13: Large Array Operations Unmetered by Gas (High) — Open
+### T-13: Large Array Operations Unmetered by Gas (High) ✅ Fixed
 
 **Location**: `table.go:55` (`Len`), `table.go:465` (`Next`),
 `table.go:99` (`Remove`), `table.go:131` (`Insert`)
@@ -448,7 +448,7 @@ charge per element moved. For `Next`, charge per skipped nil.
 
 ---
 
-### T-14: Hash Builtins CPU Not Metered by Input Size (Medium) — Open
+### T-14: Hash Builtins CPU Not Metered by Input Size (Medium) ✅ Fixed
 
 **Location**: `cryptolib.go:67` (`keccak256`), `cryptolib.go:85` (`sha256`),
 `cryptolib.go:102` (`ripemd160`)
@@ -476,7 +476,7 @@ SHA256 and 30+6/word for RIPEMD160.
 
 ---
 
-### T-15: `math.max/min(table)` O(n) Iteration Unmetered (Medium) — Open
+### T-15: `math.max/min(table)` O(n) Iteration Unmetered (Medium) ✅ Fixed
 
 **Location**: `mathlib.go:110-135` (`tableExtremum`)
 
@@ -489,7 +489,7 @@ T-9 (`table.sort`).
 
 ---
 
-### T-16: `table.insert(t, pos, v)` O(n) Array Copy Unmetered (Medium) — Open
+### T-16: `table.insert(t, pos, v)` O(n) Array Copy Unmetered (Medium) ✅ Fixed
 
 **Location**: `table.go:113` (`Insert`), called from `tablelib.go:92-112`
 
@@ -504,7 +504,7 @@ inserting at position 1 copies 999,999 elements at O(1) gas cost.
 
 ---
 
-### T-17: `table.Append()` O(n) Backward Scan on Sparse Arrays (Low) — Open
+### T-17: `table.Append()` O(n) Backward Scan on Sparse Arrays (Low) ✅ Fixed
 
 **Location**: `table.go:88-93` (`Append`)
 
@@ -516,7 +516,7 @@ trailing nils, this is O(n) work at O(1) gas.
 
 ---
 
-### T-18: `string.byte(s, 1, n)` Pushes O(n) Values Unmetered (Medium) — Open
+### T-18: `string.byte(s, 1, n)` Pushes O(n) Values Unmetered (Medium) ✅ Fixed
 
 **Location**: `stringlib.go:104-106` (`strByte`)
 
@@ -529,7 +529,7 @@ gas per returned value.
 
 ---
 
-### T-19: `unpack(t, 1, n)` Pushes O(n) Values Unmetered (Medium) — Open
+### T-19: `unpack(t, 1, n)` Pushes O(n) Values Unmetered (Medium) ✅ Fixed
 
 **Location**: `baselib.go:311-313` (`baseUnpack`)
 
@@ -541,7 +541,7 @@ gas per value pushed.
 
 ---
 
-### T-20: Regex Backtracking Potential O(2^n) (High) — Open
+### T-20: Regex Backtracking Potential O(2^n) (High) ✅ Fixed
 
 **Location**: `pm/pm.go:529-605` (`recursiveVM`)
 
@@ -560,7 +560,7 @@ O(n) for the others.
 
 ---
 
-### T-21: `table.Len()/MaxN()` O(n) Linear Scan Unmetered (Medium) — Open
+### T-21: `table.Len()/MaxN()` O(n) Linear Scan Unmetered (Medium) ✅ Fixed
 
 **Location**: `table.go:62-75` (`Len`), `table.go:118-128` (`MaxN`)
 
