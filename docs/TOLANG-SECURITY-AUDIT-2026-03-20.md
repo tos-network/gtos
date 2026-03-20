@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: T-0 through T-11 resolved; T-12/T-13/T-14 open (resource amplification, no verified fork)
+**Verdict**: T-0 through T-11 resolved; T-12 through T-21 open (resource amplification, no verified fork)
 
 ---
 
@@ -34,6 +34,13 @@ have now been closed.**
 | Critical | 1 | Sparse array write materializes huge slice at near-zero gas (T-12) — open |
 | High | 1 | `#t` / `next` / `table.remove` / `table.insert` unmetered on large arrays (T-13) — open |
 | Medium | 1 | Hash builtins (sha256/keccak256/ripemd160) CPU not metered by input size (T-14) — open |
+| Medium | 1 | `math.max/min(table)` O(n) iteration unmetered (T-15) — open |
+| Medium | 1 | `table.insert(t, pos, v)` O(n) array copy unmetered (T-16) — open |
+| Low | 1 | `table.Append()` O(n) backward scan on sparse arrays (T-17) — open |
+| Medium | 1 | `string.byte(s, 1, n)` pushes O(n) values unmetered (T-18) — open |
+| Medium | 1 | `unpack(t, 1, n)` pushes O(n) values unmetered (T-19) — open |
+| High | 1 | Regex backtracking `pm.recursiveVM` potential O(2^n) (T-20) — open |
+| Medium | 1 | `table.Len()/MaxN()` O(n) linear scan unmetered (T-21) — open |
 | ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
 | ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
@@ -466,6 +473,107 @@ pattern.
 **Recommendation**: Charge gas proportional to input byte length. Standard
 model: `base_cost + per_byte_cost * len(input)`. EVM uses 6 gas/word for
 SHA256 and 30+6/word for RIPEMD160.
+
+---
+
+### T-15: `math.max/min(table)` O(n) Iteration Unmetered (Medium) — Open
+
+**Location**: `mathlib.go:110-135` (`tableExtremum`)
+
+**Issue**: `math.max(table)` and `math.min(table)` iterate through all
+elements of a table via `tableExtremum()` without per-element gas charge.
+A single instruction triggers O(n) host comparisons.
+
+**Recommendation**: Charge gas per comparison iteration, same pattern as
+T-9 (`table.sort`).
+
+---
+
+### T-16: `table.insert(t, pos, v)` O(n) Array Copy Unmetered (Medium) — Open
+
+**Location**: `table.go:113` (`Insert`), called from `tablelib.go:92-112`
+
+**Issue**: `table.Insert()` performs `copy(tb.array[i+1:], tb.array[i:])`
+which shifts all elements after the insertion point. On a 1M-element array,
+inserting at position 1 copies 999,999 elements at O(1) gas cost.
+
+**Note**: Partially overlaps with T-13 but is a distinct code path
+(3-argument `table.insert` vs `table.remove`).
+
+**Recommendation**: Charge gas proportional to elements shifted.
+
+---
+
+### T-17: `table.Append()` O(n) Backward Scan on Sparse Arrays (Low) — Open
+
+**Location**: `table.go:88-93` (`Append`)
+
+**Issue**: When appending to a sparse array, `Append()` scans backward from
+the end to find the first non-nil element. On a 1M-element array with
+trailing nils, this is O(n) work at O(1) gas.
+
+**Recommendation**: Charge gas per scan step, or maintain a cached length.
+
+---
+
+### T-18: `string.byte(s, 1, n)` Pushes O(n) Values Unmetered (Medium) — Open
+
+**Location**: `stringlib.go:104-106` (`strByte`)
+
+**Issue**: `string.byte(s, 1, #s)` pushes one value per byte onto the Lua
+stack. On a 1M-byte string, this pushes 1M values at O(1) gas cost. Also
+risks stack/registry overflow.
+
+**Recommendation**: Cap the number of return values (e.g., 256), or charge
+gas per returned value.
+
+---
+
+### T-19: `unpack(t, 1, n)` Pushes O(n) Values Unmetered (Medium) — Open
+
+**Location**: `baselib.go:311-313` (`baseUnpack`)
+
+**Issue**: `unpack(t, 1, 1000000)` pushes 1M values onto the stack at O(1)
+gas cost. Same amplification pattern as T-18.
+
+**Recommendation**: Cap the unpack range (e.g., 256 elements), or charge
+gas per value pushed.
+
+---
+
+### T-20: Regex Backtracking Potential O(2^n) (High) — Open
+
+**Location**: `pm/pm.go:529-605` (`recursiveVM`)
+
+**Issue**: The pattern matching engine uses a recursive Thompson NFA with
+split-point exploration. While Thompson NFA generally avoids catastrophic
+backtracking, crafted patterns with nested alternation + repetition can
+cause exponential state exploration through `opSplit` instructions.
+
+**Exploitation**: Pattern `(a|a|a|a|a)*(b|c|d|e|f)*xyz` against non-matching
+input `"aaaaaaaaaaaaaaaaaaaaaa"` triggers exponential split exploration.
+
+**Recommendation**: Add a step counter to `recursiveVM` and charge gas per
+step. Also add a hard step limit (e.g., 10,000) to prevent exponential
+blowup. This is the **most dangerous** amplification vector — O(2^n) vs
+O(n) for the others.
+
+---
+
+### T-21: `table.Len()/MaxN()` O(n) Linear Scan Unmetered (Medium) — Open
+
+**Location**: `table.go:62-75` (`Len`), `table.go:118-128` (`MaxN`)
+
+**Issue**: Both functions linearly scan the table array backward to find the
+last non-nil element. Called implicitly from many operations (`table.concat`,
+`table.insert` 2-arg form, `#t` operator). On a 1M-element sparse array,
+each implicit length check is O(n) host work at O(1) gas.
+
+**Note**: Partially overlaps with T-13 but identifies the specific internal
+methods and their implicit callers.
+
+**Recommendation**: Charge gas per scan step, or maintain a cached `maxn`
+field updated on insert/delete.
 
 ---
 
