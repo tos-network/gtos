@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: **PASS** — all 29 findings (T-0 through T-28) resolved; no consensus fork risks
+**Verdict**: **PASS** — all 32 findings (T-0 through T-31) resolved; no consensus fork risks
 
 ---
 
@@ -50,6 +50,9 @@ have now been closed.**
 | ~~Low~~ | 0 | ~~`string.lower` O(n) (T-26)~~ — **FIXED** (tolang d63f05a): `chargeChunkedWorkGas` by length |
 | ~~Low~~ | 0 | ~~`string.upper` O(n) (T-27)~~ — **FIXED** (tolang d63f05a): `chargeChunkedWorkGas` by length |
 | ~~Medium~~ | 0 | ~~PM `opBrace` loop missing step (T-28)~~ — **FIXED** (tolang d63f05a): `step()` in brace loop |
+| ~~Low~~ | 0 | ~~OP_LOADNIL range fill unmetered (T-29)~~ — **FIXED** (tolang 44280ea): `chargeGas(n)` for multi-reg fill |
+| ~~Medium~~ | 0 | ~~OP_CONCAT fast-path loop unmetered (T-30)~~ — **FIXED** (tolang 44280ea): `chargeGas(1)` per iteration |
+| ~~Low~~ | 0 | ~~`compactNextIterationState` O(n) unmetered (T-31)~~ — **FIXED** (tolang 44280ea): cost returned and charged via `NextWithCost` |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 
 ---
