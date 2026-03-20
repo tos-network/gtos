@@ -22,9 +22,9 @@ nondeterminism sources and bounds all resources.**
 | Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
 | High | 0 | — |
 | Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk — **FIXED** (tolang commit 46c706a) |
-| Medium | 1 | Default build artifacts not reproducible (host path in SourceName) — open |
-| Medium | 1 | VM `SetInterrupt` bypasses gas-only termination model — open |
-| Low | 1 | Table hash tombstones accumulate without bound — open |
+| ~~Medium~~ | 0 | ~~Default build artifacts not reproducible~~ — **FIXED** (tolang 11e22b5): `IncludeSourceMap` defaults to false |
+| ~~Medium~~ | 0 | ~~VM `SetInterrupt` bypasses gas-only termination~~ — **FIXED** (tolang 11e22b5 + gtos cf37e61): `SetInterrupt` removed |
+| ~~Low~~ | 0 | ~~Table hash tombstones accumulate~~ — **FIXED** (tolang 11e22b5): `nextIterated` tracking + `compactNextIterationState()` |
 | ~~Low~~ | 0 | ~~Table.Next() stale key after deletion~~ — **FIXED** (tolang commit f4554f8): `isValidNextKey()` accepts stale keys, rejects invalid keys; next/pairs semantics unified |
 | ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
