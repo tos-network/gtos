@@ -15,6 +15,7 @@
 | 4 | [Consensus-Safety-Security-Audit-2026-03-20.md](Consensus-Safety-Security-Audit-2026-03-20.md) | 2026-03-20 | Codex | Parallel scheduler, privacy accounting, sponsor semantics | ✅ All resolved |
 | 5 | [AUDIT-CROSSCHECK-2026-03-20.md](AUDIT-CROSSCHECK-2026-03-20.md) | 2026-03-20 | Claude Opus 4.6 | Cross-check of Codex findings against actual code | ✅ Complete |
 | 6 | [SECURITY-AUDIT-2026-03-20-PASS2.md](SECURITY-AUDIT-2026-03-20-PASS2.md) | 2026-03-20 | Claude Opus 4.6 | Full re-audit: block pipeline, state transition, miner, txpool, RLP, hashing, crypto | ✅ Zero new findings |
+| 7 | [SPONSOR-NONCE-REVIEW-2026-03-20.md](SPONSOR-NONCE-REVIEW-2026-03-20.md) | 2026-03-20 | Codex + Claude Opus 4.6 | F5 sponsor nonce implementation review: frontier gap, cross-pass cursor, pending invariant | ✅ 3 bugs fixed |
 
 ---
 
@@ -46,10 +47,15 @@ AUDIT-METHODOLOGY.md         ← defines scope, checklist, principles
         │     Confirmed F4 incomplete → completed
         │     Confirmed F5/F6 → fixed
         │
-        └── SECURITY-AUDIT-2026-03-20-PASS2.md  ← second-pass full re-audit
-              Zero new findings across 15 audit areas
-              All previous fixes verified correct
-              Code confirmed production-ready
+        ├── SECURITY-AUDIT-2026-03-20-PASS2.md  ← second-pass full re-audit
+        │     Zero new findings across 15 audit areas
+        │     All previous fixes verified correct
+        │
+        └── SPONSOR-NONCE-REVIEW-2026-03-20.md  ← F5 implementation review
+              R-1: sponsor frontier gap (rebuild max→contiguous) ✅ fixed
+              R-2: miner cross-pass paused cursor loss ✅ fixed
+              R-3: sponsor-gap txs remain in pending ✅ fixed
+              No consensus impact (txpool/miner only)
 ```
 
 ---
