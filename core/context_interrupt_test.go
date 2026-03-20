@@ -42,12 +42,12 @@ func interruptBlockCtx() lvm.BlockContext {
 	}
 }
 
-// ── Test 1: LVM execution interrupted by context timeout ──────────────────────
+// ── Test 1: LVM infinite loop terminated by gas limit ─────────────────────────
 
-// TestLVMContextInterrupt verifies that a Lua contract running an infinite loop
-// is aborted promptly when the context deadline fires, rather than blocking
-// until gas is exhausted (which would take far longer).
-func TestLVMContextInterrupt(t *testing.T) {
+// TestLVMGasExhaustion verifies that a Lua contract running an infinite loop
+// is terminated by gas exhaustion. After removing SetInterrupt (T-5), gas is
+// the only consensus-safe termination mechanism.
+func TestLVMGasExhaustion(t *testing.T) {
 	from := common.HexToAddress("0xA001")
 	contractAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
 
@@ -56,23 +56,12 @@ func TestLVMContextInterrupt(t *testing.T) {
 	st.SetCode(contractAddr, []byte(`while true do end`))
 
 	cfg := &params.ChainConfig{ChainID: big.NewInt(1337)}
-	msg := types.NewMessage(from, &contractAddr, 0, big.NewInt(0), 10_000_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, true)
+	// Use a small gas limit so the test completes quickly.
+	msg := types.NewMessage(from, &contractAddr, 0, big.NewInt(0), 100_000, big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, true)
 	gp := new(GasPool).AddGas(msg.Gas())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	result, applyErr := ApplyMessage(context.Background(), interruptBlockCtx(), cfg, msg, gp, st)
 
-	start := time.Now()
-	result, applyErr := ApplyMessage(ctx, interruptBlockCtx(), cfg, msg, gp, st)
-	elapsed := time.Since(start)
-
-	// The call must return within a generous 5s window — well before 10M gas at
-	// 1 opcode/ns would be exhausted.
-	if elapsed > 5*time.Second {
-		t.Fatalf("LVM interrupt took too long: %v", elapsed)
-	}
-
-	// Either ApplyMessage returns an error, or the result carries the abort error.
 	var execErr error
 	if applyErr != nil {
 		execErr = applyErr
@@ -80,16 +69,10 @@ func TestLVMContextInterrupt(t *testing.T) {
 		execErr = result.Err
 	}
 	if execErr == nil {
-		t.Fatal("expected an error due to context abort, got nil")
+		t.Fatal("expected an error due to gas exhaustion, got nil")
 	}
-	// The Lua VM raises "execution aborted" via RaiseError; check the string.
-	if !strings.Contains(execErr.Error(), "aborted") && !strings.Contains(execErr.Error(), "interrupt") {
-		t.Fatalf("unexpected error (want 'aborted'/'interrupt'): %v", execErr)
-	}
-
-	// Context must indeed be done (timeout fired).
-	if ctx.Err() == nil {
-		t.Fatal("expected context to be done after abort")
+	if !strings.Contains(execErr.Error(), "gas") {
+		t.Fatalf("unexpected error (want gas-related): %v", execErr)
 	}
 }
 

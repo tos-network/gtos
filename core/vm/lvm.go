@@ -634,9 +634,6 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	L := lua.NewState(lua.Options{SkipOpenLibs: false})
 	defer L.Close()
 	L.SetGasLimit(gasLimit)
-	if ctx.GoCtx != nil {
-		L.SetInterrupt(ctx.GoCtx.Done())
-	}
 
 	// totalChildGas accumulates opcodes consumed by all nested tos.call
 	// invocations at this call level (not recursively — each level tracks its
