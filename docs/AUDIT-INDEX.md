@@ -14,6 +14,7 @@
 | 3 | [LVM-DETERMINISM-AUDIT-2026-03-19.md](LVM-DETERMINISM-AUDIT-2026-03-19.md) | 2026-03-19 | Claude Opus 4.6 | LVM/Lua interpreter determinism (15 categories) | ✅ 15/15 passed |
 | 4 | [Consensus-Safety-Security-Audit-2026-03-20.md](Consensus-Safety-Security-Audit-2026-03-20.md) | 2026-03-20 | Codex | Parallel scheduler, privacy accounting, sponsor semantics | ✅ All resolved |
 | 5 | [AUDIT-CROSSCHECK-2026-03-20.md](AUDIT-CROSSCHECK-2026-03-20.md) | 2026-03-20 | Claude Opus 4.6 | Cross-check of Codex findings against actual code | ✅ Complete |
+| 6 | [SECURITY-AUDIT-2026-03-20-PASS2.md](SECURITY-AUDIT-2026-03-20-PASS2.md) | 2026-03-20 | Claude Opus 4.6 | Full re-audit: block pipeline, state transition, miner, txpool, RLP, hashing, crypto | ✅ Zero new findings |
 
 ---
 
@@ -39,11 +40,16 @@ AUDIT-METHODOLOGY.md         ← defines scope, checklist, principles
         │               F5 (sponsor nonce pipeline) ✅ fixed (sponsorNoncer)
         │               F6 (sponsor expiry units) ✅ fixed (UnixMilli)
         │
-        └── AUDIT-CROSSCHECK-2026-03-20.md  ← cross-verification (Claude Opus 4.6)
-              Verified F1/F2 as false positives
-              Confirmed F3 partially true → fixed
-              Confirmed F4 incomplete → completed
-              Confirmed F5/F6 → fixed
+        ├── AUDIT-CROSSCHECK-2026-03-20.md  ← cross-verification (Claude Opus 4.6)
+        │     Verified F1/F2 as false positives
+        │     Confirmed F3 partially true → fixed
+        │     Confirmed F4 incomplete → completed
+        │     Confirmed F5/F6 → fixed
+        │
+        └── SECURITY-AUDIT-2026-03-20-PASS2.md  ← second-pass full re-audit
+              Zero new findings across 15 audit areas
+              All previous fixes verified correct
+              Code confirmed production-ready
 ```
 
 ---
