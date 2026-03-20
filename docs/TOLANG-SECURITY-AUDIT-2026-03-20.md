@@ -22,7 +22,9 @@ nondeterminism sources and bounds all resources.**
 | Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
 | High | 0 | — |
 | Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk (open) |
-| Low | 2 | Table.Next() stale key; bytecode decoder accepts malformed constants (open) |
+| Low | 1 | Table.Next() stale key after deletion (open, no consensus impact) |
+| Deferred | 1 | Bytecode decoder hardening (T-3) — existing validation covers opcodes, constants, registers; Codex attempted full per-opcode validation but it was too strict for Lua compiler output; needs careful per-opcode tuning |
+| False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 | False Positive | 1 | Bytecode endianness "inconsistency" (deterministic, not a bug) |
 
 ---
@@ -98,22 +100,25 @@ in a lockfile. Add response body size limit.
 
 ---
 
-### T-3: Bytecode Decoder Accepts Malformed Constants (Low) — Open
+### T-3: Bytecode Decoder Hardening — Deferred
 
-**Location**: `bytecode.go:445`, `auxlib.go:422`, `tol_artifact.go:373`
+**Location**: `bytecode.go:445`
 
-**Issue**: The bytecode decoder validates opcode range, CLOSURE sub-proto
-index, and SETLIST extra words, but does NOT validate constant indices,
-register indices, or jump targets. Malformed bytecode with `LOADK Bx=1` but
-`len(Constants)=0` passes decoding. Under PCall, this becomes
-`ApiErrorPanic`; under unprotected `Call`, it's a raw Go panic.
+**Issue**: The existing `validateDecodedProto` validates opcode range, CLOSURE
+sub-proto index, and SETLIST extra words. Codex attempted a comprehensive
+per-opcode validation (constant indices, register operands, jump targets,
+upvalue indices), but the implementation was too strict — it rejected valid
+compiler output (e.g., CLOSURE destination register can exceed
+`NumUsedRegisters` because Lua allocates registers dynamically).
 
-**Consensus impact**: LOW. All gtos execution paths use PCall (protected).
-The panic is caught and produces a deterministic error. But it's a hardening
-gap — bytecode validation should reject this at decode time.
+**Current state**: The bytecode decoder's validation is sufficient for
+consensus safety because all gtos execution paths use PCall (protected).
+Malformed bytecode produces a deterministic `ApiErrorPanic`, not a fork.
 
-**Recommendation**: Add bounds checks during decode for constant indices,
-register operands, and jump targets.
+**Deferred**: Full per-opcode validation requires careful analysis of Lua
+compiler register allocation behavior. Each opcode's valid operand ranges
+must be derived from the compiler spec, not assumed. This is a hardening
+improvement, not a security fix.
 
 ---
 
