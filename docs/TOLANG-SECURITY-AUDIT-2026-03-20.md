@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: T-0 through T-21 resolved; no verified fork risk found in the current tolang tree
+**Verdict**: T-0 through T-21 resolved; T-22 through T-28 open (final sweep gas gaps)
 
 ---
 
@@ -43,6 +43,13 @@ have now been closed.**
 | ~~Medium~~ | 0 | ~~`table.Len()/MaxN()` O(n) linear scan unmetered (T-21)~~ — **FIXED** (current tolang tree): internal length scans now return cost and are metered |
 | ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
 | ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
+| Medium | 1 | OP_VARARG copies O(n) args without gas (T-22) — open |
+| Medium | 1 | OP_SETLIST bulk table init O(n) without gas (T-23) — open |
+| Low | 1 | `string.char(...)` O(n) args without gas (T-24) — open |
+| Low | 1 | `string.reverse` O(n) copy without gas (T-25) — open |
+| Low | 1 | `string.lower` O(n) without gas (T-26) — open |
+| Low | 1 | `string.upper` O(n) without gas (T-27) — open |
+| Medium | 1 | PM `opBrace` loop missing step callback (T-28) — open |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 
 ---
@@ -574,6 +581,91 @@ methods and their implicit callers.
 
 **Recommendation**: Charge gas per scan step, or maintain a cached `maxn`
 field updated on insert/delete.
+
+---
+
+### T-22: OP_VARARG Copies O(n) Args Without Gas (Medium) — Open
+
+**Location**: `vm.go:2030-2037`
+
+**Issue**: OP_VARARG copies variable arguments into registers in a loop
+without per-copy gas charge. A function receiving thousands of varargs
+performs O(n) register copies at O(1) gas.
+
+**Recommendation**: Add `L.chargeGas(1)` per iteration in the copy loop.
+
+---
+
+### T-23: OP_SETLIST Bulk Table Init O(n) Without Gas (Medium) — Open
+
+**Location**: `vm.go:1919-1921`
+
+**Issue**: OP_SETLIST initializes table entries in a loop
+(`table.RawSetInt(offset+i, reg.Get(RA+i))`) without per-element gas.
+Table literals `{v1, v2, ..., v10000}` perform O(n) host work at O(1) gas.
+
+**Recommendation**: Add `L.chargeGas(1)` per iteration in the SETLIST loop.
+
+---
+
+### T-24: `string.char(...)` O(n) Args Without Gas (Low) — Open
+
+**Location**: `stringlib.go:117-129`
+
+**Issue**: `string.char` iterates all arguments to build a byte array.
+With many arguments, this is O(n) work at O(1) gas. Bounded by argument
+count (stack size), so practical amplification is limited.
+
+**Recommendation**: Add `L.chargeGas(1)` per argument.
+
+---
+
+### T-25: `string.reverse` O(n) Copy Without Gas (Low) — Open
+
+**Location**: `stringlib.go:762-771`
+
+**Issue**: `string.reverse` reverses a string byte-by-byte in O(n) without
+per-byte gas. Input is capped at 1 MiB by `maxStringResultBytes`, so max
+amplification is bounded but still unmetered.
+
+**Recommendation**: Add `chargeChunkedWorkGas(L, len(bts), 32)`.
+
+---
+
+### T-26: `string.lower` O(n) Without Gas (Low) — Open
+
+**Location**: `stringlib.go:686-690`
+
+**Issue**: `string.lower` calls `strings.ToLower()` which processes every
+byte. Capped at 1 MiB. Unmetered.
+
+**Recommendation**: Add `chargeChunkedWorkGas(L, len(str), 32)`.
+
+---
+
+### T-27: `string.upper` O(n) Without Gas (Low) — Open
+
+**Location**: `stringlib.go:793-797`
+
+**Issue**: Same as T-26 for `strings.ToUpper()`.
+
+**Recommendation**: Add `chargeChunkedWorkGas(L, len(str), 32)`.
+
+---
+
+### T-28: PM `opBrace` Loop Missing Step Callback (Medium) — Open
+
+**Location**: `pm/pm.go:573-591`
+
+**Issue**: The `%b[]` balanced-brace pattern matching loop iterates through
+the source string without calling the `step()` gas callback. All other PM
+operations (opChar, opSplit, opSave) correctly call `step()` at the top of
+`redo:`, but `opBrace` has its own internal loop that bypasses this.
+
+**Exploitation**: `string.match(large_string, "%b[]")` with deeply nested
+brackets performs O(n) scanning without gas.
+
+**Recommendation**: Add `step()` call inside the `opBrace` for loop.
 
 ---
 
