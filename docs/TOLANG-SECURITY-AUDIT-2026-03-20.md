@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: **PASS** — one low-severity issue found; no consensus fork risks
+**Verdict**: **PASS** — all findings resolved; no consensus fork risks
 
 ---
 
@@ -15,13 +15,14 @@ audited the VM execution, bytecode format, table implementation, compilation,
 sandbox safety, resource limits, and attack vectors.
 
 **Overall assessment: strong security posture. The VM systematically removes
-nondeterminism sources and bounds all resources.**
+nondeterminism sources and bounds all resources. All findings from this audit
+have now been closed.**
 
 | Severity | Count | Summary |
 |----------|-------|---------|
-| Critical | 1 | `ToStringMeta()` leaks Go heap pointer via `%p` → **FIXED** (tolang commit b308666) |
+| ~~Critical~~ | 0 | ~~`ToStringMeta()` leaked Go heap pointer via `%p`~~ — **FIXED**: deterministic `__name` fallback, no pointer or call-history leakage |
 | High | 0 | — |
-| Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk — **FIXED** (tolang commit 46c706a) |
+| ~~Medium~~ | 0 | ~~GitHub import allowed mutable refs (branch/tag)~~ — **FIXED** (tolang commit 46c706a): commit-SHA-only imports + bounded response size |
 | ~~Medium~~ | 0 | ~~Default build artifacts not reproducible~~ — **FIXED** (tolang 11e22b5): `IncludeSourceMap` defaults to false |
 | ~~Medium~~ | 0 | ~~VM `SetInterrupt` bypasses gas-only termination~~ — **FIXED** (tolang 11e22b5 + gtos cf37e61): `SetInterrupt` removed |
 | ~~Low~~ | 0 | ~~Table hash tombstones accumulate~~ — **FIXED** (tolang 11e22b5): `nextIterated` tracking + `compactNextIterationState()` |
@@ -51,17 +52,17 @@ setmetatable(t, { __name = "Foo" })
 local s = tostring(t)  -- "Foo: 0xc000228ae0" (node-dependent!)
 ```
 
-**Fix** (tolang commit b308666): Replaced `%p` with a deterministic
-monotonic `objectIDCounter` on `LState`. Output is now
-`"Foo: 0x00000001"`, `"Foo: 0x00000002"`, etc. — deterministic within a
-single execution context.
+**Fix**: `ToStringMeta()` now uses a stable deterministic fallback for named
+tables/userdata. When `__tostring` is absent but `__name` is present, the
+string representation no longer includes a pointer or synthetic per-call ID.
+The current behavior returns a stable label such as `"Foo"`.
 
 **Consensus impact**: CRITICAL → **FIXED**. No pointer addresses leak into
 contract execution.
 
 ---
 
-### T-1: Table.Next() Stale Key After Deletion (Low)
+### T-1: Table.Next() Stale Key After Deletion (Low) ✅ Fixed
 
 **Location**: `table.go:383`, `table.go:217`
 
@@ -81,10 +82,12 @@ explicitly after deleting that key — an unusual pattern.
 uses `ForEach` (not `Next`). Storage iteration in LVM uses explicit slot
 reads. No consensus-critical path calls `Next()` on deleted keys.
 
-**Recommendation**: Fix the TODO — remove deleted keys from `keys` and `k2i`.
-Add a test for `Next()` after key deletion.
+**Fix** (tolang commit f4554f8): `next()` / `pairs()` now accept valid stale
+iteration keys after deletion while still rejecting keys that never belonged
+to the traversal sequence. Semantics are aligned with Lua expectations and
+covered by direct regression tests.
 
-### T-2: GitHub Import Allows Mutable Refs (Medium) — Open
+### T-2: GitHub Import Allows Mutable Refs (Medium) ✅ Fixed
 
 **Location**: `tol_api.go:29,168-205`
 
@@ -98,8 +101,9 @@ body size limit.
 **supply chain / build reproducibility** risk. A malicious upstream can
 silently change contract behavior between compilations.
 
-**Recommendation**: Restrict `ref` to commit SHAs only, or pin resolved SHAs
-in a lockfile. Add response body size limit.
+**Fix** (tolang commit 46c706a): The resolver now accepts only exact
+40-character commit SHAs and enforces a bounded HTTP response size. Mutable
+branch/tag imports are rejected.
 
 ---
 
@@ -126,7 +130,7 @@ constant index, register overflow, invalid jump target, etc.
 
 ---
 
-### T-4: Default Build Artifacts Not Reproducible (Medium) — Open
+### T-4: Default Build Artifacts Not Reproducible (Medium) ✅ Fixed
 
 **Location**: `bytecode.go:166`, `tol_artifact.go:198`, `tol_api.go:450,513`,
 `tol_package.go:302,355`
@@ -151,19 +155,20 @@ to either strip source maps or use consistent paths.
 **Reference**: Official Lua's `luaU_dump` also includes source/debug by
 default, but has an explicit `strip` parameter (`ldump.c:229`).
 
-**Recommendation**: Either default `IncludeSourceMap=false` for `.toc`/`.tor`
-production builds, or normalize `SourceName` to a stable logical name (e.g.,
-contract name) instead of the host path.
+**Fix** (tolang commit 11e22b5): The default build path now strips source-map
+and debug metadata from `.toc` / `.tor` outputs. `IncludeSourceMap` defaults
+to `false`, and callers must opt in explicitly if they want debug metadata.
 
 ---
 
-### T-5: VM SetInterrupt Bypasses Gas-Only Termination (Medium) — Open
+### T-5: VM SetInterrupt Bypasses Gas-Only Termination (Medium) ✅ Fixed
 
 **Location**: `value.go:231,254`, `vm.go:49`
 
-**Issue**: `LState` exposes `SetInterrupt(ch <-chan struct{})` which the main
-loop checks every instruction. When the channel is closed/readable, the VM
-raises `"execution aborted"` immediately, regardless of remaining gas.
+**Issue**: `LState` used to expose `SetInterrupt(ch <-chan struct{})` which
+the main loop checked every instruction. When the channel became
+closed/readable, the VM raised `"execution aborted"` immediately, regardless
+of remaining gas.
 
 This is not exploitable from contract code (contracts cannot call
 `SetInterrupt`). However, it is a **dangerous host API surface**: if a
@@ -175,16 +180,17 @@ depending on local timing — breaking consensus determinism.
 script → `"execution aborted"` instead of normal completion.
 
 **Consensus impact**: Not directly. Gas is the consensus termination
-mechanism. But `SetInterrupt` creates a parallel termination path that, if
-misused by the host, causes nondeterministic execution.
+mechanism. But `SetInterrupt` created a parallel termination path that, if
+misused by the host, could cause nondeterministic execution.
 
-**Recommendation**: Remove `SetInterrupt` from the consensus build path, or
-gate it behind a `debug`/`off-chain` build tag. Document that consensus
-execution must use gas-only termination.
+**Fix** (tolang commit 11e22b5 + gtos commit cf37e61): `SetInterrupt` and the
+underlying VM interrupt channel were removed. `gtos` no longer wires host
+timeouts into the Lua VM, and the remaining consensus-safe termination path is
+gas exhaustion.
 
 ---
 
-### T-6: Table Hash Tombstones Accumulate Without Bound (Low) — Open
+### T-6: Table Hash Tombstones Accumulate Without Bound (Low) ✅ Fixed
 
 **Location**: `table.go:216,243` (delete path), `table.go:352`
 (`isValidNextKey` depends on `k2i`)
@@ -206,11 +212,10 @@ sidecar slice.
 vector: a contract can inflate host memory by churning unique keys, with the
 cost hidden from gas metering.
 
-**Recommendation**: Introduce tombstone compaction — when the stale ratio
-exceeds a threshold (e.g., 50%), rebuild `keys`/`k2i` from live entries.
-This preserves `isValidNextKey` semantics while bounding memory growth.
-Alternatively, charge gas for table key allocation (not just instruction
-count).
+**Fix** (tolang commit 11e22b5): Hash-key tombstones are now retained only for
+active stale-key iteration semantics. `nextIterated` tracking and
+`compactNextIterationState()` rebuild the sidecar index once traversal ends,
+bounding memory growth under key churn.
 
 ---
 
@@ -310,7 +315,7 @@ field types is a valid design choice, not a consistency bug.
 | `table.go` | ~400 | LTable: ForEach, Next, insertion-order keys |
 | `bytecode.go` | ~600 | Encode/decode, VMID, SHA256 checksum |
 | `state.go` | ~2100 | LState, PCall, panic recovery, stack bounds |
-| `value.go` | ~270 | LValue types, gas limit, interrupt channel |
+| `value.go` | ~270 | LValue types, state fields, gas limit metadata |
 | `uint256.go` | ~400 | 256-bit unsigned arithmetic |
 | `cryptolib.go` | ~800 | Signed arithmetic, overflow checks, keccak/sha256 |
 | `linit.go` | ~50 | Library loading (debug/coroutine removed) |
@@ -326,7 +331,6 @@ field types is a valid design choice, not a consistency bug.
 
 The tolang VM is a well-hardened smart contract execution environment. It
 systematically eliminates nondeterminism (no floats, no coroutines, no I/O,
-no dynamic loading), bounds all resources (stack, memory, gas), and catches
-all panics (multi-level PCall recovery). The one low-severity finding
-(Table.Next stale key) does not affect consensus in the current gtos
-integration. No chain fork risks identified.
+no dynamic loading), bounds resources (stack, memory, gas), and catches
+panics through protected-call recovery. All findings identified in this audit
+have been fixed, and no chain fork risks were verified.
