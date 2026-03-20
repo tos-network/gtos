@@ -672,6 +672,29 @@ brackets performs O(n) scanning without gas.
 
 ---
 
+### Third Sweep: No New Exploitable Gaps Found
+
+A third horizontal sweep examined all remaining Go-side operations:
+
+| Candidate | Location | Work | Bounded By | Verdict |
+|-----------|----------|------|-----------|---------|
+| OP_CALL `__call` metamethod register shift | `vm.go:1152` | O(n) `reg.Insert` | Max 200 registers | Not exploitable |
+| `registry.Insert()` element-by-element shift | `_state.go:483-495` | O(n) loop | Max 200 registers | Not exploitable |
+| `table.Append()` backward scan | `table.go:158-163` | O(n) scan | `MaxArrayHoleGrowth=64` (T-12 fix) | Already mitigated |
+| `InsertWithCost()` copy accounting | `table.go:189` | O(n) `copy()` | Cost correctly returned as `oldLen-i` | Correct accounting |
+| `closeToBeClosedVars()` scan + sort | `vm.go:2155,2174` | O(n log n) | Max 200 locals per function | Not exploitable |
+| OP_RETURN value copying (`CopyRange`) | `_vm.go:77` | O(n) | Caller's expected return count (~200) | Not exploitable |
+| OP_TAILCALL argument shifting | `_vm.go:584` | O(n) | Max 200 registers | Not exploitable |
+
+**All candidates are bounded by the 200-register compiler limit** and cannot
+be amplified to arbitrary O(n) by contract code. The constant overhead
+(~200 unmetered host operations per instruction at worst) is below the DoS
+threshold.
+
+**The tolang gas metering is now comprehensive for all unbounded paths.**
+
+---
+
 ### FP-1: Bytecode Endianness Inconsistency — FALSE POSITIVE
 
 **Claimed issue**: LUint256 constants use little-endian while metadata uses
