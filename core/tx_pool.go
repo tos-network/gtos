@@ -229,9 +229,10 @@ type TxPool struct {
 	signer      types.Signer
 	mu          sync.RWMutex
 
-	currentState  *state.StateDB // Current state in the blockchain head
-	pendingNonces *txNoncer      // Pending state tracking virtual nonces
-	currentMaxGas uint64         // Current gas limit for transaction caps
+	currentState         *state.StateDB // Current state in the blockchain head
+	pendingNonces        *txNoncer      // Pending state tracking virtual nonces
+	sponsorPendingNonces *sponsorNoncer // Pending state tracking virtual sponsor nonces
+	currentMaxGas        uint64         // Current gas limit for transaction caps
 
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
@@ -647,13 +648,12 @@ func (pool *TxPool) validateTxWithState(tx *types.Transaction, from common.Addre
 		if pool.currentState.GetBalance(from).Cmp(tx.Value()) < 0 {
 			return ErrInsufficientFundsForTransfer
 		}
-		sponsorNonce, _ := tx.SponsorNonce()
-		if getSponsorNonce(pool.currentState, sponsor) != sponsorNonce {
-			return ErrNonceTooLow
+		if err := pool.validateSponsoredNonce(tx, from, sponsor); err != nil {
+			return err
 		}
 		sponsorExpiry, _ := tx.SponsorExpiry()
 		if sponsorExpiry != 0 {
-			now := uint64(time.Now().Unix())
+			now := uint64(time.Now().UnixMilli())
 			if now > sponsorExpiry {
 				return ErrInvalidSponsor
 			}
@@ -810,6 +810,11 @@ func (pool *TxPool) addValidatedTx(tx *types.Transaction, hash common.Hash, from
 	}
 	// Try to replace an existing transaction in the pending pool
 	if list := pool.pending[from]; list != nil && list.Overlaps(tx) {
+		old := list.txs.Get(tx.Nonce())
+		if old != nil && (old.IsSponsored() || tx.IsSponsored()) && !pool.canDirectlyReplacePendingTx(old, tx) {
+			queuedDiscardMeter.Mark(1)
+			return false, ErrNonceTooHigh
+		}
 		// Nonce already pending, check if required price bump is met
 		inserted, old := list.Add(tx, pool.config.PriceBump)
 		if !inserted {
@@ -827,6 +832,9 @@ func (pool *TxPool) addValidatedTx(tx *types.Transaction, hash common.Hash, from
 		pool.journalTx(from, tx)
 		pool.queueTxEvent(tx)
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
+		if old != nil && (old.IsSponsored() || tx.IsSponsored()) {
+			pool.rebuildSponsorPendingNoncesLocked()
+		}
 
 		// Successful promotion, bump the heartbeat
 		pool.beats[from] = time.Now()
@@ -934,6 +942,11 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 	}
 	// Set the potentially new pending nonce and notify any subsystems of the new tx
 	pool.pendingNonces.set(addr, tx.Nonce()+1)
+	if tx.IsSponsored() {
+		sponsor, _ := tx.SponsorFrom()
+		sponsorNonce, _ := tx.SponsorNonce()
+		pool.sponsorPendingNonces.set(sponsor, sponsorNonce+1)
+	}
 
 	// Successful promotion, bump the heartbeat
 	pool.beats[addr] = time.Now()
@@ -1190,6 +1203,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 			}
 			// Update the account nonce if needed
 			pool.pendingNonces.setIfLowerForType(addr, tx.Nonce(), tx.Type())
+			pool.rebuildSponsorPendingNoncesLocked()
 			// Reduce the pending counter
 			pendingGauge.Dec(int64(1 + len(invalids)))
 			return
@@ -1364,6 +1378,7 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 			nonces[addr] = highestPending.Nonce() + 1
 		}
 		pool.pendingNonces.setAll(nonces)
+		pool.rebuildSponsorPendingNoncesLocked()
 	}
 	// Ensure pool.queue and pool.pending sizes stay within the configured limits.
 	pool.truncatePending()
@@ -1467,12 +1482,14 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	}
 	pool.currentState = statedb
 	pool.pendingNonces = newTxNoncer(statedb)
+	pool.sponsorPendingNonces = newSponsorNoncer(statedb)
 	pool.currentMaxGas = newHead.GasLimit
 
 	// Inject any transactions discarded due to reorgs
 	log.Debug("Reinjecting stale transactions", "count", len(reinject))
 	senderCacher.recover(pool.signer, reinject)
 	pool.addTxsLocked(reinject, false)
+	pool.rebuildSponsorPendingNoncesLocked()
 
 }
 
@@ -1482,8 +1499,9 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Transaction {
 	// Track the promoted transactions to broadcast them at once
 	var promoted []*types.Transaction
+	addrTxTypes := make(map[common.Address]byte, len(accounts))
 
-	// Iterate over all accounts and promote any executable transactions
+	// Iterate over all accounts and first drop transactions that are no longer executable.
 	for _, addr := range accounts {
 		list := pool.queue[addr]
 		if list == nil {
@@ -1496,6 +1514,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		if first := list.FirstElement(); first != nil {
 			addrTxType = first.Type()
 		}
+		addrTxTypes[addr] = addrTxType
 
 		// Drop all transactions that are deemed too old (low nonce)
 		var stateNonce uint64
@@ -1512,10 +1531,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		}
 		log.Trace("Removed old queued transactions", "count", len(forwards))
 		// Drop all transactions that are too costly (low balance or out of gas).
-		// For privacy tx types the balance/gas filter is not meaningful (fees are
-		// plaintext and checked during validation), but Filter is harmless since
-		// gas() returns 0 and value() returns 0.
-		drops, _ := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
+		drops, _ := pool.filterUnpayableTxs(addr, list)
 		for _, tx := range drops {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
@@ -1523,15 +1539,19 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 		log.Trace("Removed unpayable queued transactions", "count", len(drops))
 		queuedNofundsMeter.Mark(int64(len(drops)))
 
-		// Gather all executable transactions and promote them
+		// Gather all executable transactions and promote them (non-sponsored only;
+		// sponsored txs are handled in the fixed-point loop below).
 		readies := list.Ready(pool.pendingNonces.getForType(addr, addrTxType))
 		for _, tx := range readies {
-			hash := tx.Hash()
-			if pool.promoteTx(addr, hash, tx) {
+			if tx.IsSponsored() {
+				// Put it back — sponsor readiness checked in fixed-point loop.
+				list.Add(tx, 0)
+				continue
+			}
+			if pool.promoteTx(addr, tx.Hash(), tx) {
 				promoted = append(promoted, tx)
 			}
 		}
-		log.Trace("Promoted queued transactions", "count", len(promoted))
 		queuedGauge.Dec(int64(len(readies)))
 
 		// Drop all transactions over the allowed limit
@@ -1557,6 +1577,47 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 			delete(pool.beats, addr)
 		}
 	}
+
+	// Fixed-point loop: promote sponsored txs whose sponsor nonce is now
+	// satisfied. Each promotion may unblock another sender's sponsored tx
+	// that shares the same sponsor.
+	for progress := true; progress; {
+		progress = false
+		for _, addr := range accounts {
+			list := pool.queue[addr]
+			if list == nil {
+				continue
+			}
+			readies := list.PeekReady(pool.pendingNonces.getForType(addr, addrTxTypes[addr]))
+			for _, tx := range readies {
+				if !tx.IsSponsored() {
+					// Non-sponsored readies were already promoted above.
+					// If one is still here, it wasn't sender-ready before
+					// but became ready after another sender's promotion
+					// advanced the pending nonce (shouldn't happen for
+					// non-sponsored, but handle gracefully).
+				} else {
+					sponsor, _ := tx.SponsorFrom()
+					sponsorNonce, _ := tx.SponsorNonce()
+					if sponsorNonce != pool.sponsorPendingNonces.get(sponsor) {
+						break
+					}
+				}
+				if removed, _ := list.Remove(tx); !removed {
+					continue
+				}
+				queuedGauge.Dec(1)
+				if pool.promoteTx(addr, tx.Hash(), tx) {
+					promoted = append(promoted, tx)
+					progress = true
+				}
+			}
+			if list.Empty() {
+				delete(pool.queue, addr)
+				delete(pool.beats, addr)
+			}
+		}
+	}
 	return promoted
 }
 
@@ -1565,6 +1626,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 // equal number for all for accounts with many pending transactions.
 func (pool *TxPool) truncatePending() {
 	pending := uint64(0)
+	removedAny := false
 	for _, list := range pool.pending {
 		pending += uint64(list.Len())
 	}
@@ -1606,6 +1668,7 @@ func (pool *TxPool) truncatePending() {
 
 						// Update the account nonce to the dropped transaction
 						pool.pendingNonces.setIfLowerForType(offenders[i], tx.Nonce(), tx.Type())
+						removedAny = true
 						log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
 					}
 					pool.priced.Removed(len(caps))
@@ -1633,6 +1696,7 @@ func (pool *TxPool) truncatePending() {
 
 					// Update the account nonce to the dropped transaction
 					pool.pendingNonces.setIfLowerForType(addr, tx.Nonce(), tx.Type())
+					removedAny = true
 					log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
 				}
 				pool.priced.Removed(len(caps))
@@ -1643,6 +1707,9 @@ func (pool *TxPool) truncatePending() {
 				pending--
 			}
 		}
+	}
+	if removedAny {
+		pool.rebuildSponsorPendingNoncesLocked()
 	}
 	pendingRateLimitMeter.Mark(int64(pendingBeforeCap - pending))
 }
@@ -1700,6 +1767,7 @@ func (pool *TxPool) truncateQueue() {
 // is always explicitly triggered by SetBaseFee and it would be unnecessary and wasteful
 // to trigger a re-heap is this function
 func (pool *TxPool) demoteUnexecutables() {
+	changed := false
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
 		// Determine nonce source from the first pending transaction type.
@@ -1720,20 +1788,23 @@ func (pool *TxPool) demoteUnexecutables() {
 		for _, tx := range olds {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
+			changed = true
 			log.Trace("Removed old pending transaction", "hash", hash)
 		}
 		// Drop all transactions that are too costly (low balance or out of gas), and queue any invalids back for later
-		drops, invalids := list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
+		drops, invalids := pool.filterUnpayableTxs(addr, list)
 		for _, tx := range drops {
 			hash := tx.Hash()
 			log.Trace("Removed unpayable pending transaction", "hash", hash)
 			pool.all.Remove(hash)
+			changed = true
 		}
 		pendingNofundsMeter.Mark(int64(len(drops)))
 
 		for _, tx := range invalids {
 			hash := tx.Hash()
 			log.Trace("Demoting pending transaction", "hash", hash)
+			changed = true
 
 			// Internal shuffle shouldn't touch the lookup set.
 			pool.enqueueTx(hash, tx, false, false)
@@ -1748,6 +1819,7 @@ func (pool *TxPool) demoteUnexecutables() {
 			for _, tx := range gapped {
 				hash := tx.Hash()
 				log.Error("Demoting invalidated transaction", "hash", hash)
+				changed = true
 
 				// Internal shuffle shouldn't touch the lookup set.
 				pool.enqueueTx(hash, tx, false, false)
@@ -1761,6 +1833,108 @@ func (pool *TxPool) demoteUnexecutables() {
 			delete(pool.pending, addr)
 		}
 	}
+	if changed {
+		pool.rebuildSponsorPendingNoncesLocked()
+	}
+}
+
+func (pool *TxPool) validateSponsoredNonce(tx *types.Transaction, from, sponsor common.Address) error {
+	sponsorNonce, _ := tx.SponsorNonce()
+	if pending := pool.pending[from]; pending != nil {
+		if old := pending.txs.Get(tx.Nonce()); old != nil && old.IsSponsored() {
+			oldSponsor, _ := old.SponsorFrom()
+			oldSponsorNonce, _ := old.SponsorNonce()
+			if oldSponsor == sponsor && oldSponsorNonce == sponsorNonce {
+				return nil
+			}
+		}
+	}
+	if sponsorNonce < pool.sponsorPendingNonces.get(sponsor) {
+		return ErrNonceTooLow
+	}
+	return nil
+}
+
+func (pool *TxPool) canDirectlyReplacePendingTx(old, tx *types.Transaction) bool {
+	if !tx.IsSponsored() {
+		return true
+	}
+	sponsor, _ := tx.SponsorFrom()
+	sponsorNonce, _ := tx.SponsorNonce()
+	if old != nil && old.IsSponsored() {
+		oldSponsor, _ := old.SponsorFrom()
+		oldSponsorNonce, _ := old.SponsorNonce()
+		if oldSponsor == sponsor && oldSponsorNonce == sponsorNonce {
+			return true
+		}
+	}
+	return sponsorNonce == pool.sponsorPendingNonces.get(sponsor)
+}
+
+func (pool *TxPool) rebuildSponsorPendingNoncesLocked() {
+	nonces := make(map[common.Address]uint64)
+	for _, list := range pool.pending {
+		for _, tx := range list.Flatten() {
+			if !tx.IsSponsored() {
+				continue
+			}
+			sponsor, _ := tx.SponsorFrom()
+			sponsorNonce, _ := tx.SponsorNonce()
+			next := sponsorNonce + 1
+			if current, ok := nonces[sponsor]; !ok || current < next {
+				nonces[sponsor] = next
+			}
+		}
+	}
+	pool.sponsorPendingNonces.setAll(nonces)
+}
+
+func (pool *TxPool) filterUnpayableTxs(addr common.Address, list *txList) (types.Transactions, types.Transactions) {
+	// Fast path: if the account has no sponsored txs, use the original
+	// list.Filter which benefits from the costcap/gascap shortcut.
+	hasSponsored := false
+	for _, tx := range list.txs.items {
+		if tx.IsSponsored() {
+			hasSponsored = true
+			break
+		}
+	}
+	if !hasSponsored {
+		return list.Filter(pool.currentState.GetBalance(addr), pool.currentMaxGas)
+	}
+
+	// Slow path for accounts with sponsored txs: each tx may have a
+	// different payer so the per-sender costcap shortcut does not apply.
+	removed := list.txs.Filter(func(tx *types.Transaction) bool {
+		return pool.txUnpayable(addr, tx)
+	})
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	var invalids types.Transactions
+	if list.strict {
+		lowest := uint64(math.MaxUint64)
+		for _, tx := range removed {
+			if nonce := tx.Nonce(); lowest > nonce {
+				lowest = nonce
+			}
+		}
+		invalids = list.txs.Filter(func(tx *types.Transaction) bool { return tx.Nonce() > lowest })
+	}
+	return removed, invalids
+}
+
+func (pool *TxPool) txUnpayable(addr common.Address, tx *types.Transaction) bool {
+	if tx.Gas() > pool.currentMaxGas {
+		return true
+	}
+	if tx.IsSponsored() {
+		sponsor, _ := tx.SponsorFrom()
+		gasCost := new(big.Int).Mul(tx.TxPrice(), new(big.Int).SetUint64(tx.Gas()))
+		return pool.currentState.GetBalance(sponsor).Cmp(gasCost) < 0 ||
+			pool.currentState.GetBalance(addr).Cmp(tx.Value()) < 0
+	}
+	return tx.Cost().Cmp(pool.currentState.GetBalance(addr)) > 0
 }
 
 // addressByHeartbeat is an account address tagged with its last activity timestamp.

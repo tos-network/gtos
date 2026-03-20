@@ -1074,12 +1074,25 @@ func (d *DPoS) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types
 	results := make(chan error, len(headers))
 	go func() {
 		for i, header := range headers {
-			err := d.verifyHeader(chain, header, headers[:i])
+			// Check abort before verification.
 			select {
 			case <-abort:
 				return
-			case results <- err:
+			default:
 			}
+
+			err := d.verifyHeader(chain, header, headers[:i])
+
+			// Check abort again before sending the result, so that a
+			// close(abort) during verification is honored immediately
+			// instead of racing with the results channel send.
+			select {
+			case <-abort:
+				return
+			default:
+			}
+
+			results <- err
 		}
 	}()
 	return abort, results

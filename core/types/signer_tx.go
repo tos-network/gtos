@@ -23,7 +23,7 @@ type SignerTx struct {
 	Sponsor           common.Address
 	SponsorSignerType string
 	SponsorNonce      uint64
-	SponsorExpiry     uint64
+	SponsorExpiry     uint64 // Unix timestamp in milliseconds, matching header.Time.
 	SponsorPolicyHash common.Hash
 
 	V *big.Int `json:"v" gencodec:"required"`

@@ -200,10 +200,11 @@ func testHeaderConcurrentAbortion(t *testing.T, threads int) {
 		}
 	}
 	// Check that abortion was honored by not processing too many checks.
-	// A small overshoot can happen due to in-flight concurrent workers.
-	limit := 2*threads + 4
+	// VerifyHeaders is a single goroutine with deterministic abort priority,
+	// so at most 1 result can be in-flight when abort fires.
+	limit := 2
 	if verified > limit {
-		t.Errorf("verification count too large: have %d, want below %d", verified, limit)
+		t.Errorf("verification count too large: have %d, want at most %d", verified, limit)
 	}
 }
 

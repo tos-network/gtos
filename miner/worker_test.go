@@ -1,6 +1,8 @@
 package miner
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"errors"
 	"math/big"
 	"math/rand"
@@ -180,6 +182,60 @@ func (b *testWorkerBackend) newRandomTx(creation bool) *types.Transaction {
 	})
 	signed, _ := types.SignTx(tx, signer, testBankKey)
 	return signed
+}
+
+func mustSignSponsoredWorkerTx(t *testing.T, signer types.Signer, key, sponsorKey *ecdsa.PrivateKey, nonce, sponsorNonce uint64, data []byte) *types.Transaction {
+	t.Helper()
+
+	from := crypto.PubkeyToAddress(key.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	tx := types.NewTx(&types.SignerTx{
+		ChainID:           signer.ChainID(),
+		Nonce:             nonce,
+		To:                &testUserAddress,
+		Value:             big.NewInt(0),
+		Gas:               50_000,
+		Data:              common.CopyBytes(data),
+		From:              from,
+		SignerType:        "secp256k1",
+		Sponsor:           sponsor,
+		SponsorSignerType: "secp256k1",
+		SponsorNonce:      sponsorNonce,
+	})
+	signed, err := types.SignTx(tx, signer, key)
+	if err != nil {
+		t.Fatalf("SignTx: %v", err)
+	}
+	hash := signer.Hash(signed)
+	sponsorSig, err := crypto.Sign(hash[:], sponsorKey)
+	if err != nil {
+		t.Fatalf("crypto.Sign: %v", err)
+	}
+	signed, err = signed.WithSponsorSignature(sponsorSig)
+	if err != nil {
+		t.Fatalf("WithSponsorSignature: %v", err)
+	}
+	return signed
+}
+
+func newSelectionEnv(t *testing.T, w *worker, b *testWorkerBackend) *environment {
+	t.Helper()
+
+	parent := b.chain.CurrentBlock()
+	header := &types.Header{
+		ParentHash: parent.Hash(),
+		Number:     new(big.Int).Add(parent.Number(), big.NewInt(1)),
+		GasLimit:   parent.GasLimit(),
+		BaseFee:    big.NewInt(0),
+		Time:       parent.Time() + 1,
+	}
+	env, err := w.makeEnv(parent, header, testBankAddress)
+	if err != nil {
+		t.Fatalf("makeEnv: %v", err)
+	}
+	t.Cleanup(env.state.StopPrefetcher)
+	env.gasPool = new(core.GasPool).AddGas(header.GasLimit)
+	return env
 }
 
 func newTestWorker(t *testing.T, chainConfig *params.ChainConfig, engine consensus.Engine, db tosdb.Database, blocks int) (*worker, *testWorkerBackend) {
@@ -600,5 +656,115 @@ func testGetSealingWork(t *testing.T, chainConfig *params.ChainConfig, engine co
 			}
 			assertBlock(block, c.expectNumber, c.coinbase, c.random)
 		}
+	}
+}
+
+func TestSelectTransactionsOrdersSponsoredBySponsorNonce(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, dposChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	env := newSelectionEnv(t, w, b)
+	signer := types.MakeSigner(dposChainConfig, env.header.Number)
+	sponsorKey, _ := crypto.GenerateKey()
+
+	var gapFiller, blocked *types.Transaction
+	for i := 0; i < 256; i++ {
+		fillerKey, _ := crypto.GenerateKey()
+		blockedKey, _ := crypto.GenerateKey()
+		gapFiller = mustSignSponsoredWorkerTx(t, signer, fillerKey, sponsorKey, 0, 0, []byte{0x01})
+		blocked = mustSignSponsoredWorkerTx(t, signer, blockedKey, sponsorKey, 0, 1, []byte{byte(i), 0x02})
+		gapHash := gapFiller.Hash()
+		blockedHash := blocked.Hash()
+		if bytes.Compare(blockedHash[:], gapHash[:]) < 0 {
+			break
+		}
+	}
+	gapHash := gapFiller.Hash()
+	blockedHash := blocked.Hash()
+	if bytes.Compare(blockedHash[:], gapHash[:]) >= 0 {
+		t.Fatal("failed to construct blocked tx as initial heap head")
+	}
+
+	gapFrom, _ := gapFiller.SignerFrom()
+	blockedFrom, _ := blocked.SignerFrom()
+	remoteTxs := map[common.Address]types.Transactions{
+		gapFrom:     {gapFiller},
+		blockedFrom: {blocked},
+	}
+
+	selected, msgs, interrupted := w.selectTransactions(env, nil, remoteTxs, nil)
+	if interrupted {
+		t.Fatal("selection interrupted")
+	}
+	if len(selected) != 2 {
+		t.Fatalf("selected count mismatch: have %d want 2", len(selected))
+	}
+	if selected[0].Hash() != gapFiller.Hash() {
+		t.Fatalf("first tx mismatch: have %s want %s", selected[0].Hash(), gapFiller.Hash())
+	}
+	if selected[1].Hash() != blocked.Hash() {
+		t.Fatalf("second tx mismatch: have %s want %s", selected[1].Hash(), blocked.Hash())
+	}
+	if msgs[0].SponsorNonce() != 0 || msgs[1].SponsorNonce() != 1 {
+		t.Fatalf("sponsor nonce order mismatch: have [%d %d] want [0 1]", msgs[0].SponsorNonce(), msgs[1].SponsorNonce())
+	}
+}
+
+func TestSelectTransactionsResumesPausedSenderAfterSponsorGap(t *testing.T) {
+	engine := dpos.NewFaker()
+	defer engine.Close()
+
+	w, b := newTestWorker(t, dposChainConfig, engine, rawdb.NewMemoryDatabase(), 0)
+	defer w.close()
+
+	env := newSelectionEnv(t, w, b)
+	signer := types.MakeSigner(dposChainConfig, env.header.Number)
+	sponsorKey, _ := crypto.GenerateKey()
+
+	var gapFiller, blocked0, blocked1 *types.Transaction
+	var gapHash, blockedHash common.Hash
+	for i := 0; i < 256; i++ {
+		fillerKey, _ := crypto.GenerateKey()
+		blockedKey, _ := crypto.GenerateKey()
+		gapFiller = mustSignSponsoredWorkerTx(t, signer, fillerKey, sponsorKey, 0, 0, []byte{0x11})
+		blocked0 = mustSignSponsoredWorkerTx(t, signer, blockedKey, sponsorKey, 0, 1, []byte{byte(i), 0x22})
+		blocked1 = mustSignSponsoredWorkerTx(t, signer, blockedKey, sponsorKey, 1, 2, []byte{byte(i), 0x33})
+		gapHash = gapFiller.Hash()
+		blockedHash = blocked0.Hash()
+		if bytes.Compare(blockedHash[:], gapHash[:]) < 0 {
+			break
+		}
+	}
+	gapHash = gapFiller.Hash()
+	blockedHash = blocked0.Hash()
+	if bytes.Compare(blockedHash[:], gapHash[:]) >= 0 {
+		t.Fatal("failed to construct blocked sender as initial heap head")
+	}
+
+	gapFrom, _ := gapFiller.SignerFrom()
+	blockedFrom, _ := blocked0.SignerFrom()
+	remoteTxs := map[common.Address]types.Transactions{
+		gapFrom:     {gapFiller},
+		blockedFrom: {blocked0, blocked1},
+	}
+
+	selected, msgs, interrupted := w.selectTransactions(env, nil, remoteTxs, nil)
+	if interrupted {
+		t.Fatal("selection interrupted")
+	}
+	if len(selected) != 3 {
+		t.Fatalf("selected count mismatch: have %d want 3", len(selected))
+	}
+	want := []common.Hash{gapFiller.Hash(), blocked0.Hash(), blocked1.Hash()}
+	for i, tx := range selected {
+		if tx.Hash() != want[i] {
+			t.Fatalf("selected[%d] mismatch: have %s want %s", i, tx.Hash(), want[i])
+		}
+	}
+	if msgs[0].SponsorNonce() != 0 || msgs[1].SponsorNonce() != 1 || msgs[2].SponsorNonce() != 2 {
+		t.Fatalf("sponsor nonce order mismatch: have [%d %d %d] want [0 1 2]", msgs[0].SponsorNonce(), msgs[1].SponsorNonce(), msgs[2].SponsorNonce())
 	}
 }

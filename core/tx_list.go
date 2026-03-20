@@ -194,6 +194,24 @@ func (m *txSortedMap) Ready(start uint64) types.Transactions {
 	return ready
 }
 
+// PeekReady retrieves the same sequential transaction prefix as Ready, but
+// leaves the transactions in the map.
+func (m *txSortedMap) PeekReady(start uint64) types.Transactions {
+	// Short circuit if no transactions are available
+	if m.index.Len() == 0 || (*m.index)[0] > start {
+		return nil
+	}
+	var ready types.Transactions
+	for next := start; next < math.MaxUint64; next++ {
+		tx := m.items[next]
+		if tx == nil {
+			break
+		}
+		ready = append(ready, tx)
+	}
+	return ready
+}
+
 // Len returns the length of the transaction map.
 func (m *txSortedMap) Len() int {
 	return len(m.items)
@@ -389,6 +407,12 @@ func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 // happen but better to be self correcting than failing!
 func (l *txList) Ready(start uint64) types.Transactions {
 	return l.txs.Ready(start)
+}
+
+// PeekReady retrieves the sequentially increasing list of transactions starting
+// at the provided nonce that is ready for processing, without removing them.
+func (l *txList) PeekReady(start uint64) types.Transactions {
+	return l.txs.PeekReady(start)
 }
 
 // Len returns the length of the transaction list.

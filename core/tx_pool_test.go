@@ -92,6 +92,16 @@ func dynamicFeeTx(nonce uint64, gaslimit uint64, gasFee *big.Int, tip *big.Int, 
 	return tx
 }
 
+func mustSignSponsoredPoolTx(t *testing.T, signer types.Signer, key, sponsorKey *ecdsa.PrivateKey, nonce, sponsorNonce, sponsorExpiry uint64, value *big.Int, data []byte) *types.Transaction {
+	t.Helper()
+
+	tx, err := signSponsoredTestSignerTx(signer, key, sponsorKey, nonce, sponsorNonce, sponsorExpiry, common.Address{}, value, params.TxGas, params.TxPrice(), data)
+	if err != nil {
+		t.Fatalf("signSponsoredTestSignerTx: %v", err)
+	}
+	return tx
+}
+
 func setupTxPool() (*TxPool, *ecdsa.PrivateKey) {
 	return setupTxPoolWithConfig(params.TestChainConfig)
 }
@@ -3125,6 +3135,160 @@ func benchmarkFuturePromotion(b *testing.B, size int) {
 }
 
 // Benchmarks the speed of batched transaction insertion.
+func TestSponsoredTxPipelineAcrossDifferentSenders(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	aliceKey, _ := crypto.GenerateKey()
+	bobKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	alice := crypto.PubkeyToAddress(aliceKey.PublicKey)
+	bob := crypto.PubkeyToAddress(bobKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, alice, big.NewInt(0))
+	testAddBalance(pool, bob, big.NewInt(0))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(new(big.Int).SetUint64(4), gasCost))
+
+	tx0 := mustSignSponsoredPoolTx(t, signer, aliceKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	tx1 := mustSignSponsoredPoolTx(t, signer, bobKey, sponsorKey, 0, 1, 0, big.NewInt(0), nil)
+
+	errs := pool.AddRemotesSync([]*types.Transaction{tx0, tx1})
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("AddRemotesSync[%d]: %v", i, err)
+		}
+	}
+
+	pending, queued := pool.Content()
+	if len(pending[alice]) != 1 {
+		t.Fatalf("alice pending mismatch: have %d want 1", len(pending[alice]))
+	}
+	if len(pending[bob]) != 1 {
+		t.Fatalf("bob pending mismatch: have %d want 1", len(pending[bob]))
+	}
+	if len(queued[alice]) != 0 || len(queued[bob]) != 0 {
+		t.Fatalf("expected no queued sponsored txs, have alice=%d bob=%d", len(queued[alice]), len(queued[bob]))
+	}
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 2 {
+		t.Fatalf("sponsor pending nonce mismatch: have %d want 2", got)
+	}
+}
+
+func TestSponsoredTxFutureSponsorNonceQueuedNotRejected(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	senderKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, sender, big.NewInt(0))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(new(big.Int).SetUint64(4), gasCost))
+	setSponsorNonce(pool.currentState, sponsor, 3)
+	pool.sponsorPendingNonces = newSponsorNoncer(pool.currentState)
+
+	tx := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 5, 0, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(tx); err != nil {
+		t.Fatalf("addRemoteSync: %v", err)
+	}
+
+	pending, queued := pool.Content()
+	if len(pending[sender]) != 0 {
+		t.Fatalf("expected no pending txs, have %d", len(pending[sender]))
+	}
+	if len(queued[sender]) != 1 {
+		t.Fatalf("expected one queued tx, have %d", len(queued[sender]))
+	}
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 3 {
+		t.Fatalf("sponsor pending nonce mismatch: have %d want 3", got)
+	}
+}
+
+func TestSponsoredPendingReplacementPreservesSponsorSlot(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	senderKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, sender, big.NewInt(10))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(new(big.Int).SetUint64(4), gasCost))
+
+	original := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 0, 0, big.NewInt(0), nil)
+	replacement := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 0, 0, big.NewInt(1), nil)
+
+	if err := pool.addRemoteSync(original); err != nil {
+		t.Fatalf("addRemoteSync(original): %v", err)
+	}
+	if err := pool.addRemoteSync(replacement); err != nil {
+		t.Fatalf("addRemoteSync(replacement): %v", err)
+	}
+
+	pending, queued := pool.Content()
+	if len(pending[sender]) != 1 {
+		t.Fatalf("expected one pending tx, have %d", len(pending[sender]))
+	}
+	if pending[sender][0].Hash() != replacement.Hash() {
+		t.Fatalf("pending replacement mismatch: have %s want %s", pending[sender][0].Hash(), replacement.Hash())
+	}
+	if len(queued[sender]) != 0 {
+		t.Fatalf("expected no queued replacement txs, have %d", len(queued[sender]))
+	}
+	if pool.Get(original.Hash()) != nil {
+		t.Fatalf("original tx still present after replacement")
+	}
+	if got := pool.sponsorPendingNonces.get(sponsor); got != 1 {
+		t.Fatalf("sponsor pending nonce mismatch: have %d want 1", got)
+	}
+}
+
+func TestSponsoredTxExpiryUsesUnixMilliseconds(t *testing.T) {
+	t.Parallel()
+
+	pool, _ := setupTxPool()
+	defer pool.Stop()
+
+	signer := types.LatestSignerForChainID(params.TestChainConfig.ChainID)
+	senderKey, _ := crypto.GenerateKey()
+	sponsorKey, _ := crypto.GenerateKey()
+
+	sender := crypto.PubkeyToAddress(senderKey.PublicKey)
+	sponsor := crypto.PubkeyToAddress(sponsorKey.PublicKey)
+	gasCost := new(big.Int).Mul(params.TxPrice(), new(big.Int).SetUint64(params.TxGas))
+
+	testAddBalance(pool, sender, big.NewInt(0))
+	testAddBalance(pool, sponsor, new(big.Int).Mul(new(big.Int).SetUint64(4), gasCost))
+
+	valid := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 0, 0, uint64(time.Now().UnixMilli())+10_000, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(valid); err != nil {
+		t.Fatalf("addRemoteSync(valid): %v", err)
+	}
+
+	expired := mustSignSponsoredPoolTx(t, signer, senderKey, sponsorKey, 1, 1, uint64(time.Now().UnixMilli())-1, big.NewInt(0), nil)
+	if err := pool.addRemoteSync(expired); !errors.Is(err, ErrInvalidSponsor) {
+		t.Fatalf("addRemoteSync(expired) error = %v, want %v", err, ErrInvalidSponsor)
+	}
+}
+
 func BenchmarkPoolBatchInsert100(b *testing.B)   { benchmarkPoolBatchInsert(b, 100, false) }
 func BenchmarkPoolBatchInsert1000(b *testing.B)  { benchmarkPoolBatchInsert(b, 1000, false) }
 func BenchmarkPoolBatchInsert10000(b *testing.B) { benchmarkPoolBatchInsert(b, 10000, false) }

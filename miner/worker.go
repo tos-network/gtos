@@ -18,6 +18,7 @@ package miner
 
 import (
 	"bytes"
+	"container/heap"
 	"errors"
 	"fmt"
 	"math/big"
@@ -116,6 +117,121 @@ func txSenderHint(signer types.Signer, tx *types.Transaction) common.Address {
 		return explicitFrom
 	}
 	return common.Address{}
+}
+
+type pricedSenderCursor struct {
+	from     common.Address
+	txs      types.Transactions
+	index    int
+	baseFee  *big.Int
+	minerFee *big.Int
+}
+
+func newPricedSenderCursor(from common.Address, txs types.Transactions, baseFee *big.Int) *pricedSenderCursor {
+	cursor := &pricedSenderCursor{
+		from:    from,
+		txs:     txs,
+		index:   -1,
+		baseFee: baseFee,
+	}
+	if cursor.setHead(0) {
+		return cursor
+	}
+	return nil
+}
+
+func (c *pricedSenderCursor) Head() *types.Transaction {
+	if c == nil || c.index < 0 || c.index >= len(c.txs) {
+		return nil
+	}
+	return c.txs[c.index]
+}
+
+func (c *pricedSenderCursor) setHead(index int) bool {
+	for ; index < len(c.txs); index++ {
+		minerFee, err := c.txs[index].EffectiveGasTip(c.baseFee)
+		if err != nil {
+			continue
+		}
+		c.index = index
+		c.minerFee = minerFee
+		return true
+	}
+	c.index = len(c.txs)
+	c.minerFee = nil
+	return false
+}
+
+func (c *pricedSenderCursor) AdvanceToExpected(expected uint64) bool {
+	for index := c.index + 1; index < len(c.txs); index++ {
+		nonce := c.txs[index].Nonce()
+		if nonce < expected {
+			continue
+		}
+		if nonce > expected {
+			c.index = len(c.txs)
+			c.minerFee = nil
+			return false
+		}
+		return c.setHead(index)
+	}
+	c.index = len(c.txs)
+	c.minerFee = nil
+	return false
+}
+
+type pricedSenderHeap []*pricedSenderCursor
+
+func (h pricedSenderHeap) Len() int { return len(h) }
+
+func (h pricedSenderHeap) Less(i, j int) bool {
+	cmp := h[i].minerFee.Cmp(h[j].minerFee)
+	if cmp == 0 {
+		ih := h[i].Head().Hash()
+		jh := h[j].Head().Hash()
+		return bytes.Compare(ih[:], jh[:]) < 0
+	}
+	return cmp > 0
+}
+
+func (h pricedSenderHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+func (h *pricedSenderHeap) Push(x interface{}) {
+	*h = append(*h, x.(*pricedSenderCursor))
+}
+
+func (h *pricedSenderHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
+func resumePausedSponsorCursors(heads *pricedSenderHeap, pausedBySponsor map[common.Address][]*pricedSenderCursor, sponsor common.Address, expected uint64) {
+	paused := pausedBySponsor[sponsor]
+	if len(paused) == 0 {
+		return
+	}
+	keep := paused[:0]
+	for _, cursor := range paused {
+		tx := cursor.Head()
+		if tx == nil {
+			continue
+		}
+		sponsorNonce, _ := tx.SponsorNonce()
+		switch {
+		case sponsorNonce == expected:
+			heap.Push(heads, cursor)
+		case sponsorNonce > expected:
+			keep = append(keep, cursor)
+		}
+	}
+	if len(keep) == 0 {
+		delete(pausedBySponsor, sponsor)
+		return
+	}
+	pausedBySponsor[sponsor] = keep
 }
 
 // copy creates a deep copy of environment.
@@ -865,18 +981,32 @@ func (w *worker) selectTransactions(
 	interrupt *int32,
 ) (selected []*types.Transaction, msgs []types.Message, interrupted bool) {
 	nextNonce := make(map[common.Address]uint64)
+	nextSponsorNonce := make(map[common.Address]uint64)
 	remainingGas := env.gasPool.Gas()
 
 	doSelect := func(m map[common.Address]types.Transactions) bool {
 		if len(m) == 0 {
 			return false
 		}
-		iter := types.NewTransactionsByPriceAndNonce(env.signer, m, env.header.BaseFee)
+		heads := make(pricedSenderHeap, 0, len(m))
+		for from, txs := range m {
+			if len(txs) == 0 {
+				continue
+			}
+			if cursor := newPricedSenderCursor(from, txs, env.header.BaseFee); cursor != nil {
+				heap.Push(&heads, cursor)
+			}
+		}
+		pausedBySponsor := make(map[common.Address][]*pricedSenderCursor)
 		for {
 			if interrupt != nil && atomic.LoadInt32(interrupt) != commitInterruptNone {
 				return true
 			}
-			tx := iter.Peek()
+			if heads.Len() == 0 {
+				break
+			}
+			cursor := heap.Pop(&heads).(*pricedSenderCursor)
+			tx := cursor.Head()
 			if tx == nil {
 				break
 			}
@@ -906,35 +1036,61 @@ func (w *worker) selectTransactions(
 			}
 			if tx.Nonce() < expected {
 				log.Trace("Skipping transaction with low nonce", "sender", from, "nonce", tx.Nonce())
-				iter.Shift()
+				if cursor.AdvanceToExpected(expected) {
+					heap.Push(&heads, cursor)
+				}
 				continue
 			}
 			if tx.Nonce() > expected {
 				log.Trace("Skipping account with high nonce", "sender", from, "nonce", tx.Nonce())
-				iter.Pop()
 				continue
+			}
+			if tx.IsSponsored() {
+				sponsor, _ := tx.SponsorFrom()
+				expectedSponsor, ok := nextSponsorNonce[sponsor]
+				if !ok {
+					expectedSponsor = core.ReadSponsorNonce(env.state, sponsor)
+					nextSponsorNonce[sponsor] = expectedSponsor
+				}
+				sponsorNonce, _ := tx.SponsorNonce()
+				if sponsorNonce < expectedSponsor {
+					log.Trace("Skipping transaction with low sponsor nonce", "sponsor", sponsor, "nonce", sponsorNonce)
+					continue
+				}
+				if sponsorNonce > expectedSponsor {
+					pausedBySponsor[sponsor] = append(pausedBySponsor[sponsor], cursor)
+					continue
+				}
 			}
 			// PrivTransferTx: gas=0, skip block gas-limit check and deduction.
 			if !isPrivTransfer {
 				if tx.Gas() > remainingGas {
 					log.Trace("Gas limit exceeded for current block", "sender", from)
-					iter.Pop()
 					continue
 				}
 			}
 			msg, err := core.TxAsMessageWithAccountSigner(tx, env.signer, env.header.BaseFee, env.state)
 			if err != nil {
 				log.Debug("Transaction message build failed", "hash", tx.Hash(), "err", err)
-				iter.Shift()
+				if cursor.AdvanceToExpected(expected) {
+					heap.Push(&heads, cursor)
+				}
 				continue
 			}
 			selected = append(selected, tx)
 			msgs = append(msgs, msg)
 			nextNonce[from] = expected + 1
+			if tx.IsSponsored() {
+				sponsor, _ := tx.SponsorFrom()
+				nextSponsorNonce[sponsor]++
+				resumePausedSponsorCursors(&heads, pausedBySponsor, sponsor, nextSponsorNonce[sponsor])
+			}
 			if !isPrivTransfer {
 				remainingGas -= tx.Gas()
 			}
-			iter.Shift()
+			if cursor.AdvanceToExpected(nextNonce[from]) {
+				heap.Push(&heads, cursor)
+			}
 		}
 		return false
 	}
