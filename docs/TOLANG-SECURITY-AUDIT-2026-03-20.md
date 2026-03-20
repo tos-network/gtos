@@ -3,7 +3,7 @@
 **Date**: 2026-03-20
 **Auditor**: Claude Opus 4.6 (automated deep audit)
 **Scope**: ~/tolang — TOL compiler and Lua VM for TOS smart contracts
-**Verdict**: **PASS** — all 12 findings (T-0 through T-11) resolved; no consensus fork risks
+**Verdict**: T-0 through T-11 resolved; T-12/T-13/T-14 open (resource amplification, no verified fork)
 
 ---
 
@@ -31,6 +31,9 @@ have now been closed.**
 | ~~High~~ | 0 | ~~Unbounded string construction bypasses gas metering (T-7)~~ — **FIXED** (tolang 510b0ac): unified 1 MiB cap across format/concat/TOL helpers |
 | ~~Medium~~ | 0 | ~~`.tor` import fallback uses nondeterministic map iteration (T-8)~~ — **FIXED** (tolang 510b0ac): sorted scan + ambiguity rejection |
 | ~~High~~ | 0 | ~~`table.sort` host CPU cost not metered by gas (T-9)~~ — **FIXED** (tolang bcafe0c): `chargeGas()` per compare/swap |
+| Critical | 1 | Sparse array write materializes huge slice at near-zero gas (T-12) — open |
+| High | 1 | `#t` / `next` / `table.remove` / `table.insert` unmetered on large arrays (T-13) — open |
+| Medium | 1 | Hash builtins (sha256/keccak256/ripemd160) CPU not metered by input size (T-14) — open |
 | ~~Medium~~ | 0 | ~~Multi-contract `.tor` default pkg name depends on basename (T-10)~~ — **FIXED** (tolang bcafe0c): uses first contract name |
 | ~~Medium~~ | 0 | ~~`SetLineHook` still exposed (T-11)~~ — **FIXED** (tolang bcafe0c): gated behind `Options.AllowHostHooks` |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
@@ -370,6 +373,99 @@ removed `SetInterrupt` for this reason.
 **Recommendation**: Remove `SetLineHook` from the consensus build path, or
 gate it behind a `debug` build tag. The consensus VM should have no
 host-injectable per-instruction callbacks.
+
+---
+
+### T-12: Sparse Array Write Materializes Huge Slice at Near-Zero Gas (Critical) — Open
+
+**Location**: `utils.go:104` (`isArrayKey`), `config.go:14`
+(`MaxArrayIndex = 67108864`), `table.go:159,195` (array extend path)
+
+**Issue**: Any positive integer below `MaxArrayIndex` (67 million) is treated
+as an array key. Writing `t[2000000] = 1` causes the table to `append(LNil)`
+two million times to extend the backing slice, allocating ~16 MB of memory.
+This is done entirely on the host side with no per-element gas charge.
+
+Official Lua uses a hybrid array/hash strategy where sparse high indices
+fall back to the hash part (`ltable.c:computesizes`). tolang always
+materializes the array.
+
+**Reproduction** (`gasLimit=50`):
+```lua
+local t = {}
+t[2000000] = 1   -- gas used: 6, array len: 2000000 (~16 MB allocated)
+```
+
+**Amplification cascade**: Once a large array exists, `#t` (`table.go:55`),
+`next()` (`table.go:465`), `table.insert` (`table.go:131`), and
+`table.remove` (`table.go:99`) all perform linear host work.
+
+**Consensus impact**: Not a semantic fork — all nodes allocate the same
+oversized array. This is the **most dangerous resource amplification** vector
+found in this audit: a single instruction can allocate tens of megabytes.
+
+**Recommendation**: Do not materialize sparse high indices as array holes.
+Either:
+1. Cap the array part at `len(array) * 2` and fall back to hash for larger
+   indices (Lua's hybrid strategy)
+2. Charge gas proportional to the number of nil slots inserted
+3. Lower `MaxArrayIndex` drastically (e.g., 65536)
+
+---
+
+### T-13: Large Array Operations Unmetered by Gas (High) — Open
+
+**Location**: `table.go:55` (`Len`), `table.go:465` (`Next`),
+`table.go:99` (`Remove`), `table.go:131` (`Insert`)
+
+**Issue**: These operations perform O(n) host-side work on large arrays
+without charging gas proportional to the work:
+
+- `Len()` — reverse-scans entire array to find last non-nil element
+- `Next()` — linearly scans array to find next non-nil entry
+- `Remove()` — `copy(...)` shifts all elements after the removed index
+- `Insert()` — `copy(...)` shifts all elements after the insertion point
+
+**Reproduction** (200,000-element pre-filled array, `gasLimit=20`):
+```lua
+#t              -- gas: 4, len: 200000
+table.remove(t, 1)  -- gas: 6, shifts 199999 elements
+```
+
+**Consensus impact**: Not a fork. **CPU amplification DoS** — O(n) host
+work at O(1) gas cost.
+
+**Recommendation**: Charge gas proportional to the number of elements
+scanned or shifted. For `Len`, charge per scan step. For `Insert`/`Remove`,
+charge per element moved. For `Next`, charge per skipped nil.
+
+---
+
+### T-14: Hash Builtins CPU Not Metered by Input Size (Medium) — Open
+
+**Location**: `cryptolib.go:67` (`keccak256`), `cryptolib.go:85` (`sha256`),
+`cryptolib.go:102` (`ripemd160`)
+
+**Issue**: Hash functions first `hex.DecodeString` the input, then hash the
+entire decoded byte slice. Gas is charged per-instruction (flat), not
+per-byte of input. A 524 KB input costs the same gas as a 1-byte input.
+
+**Reproduction** (`gasLimit=20`):
+```lua
+local big = "0x" .. string.rep("aa", 524287)  -- 524 KB raw data
+sha256(big)       -- succeeds
+keccak256(big)    -- succeeds
+ripemd160(big)    -- succeeds
+-- total gas: 20 (3 hashes of 524 KB each)
+```
+
+**Consensus impact**: Not a fork. **CPU amplification** — linear hash work
+at constant gas cost. `cryptolib.go:156` (ABI encoding) likely has the same
+pattern.
+
+**Recommendation**: Charge gas proportional to input byte length. Standard
+model: `base_cost + per_byte_cost * len(input)`. EVM uses 6 gas/word for
+SHA256 and 30+6/word for RIPEMD160.
 
 ---
 
