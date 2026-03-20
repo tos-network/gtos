@@ -23,7 +23,7 @@ nondeterminism sources and bounds all resources.**
 | High | 0 | — |
 | Medium | 1 | GitHub import allows mutable refs (branch/tag) → supply chain risk (open) |
 | Low | 1 | Table.Next() stale key after deletion (open, no consensus impact) |
-| Deferred | 1 | Bytecode decoder hardening (T-3) — existing validation covers opcodes, constants, registers; Codex attempted full per-opcode validation but it was too strict for Lua compiler output; needs careful per-opcode tuning |
+| ~~Deferred~~ | 0 | ~~Bytecode decoder hardening (T-3)~~ — **FIXED** (tolang commit 8163b23): compiler `maxRegisterUsed()` now precise; full per-opcode validation passes all tests |
 | False Positive | 1 | Bytecode endianness (deterministic, not a bug) |
 | False Positive | 1 | Bytecode endianness "inconsistency" (deterministic, not a bug) |
 
@@ -100,25 +100,26 @@ in a lockfile. Add response body size limit.
 
 ---
 
-### T-3: Bytecode Decoder Hardening — Deferred
+### T-3: Bytecode Decoder Hardening ✅ Fixed
 
-**Location**: `bytecode.go:445`
+**Location**: `bytecode.go:478`, `compile.go:2010`
 
-**Issue**: The existing `validateDecodedProto` validates opcode range, CLOSURE
-sub-proto index, and SETLIST extra words. Codex attempted a comprehensive
-per-opcode validation (constant indices, register operands, jump targets,
-upvalue indices), but the implementation was too strict — it rejected valid
-compiler output (e.g., CLOSURE destination register can exceed
-`NumUsedRegisters` because Lua allocates registers dynamically).
+**Issue**: The bytecode decoder lacked comprehensive per-opcode validation
+(constant indices, register operands, jump targets, upvalue indices). An
+earlier fix attempt was too strict because the compiler's `NumUsedRegisters`
+didn't accurately reflect all register usage.
 
-**Current state**: The bytecode decoder's validation is sufficient for
-consensus safety because all gtos execution paths use PCall (protected).
-Malformed bytecode produces a deterministic `ApiErrorPanic`, not a fork.
+**Fix** (tolang commit 8163b23): Two-part fix:
+1. **Compiler**: New `maxRegisterUsed()` function precisely computes the
+   maximum register used across all opcodes (CLOSURE, CALL, VARARG, SELF,
+   LOADNIL, MOVEN, etc.). `NumUsedRegisters` is now accurate.
+2. **Bytecode validator**: Full per-opcode `validateDecodedInstruction()`
+   checks constant indices, register bounds, jump targets, upvalue indices,
+   string constant types, and SETLIST/CLOSURE sub-proto validity. Malformed
+   bytecode is now rejected at decode time, not at execution time.
 
-**Deferred**: Full per-opcode validation requires careful analysis of Lua
-compiler register allocation behavior. Each opcode's valid operand ranges
-must be derived from the compiler spec, not assumed. This is a hardening
-improvement, not a security fix.
+**Tests**: 205 lines of new bytecode validation tests covering malformed
+constant index, register overflow, invalid jump target, etc.
 
 ---
 
