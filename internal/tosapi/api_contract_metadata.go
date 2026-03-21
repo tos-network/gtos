@@ -1,0 +1,197 @@
+package tosapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/rpc"
+	lua "github.com/tos-network/tolang"
+	tolmeta "github.com/tos-network/tolang/metadata"
+)
+
+// DeployedCodeInfo describes the code stored at an address, including
+// agent-native TOL metadata when the code is a .toc artifact or .tor package.
+type DeployedCodeInfo struct {
+	Address  common.Address   `json:"address"`
+	CodeHash common.Hash      `json:"code_hash"`
+	CodeKind string           `json:"code_kind"` // "empty", "raw", "toc", "tor"
+	Artifact *TOLArtifactInfo `json:"artifact,omitempty"`
+	Package  *TOLPackageInfo  `json:"package,omitempty"`
+}
+
+// TOLArtifactInfo is the inspection payload for one compiled .toc artifact.
+type TOLArtifactInfo struct {
+	ContractName string                     `json:"contract_name"`
+	BytecodeHash string                     `json:"bytecode_hash"`
+	ABI          json.RawMessage            `json:"abi"`
+	Metadata     *tolmeta.ContractMetadata  `json:"metadata,omitempty"`
+	Discovery    *tolmeta.DiscoveryManifest `json:"discovery,omitempty"`
+	AgentPackage *tolmeta.AgentPackageInfo  `json:"agent_package,omitempty"`
+}
+
+// TOLPackageInfo is the inspection payload for one deployed .tor package.
+type TOLPackageInfo struct {
+	Name         string                   `json:"name,omitempty"`
+	Package      string                   `json:"package,omitempty"`
+	Version      string                   `json:"version,omitempty"`
+	MainContract string                   `json:"main_contract,omitempty"`
+	InitCode     string                   `json:"init_code,omitempty"`
+	Manifest     json.RawMessage          `json:"manifest"`
+	Contracts    []TOLPackageContractInfo `json:"contracts"`
+}
+
+// TOLPackageContractInfo describes one manifest contract entry inside a .tor package.
+type TOLPackageContractInfo struct {
+	Name          string           `json:"name"`
+	ArtifactPath  string           `json:"artifact_path,omitempty"`
+	InterfacePath string           `json:"interface_path,omitempty"`
+	Artifact      *TOLArtifactInfo `json:"artifact,omitempty"`
+}
+
+type rpcTOLPackageManifest struct {
+	Name         string                      `json:"name"`
+	Package      string                      `json:"package,omitempty"`
+	Version      string                      `json:"version"`
+	MainContract string                      `json:"main_contract,omitempty"`
+	InitCode     string                      `json:"init_code,omitempty"`
+	Contracts    []rpcTOLPackageManifestItem `json:"contracts"`
+}
+
+type rpcTOLPackageManifestItem struct {
+	Name      string `json:"name"`
+	Artifact  string `json:"toc,omitempty"`
+	Interface string `json:"abi,omitempty"`
+}
+
+// GetContractMetadata returns structural information about code stored at an
+// address. For raw non-TOL code it reports only the code kind/hash. For .toc
+// and .tor deployments it decodes the artifact/package and returns ABI,
+// extracted metadata, discovery manifest, and agent package info.
+func (s *BlockChainAPI) GetContractMetadata(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*DeployedCodeInfo, error) {
+	if err := enforceHistoryRetentionByBlockArg(s.b, blockNrOrHash); err != nil {
+		return nil, err
+	}
+	state, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if state == nil || header == nil || err != nil {
+		return nil, err
+	}
+	info, err := inspectDeployedCode(address, state.GetCodeHash(address), state.GetCode(address))
+	if err != nil {
+		return nil, err
+	}
+	return info, state.Error()
+}
+
+func inspectDeployedCode(address common.Address, codeHash common.Hash, code []byte) (*DeployedCodeInfo, error) {
+	info := &DeployedCodeInfo{
+		Address:  address,
+		CodeHash: codeHash,
+	}
+	if len(code) == 0 {
+		info.CodeKind = "empty"
+		return info, nil
+	}
+	if lua.IsPackage(code) {
+		pkgInfo, err := inspectTOLPackage(code)
+		if err != nil {
+			return nil, err
+		}
+		info.CodeKind = "tor"
+		info.Package = pkgInfo
+		return info, nil
+	}
+	if lua.IsArtifact(code) {
+		artInfo, err := inspectTOLArtifact(code, "")
+		if err != nil {
+			return nil, err
+		}
+		info.CodeKind = "toc"
+		info.Artifact = artInfo
+		return info, nil
+	}
+	info.CodeKind = "raw"
+	return info, nil
+}
+
+func inspectTOLPackage(pkgBytes []byte) (*TOLPackageInfo, error) {
+	pkg, err := lua.DecodePackage(pkgBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode deployed .tor package: %w", err)
+	}
+	var manifest rpcTOLPackageManifest
+	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+		return nil, fmt.Errorf("decode deployed .tor manifest: %w", err)
+	}
+	packageName := strings.TrimSpace(manifest.Package)
+	if packageName == "" {
+		packageName = strings.TrimSpace(manifest.Name)
+	}
+
+	info := &TOLPackageInfo{
+		Name:         manifest.Name,
+		Package:      manifest.Package,
+		Version:      manifest.Version,
+		MainContract: manifest.MainContract,
+		InitCode:     manifest.InitCode,
+		Manifest:     append(json.RawMessage(nil), pkg.ManifestJSON...),
+		Contracts:    make([]TOLPackageContractInfo, 0, len(manifest.Contracts)),
+	}
+	for _, contract := range manifest.Contracts {
+		entry := TOLPackageContractInfo{
+			Name:          contract.Name,
+			ArtifactPath:  contract.Artifact,
+			InterfacePath: contract.Interface,
+		}
+		if strings.TrimSpace(contract.Artifact) != "" {
+			artifactBytes, ok := pkg.Files[contract.Artifact]
+			if !ok {
+				return nil, fmt.Errorf("package contract %q missing artifact %q", contract.Name, contract.Artifact)
+			}
+			artInfo, err := inspectTOLArtifact(artifactBytes, packageName)
+			if err != nil {
+				return nil, fmt.Errorf("package contract %q: %w", contract.Name, err)
+			}
+			entry.Artifact = artInfo
+		}
+		info.Contracts = append(info.Contracts, entry)
+	}
+	return info, nil
+}
+
+func inspectTOLArtifact(artifactBytes []byte, packageName string) (*TOLArtifactInfo, error) {
+	art, err := lua.DecodeArtifact(artifactBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode deployed .toc artifact: %w", err)
+	}
+	meta, err := tolmeta.ExtractFromABI(art.ABIJSON)
+	if err != nil {
+		return nil, fmt.Errorf("extract deployed TOL metadata: %w", err)
+	}
+	if strings.TrimSpace(meta.Contract.Name) == "" && strings.TrimSpace(art.ContractName) != "" {
+		meta.Contract.Name = strings.TrimSpace(art.ContractName)
+	}
+	if strings.TrimSpace(packageName) == "" {
+		packageName = defaultArtifactPackageName(meta, art)
+	}
+	return &TOLArtifactInfo{
+		ContractName: art.ContractName,
+		BytecodeHash: art.BytecodeHash,
+		ABI:          append(json.RawMessage(nil), art.ABIJSON...),
+		Metadata:     meta,
+		Discovery:    tolmeta.BuildDiscoveryManifest(meta, packageName),
+		AgentPackage: tolmeta.BuildAgentPackageInfo(meta, packageName),
+	}, nil
+}
+
+func defaultArtifactPackageName(meta *tolmeta.ContractMetadata, art *lua.Artifact) string {
+	if meta != nil && strings.TrimSpace(meta.Contract.Name) != "" {
+		return strings.ToLower(strings.TrimSpace(meta.Contract.Name))
+	}
+	if art != nil && strings.TrimSpace(art.ContractName) != "" {
+		return strings.ToLower(strings.TrimSpace(art.ContractName))
+	}
+	return "contract"
+}
