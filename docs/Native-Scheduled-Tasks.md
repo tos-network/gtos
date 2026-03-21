@@ -1,5 +1,22 @@
 # Native Scheduled Tasks
 
+## TOL Stdlib Status
+
+**Contract layer: COMPLETE (2026-03-21).** The TOL stdlib now includes
+`stdlib/settlement/RecurringPayment.tol` — a coordinator-triggered
+subscription/periodic payment contract with subscribe, executePayment,
+pause, resume, and cancel lifecycle.  This contract uses the existing
+`escrow`/`release` host primitives and does NOT yet depend on the native
+scheduled tasks described below.
+
+**Protocol layer: NOT YET IMPLEMENTED.** The GTOS native scheduled task
+infrastructure described in this document is not yet built.  When it is,
+`RecurringPayment` can be upgraded to use `tos.schedule()` for autonomous
+periodic execution instead of requiring an off-chain coordinator to call
+`executePayment`.
+
+---
+
 ## Overview
 
 This document specifies the on-chain infrastructure for native scheduled task execution in gtos.
