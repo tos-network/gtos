@@ -660,6 +660,41 @@ func TestMulticallInvalidDescriptorRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: Malformed addr hex fails fast and rolls back earlier successes.
+// ---------------------------------------------------------------------------
+func TestMulticallMalformedAddrRejected(t *testing.T) {
+	contractA := common.Address{0xF8}
+	codeA := `tos.sstore("slotA", 321)`
+
+	parentAddr := common.Address{0xF9}
+	parentCode := fmt.Sprintf(`
+		local ok, results = tos.multicall({
+			{ addr = %q, data = "" },
+			{ addr = "0x00000000000000000000000000000000000000zz", data = "" },
+		})
+		tos.sstore("ok", ok and 1 or 0)
+	`, contractA.Hex())
+
+	st := newAgentTestState()
+	st.CreateAccount(contractA)
+	st.SetCode(contractA, []byte(codeA))
+	st.CreateAccount(parentAddr)
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err == nil {
+		t.Fatal("expected malformed addr descriptor to raise an error")
+	}
+	if !strings.Contains(err.Error(), "invalid 'addr'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	valA := st.GetState(contractA, StorageSlot("slotA"))
+	if valA != (common.Hash{}) {
+		t.Fatalf("slotA after malformed addr descriptor: want zero, got %x", valA[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: Invalid data descriptor type fails fast and rolls back earlier successes.
 // ---------------------------------------------------------------------------
 func TestMulticallInvalidDataDescriptorRejected(t *testing.T) {
@@ -691,6 +726,41 @@ func TestMulticallInvalidDataDescriptorRejected(t *testing.T) {
 	valA := st.GetState(contractA, StorageSlot("slotA"))
 	if valA != (common.Hash{}) {
 		t.Fatalf("slotA after invalid data descriptor: want zero, got %x", valA[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: Malformed data hex fails fast and rolls back earlier successes.
+// ---------------------------------------------------------------------------
+func TestMulticallMalformedDataRejected(t *testing.T) {
+	contractA := common.Address{0xFA}
+	codeA := `tos.sstore("slotA", 654)`
+
+	parentAddr := common.Address{0xFB}
+	parentCode := fmt.Sprintf(`
+		local ok, results = tos.multicall({
+			{ addr = %q, data = "" },
+			{ addr = %q, data = "0x12zz" },
+		})
+		tos.sstore("ok", ok and 1 or 0)
+	`, contractA.Hex(), contractA.Hex())
+
+	st := newAgentTestState()
+	st.CreateAccount(contractA)
+	st.SetCode(contractA, []byte(codeA))
+	st.CreateAccount(parentAddr)
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err == nil {
+		t.Fatal("expected malformed data descriptor to raise an error")
+	}
+	if !strings.Contains(err.Error(), "invalid 'data'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	valA := st.GetState(contractA, StorageSlot("slotA"))
+	if valA != (common.Hash{}) {
+		t.Fatalf("slotA after malformed data descriptor: want zero, got %x", valA[:])
 	}
 }
 

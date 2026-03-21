@@ -625,6 +625,34 @@ func parseOptionalUint64Arg(L *lua.LState, n int, label string) (uint64, bool) {
 	return bi.Uint64(), true
 }
 
+func parseStrictHexAddress(input string) (common.Address, error) {
+	if !common.IsHexAddress(input) {
+		return common.Address{}, fmt.Errorf("expected 20-byte hex address")
+	}
+	return common.HexToAddress(input), nil
+}
+
+func decodeStrictHexBytes(input string) ([]byte, error) {
+	if input == "" {
+		return nil, nil
+	}
+	raw := input
+	if strings.HasPrefix(raw, "0x") || strings.HasPrefix(raw, "0X") {
+		raw = raw[2:]
+	}
+	if len(raw)%2 != 0 {
+		return nil, fmt.Errorf("expected even-length hex string")
+	}
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := hex.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("malformed hex string")
+	}
+	return decoded, nil
+}
+
 func childFrameGasLimit(available uint64, explicit uint64, hasExplicit bool) uint64 {
 	defaultLimit := available - available/64 // keep 1/64 gas in parent frame
 	if hasExplicit && explicit < defaultLimit {
@@ -3100,7 +3128,12 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				L.RaiseError("tos.multicall: entry %d missing 'addr'", i)
 				return 0
 			}
-			calleeAddr := common.HexToAddress(string(addrStr))
+			calleeAddr, err := parseStrictHexAddress(string(addrStr))
+			if err != nil {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.RaiseError("tos.multicall: entry %d invalid 'addr': %v", i, err)
+				return 0
+			}
 
 			if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock, chainConfig); err != nil {
 				stateDB.RevertToSnapshot(outerSnap)
@@ -3119,8 +3152,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 					L.RaiseError("tos.multicall: entry %d invalid 'data': expected hex string", i)
 					return 0
 				}
-				if dataStr != "" {
-					callData = common.FromHex(string(dataStr))
+				callData, err = decodeStrictHexBytes(string(dataStr))
+				if err != nil {
+					stateDB.RevertToSnapshot(outerSnap)
+					L.RaiseError("tos.multicall: entry %d invalid 'data': %v", i, err)
+					return 0
 				}
 			}
 
