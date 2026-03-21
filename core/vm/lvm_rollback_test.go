@@ -660,6 +660,41 @@ func TestMulticallInvalidDescriptorRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: Invalid data descriptor type fails fast and rolls back earlier successes.
+// ---------------------------------------------------------------------------
+func TestMulticallInvalidDataDescriptorRejected(t *testing.T) {
+	contractA := common.Address{0xF6}
+	codeA := `tos.sstore("slotA", 888)`
+
+	parentAddr := common.Address{0xF7}
+	parentCode := fmt.Sprintf(`
+		local ok, results = tos.multicall({
+			{ addr = %q, data = "" },
+			{ addr = %q, data = 123 },
+		})
+		tos.sstore("ok", ok and 1 or 0)
+	`, contractA.Hex(), contractA.Hex())
+
+	st := newAgentTestState()
+	st.CreateAccount(contractA)
+	st.SetCode(contractA, []byte(codeA))
+	st.CreateAccount(parentAddr)
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err == nil {
+		t.Fatal("expected invalid data descriptor to raise an error")
+	}
+	if !strings.Contains(err.Error(), "invalid 'data'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	valA := st.GetState(contractA, StorageSlot("slotA"))
+	if valA != (common.Hash{}) {
+		t.Fatalf("slotA after invalid data descriptor: want zero, got %x", valA[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: Success results preserve call ordering even when children return no data.
 // ---------------------------------------------------------------------------
 func TestMulticallResultsPreserveDensePositions(t *testing.T) {

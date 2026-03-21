@@ -3112,8 +3112,16 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			// Parse data (optional).
 			var callData []byte
 			dataVal := L.GetField(entry, "data")
-			if dataStr, dOk := dataVal.(lua.LString); dOk && dataStr != "" {
-				callData = common.FromHex(string(dataStr))
+			if dataVal != lua.LNil {
+				dataStr, dOk := dataVal.(lua.LString)
+				if !dOk {
+					stateDB.RevertToSnapshot(outerSnap)
+					L.RaiseError("tos.multicall: entry %d invalid 'data': expected hex string", i)
+					return 0
+				}
+				if dataStr != "" {
+					callData = common.FromHex(string(dataStr))
+				}
 			}
 
 			// Parse value (optional, defaults to 0).
