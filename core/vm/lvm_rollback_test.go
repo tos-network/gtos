@@ -271,13 +271,13 @@ func readStoredString(st StateDB, addr common.Address, key string) string {
 }
 
 // ===========================================================================
-// tos.atomic_multicall tests
+// tos.multicall tests
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// Test: All calls in atomic_multicall succeed → all mutations persist.
+// Test: All calls in multicall succeed → all mutations persist.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallAllSucceed(t *testing.T) {
+func TestMulticallAllSucceed(t *testing.T) {
 	contractA := common.Address{0xE1}
 	codeA := `tos.sstore("slotA", 111)`
 
@@ -286,7 +286,7 @@ func TestAtomicMulticallAllSucceed(t *testing.T) {
 
 	parentAddr := common.Address{0xE0}
 	parentCode := fmt.Sprintf(`
-		local ok, results = tos.atomic_multicall({
+		local ok, results = tos.multicall({
 			{ addr = %q, data = "" },
 			{ addr = %q, data = "" },
 		})
@@ -327,7 +327,7 @@ func TestAtomicMulticallAllSucceed(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Test: Second call fails → first call's mutations are rolled back.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallSecondFailsFirstRolledBack(t *testing.T) {
+func TestMulticallSecondFailsFirstRolledBack(t *testing.T) {
 	contractA := common.Address{0xE3}
 	codeA := `tos.sstore("slotA", 333)`
 
@@ -339,7 +339,7 @@ func TestAtomicMulticallSecondFailsFirstRolledBack(t *testing.T) {
 
 	parentAddr := common.Address{0xE5}
 	parentCode := fmt.Sprintf(`
-		local ok, results = tos.atomic_multicall({
+		local ok, results = tos.multicall({
 			{ addr = %q, data = "" },
 			{ addr = %q, data = "" },
 		})
@@ -380,7 +380,7 @@ func TestAtomicMulticallSecondFailsFirstRolledBack(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Test: Middle call of 3 fails → all 3 contracts' mutations are rolled back.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallMiddleFailsAllRolledBack(t *testing.T) {
+func TestMulticallMiddleFailsAllRolledBack(t *testing.T) {
 	contractA := common.Address{0xE6}
 	codeA := `tos.sstore("slotA", 10)`
 
@@ -395,7 +395,7 @@ func TestAtomicMulticallMiddleFailsAllRolledBack(t *testing.T) {
 
 	parentAddr := common.Address{0xE9}
 	parentCode := fmt.Sprintf(`
-		local ok, results = tos.atomic_multicall({
+		local ok, results = tos.multicall({
 			{ addr = %q, data = "" },
 			{ addr = %q, data = "" },
 			{ addr = %q, data = "" },
@@ -442,7 +442,7 @@ func TestAtomicMulticallMiddleFailsAllRolledBack(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Test: Value transfer is rolled back when a later call fails.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallValueTransferRollback(t *testing.T) {
+func TestMulticallValueTransferRollback(t *testing.T) {
 	contractA := common.Address{0xEA}
 	codeA := `tos.sstore("got_value", tos.value)`
 
@@ -451,7 +451,7 @@ func TestAtomicMulticallValueTransferRollback(t *testing.T) {
 
 	parentAddr := common.Address{0xEC}
 	parentCode := fmt.Sprintf(`
-		local ok, results = tos.atomic_multicall({
+		local ok, results = tos.multicall({
 			{ addr = %q, data = "", value = 500 },
 			{ addr = %q, data = "" },
 		})
@@ -499,12 +499,12 @@ func TestAtomicMulticallValueTransferRollback(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: atomic_multicall in a readonly (staticcall) context is rejected.
+// Test: multicall in a readonly (staticcall) context is rejected.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallInStaticCallRejected(t *testing.T) {
+func TestMulticallInStaticCallRejected(t *testing.T) {
 	parentAddr := common.Address{0xED}
 	parentCode := `
-		local ok, results = tos.atomic_multicall({})
+		local ok, results = tos.multicall({})
 	`
 
 	st := newAgentTestState()
@@ -521,7 +521,7 @@ func TestAtomicMulticallInStaticCallRejected(t *testing.T) {
 	}
 	_, _, _, err := Execute(st, newBlockCtx(), testChainConfig, ctx, []byte(parentCode), 5_000_000)
 	if err == nil {
-		t.Fatal("expected error for atomic_multicall in readonly context")
+		t.Fatal("expected error for multicall in readonly context")
 	}
 	// Error should mention staticcall or readonly.
 	errMsg := err.Error()
@@ -531,12 +531,12 @@ func TestAtomicMulticallInStaticCallRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: atomic_multicall with empty table returns (true, ...) with no error.
+// Test: multicall with empty table returns (true, ...) with no error.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallEmptyTable(t *testing.T) {
+func TestMulticallEmptyTable(t *testing.T) {
 	parentAddr := common.Address{0xEE}
 	parentCode := `
-		local ok, results = tos.atomic_multicall({})
+		local ok, results = tos.multicall({})
 		if not ok then
 			error("expected ok=true for empty multicall")
 		end
@@ -548,7 +548,7 @@ func TestAtomicMulticallEmptyTable(t *testing.T) {
 
 	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
 	if err != nil {
-		t.Fatalf("empty atomic_multicall failed: %v", err)
+		t.Fatalf("empty multicall failed: %v", err)
 	}
 
 	okSlot := st.GetState(parentAddr, StorageSlot("ok"))
@@ -558,15 +558,15 @@ func TestAtomicMulticallEmptyTable(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Revert data from a failing child propagates through atomic_multicall.
+// Test: Revert data from a failing child propagates through multicall.
 // ---------------------------------------------------------------------------
-func TestAtomicMulticallRevertDataPropagation(t *testing.T) {
+func TestMulticallRevertDataPropagation(t *testing.T) {
 	childAddr := common.Address{0xEF}
 	childCode := `tos.revert("InsufficientFunds", "uint256", 42)`
 
 	parentAddr := common.Address{0xF0}
 	parentCode := fmt.Sprintf(`
-		local ok, revertData = tos.atomic_multicall({
+		local ok, revertData = tos.multicall({
 			{ addr = %q, data = "" },
 		})
 		tos.sstore("ok", ok and 1 or 0)
@@ -624,3 +624,83 @@ func TestAtomicMulticallRevertDataPropagation(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Test: Invalid descriptor fields fail fast and roll back earlier successes.
+// ---------------------------------------------------------------------------
+func TestMulticallInvalidDescriptorRejected(t *testing.T) {
+	contractA := common.Address{0xF1}
+	codeA := `tos.sstore("slotA", 777)`
+
+	parentAddr := common.Address{0xF2}
+	parentCode := fmt.Sprintf(`
+		local ok, results = tos.multicall({
+			{ addr = %q, data = "" },
+			{ addr = %q, data = "", value = "not-a-number" },
+		})
+		tos.sstore("ok", ok and 1 or 0)
+	`, contractA.Hex(), contractA.Hex())
+
+	st := newAgentTestState()
+	st.CreateAccount(contractA)
+	st.SetCode(contractA, []byte(codeA))
+	st.CreateAccount(parentAddr)
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err == nil {
+		t.Fatal("expected invalid descriptor to raise an error")
+	}
+	if !strings.Contains(err.Error(), "invalid 'value'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	valA := st.GetState(contractA, StorageSlot("slotA"))
+	if valA != (common.Hash{}) {
+		t.Fatalf("slotA after invalid descriptor: want zero, got %x", valA[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: Success results preserve call ordering even when children return no data.
+// ---------------------------------------------------------------------------
+func TestMulticallResultsPreserveDensePositions(t *testing.T) {
+	contractA := common.Address{0xF3}
+	codeA := `tos.sstore("slotA", 1)`
+
+	contractB := common.Address{0xF4} // no code
+
+	parentAddr := common.Address{0xF5}
+	parentCode := fmt.Sprintf(`
+		local ok, results = tos.multicall({
+			{ addr = %q, data = "" },
+			{ addr = %q, data = "" },
+		})
+		if not ok then
+			error("expected multicall success")
+		end
+		tos.sstore("result_len", #results)
+		tos.setStr("result_1", results[1] or "<nil>")
+		tos.setStr("result_2", results[2] or "<nil>")
+	`, contractA.Hex(), contractB.Hex())
+
+	st := newAgentTestState()
+	st.CreateAccount(contractA)
+	st.SetCode(contractA, []byte(codeA))
+	st.CreateAccount(contractB)
+	st.CreateAccount(parentAddr)
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err != nil {
+		t.Fatalf("parent execution failed: %v", err)
+	}
+
+	lenSlot := st.GetState(parentAddr, StorageSlot("result_len"))
+	if got := new(big.Int).SetBytes(lenSlot[:]).Uint64(); got != 2 {
+		t.Fatalf("result_len: want 2, got %d", got)
+	}
+	if got := readStoredString(st, parentAddr, "result_1"); got != "0x" {
+		t.Fatalf("result_1: want 0x, got %q", got)
+	}
+	if got := readStoredString(st, parentAddr, "result_2"); got != "0x" {
+		t.Fatalf("result_2: want 0x, got %q", got)
+	}
+}

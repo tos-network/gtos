@@ -51,12 +51,12 @@ values and undo earlier calls — error-prone and not auditable.
 
 ---
 
-## 3. Chosen Primitive: `tos.atomic_multicall`
+## 3. Chosen Primitive: `tos.multicall`
 
 ### API
 
 ```lua
-local ok, results = tos.atomic_multicall({
+local ok, results = tos.multicall({
   { addr = receipt_addr, data = finalize_calldata },
   { addr = escrow_addr, data = release_calldata, value = 0, gas = 100000 },
 })
@@ -70,6 +70,8 @@ local ok, results = tos.atomic_multicall({
   rolled back, return `(false, revertDataHex | nil)`
 - If **ALL** succeed → snapshot abandoned (committed), return
   `(true, {ret1, ret2, ...})`
+- Result slots are always dense. Calls with no returndata are represented as
+  `"0x"` so positional indexing is stable.
 
 ### Parameters (per entry)
 
@@ -80,11 +82,14 @@ local ok, results = tos.atomic_multicall({
 | `value` | uint256 | No | 0 |
 | `gas` | uint64 | No | remaining / 64 |
 
+Malformed `value` / `gas` fields are rejected eagerly; they do not silently
+fall back to zero/defaults.
+
 ### Return values
 
 | Outcome | Return 1 | Return 2 |
 |---------|----------|----------|
-| All succeed | `true` | Lua table of hex return data per call |
+| All succeed | `true` | Lua table of hex return data per call (`"0x"` for empty returndata) |
 | Any fails | `false` | Hex revert data from failing call (or nil) |
 | Empty input | `true` | Empty table |
 
@@ -121,16 +126,16 @@ Gas accounting is identical to `tos.call`:
 
 - When a child fails with structured revert data (e.g.,
   `tos.revert("InsufficientFunds", "uint256", 42)`), the revert data is
-  returned as the second value of `atomic_multicall`
+  returned as the second value of `multicall`
 - Only the failing child's revert data is returned (not earlier calls')
 
 ---
 
 ## 7. Nesting and Depth
 
-- `atomic_multicall` itself does not consume a depth level
+- `multicall` itself does not consume a depth level
 - Each child call increments depth by 1 from the caller's depth
-- `atomic_multicall` inside a `tos.call` child works correctly because
+- `multicall` inside a `tos.call` child works correctly because
   `StateDB.Snapshot()` is nestable
 
 ---
@@ -139,7 +144,7 @@ Gas accounting is identical to `tos.call`:
 
 - **No change** to existing `tos.call`, `tos.staticcall`, `tos.delegatecall`,
   `tos.package_call` behavior
-- `atomic_multicall` is a new, opt-in primitive
+- `multicall` is a new, opt-in primitive
 - Contracts that don't use it behave exactly as before
 
 ---
@@ -150,19 +155,19 @@ Gas accounting is identical to `tos.call`:
 
 | Test | Scenario | Status |
 |------|----------|--------|
-| `TestAtomicMulticallAllSucceed` | 2 calls succeed, both mutations visible | PASS |
-| `TestAtomicMulticallSecondFailsFirstRolledBack` | A writes, B fails → A rolled back | PASS |
-| `TestAtomicMulticallMiddleFailsAllRolledBack` | 3 calls, middle fails → all rolled back | PASS |
-| `TestAtomicMulticallValueTransferRollback` | A receives value, B fails → value returned | PASS |
-| `TestAtomicMulticallInStaticCallRejected` | Readonly context → error | PASS |
-| `TestAtomicMulticallEmptyTable` | Empty input → (true, {}) | PASS |
-| `TestAtomicMulticallRevertDataPropagation` | Typed revert data propagated | PASS |
+| `TestMulticallAllSucceed` | 2 calls succeed, both mutations visible | PASS |
+| `TestMulticallSecondFailsFirstRolledBack` | A writes, B fails → A rolled back | PASS |
+| `TestMulticallMiddleFailsAllRolledBack` | 3 calls, middle fails → all rolled back | PASS |
+| `TestMulticallValueTransferRollback` | A receives value, B fails → value returned | PASS |
+| `TestMulticallInStaticCallRejected` | Readonly context → error | PASS |
+| `TestMulticallEmptyTable` | Empty input → (true, {}) | PASS |
+| `TestMulticallRevertDataPropagation` | Typed revert data propagated | PASS |
 
 ### Tolang tests (`stdlib_composed_runtime_test.go`)
 
 | Test | Scenario | Status |
 |------|----------|--------|
-| `TestAtomicMulticallReceiptEscrowAtomicity` | A succeeds, B fails → both rolled back; retry both succeed | PASS |
+| `TestMulticallReceiptEscrowAtomicity` | A succeeds, B fails → both rolled back; retry both succeed | PASS |
 
 ---
 
@@ -170,9 +175,9 @@ Gas accounting is identical to `tos.call`:
 
 | File | Change |
 |------|--------|
-| `core/vm/lvm.go` | `tos.atomic_multicall` host function (~200 lines) |
+| `core/vm/lvm.go` | `tos.multicall` host function (~200 lines) |
 | `core/vm/lvm_rollback_test.go` | 7 test cases |
-| `tolang/stdlib_composed_runtime_test.go` | `invokeAtomicMulticall` helper + 1 test |
+| `tolang/stdlib_composed_runtime_test.go` | `invokeMulticall` helper + 1 test |
 
 ---
 

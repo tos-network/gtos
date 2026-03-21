@@ -3030,14 +3030,15 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 2
 	}))
 
-	// tos.atomic_multicall(calls) → bool, table|string
+	// tos.multicall(calls) → bool, table|string
 	//
 	// Atomic batch inter-contract call. Takes a Lua array-table of call
 	// descriptors, each with fields { addr, data, value?, gas? }, and
 	// executes them sequentially inside a single outer snapshot.
 	//
 	//   • If ALL calls succeed → snapshot committed, returns (true, resultsTable)
-	//     where resultsTable[i] is the hex return data of call i (or nil).
+	//     where resultsTable[i] is the hex return data of call i. Calls with
+	//     no returndata are represented as "0x" so positional results stay dense.
 	//   • If ANY call fails → outer snapshot reverted (all-or-nothing),
 	//     returns (false, revertDataHex|nil).
 	//   • Empty table → (true, {}).
@@ -3048,17 +3049,17 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	// deducted from the caller's remaining budget.
 	//
 	// Example:
-	//   local ok, results = tos.atomic_multicall({
+	//   local ok, results = tos.multicall({
 	//     { addr = "0x...", data = "0x...", value = 0, gas = 100000 },
 	//     { addr = "0x...", data = "0x..." },
 	//   })
-	L.SetField(tosTable, "atomic_multicall", L.NewFunction(func(L *lua.LState) int {
+	L.SetField(tosTable, "multicall", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
-			L.RaiseError("tos.atomic_multicall: not allowed in readonly context")
+			L.RaiseError("tos.multicall: not allowed in readonly context")
 			return 0
 		}
 		if ctx.Depth >= maxCallDepth {
-			L.RaiseError("tos.atomic_multicall: max call depth (%d) exceeded", maxCallDepth)
+			L.RaiseError("tos.multicall: max call depth (%d) exceeded", maxCallDepth)
 			return 0
 		}
 
@@ -3087,7 +3088,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			entry, ok := entryVal.(*lua.LTable)
 			if !ok {
 				stateDB.RevertToSnapshot(outerSnap)
-				L.RaiseError("tos.atomic_multicall: entry %d is not a table", i)
+				L.RaiseError("tos.multicall: entry %d is not a table", i)
 				return 0
 			}
 
@@ -3096,7 +3097,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			addrStr, aOk := addrVal.(lua.LString)
 			if !aOk || addrStr == "" {
 				stateDB.RevertToSnapshot(outerSnap)
-				L.RaiseError("tos.atomic_multicall: entry %d missing 'addr'", i)
+				L.RaiseError("tos.multicall: entry %d missing 'addr'", i)
 				return 0
 			}
 			calleeAddr := common.HexToAddress(string(addrStr))
@@ -3116,40 +3117,36 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			}
 
 			// Parse value (optional, defaults to 0).
-			var callValue *big.Int
+			callValue := new(big.Int)
 			valField := L.GetField(entry, "value")
-			switch v := valField.(type) {
-			case lua.LUint256:
-				callValue, _ = new(big.Int).SetString(v.String(), 10)
-			case lua.LString:
-				if string(v) != "" {
-					callValue, _ = new(big.Int).SetString(string(v), 10)
+			if valField != lua.LNil {
+				parsedValue, err := parseUint256Value(valField)
+				if err != nil {
+					stateDB.RevertToSnapshot(outerSnap)
+					L.RaiseError("tos.multicall: entry %d invalid 'value': %v", i, err)
+					return 0
 				}
-			}
-			if callValue == nil {
-				callValue = new(big.Int)
+				callValue = parsedValue
 			}
 
 			// Parse gas (optional).
 			var explicitGas uint64
 			var hasExplicitGas bool
 			gasField := L.GetField(entry, "gas")
-			switch g := gasField.(type) {
-			case lua.LUint256:
-				s := g.String()
-				bi, _ := new(big.Int).SetString(s, 10)
-				if bi != nil {
-					explicitGas = bi.Uint64()
-					hasExplicitGas = true
+			if gasField != lua.LNil {
+				parsedGas, err := parseUint256Value(gasField)
+				if err != nil {
+					stateDB.RevertToSnapshot(outerSnap)
+					L.RaiseError("tos.multicall: entry %d invalid 'gas': %v", i, err)
+					return 0
 				}
-			case lua.LString:
-				if string(g) != "" {
-					bi, _ := new(big.Int).SetString(string(g), 10)
-					if bi != nil {
-						explicitGas = bi.Uint64()
-						hasExplicitGas = true
-					}
+				if !parsedGas.IsUint64() {
+					stateDB.RevertToSnapshot(outerSnap)
+					L.RaiseError("tos.multicall: entry %d invalid 'gas': exceeds uint64", i)
+					return 0
 				}
+				explicitGas = parsedGas.Uint64()
+				hasExplicitGas = true
 			}
 
 			// Compute remaining gas budget for this child.
@@ -3157,7 +3154,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			totalUsed := parentUsedNow + totalChildGas + primGasCharged
 			if totalUsed >= gasLimit {
 				stateDB.RevertToSnapshot(outerSnap)
-				L.RaiseError("tos.atomic_multicall: out of gas at call %d", i)
+				L.RaiseError("tos.multicall: out of gas at call %d", i)
 				return 0
 			}
 			available := gasLimit - totalUsed
@@ -3176,10 +3173,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				blockCtx.Transfer(stateDB, contractAddr, calleeAddr, callValue)
 			}
 
-			// If no code, plain transfer succeeded (no return data for this entry).
+			// If no code, plain transfer succeeded. Use "0x" so the result table
+			// remains dense and preserves call ordering.
 			calleeCode := stateDB.GetCode(calleeAddr)
 			if len(calleeCode) == 0 {
-				resultsTbl.RawSetInt(i, lua.LNil)
+				resultsTbl.RawSetInt(i, lua.LString("0x"))
 				continue
 			}
 
@@ -3219,11 +3217,12 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				return 2
 			}
 
-			// Accumulate success result.
+			// Accumulate success result. Use "0x" for empty returndata so callers
+			// can still index results by call position.
 			if len(childReturnData) > 0 {
 				resultsTbl.RawSetInt(i, lua.LString("0x"+common.Bytes2Hex(childReturnData)))
 			} else {
-				resultsTbl.RawSetInt(i, lua.LNil)
+				resultsTbl.RawSetInt(i, lua.LString("0x"))
 			}
 		}
 
