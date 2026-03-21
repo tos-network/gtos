@@ -515,3 +515,72 @@ func TestTolPackageCallRollbackAndRevertDataEndToEnd(t *testing.T) {
 		t.Fatalf("counter value after successful package call: got=%s want=%s", got.String(), setArg.String())
 	}
 }
+
+func TestTolPackageCallRejectsMissingContractNameEndToEnd(t *testing.T) {
+	targetTor, err := lua.CompilePackage([]byte(counterPackageTolSource), "<Counter.tol>", &lua.PackageOptions{
+		PackageName: "CounterPkg",
+	})
+	if err != nil {
+		t.Fatalf("CompilePackage Counter: %v", err)
+	}
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	owner := crypto.PubkeyToAddress(key1.PublicKey)
+	callerAddr := common.HexToAddress("0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
+	targetPredicted := crypto.CreateAddress(owner, 0)
+	callerCode := fmt.Sprintf(`
+		local ok, ret = tos.package_call(%q, "MissingContract", msg.data, 5000000)
+		tos.sstore("ok", ok and 1 or 0)
+		if ret == nil then
+			tos.setStr("ret", "")
+		else
+			tos.setStr("ret", ret)
+		end
+	`, targetPredicted.Hex())
+
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
+	}
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config:    config,
+		GasLimit:  100_000_000,
+		ExtraData: testDPoSGenesisExtra(),
+		Alloc: GenesisAlloc{
+			owner:      {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
+			callerAddr: {Balance: big.NewInt(0), Code: []byte(callerCode)},
+		},
+	}
+	gspec.MustCommit(db)
+	bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bc.Stop()
+
+	targetAddr, deployReceipt := deployTorTx(t, bc, targetTor, nil)
+	if (deployReceipt.ContractAddress != common.Address{}) {
+		targetAddr = deployReceipt.ContractAddress
+	}
+	if targetAddr != targetPredicted {
+		t.Fatalf("target deploy address mismatch: got=%s want=%s", targetAddr.Hex(), targetPredicted.Hex())
+	}
+
+	runLvmCallTor(t, bc, key1, callerAddr, big.NewInt(0), nil)
+
+	state, err := bc.State()
+	if err != nil {
+		t.Fatalf("bc.State after call: %v", err)
+	}
+	okSlot := state.GetState(callerAddr, lvm.StorageSlot("ok"))
+	if got := new(big.Int).SetBytes(okSlot[:]).Uint64(); got != 0 {
+		t.Fatalf("caller ok after missing contract package call: got=%d want=0", got)
+	}
+	if got := readStringSlot(state, callerAddr, "ret"); got != "" {
+		t.Fatalf("caller ret after missing contract package call: got=%q want empty", got)
+	}
+	if current := state.GetState(targetAddr, lvm.StorageSlot("current")); current != (common.Hash{}) {
+		t.Fatalf("target state changed on rejected package call: got=%x want zero", current[:])
+	}
+}

@@ -552,6 +552,36 @@ func executePackage(stateDB StateDB, blockCtx BlockContext, chainConfig *params.
 	return 0, nil, nil, fmt.Errorf("package call: no contract found for dispatch tag %x", dispatchTag)
 }
 
+func packageHasContract(pkgBytes []byte, contractName string) (bool, error) {
+	if !lua.IsPackage(pkgBytes) {
+		return false, nil
+	}
+	pkg, err := lua.DecodePackage(pkgBytes)
+	if err != nil {
+		return false, err
+	}
+	var manifest struct {
+		Contracts []struct {
+			Name     string `json:"name"`
+			Artifact string `json:"toc"`
+		} `json:"contracts"`
+	}
+	if err := json.Unmarshal(pkg.ManifestJSON, &manifest); err != nil {
+		return false, err
+	}
+	want := strings.TrimSpace(contractName)
+	for _, c := range manifest.Contracts {
+		if strings.TrimSpace(c.Name) != want || strings.TrimSpace(c.Artifact) == "" {
+			continue
+		}
+		if _, ok := pkg.Files[c.Artifact]; !ok {
+			return false, fmt.Errorf("package contract %q missing artifact %q", c.Name, c.Artifact)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 // parseBigInt extracts a non-negative *big.Int from Lua argument n.
 // Accepts LUint256 or LString. Raises a Lua error on bad input.
 func parseBigInt(L *lua.LState, n int) *big.Int {
@@ -4494,6 +4524,12 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		calleeCode := stateDB.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
 			// No code at address — not a package.
+			L.Push(lua.LFalse)
+			L.Push(lua.LNil)
+			return 2
+		}
+		ok, err := packageHasContract(calleeCode, contractName)
+		if err != nil || !ok {
 			L.Push(lua.LFalse)
 			L.Push(lua.LNil)
 			return 2
