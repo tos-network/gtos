@@ -14,6 +14,8 @@ package core
 
 import (
 	"crypto/ecdsa"
+	"encoding/binary"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/types"
+	lvm "github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	lua "github.com/tos-network/tolang"
@@ -62,6 +65,28 @@ contract TRC20 {
     set balances[to] += value;
     emit Transfer(msg.sender, to, value);
     return true;
+  }
+}
+`
+
+const counterPackageTolSource = `pragma tolang 0.4.0;
+
+contract Counter {
+  error CounterWriteFailed(u256 attempted);
+  u256 current;
+
+  function store(u256 next) public {
+    set current = next;
+    return;
+  }
+
+  function get() public view returns (u256 value) {
+    return current;
+  }
+
+  function failAfterWrite(u256 next) public {
+    set current = next;
+    revert CounterWriteFailed(next);
   }
 }
 `
@@ -202,6 +227,30 @@ func torCalldata(t *testing.T, contractName, sig string, typeVals ...interface{}
 	result = append(result, selector...)
 	result = append(result, encoded...)
 	return result
+}
+
+func readStringSlot(state interface {
+	GetState(common.Address, common.Hash) common.Hash
+}, addr common.Address, key string) string {
+	lenSlot := state.GetState(addr, lvm.StrLenSlot(key))
+	if lenSlot == (common.Hash{}) {
+		return ""
+	}
+	length := int(binary.BigEndian.Uint64(lenSlot[24:]) - 1)
+	if length <= 0 {
+		return ""
+	}
+	data := make([]byte, length)
+	base := lvm.StrLenSlot(key)
+	for i := 0; i < length; i += 32 {
+		chunk := state.GetState(addr, lvm.StrChunkSlot(base, i/32))
+		end := i + 32
+		if end > length {
+			end = length
+		}
+		copy(data[i:end], chunk[:end-i])
+	}
+	return string(data)
 }
 
 func TestTolTRC20EndToEnd(t *testing.T) {
@@ -357,5 +406,112 @@ func TestTolTRC20EndToEnd(t *testing.T) {
 			t.Errorf("expected revert (status=0) for insufficient balance, got status=%d", receipts[0].Status)
 		}
 		t.Log("insufficient balance correctly reverted")
+	}
+}
+
+func TestTolPackageCallRollbackAndRevertDataEndToEnd(t *testing.T) {
+	targetTor, err := lua.CompilePackage([]byte(counterPackageTolSource), "<Counter.tol>", &lua.PackageOptions{
+		PackageName: "CounterPkg",
+	})
+	if err != nil {
+		t.Fatalf("CompilePackage Counter: %v", err)
+	}
+
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	owner := crypto.PubkeyToAddress(key1.PublicKey)
+	callerAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+	targetPredicted := crypto.CreateAddress(owner, 0)
+	callerCode := fmt.Sprintf(`
+		local ok, ret = tos.package_call(%q, "Counter", msg.data, 5000000)
+		tos.sstore("ok", ok and 1 or 0)
+		if ret == nil then
+			tos.setStr("ret", "")
+		else
+			tos.setStr("ret", ret)
+		end
+	`, targetPredicted.Hex())
+
+	config := &params.ChainConfig{
+		ChainID: big.NewInt(1),
+		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
+	}
+	db := rawdb.NewMemoryDatabase()
+	gspec := &Genesis{
+		Config:    config,
+		GasLimit:  100_000_000,
+		ExtraData: testDPoSGenesisExtra(),
+		Alloc: GenesisAlloc{
+			owner:      {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
+			callerAddr: {Balance: big.NewInt(0), Code: []byte(callerCode)},
+		},
+	}
+	gspec.MustCommit(db)
+	bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bc.Stop()
+
+	targetAddr, deployReceipt := deployTorTx(t, bc, targetTor, nil)
+	if (deployReceipt.ContractAddress != common.Address{}) {
+		targetAddr = deployReceipt.ContractAddress
+	}
+	if targetAddr != targetPredicted {
+		t.Fatalf("target deploy address mismatch: got=%s want=%s", targetAddr.Hex(), targetPredicted.Hex())
+	}
+
+	u256Type, err := abi.NewType("u256", "", nil)
+	if err != nil {
+		t.Fatalf("abi.NewType(u256): %v", err)
+	}
+	failArg := big.NewInt(77)
+	failPayload := torCalldata(t, "Counter", "failAfterWrite(u256)", "u256", failArg)[4:]
+	runLvmCallTor(t, bc, key1, callerAddr, big.NewInt(0), failPayload)
+
+	state, err := bc.State()
+	if err != nil {
+		t.Fatalf("bc.State after fail: %v", err)
+	}
+	okSlot := state.GetState(callerAddr, lvm.StorageSlot("ok"))
+	if got := new(big.Int).SetBytes(okSlot[:]).Uint64(); got != 0 {
+		t.Fatalf("caller ok after revert: got=%d want=0", got)
+	}
+	gotRet := readStringSlot(state, callerAddr, "ret")
+	wantRetPayload, err := abi.Arguments{{Type: u256Type}}.Pack(failArg)
+	if err != nil {
+		t.Fatalf("pack expected revert payload: %v", err)
+	}
+	wantRetBytes := append(crypto.Keccak256([]byte("CounterWriteFailed(u256)"))[:4], wantRetPayload...)
+	wantRet := "0x" + common.Bytes2Hex(wantRetBytes)
+	if gotRet != wantRet {
+		t.Fatalf("package_call revert data mismatch:\n got=%s\nwant=%s", gotRet, wantRet)
+	}
+
+	getPayload := torCalldata(t, "Counter", "get()")[4:]
+	runLvmCallTor(t, bc, key1, callerAddr, big.NewInt(0), getPayload)
+
+	state, err = bc.State()
+	if err != nil {
+		t.Fatalf("bc.State after get-zero: %v", err)
+	}
+	okSlot = state.GetState(callerAddr, lvm.StorageSlot("ok"))
+	if got := new(big.Int).SetBytes(okSlot[:]).Uint64(); got != 1 {
+		t.Fatalf("caller ok after get(): got=%d want=1", got)
+	}
+	if got := new(big.Int).SetBytes(common.FromHex(readStringSlot(state, callerAddr, "ret"))); got.Sign() != 0 {
+		t.Fatalf("counter value after reverted package call: got=%s want=0", got.String())
+	}
+
+	setArg := big.NewInt(11)
+	setPayload := torCalldata(t, "Counter", "store(u256)", "u256", setArg)[4:]
+	runLvmCallTor(t, bc, key1, callerAddr, big.NewInt(0), setPayload)
+	runLvmCallTor(t, bc, key1, callerAddr, big.NewInt(0), getPayload)
+
+	state, err = bc.State()
+	if err != nil {
+		t.Fatalf("bc.State after set/get: %v", err)
+	}
+	if got := new(big.Int).SetBytes(common.FromHex(readStringSlot(state, callerAddr, "ret"))); got.Cmp(setArg) != 0 {
+		t.Fatalf("counter value after successful package call: got=%s want=%s", got.String(), setArg.String())
 	}
 }

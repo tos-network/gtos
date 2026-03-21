@@ -90,6 +90,68 @@ func isRevertSignal(err error) bool {
 	return ok && ud != nil && ud.Value == lvmRevertSentinel
 }
 
+func extractStructuredTolangRevertData(err error) ([]byte, bool) {
+	var apiErr *lua.ApiError
+	if !errors.As(err, &apiErr) {
+		return nil, false
+	}
+	tbl, ok := apiErr.Object.(*lua.LTable)
+	if !ok || tbl == nil {
+		return nil, false
+	}
+	selVal := tbl.RawGetString("selector")
+	if selVal == lua.LNil {
+		return nil, false
+	}
+	selector := strings.TrimSpace(selVal.String())
+	switch selector {
+	case "custom":
+		dataVal := tbl.RawGetString("data")
+		if dataVal == lua.LNil {
+			return nil, false
+		}
+		dataHex := strings.TrimSpace(dataVal.String())
+		if dataHex == "" {
+			return nil, false
+		}
+		return common.FromHex(dataHex), true
+	case "0x08c379a0":
+		msgVal := tbl.RawGetString("msg")
+		if msgVal == lua.LNil {
+			return nil, false
+		}
+		stringType, err := abi.NewType("string", "", nil)
+		if err != nil {
+			return nil, false
+		}
+		encoded, err := abi.Arguments{{Type: stringType}}.Pack(msgVal.String())
+		if err != nil {
+			return nil, false
+		}
+		return append(common.FromHex(selector), encoded...), true
+	case "0x4e487b71":
+		codeVal := tbl.RawGetString("code")
+		if codeVal == lua.LNil {
+			return nil, false
+		}
+		codeBig, err := parseUint256Value(codeVal)
+		if err != nil {
+			return nil, false
+		}
+		u256Type, err := abi.NewType("uint256", "", nil)
+		if err != nil {
+			return nil, false
+		}
+		encoded, err := abi.Arguments{{Type: u256Type}}.Pack(codeBig)
+		if err != nil {
+			return nil, false
+		}
+		return append(common.FromHex(selector), encoded...), true
+	default:
+		return nil, false
+	}
+}
+
 // CallCtx is the per-invocation execution context for a Lua contract call.
 // Top-level calls initialise it from StateTransition.msg; nested tos.call
 // invocations override from/to/value/data while keeping txOrigin/txPrice
@@ -509,6 +571,35 @@ func parseBigInt(L *lua.LState, n int) *big.Int {
 		return nil
 	}
 	return bi
+}
+
+// parseOptionalUint64Arg extracts an optional non-negative uint64 from Lua
+// argument n. Accepts the same numeric forms as parseBigInt.
+func parseOptionalUint64Arg(L *lua.LState, n int, label string) (uint64, bool) {
+	if L.GetTop() < n || L.Get(n) == lua.LNil {
+		return 0, false
+	}
+	bi := parseBigInt(L, n)
+	if bi == nil {
+		return 0, false
+	}
+	if bi.Sign() < 0 {
+		L.ArgError(n, label+" must be non-negative")
+		return 0, false
+	}
+	if !bi.IsUint64() {
+		L.ArgError(n, label+" exceeds uint64")
+		return 0, false
+	}
+	return bi.Uint64(), true
+}
+
+func childFrameGasLimit(available uint64, explicit uint64, hasExplicit bool) uint64 {
+	defaultLimit := available - available/64 // keep 1/64 gas in parent frame
+	if hasExplicit && explicit < defaultLimit {
+		return explicit
+	}
+	return defaultLimit
 }
 
 // parseUint256Value parses an LValue as a non-negative uint256 integer.
@@ -2757,7 +2848,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Inter-contract call ────────────────────────────────────────────────────
 
-	// tos.call(addr [, value [, calldata]]) → bool, string|nil
+	// tos.call(addr [, value [, calldata [, gas]]]) → bool, string|nil
 	//
 	// Calls another Lua contract with optional value forwarding and calldata.
 	// Returns two values:
@@ -2820,6 +2911,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			hexStr := L.CheckString(3)
 			callData = common.FromHex(hexStr)
 		}
+		explicitGas, hasExplicitGas := parseOptionalUint64Arg(L, 4, "gas")
 
 		// Compute remaining gas budget for the child.
 		// gasLimit is captured from the outer Execute parameter.
@@ -2830,7 +2922,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
+		childGasLimit := childFrameGasLimit(available, explicitGas, hasExplicitGas)
 
 		// Guard check before snapshot: no state mutation, no snapshot leak.
 		if callValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, callValue) {
@@ -2907,7 +2999,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 2
 	}))
 
-	// tos.staticcall(addr [, calldata]) → bool, string|nil
+	// tos.staticcall(addr [, calldata [, gas]]) → bool, string|nil
 	//
 	// Read-only inter-contract call (EVM STATICCALL equivalent).
 	// Identical to tos.call except:
@@ -2946,6 +3038,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
 			callData = common.FromHex(L.CheckString(2))
 		}
+		explicitGas, hasExplicitGas := parseOptionalUint64Arg(L, 3, "gas")
 
 		// Compute child gas budget.
 		parentUsedNow := L.GasUsed()
@@ -2955,7 +3048,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
+		childGasLimit := childFrameGasLimit(available, explicitGas, hasExplicitGas)
 
 		// Defense-in-depth snapshot: even though staticcall should not
 		// mutate state, a buggy callee could attempt writes before the
@@ -3015,7 +3108,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 2
 	}))
 
-	// tos.delegatecall(addr [, calldata]) → bool, string|nil
+	// tos.delegatecall(addr [, calldata [, gas]]) → bool, string|nil
 	//   Executes the code stored at `addr` in the CURRENT contract's storage
 	//   context.  Analogous to EVM DELEGATECALL.
 	//
@@ -3060,6 +3153,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
 			callData = common.FromHex(L.CheckString(2))
 		}
+		explicitGas, hasExplicitGas := parseOptionalUint64Arg(L, 3, "gas")
 
 		// Compute remaining gas for the implementation.
 		parentUsedNow := L.GasUsed()
@@ -3069,7 +3163,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
+		childGasLimit := childFrameGasLimit(available, explicitGas, hasExplicitGas)
 
 		// Fetch the implementation code; no-code address is a no-op (success).
 		implCode := stateDB.GetCode(implAddr)
@@ -4348,7 +4442,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Package calls ─────────────────────────────────────────────────────────
 
-	// tos.package_call(addr, contractName, calldata) → bool, retdata
+	// tos.package_call(addr, contractName, calldata [, gas]) → bool, retdata
 	//
 	// Low-level dispatch to a named contract within a .tor package at addr.
 	// Automatically prepends the 4-byte dispatch tag (keccak256("pkg:"+contractName)[:4])
@@ -4382,6 +4476,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
 			callData = common.FromHex(L.CheckString(3))
 		}
+		explicitGas, hasExplicitGas := parseOptionalUint64Arg(L, 4, "gas")
 
 		// Prepend dispatch tag: keccak256("pkg:"+contractName)[:4]
 		tag := crypto.Keccak256([]byte("pkg:" + contractName))[:4]
@@ -4394,7 +4489,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 		available := gasLimit - totalUsed
-		childGasLimit := available - available/64 // keep 1/64 gas in parent frame
+		childGasLimit := childFrameGasLimit(available, explicitGas, hasExplicitGas)
 
 		calleeCode := stateDB.GetCode(calleeAddr)
 		if len(calleeCode) == 0 {
@@ -4529,6 +4624,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if hasRevertData && isRevertSignal(err) {
 			return total, nil, capturedRevertData, fmt.Errorf("revert with data")
 		}
+		if revertData, ok := extractStructuredTolangRevertData(err); ok {
+			return total, nil, revertData, fmt.Errorf("revert with data")
+		}
 		return total, nil, nil, err
 	}
 
@@ -4547,6 +4645,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 				}
 				if hasRevertData && isRevertSignal(dispatchErr) {
 					return total, nil, capturedRevertData, fmt.Errorf("revert with data")
+				}
+				if revertData, ok := extractStructuredTolangRevertData(dispatchErr); ok {
+					return total, nil, revertData, fmt.Errorf("revert with data")
 				}
 				return total, nil, nil, dispatchErr
 			}

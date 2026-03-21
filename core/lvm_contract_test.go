@@ -2696,6 +2696,116 @@ func TestLvmContractStaticCall(t *testing.T) {
 	})
 }
 
+func TestLvmContractExplicitGasCaps(t *testing.T) {
+	const addrA = "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	const addrB = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
+	t.Run("call_cap_controls_child_execution", func(t *testing.T) {
+		codeB := `
+			local acc = 0
+			for i = 1, 2000 do
+				acc = acc + i
+			end
+			if msg.data == "0x01" then
+				tos.sstore("low", acc)
+			elseif msg.data == "0x02" then
+				tos.sstore("high", acc)
+			end
+			tos.result("uint256", acc)
+		`
+		codeA := fmt.Sprintf(`
+			local ok1, _ = tos.call(%q, 0, "0x01", 100)
+			if ok1 then tos.revert("expected low-gas call failure") end
+			local ok2, _ = tos.call(%q, 0, "0x02", 500000)
+			if not ok2 then tos.revert("expected high-gas call success") end
+		`, addrB, addrB)
+		bc, _, contractAddrB, cleanup := lvmTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+
+		state, _ := bc.State()
+		if low := state.GetState(contractAddrB, lvm.StorageSlot("low")); low != (common.Hash{}) {
+			t.Fatalf("B.low: want zero after low-gas failure, got %x", low)
+		}
+		highSlot := state.GetState(contractAddrB, lvm.StorageSlot("high"))
+		if high := new(big.Int).SetBytes(highSlot[:]); high.Sign() == 0 {
+			t.Fatalf("B.high: want non-zero after high-gas success")
+		}
+	})
+
+	t.Run("staticcall_cap_controls_child_execution", func(t *testing.T) {
+		codeB := `
+			local acc = 0
+			for i = 1, 2000 do
+				acc = acc + i
+			end
+			tos.result("uint256", acc)
+		`
+		codeA := fmt.Sprintf(`
+			local ok1, _ = tos.staticcall(%q, "0x01", 100)
+			local ok2, data2 = tos.staticcall(%q, "0x02", 500000)
+			tos.sstore("low_ok", ok1 and 1 or 0)
+			tos.sstore("high_ok", ok2 and 1 or 0)
+			if ok2 and data2 ~= nil then
+				tos.sstore("value", tos.abi.decode(data2, "uint256"))
+			end
+		`, addrB, addrB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+
+		state, _ := bc.State()
+		lowOKSlot := state.GetState(contractAddr, lvm.StorageSlot("low_ok"))
+		if got := new(big.Int).SetBytes(lowOKSlot[:]).Uint64(); got != 0 {
+			t.Fatalf("A.low_ok: want 0, got %d", got)
+		}
+		highOKSlot := state.GetState(contractAddr, lvm.StorageSlot("high_ok"))
+		if got := new(big.Int).SetBytes(highOKSlot[:]).Uint64(); got != 1 {
+			t.Fatalf("A.high_ok: want 1, got %d", got)
+		}
+		valueSlot := state.GetState(contractAddr, lvm.StorageSlot("value"))
+		if got := new(big.Int).SetBytes(valueSlot[:]); got.Sign() == 0 {
+			t.Fatalf("A.value: want non-zero decoded result")
+		}
+	})
+
+	t.Run("delegatecall_cap_controls_child_execution", func(t *testing.T) {
+		codeB := `
+			local acc = 0
+			for i = 1, 2000 do
+				acc = acc + i
+			end
+			if msg.data == "0x01" then
+				tos.sstore("low", acc)
+			elseif msg.data == "0x02" then
+				tos.sstore("high", acc)
+			end
+			tos.result("uint256", acc)
+		`
+		codeA := fmt.Sprintf(`
+			local ok1, _ = tos.delegatecall(%q, "0x01", 100)
+			if ok1 then tos.revert("expected low-gas delegatecall failure") end
+			local ok2, _ = tos.delegatecall(%q, "0x02", 500000)
+			if not ok2 then tos.revert("expected high-gas delegatecall success") end
+		`, addrB, addrB)
+		bc, contractAddr, _, cleanup := lvmTestSetup2(t, codeA, codeB)
+		defer cleanup()
+
+		runLvmTx(t, bc, common.HexToAddress(addrA), big.NewInt(0))
+
+		state, _ := bc.State()
+		if low := state.GetState(contractAddr, lvm.StorageSlot("low")); low != (common.Hash{}) {
+			t.Fatalf("A.low: want zero after low-gas delegatecall failure, got %x", low)
+		}
+		highSlot := state.GetState(contractAddr, lvm.StorageSlot("high"))
+		if high := new(big.Int).SetBytes(highSlot[:]); high.Sign() == 0 {
+			t.Fatalf("A.high: want non-zero after high-gas delegatecall success")
+		}
+	})
+}
+
 // TestLvmContractEmitIndexed verifies Phase 3B indexed event topics.
 //
 // EVM log specification for indexed parameters:
