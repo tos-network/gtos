@@ -3030,6 +3030,209 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 2
 	}))
 
+	// tos.atomic_multicall(calls) → bool, table|string
+	//
+	// Atomic batch inter-contract call. Takes a Lua array-table of call
+	// descriptors, each with fields { addr, data, value?, gas? }, and
+	// executes them sequentially inside a single outer snapshot.
+	//
+	//   • If ALL calls succeed → snapshot committed, returns (true, resultsTable)
+	//     where resultsTable[i] is the hex return data of call i (or nil).
+	//   • If ANY call fails → outer snapshot reverted (all-or-nothing),
+	//     returns (false, revertDataHex|nil).
+	//   • Empty table → (true, {}).
+	//   • Readonly guard: raises error if ctx.Readonly.
+	//   • Depth check: raises error if ctx.Depth >= maxCallDepth.
+	//
+	// Gas accounting is identical to tos.call: each child's gas usage is
+	// deducted from the caller's remaining budget.
+	//
+	// Example:
+	//   local ok, results = tos.atomic_multicall({
+	//     { addr = "0x...", data = "0x...", value = 0, gas = 100000 },
+	//     { addr = "0x...", data = "0x..." },
+	//   })
+	L.SetField(tosTable, "atomic_multicall", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.atomic_multicall: not allowed in readonly context")
+			return 0
+		}
+		if ctx.Depth >= maxCallDepth {
+			L.RaiseError("tos.atomic_multicall: max call depth (%d) exceeded", maxCallDepth)
+			return 0
+		}
+
+		callsTbl := L.CheckTable(1)
+		n := callsTbl.Len()
+
+		// Empty table: immediate success.
+		if n == 0 {
+			L.Push(lua.LTrue)
+			L.Push(L.NewTable())
+			return 2
+		}
+
+		currentBlock := uint64(0)
+		if blockCtx.BlockNumber != nil {
+			currentBlock = blockCtx.BlockNumber.Uint64()
+		}
+
+		// Single outer snapshot: all-or-nothing semantics.
+		outerSnap := stateDB.Snapshot()
+
+		resultsTbl := L.NewTable()
+
+		for i := 1; i <= n; i++ {
+			entryVal := callsTbl.RawGetInt(i)
+			entry, ok := entryVal.(*lua.LTable)
+			if !ok {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.RaiseError("tos.atomic_multicall: entry %d is not a table", i)
+				return 0
+			}
+
+			// Parse addr (required).
+			addrVal := L.GetField(entry, "addr")
+			addrStr, aOk := addrVal.(lua.LString)
+			if !aOk || addrStr == "" {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.RaiseError("tos.atomic_multicall: entry %d missing 'addr'", i)
+				return 0
+			}
+			calleeAddr := common.HexToAddress(string(addrStr))
+
+			if err := lease.CheckCallable(stateDB, calleeAddr, currentBlock, chainConfig); err != nil {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.Push(lua.LFalse)
+				L.Push(lua.LNil)
+				return 2
+			}
+
+			// Parse data (optional).
+			var callData []byte
+			dataVal := L.GetField(entry, "data")
+			if dataStr, dOk := dataVal.(lua.LString); dOk && dataStr != "" {
+				callData = common.FromHex(string(dataStr))
+			}
+
+			// Parse value (optional, defaults to 0).
+			var callValue *big.Int
+			valField := L.GetField(entry, "value")
+			switch v := valField.(type) {
+			case lua.LUint256:
+				callValue, _ = new(big.Int).SetString(v.String(), 10)
+			case lua.LString:
+				if string(v) != "" {
+					callValue, _ = new(big.Int).SetString(string(v), 10)
+				}
+			}
+			if callValue == nil {
+				callValue = new(big.Int)
+			}
+
+			// Parse gas (optional).
+			var explicitGas uint64
+			var hasExplicitGas bool
+			gasField := L.GetField(entry, "gas")
+			switch g := gasField.(type) {
+			case lua.LUint256:
+				s := g.String()
+				bi, _ := new(big.Int).SetString(s, 10)
+				if bi != nil {
+					explicitGas = bi.Uint64()
+					hasExplicitGas = true
+				}
+			case lua.LString:
+				if string(g) != "" {
+					bi, _ := new(big.Int).SetString(string(g), 10)
+					if bi != nil {
+						explicitGas = bi.Uint64()
+						hasExplicitGas = true
+					}
+				}
+			}
+
+			// Compute remaining gas budget for this child.
+			parentUsedNow := L.GasUsed()
+			totalUsed := parentUsedNow + totalChildGas + primGasCharged
+			if totalUsed >= gasLimit {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.RaiseError("tos.atomic_multicall: out of gas at call %d", i)
+				return 0
+			}
+			available := gasLimit - totalUsed
+			childGas := childFrameGasLimit(available, explicitGas, hasExplicitGas)
+
+			// Guard: balance check before transfer.
+			if callValue.Sign() > 0 && !blockCtx.CanTransfer(stateDB, contractAddr, callValue) {
+				stateDB.RevertToSnapshot(outerSnap)
+				L.Push(lua.LFalse)
+				L.Push(lua.LNil)
+				return 2
+			}
+
+			// Value transfer from calling contract to callee.
+			if callValue.Sign() > 0 {
+				blockCtx.Transfer(stateDB, contractAddr, calleeAddr, callValue)
+			}
+
+			// If no code, plain transfer succeeded (no return data for this entry).
+			calleeCode := stateDB.GetCode(calleeAddr)
+			if len(calleeCode) == 0 {
+				resultsTbl.RawSetInt(i, lua.LNil)
+				continue
+			}
+
+			// Build child context.
+			childCtx := CallCtx{
+				From:     contractAddr,
+				To:       calleeAddr,
+				Value:    callValue,
+				Data:     callData,
+				Depth:    ctx.Depth + 1,
+				TxOrigin: ctx.TxOrigin,
+				TxPrice:  ctx.TxPrice,
+				Readonly: ctx.Readonly,
+				GoCtx:    ctx.GoCtx,
+			}
+
+			childGasUsed, childReturnData, childRevertData, childErr := Execute(stateDB, blockCtx, chainConfig, childCtx, calleeCode, childGas)
+			totalChildGas += childGasUsed
+
+			// Update parent gas limit (same accounting as tos.call).
+			newTotalUsed := parentUsedNow + totalChildGas + primGasCharged
+			if newTotalUsed < gasLimit {
+				L.SetGasLimit(parentUsedNow + (gasLimit - newTotalUsed))
+			} else {
+				L.SetGasLimit(parentUsedNow)
+			}
+
+			if childErr != nil {
+				// Any child failure → revert ALL changes (outer snapshot).
+				stateDB.RevertToSnapshot(outerSnap)
+				L.Push(lua.LFalse)
+				if len(childRevertData) > 0 {
+					L.Push(lua.LString("0x" + common.Bytes2Hex(childRevertData)))
+				} else {
+					L.Push(lua.LNil)
+				}
+				return 2
+			}
+
+			// Accumulate success result.
+			if len(childReturnData) > 0 {
+				resultsTbl.RawSetInt(i, lua.LString("0x"+common.Bytes2Hex(childReturnData)))
+			} else {
+				resultsTbl.RawSetInt(i, lua.LNil)
+			}
+		}
+
+		// All calls succeeded; outer snapshot is abandoned (committed).
+		L.Push(lua.LTrue)
+		L.Push(resultsTbl)
+		return 2
+	}))
+
 	// tos.staticcall(addr [, calldata [, gas]]) → bool, string|nil
 	//
 	// Read-only inter-contract call (EVM STATICCALL equivalent).
