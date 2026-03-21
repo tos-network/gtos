@@ -1614,6 +1614,47 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 1
 	}))
 
+	// tos.hasdelegation(caller, operator, scope) → bool
+	//   Checks if caller has delegated scope to operator.
+	//   STUB: returns true pending protocol registry implementation.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "hasdelegation", L.NewFunction(func(L *lua.LState) int {
+		_ = L.CheckString(1) // caller
+		_ = L.CheckString(2) // operator
+		_ = L.CheckString(3) // scope
+		chargePrimGas(params.AgentLoadGas)
+		// STUB: returns true pending protocol registry implementation
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// tos.isverified(caller, proof_type) → bool
+	//   Checks if caller has a verified proof of proof_type on record.
+	//   STUB: returns true pending protocol registry implementation.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "isverified", L.NewFunction(func(L *lua.LState) int {
+		_ = L.CheckString(1) // caller
+		_ = L.CheckString(2) // proof_type
+		chargePrimGas(params.AgentLoadGas)
+		// STUB: returns true pending protocol registry implementation
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// tos.canpay(caller, amount, asset) → bool
+	//   Checks if caller can pay amount of asset.
+	//   STUB: returns true pending protocol registry implementation.
+	//   Gas cost: params.AgentLoadGas.
+	L.SetField(tosTable, "canpay", L.NewFunction(func(L *lua.LState) int {
+		_ = L.CheckString(1) // caller
+		_ = L.CheckString(2) // amount
+		_ = L.CheckString(3) // asset
+		chargePrimGas(params.AgentLoadGas)
+		// STUB: returns true pending protocol registry implementation
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
 	// tos.delegationused(principal, nonce) → bool
 	//   Returns true if (principal, nonce) has been consumed.
 	//   Gas cost: params.AgentLoadGas.
