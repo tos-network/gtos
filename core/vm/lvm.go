@@ -235,6 +235,7 @@ func (l *LVM) Call(caller ContractRef, addr common.Address, input []byte, gas ui
 
 	if value != nil && value.Sign() > 0 {
 		if !l.Context.CanTransfer(l.StateDB, callerAddr, value) {
+			l.StateDB.RevertToSnapshot(snapshot)
 			return nil, gas, fmt.Errorf("lvm: insufficient balance at %v", callerAddr.Hex())
 		}
 		l.Context.Transfer(l.StateDB, callerAddr, addr, value)
@@ -3129,6 +3130,12 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 2
 		}
 
+		// Defense-in-depth: always revert the snapshot for staticcall, even on
+		// success.  A well-behaved readonly callee produces zero state mutations,
+		// so the revert is a no-op.  If a callee somehow bypassed the readonly
+		// guard (e.g. via raw Lua), this ensures those writes are discarded.
+		stateDB.RevertToSnapshot(calleeSnap)
+
 		L.Push(lua.LTrue)
 		if len(childReturnData) > 0 {
 			L.Push(lua.LString("0x" + common.Bytes2Hex(childReturnData)))
@@ -3286,9 +3293,16 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			deposit = new(big.Int)
 		}
 
+		// Snapshot before ANY state mutation so that every failure path
+		// (balance check, nonce write, code install, lease activation)
+		// atomically reverts all changes.  Without this, a Lua pcall
+		// around tos.create could observe half-committed state.
+		snapshot := stateDB.Snapshot()
+
 		totalCost := new(big.Int).Set(deployValue)
 		totalCost.Add(totalCost, deposit)
 		if stateDB.GetBalance(contractAddr).Cmp(totalCost) < 0 {
+			stateDB.RevertToSnapshot(snapshot)
 			if deposit.Sign() > 0 {
 				L.RaiseError("%s: insufficient balance for lease deposit and value transfer", op)
 			} else {
@@ -3297,7 +3311,6 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return
 		}
 
-		snapshot := stateDB.Snapshot()
 		stateDB.SetNonce(contractAddr, deployerNonce+1)
 		if deposit.Sign() > 0 {
 			stateDB.SubBalance(contractAddr, deposit)
