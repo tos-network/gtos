@@ -1582,19 +1582,54 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 1
 	}))
 
-	// tos.hascapability(addr, bit) → bool
-	//   Returns true if addr holds the capability identified by bit.
+	// tos.hascapability(addr, bit_or_name) → bool
+	//   Returns true if addr holds the capability identified by bit (number)
+	//   or by name (string, registry-backed).
+	//   When a RegistryReader is available and the capability is looked up by
+	//   name, the registry record must exist and be Active; the agent must hold
+	//   the capability bit.  If no registry record exists, falls back to true
+	//   for backward compatibility.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "hascapability", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
-		bit := uint8(L.CheckInt(2))
 		chargePrimGas(params.AgentLoadGas)
 		addr := common.HexToAddress(addrHex)
-		if capability.HasCapability(stateDB, addr, bit) {
-			L.Push(lua.LTrue)
-		} else {
-			L.Push(lua.LFalse)
+
+		// Numeric bit path — original behaviour (no registry needed).
+		if L.Get(2).Type() == lua.LTUint256 {
+			bit := uint8(L.CheckInt(2))
+			if capability.HasCapability(stateDB, addr, bit) {
+				L.Push(lua.LTrue)
+			} else {
+				L.Push(lua.LFalse)
+			}
+			return 1
 		}
+
+		// String name path — registry-backed when available.
+		name := L.CheckString(2)
+		rr := blockCtx.RegistryReader
+		if rr != nil {
+			status, exists := rr.ReadCapabilityStatus(name)
+			if exists {
+				// Record found: capability must be Active and agent must hold it.
+				if status != RegistryStatusActive {
+					L.Push(lua.LFalse)
+					return 1
+				}
+				has, _ := rr.ReadAgentCapabilityBit(addr, name)
+				if has {
+					L.Push(lua.LTrue)
+				} else {
+					L.Push(lua.LFalse)
+				}
+				return 1
+			}
+			// No registry record — fall through to permissive fallback.
+		}
+
+		// TODO: remove permissive fallback once registry is populated
+		L.Push(lua.LTrue)
 		return 1
 	}))
 
@@ -1616,14 +1651,45 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// tos.hasdelegation(caller, operator, scope) → bool
 	//   Checks if caller has delegated scope to operator.
-	//   STUB: returns true pending protocol registry implementation.
+	//   When a RegistryReader is available, the delegation record must exist,
+	//   be Active, and not expired.  If no record exists, falls back to true
+	//   for backward compatibility.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "hasdelegation", L.NewFunction(func(L *lua.LState) int {
-		_ = L.CheckString(1) // caller
-		_ = L.CheckString(2) // operator
-		_ = L.CheckString(3) // scope
+		principalHex := L.CheckString(1) // caller / principal
+		delegateHex := L.CheckString(2)  // operator / delegate
+		scopeStr := L.CheckString(3)     // scope
 		chargePrimGas(params.AgentLoadGas)
-		// STUB: returns true pending protocol registry implementation
+
+		rr := blockCtx.RegistryReader
+		if rr != nil {
+			principal := common.HexToAddress(principalHex)
+			delegate := common.HexToAddress(delegateHex)
+			var scope [32]byte
+			copy(scope[:], []byte(scopeStr))
+
+			status, expiryMS, exists := rr.ReadDelegationStatus(principal, delegate, scope)
+			if exists {
+				if status != RegistryStatusActive {
+					L.Push(lua.LFalse)
+					return 1
+				}
+				// Check expiry if non-zero.  blockCtx.Time is seconds;
+				// expiryMS is milliseconds.
+				if expiryMS > 0 && blockCtx.Time != nil {
+					nowMS := blockCtx.Time.Uint64() * 1000
+					if nowMS >= expiryMS {
+						L.Push(lua.LFalse)
+						return 1
+					}
+				}
+				L.Push(lua.LTrue)
+				return 1
+			}
+			// No registry record — fall through to permissive fallback.
+		}
+
+		// TODO: remove permissive fallback once registry is populated
 		L.Push(lua.LTrue)
 		return 1
 	}))

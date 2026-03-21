@@ -70,6 +70,10 @@ var (
 	// SettlementRegistryAddress stores settlement callbacks and async
 	// fulfillment records composable with account policy and receipts.
 	SettlementRegistryAddress = common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000010F")
+
+	// PackageRegistryAddress stores on-chain package publishing registry state
+	// (publisher records, package records, hash lookups).
+	PackageRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000200")
 )
 
 // DPoS validator stake and reward parameters.

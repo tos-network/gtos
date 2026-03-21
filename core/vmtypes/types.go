@@ -57,6 +57,19 @@ type StateDB interface {
 	ForEachStorage(common.Address, func(common.Hash, common.Hash) bool) error
 }
 
+// RegistryReader provides read-only access to protocol registry records
+// for capability and delegation checks inside the LVM.  It is defined here
+// (rather than in core/vm) so that producers of BlockContext can supply an
+// implementation without importing core/vm.
+type RegistryReader interface {
+	// ReadCapabilityStatus returns the status of a named capability.
+	ReadCapabilityStatus(name string) (status uint8, exists bool)
+	// ReadAgentCapabilityBit returns whether addr holds the named capability.
+	ReadAgentCapabilityBit(addr common.Address, name string) (has bool, exists bool)
+	// ReadDelegationStatus returns delegation status, expiry (unix ms), and existence.
+	ReadDelegationStatus(principal, delegate common.Address, scope [32]byte) (status uint8, expiryMS uint64, exists bool)
+}
+
 // BlockContext provides auxiliary information for transaction processing.
 type BlockContext struct {
 	CanTransfer CanTransferFunc
@@ -70,6 +83,11 @@ type BlockContext struct {
 	Difficulty  *big.Int
 	BaseFee     *big.Int
 	Random      *common.Hash
+
+	// RegistryReader is an optional handle to the protocol registry.
+	// When non-nil, LVM host functions (tos.hascapability, tos.hasdelegation)
+	// use it for registry-backed checks instead of permissive stubs.
+	RegistryReader RegistryReader
 }
 
 // TxContext provides information about a transaction.

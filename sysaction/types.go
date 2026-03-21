@@ -87,6 +87,13 @@ const (
 	ActionPolicySuspend           ActionKind = "POLICY_SUSPEND"
 	ActionPolicyUnsuspend         ActionKind = "POLICY_UNSUSPEND"
 	ActionPolicySetAuditorKey     ActionKind = "POLICY_SET_AUDITOR_KEY"
+
+	// Protocol registry lifecycle.
+	ActionRegistryRegisterCap      ActionKind = "REGISTRY_REGISTER_CAP"
+	ActionRegistryDeprecateCap     ActionKind = "REGISTRY_DEPRECATE_CAP"
+	ActionRegistryRevokeCap        ActionKind = "REGISTRY_REVOKE_CAP"
+	ActionRegistryGrantDelegation  ActionKind = "REGISTRY_GRANT_DELEGATION"
+	ActionRegistryRevokeDelegation ActionKind = "REGISTRY_REVOKE_DELEGATION"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.
