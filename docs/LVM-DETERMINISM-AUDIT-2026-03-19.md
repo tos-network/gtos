@@ -47,7 +47,7 @@ in the LVM execution path. All numeric operations use `big.Int`
 ### 2. Random/Time — ELIMINATED
 
 Zero uses of `math/rand`, `crypto/rand`, `time.Now()`, or system calls in
-execution paths. Nondeterministic Lua stdlib modules explicitly not loaded:
+execution paths. Nondeterministic Lua openlib modules explicitly not loaded:
 - `io` (file I/O) — NOT LOADED
 - `os` (system calls) — NOT LOADED
 - `debug` (abstraction-breaking) — REMOVED
@@ -159,12 +159,12 @@ cases.
 |------|-------|---------|
 | `core/vm/lvm.go` | ~4590 | Core VM execution, all host primitives |
 | `core/vm/lvm_abi.go` | ~593 | ABI encoding/decoding |
-| `core/vm/lvm_stdlib.go` | ~680 | Pre-compiled stdlib modules |
+| `core/vm/lvm_openlib.go` | ~680 | Pre-compiled openlib modules |
 | `core/vm/lvm_crypto.go` | ~1200 | Cryptographic operations (keccak, ristretto, elgamal) |
 | `tolang/vm.go` | — | Opcode dispatch, per-opcode gas metering |
 | `tolang/table.go` | — | LTable with insertion-order ForEach() |
 | `tolang/bytecode.go` | — | Platform-independent bytecode format |
-| `tolang/linit.go` | — | Stdlib module loading (io/os/debug/coroutine removed) |
+| `tolang/linit.go` | — | Openlib module loading (io/os/debug/coroutine removed) |
 
 ---
 

@@ -125,6 +125,6 @@ The following non-standard RPCs have been removed:
 | `internal/tosapi/api.go` | Removed `SetCode`, `EstimateSetCodeGas`, `RPCSetCodeArgs`, `GetCodeMeta`, `RPCCodeMetaResult` |
 | `internal/tosapi/api_putcode_test.go` | Deleted |
 
-**Not modified:** `core/lua_contract.go`, `core/lua_abi.go`, `core/lua_stdlib.go`,
+**Not modified:** `core/lua_contract.go`, `core/lua_abi.go`, `core/lua_openlib.go`,
 `core/lua_contract_test.go`, `core/parallel/`, `core/state_processor.go`,
 `core/types/receipt.go`.

@@ -1,6 +1,6 @@
 # LVM Native Economic Primitives
 
-**Status: V1.2 PARTIALLY IMPLEMENTED (2026-03-22)**
+**Status: V1.3 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
@@ -11,6 +11,10 @@ Implemented in code today:
 - native `tos.escrow(...)`, `tos.release(...)`, `tos.slash(...)`, and
   `tos.escrowbalanceof(...)` with rollback coverage for top-level revert and
   nested-call failure
+- explicit UNO runtime contract:
+  `tos.uno_value`, `tos.uno_balance(...)`, `tos.uno_transfer(...)`, with
+  fail-closed address validation and rollback coverage for top-level revert and
+  nested-call failure
 - stable runtime inspection primitives: `tos.agentinfo(...)`,
   `tos.packageinfo(...)`, `tos.packagelatest(...)`, `tos.publisherinfo(...)`
 - package / contract inspection over deployed TOL code and package metadata
@@ -20,7 +24,6 @@ Implemented in code today:
 Still open for later waves:
 
 - deeper `escrow/release` standardization
-- fuller UNO rails normalization
 - richer runtime-native settlement / receipt hooks
 
 ## Purpose
@@ -38,7 +41,7 @@ This document turns those ad hoc host surfaces into an implementation plan.
 
 ## Problem Statement
 
-Today, meaningful stdlib execution depends on runtime conventions such as:
+Today, meaningful openlib execution depends on runtime conventions such as:
 
 - `tos.package_call`
 - `agentload`
@@ -47,8 +50,8 @@ Today, meaningful stdlib execution depends on runtime conventions such as:
 - `uno.balance(...)`
 - `uno.transfer(...)`
 
-These are already usable, but they are not yet a fully normalized protocol/VM
-surface.
+These are already usable, and the core runtime contract is now explicit in LVM,
+but later waves can still strengthen receipt/settlement joins and governance.
 
 That creates four risks:
 
@@ -157,7 +160,7 @@ Required GTOS work:
 
 Current problem:
 
-- many stdlib contracts use `escrow` / `release`, but the semantics are still
+- many openlib contracts use `escrow` / `release`, but the semantics are still
   relatively implicit
 
 Required semantics:
@@ -298,7 +301,7 @@ Required mitigations:
 
 Why first:
 
-- most central to packageized stdlib execution
+- most central to packageized openlib execution
 
 Deliverables:
 
@@ -336,8 +339,14 @@ Why third:
 
 Deliverables:
 
-- documented transfer/balance contract
-- receipt/disclosure integration expectations
+- ~~documented transfer/balance contract~~ — **DONE**: GTOS now exposes
+  `tos.uno_balance(...)` and `tos.uno_transfer(...)` as the explicit runtime
+  contract for UNO rails while preserving `tos.ciphertext.balance/transfer`
+  compatibility; both surfaces fail closed on malformed addresses
+- ~~receipt/disclosure integration expectations~~ — **DONE**: the runtime
+  contract is now documented alongside `tos.uno_value`, encrypted-balance
+  versioning, rollback semantics, and the GTOS selective-disclosure layers;
+  tests cover top-level revert and nested-call failure for UNO transfers
 
 ### Phase 4: native inspection expansion
 

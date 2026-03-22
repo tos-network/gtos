@@ -1386,12 +1386,17 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 
 	// 23. balance(addr) → ciphertext hex | nil
 	//   Reads the on-chain encrypted balance (commitment || handle) of any account.
-	//   Returns a 128-char hex ciphertext, or nil if the account has no encrypted balance.
-	//   Desugared from TOL: uno.balance(addr) → tos.ciphertext.balance(addr)
-	L.SetField(ctTable, "balance", L.NewFunction(func(L *lua.LState) int {
+	//   Returns encrypted zero when the account has no private balance so the
+	//   returned value remains type-closed for contract arithmetic.
+	//   Desugared from TOL: uno.balance(addr) → tos.uno_balance(addr)
+	balanceFn := L.NewFunction(func(L *lua.LState) int {
 		chargePrimGas(gasCtBalance)
 		addrHex := L.CheckString(1)
-		addr := common.HexToAddress(addrHex)
+		addr, err := parseStrictHexAddress(addrHex)
+		if err != nil {
+			L.RaiseError("ciphertext.balance: %v", err)
+			return 0
+		}
 		commitment := stateDB.GetState(addr, privCommitmentSlot)
 		handle := stateDB.GetState(addr, privHandleSlot)
 		if commitment == (common.Hash{}) && handle == (common.Hash{}) {
@@ -1405,14 +1410,15 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		copy(ct[32:], handle[:])
 		L.Push(lua.LString(ciphertextToHex(ct)))
 		return 1
-	}))
+	})
+	L.SetField(ctTable, "balance", balanceFn)
 
 	// 24. transfer(toAddr, ciphertextHex)
 	//   Adds a ciphertext to the recipient's native encrypted balance via
 	//   homomorphic addition and increments the recipient's encrypted-balance
 	//   version.  This is the encrypted-balance analogue of tos.transfer().
-	//   Desugared from TOL: uno.transfer(to, ct) → tos.ciphertext.transfer(to, ct)
-	L.SetField(ctTable, "transfer", L.NewFunction(func(L *lua.LState) int {
+	//   Desugared from TOL: uno.transfer(to, ct) → tos.uno_transfer(to, ct)
+	transferFn := L.NewFunction(func(L *lua.LState) int {
 		if readonly {
 			L.RaiseError("ciphertext.transfer: state modification not allowed in staticcall")
 			return 0
@@ -1420,7 +1426,11 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		chargePrimGas(gasCtTransfer)
 		addrHex := L.CheckString(1)
 		ctHex := L.CheckString(2)
-		to := common.HexToAddress(addrHex)
+		to, err := parseStrictHexAddress(addrHex)
+		if err != nil {
+			L.RaiseError("ciphertext.transfer: %v", err)
+			return 0
+		}
 		deposit, err := parseCiphertextHex(ctHex)
 		if err != nil {
 			L.RaiseError("ciphertext.transfer: %v", err)
@@ -1464,8 +1474,11 @@ func registerCiphertextTable(L *lua.LState, tosTable *lua.LTable,
 		stateDB.SetState(to, privVersionSlot, newVersionWord)
 
 		return 0
-	}))
+	})
+	L.SetField(ctTable, "transfer", transferFn)
 
 	// ── Register on tos table ────────────────────────────────────────────────
 	L.SetField(tosTable, "ciphertext", ctTable)
+	L.SetField(tosTable, "uno_balance", balanceFn)
+	L.SetField(tosTable, "uno_transfer", transferFn)
 }

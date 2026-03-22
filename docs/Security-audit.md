@@ -668,7 +668,7 @@ A malicious callee can re-enter the caller before the caller updates its own sta
 
 No single protocol-level fix is appropriate because it would break legitimate re-entrancy patterns. The correct approach is defense-in-depth via documentation and standard library primitives.
 
-**Add a `reentrancy_guard` built-in module** to `core/lvm/stdlib.go`:
+**Add a `reentrancy_guard` built-in module** to `core/lvm/openlib.go`:
 
 ```lua
 -- reentrancy_guard standard library (pseudo-code)
@@ -826,7 +826,7 @@ Consequences:
 | SEC-2 | `core/lvm/lvm.go`, `tolang/stringlib.go` | Per-byte `chargePrimGas` on keccak256/sha256/ripemd160/bytes.fromhex/tohex/slice; `string.rep` output cap (1 MiB, int64 arithmetic); `string.gsub` output cap |
 | SEC-3 | `tolang/tol_package.go` | `io.LimitReader` per entry (4 MiB) + total size limit (16 MiB) in `DecodePackage` |
 | SEC-4 | `core/parallel/executor.go` | Pre-level gas-sum check before goroutine launch; returns `ErrGasLimitReached` without executing if sum exceeds pool |
-| SEC-5 | `core/lvm/stdlib.go` | Added `reentrancy_guard` built-in module with `nonReentrant/exit/entered` named-guard helpers |
+| SEC-5 | `core/lvm/openlib.go` | Added `reentrancy_guard` built-in module with `nonReentrant/exit/entered` named-guard helpers |
 | SEC-6 | `core/lvm/lvm.go` | Replaced string sentinels with unexported LUserData typed sentinels; `isResultSignal`/`isRevertSignal` use `errors.As` + pointer comparison |
 | SEC-7 | `core/lvm/lvm.go` | Added warning docstring to `tos.keccak256`; added `tos.keccak256hex` convenience wrapper |
 | SEC-8 | `core/lvm/lvm.go` | `buildRuntimePackage` removed; `SetCode(contractAddr, pkgBytes)` stores full original package |
@@ -840,7 +840,7 @@ Consequences:
 2. EVM → LVM replacement (`core/lvm/lvm.go`)
 3. `.tor` package smart contracts with package-based call routing
 
-**Reviewed files:** `core/state_transition.go`, `core/parallel/executor.go`, `core/parallel/writebuf.go`, `core/parallel/dag.go`, `core/parallel/analyze.go`, `core/lvm/lvm.go` (full), `core/lvm/stdlib.go`.
+**Reviewed files:** `core/state_transition.go`, `core/parallel/executor.go`, `core/parallel/writebuf.go`, `core/parallel/dag.go`, `core/parallel/analyze.go`, `core/lvm/lvm.go` (full), `core/lvm/openlib.go`.
 
 ---
 

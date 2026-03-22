@@ -1,9 +1,9 @@
 # Native Scheduled Tasks
 
-## TOL Stdlib Status
+## TOL Openlib Status
 
-**Contract layer: COMPLETE (2026-03-21).** The TOL stdlib now includes
-`stdlib/settlement/RecurringPayment.tol` — a coordinator-triggered
+**Contract layer: COMPLETE (2026-03-21).** The TOL openlib now includes
+`openlib/settlement/RecurringPayment.tol` — a coordinator-triggered
 subscription/periodic payment contract with subscribe, executePayment,
 pause, resume, and cancel lifecycle.  This contract uses the existing
 `escrow`/`release` host primitives and does NOT yet depend on the native

@@ -55,7 +55,7 @@ Today, several agent-native concepts are only partially grounded:
   authority model
 - verification semantics may be described in metadata without a protocol-side
   verifier registry
-- payment/settlement constraints may exist in stdlib contracts without a
+- payment/settlement constraints may exist in openlib contracts without a
   network-wide policy surface
 - agent identity may still depend on local conventions rather than a stable
   stateful registry

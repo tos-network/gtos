@@ -8,6 +8,7 @@ package vm
 // intact through call boundaries.
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 )
 
 func testEscrowSlot(contractAddr, agentAddr common.Address, purpose uint8) common.Hash {
@@ -201,6 +203,106 @@ func TestNestedCallReleaseRollback(t *testing.T) {
 	}
 	if bal := st.GetBalance(beneficiary); bal.Sign() != 0 {
 		t.Fatalf("beneficiary balance after nested release rollback: want 0, got %s", bal.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 3c: UNO transfer rollback on top-level failure
+//
+// A contract performs a native UNO transfer and then reverts. The recipient's
+// encrypted balance slots and version must roll back to their pre-call state.
+// ---------------------------------------------------------------------------
+func TestUnoTransferRollbackOnTopLevelFailure(t *testing.T) {
+	pub, _ := testKeypair(t)
+	contractAddr := common.Address{0xE6}
+	recipientAddr := common.Address{0xE7}
+	callerAddr := common.Address{0xE8}
+	st := newAgentTestState()
+	st.CreateAccount(contractAddr)
+	st.CreateAccount(recipientAddr)
+	st.CreateAccount(callerAddr)
+
+	deposit, err := cryptopriv.Encrypt(pub[:], 55)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	code := fmt.Sprintf(`
+		tos.uno_transfer(%q, %q)
+		error("revert after uno transfer")
+	`, recipientAddr.Hex(), depositHex)
+	st.SetCode(contractAddr, []byte(code))
+
+	lvm := NewLVM(newBlockCtx(), TxContext{
+		Origin:   callerAddr,
+		GasPrice: big.NewInt(1),
+	}, st, testChainConfig)
+	_, _, err = lvm.Call(ContractAccount(callerAddr), contractAddr, nil, 5_000_000, big.NewInt(0))
+	if err == nil {
+		t.Fatal("expected reverted top-level call")
+	}
+
+	if got := st.GetState(recipientAddr, privCommitmentSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient commitment after rollback: want zero, got %x", got[:])
+	}
+	if got := st.GetState(recipientAddr, privHandleSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient handle after rollback: want zero, got %x", got[:])
+	}
+	if got := st.GetState(recipientAddr, privVersionSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient version after rollback: want zero, got %x", got[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 3d: UNO transfer rollback on nested failure
+//
+// A parent calls a child that performs a native UNO transfer and then reverts.
+// The recipient's encrypted balance and version must remain unchanged.
+// ---------------------------------------------------------------------------
+func TestNestedCallUnoTransferRollback(t *testing.T) {
+	pub, _ := testKeypair(t)
+	childAddr := common.Address{0xE9}
+	parentAddr := common.Address{0xEA}
+	recipientAddr := common.Address{0xEB}
+	st := newAgentTestState()
+	st.CreateAccount(childAddr)
+	st.CreateAccount(parentAddr)
+	st.CreateAccount(recipientAddr)
+
+	deposit, err := cryptopriv.Encrypt(pub[:], 33)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	st.SetCode(childAddr, []byte(fmt.Sprintf(`
+		tos.uno_transfer(%q, %q)
+		error("revert after uno transfer")
+	`, recipientAddr.Hex(), depositHex)))
+
+	parentCode := fmt.Sprintf(`
+		local ok, _ = tos.call(%q, 0)
+		tos.sstore("call_ok", ok and 1 or 0)
+	`, childAddr.Hex())
+
+	_, _, _, err = runLua(st, parentAddr, parentCode, 5_000_000)
+	if err != nil {
+		t.Fatalf("parent execution failed: %v", err)
+	}
+
+	okSlot := st.GetState(parentAddr, StorageSlot("call_ok"))
+	if got := new(big.Int).SetBytes(okSlot[:]).Uint64(); got != 0 {
+		t.Fatalf("call_ok: want 0 (child reverted), got %d", got)
+	}
+	if got := st.GetState(recipientAddr, privCommitmentSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient commitment after nested rollback: want zero, got %x", got[:])
+	}
+	if got := st.GetState(recipientAddr, privHandleSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient handle after nested rollback: want zero, got %x", got[:])
+	}
+	if got := st.GetState(recipientAddr, privVersionSlot); got != (common.Hash{}) {
+		t.Fatalf("recipient version after nested rollback: want zero, got %x", got[:])
 	}
 }
 

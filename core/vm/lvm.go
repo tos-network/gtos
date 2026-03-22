@@ -632,7 +632,7 @@ func parseOptionalUint64Arg(L *lua.LState, n int, label string) (uint64, bool) {
 
 func parseStrictHexAddress(input string) (common.Address, error) {
 	if !common.IsHexAddress(input) {
-		return common.Address{}, fmt.Errorf("expected 20-byte hex address")
+		return common.Address{}, fmt.Errorf("expected canonical hex address")
 	}
 	return common.HexToAddress(input), nil
 }

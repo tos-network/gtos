@@ -163,7 +163,7 @@ Gas accounting is identical to `tos.call`:
 | `TestMulticallEmptyTable` | Empty input → (true, {}) | PASS |
 | `TestMulticallRevertDataPropagation` | Typed revert data propagated | PASS |
 
-### Tolang tests (`stdlib_composed_runtime_test.go`)
+### Tolang tests (`openlib_composed_runtime_test.go`)
 
 | Test | Scenario | Status |
 |------|----------|--------|
@@ -177,7 +177,7 @@ Gas accounting is identical to `tos.call`:
 |------|--------|
 | `core/vm/lvm.go` | `tos.multicall` host function (~200 lines) |
 | `core/vm/lvm_rollback_test.go` | 7 test cases |
-| `tolang/stdlib_composed_runtime_test.go` | `invokeMulticall` helper + 1 test |
+| `tolang/openlib_composed_runtime_test.go` | `invokeMulticall` helper + 1 test |
 
 ---
 

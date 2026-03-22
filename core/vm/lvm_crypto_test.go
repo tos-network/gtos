@@ -1354,6 +1354,37 @@ tos.sstore("ok", 1)
 	}
 }
 
+func TestUnoBalanceAliasReadWrite(t *testing.T) {
+	pub, _ := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDC}
+	targetAddr := common.Address{0xDD}
+
+	ct, err := cryptopriv.Encrypt(pub[:], 42)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	st.SetState(targetAddr, privCommitmentSlot, common.BytesToHash(ct[:32]))
+	st.SetState(targetAddr, privHandleSlot, common.BytesToHash(ct[32:]))
+
+	expectedHex := "0x" + hex.EncodeToString(ct)
+	src := `
+local bal = tos.uno_balance("` + targetAddr.Hex() + `")
+if bal ~= "` + expectedHex + `" then
+  error("uno_balance mismatch: got " .. tostring(bal))
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err = runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("uno_balance(read): %v", err)
+	}
+	raw := st.GetState(contractAddr, StorageSlot("ok"))
+	if raw.Big().Int64() != 1 {
+		t.Error("expected ok=1")
+	}
+}
+
 func TestCtTransferToEmpty(t *testing.T) {
 	pub, priv := testKeypair(t)
 	st := newAgentTestState()
@@ -1481,6 +1512,39 @@ func TestCtTransferReadonlyRejected(t *testing.T) {
 	_, _, _, err = Execute(st, newBlockCtx(), testChainConfig, ctx, []byte(src), 1_000_000)
 	if err == nil {
 		t.Fatal("expected error for transfer in readonly mode")
+	}
+}
+
+func TestUnoBalanceMalformedAddrRejected(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDE}
+
+	_, _, _, err := runLua(st, contractAddr, `tos.uno_balance("0x1234")`, 1_000_000)
+	if err == nil {
+		t.Fatal("expected malformed address rejection")
+	}
+	if !strings.Contains(err.Error(), "canonical hex address") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUnoTransferMalformedAddrRejected(t *testing.T) {
+	pub, _ := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDF}
+
+	deposit, err := cryptopriv.Encrypt(pub[:], 10)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+
+	_, _, _, err = runLua(st, contractAddr, `tos.uno_transfer("0x1234", "`+depositHex+`")`, 1_000_000)
+	if err == nil {
+		t.Fatal("expected malformed address rejection")
+	}
+	if !strings.Contains(err.Error(), "canonical hex address") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -251,14 +251,14 @@ The audit specifically checks for:
 ### VM / LVM
 - `core/vm/lvm.go` — Core LVM execution (~4590 lines)
 - `core/vm/lvm_abi.go` — ABI encoding/decoding
-- `core/vm/lvm_stdlib.go` — Pre-compiled stdlib
+- `core/vm/lvm_openlib.go` — Pre-compiled openlib
 - `core/vm/lvm_crypto.go` — Cryptographic operations
 - `core/vm/contracts.go` — Precompiled contracts
 - `core/vm/interpreter.go` — Interpreter routing
 - `tolang/vm.go` — Opcode dispatch, per-opcode gas
 - `tolang/table.go` — Insertion-order LTable
 - `tolang/bytecode.go` — Platform-independent bytecode format
-- `tolang/linit.go` — Stdlib module loading
+- `tolang/linit.go` — Openlib module loading
 
 ### Trie
 - `trie/nodeset.go` — Merged node set (order-independent)
