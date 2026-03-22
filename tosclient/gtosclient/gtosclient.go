@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"runtime"
 	"runtime/debug"
+	"sort"
+	"strings"
 
 	"github.com/tos-network/gtos"
 	"github.com/tos-network/gtos/agentdiscovery"
@@ -42,6 +44,52 @@ type AgentRuntimeSurface struct {
 	Publisher      *tosclient.PublisherInfo
 	Artifact       *tosclient.TOLArtifactInfo
 	Package        *tosclient.TOLPackageInfo
+}
+
+// DiscoveredAgentSurface joins a published discovery card with the normalized
+// deployed runtime metadata for the advertised agent address when available.
+type DiscoveredAgentSurface struct {
+	NodeRecord string
+	Card       *agentdiscovery.CardResponse
+	Runtime    *AgentRuntimeSurface
+}
+
+// SearchResultSurface joins one discovery search result with the published card
+// and normalized runtime metadata for that result when available.
+type SearchResultSurface struct {
+	Result  agentdiscovery.SearchResult
+	Surface *DiscoveredAgentSurface
+}
+
+// TrustedSearchResultSurface is a filtered/ranked search result that satisfied
+// the basic trust gate and carries the rank score used for ordering.
+type TrustedSearchResultSurface struct {
+	SearchResultSurface
+	TrustScore int64
+}
+
+// ProviderSelectionDiagnostics explains how one discovery/runtime surface moved
+// through trust gating and higher-level preference filtering.
+type ProviderSelectionDiagnostics struct {
+	SearchResultSurface
+	TrustScore         int64
+	Trusted            bool
+	Preferred          bool
+	TrustFailures      []string
+	PreferenceFailures []string
+}
+
+// ProviderSelectionPreferences describes higher-level client-side filtering
+// preferences on top of trusted/ranked provider surfaces.
+type ProviderSelectionPreferences struct {
+	RequiredConnectionModes uint8
+	PackagePrefix           string
+	ServiceKind             string
+	CapabilityKind          string
+	PrivacyMode             string
+	ReceiptMode             string
+	RequireDisclosureReady  bool
+	MinTrustScore           int64
 }
 
 // New creates a client that uses the given RPC client.
@@ -99,6 +147,314 @@ func (ec *Client) GetAgentRuntimeSurface(ctx context.Context, address common.Add
 		}
 	}
 	return out, nil
+}
+
+// GetDiscoveredAgentSurface fetches a published discovery card by node record
+// and, when the structured card advertises a canonical agent address, joins it
+// with the deployed runtime surface for that address.
+func (ec *Client) GetDiscoveredAgentSurface(ctx context.Context, nodeRecord string, blockNumber *big.Int) (*DiscoveredAgentSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	card, err := metaClient.AgentDiscoveryGetCard(ctx, nodeRecord)
+	if err != nil {
+		return nil, err
+	}
+	out := &DiscoveredAgentSurface{
+		NodeRecord: nodeRecord,
+		Card:       card,
+	}
+	if card == nil || card.ParsedCard == nil {
+		return out, nil
+	}
+	rawAddr := strings.TrimSpace(card.ParsedCard.AgentAddress)
+	if rawAddr == "" || !common.IsHexAddress(rawAddr) {
+		return out, nil
+	}
+	runtimeSurface, err := ec.GetAgentRuntimeSurface(ctx, common.HexToAddress(rawAddr), blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	out.Runtime = runtimeSurface
+	return out, nil
+}
+
+// SearchDiscoveredAgentSurfaces runs discovery search for a capability and
+// joins each search result with its published card and runtime metadata.
+func (ec *Client) SearchDiscoveredAgentSurfaces(ctx context.Context, capability string, limit *int, blockNumber *big.Int) ([]SearchResultSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	results, err := metaClient.AgentDiscoverySearch(ctx, capability, limit)
+	if err != nil {
+		return nil, err
+	}
+	return ec.joinSearchResults(ctx, results, blockNumber)
+}
+
+// DirectorySearchDiscoveredAgentSurfaces runs directory search for a capability
+// and joins each search result with its published card and runtime metadata.
+func (ec *Client) DirectorySearchDiscoveredAgentSurfaces(ctx context.Context, nodeRecord string, capability string, limit *int, blockNumber *big.Int) ([]SearchResultSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	results, err := metaClient.AgentDiscoveryDirectorySearch(ctx, nodeRecord, capability, limit)
+	if err != nil {
+		return nil, err
+	}
+	return ec.joinSearchResults(ctx, results, blockNumber)
+}
+
+func (ec *Client) joinSearchResults(ctx context.Context, results []agentdiscovery.SearchResult, blockNumber *big.Int) ([]SearchResultSurface, error) {
+	out := make([]SearchResultSurface, 0, len(results))
+	for _, result := range results {
+		entry := SearchResultSurface{Result: result}
+		if strings.TrimSpace(result.NodeRecord) != "" {
+			surface, err := ec.GetDiscoveredAgentSurface(ctx, result.NodeRecord, blockNumber)
+			if err != nil {
+				return nil, err
+			}
+			entry.Surface = surface
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// SearchTrustedAgentSurfaces searches providers for a capability, joins them
+// with discovery/runtime metadata, filters out entries that fail the trust
+// gate, and sorts the remaining surfaces by descending local rank score.
+func (ec *Client) SearchTrustedAgentSurfaces(ctx context.Context, capability string, limit *int, blockNumber *big.Int) ([]TrustedSearchResultSurface, error) {
+	joined, err := ec.SearchDiscoveredAgentSurfaces(ctx, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return RankTrustedAgentSurfaces(joined), nil
+}
+
+// DirectorySearchTrustedAgentSurfaces performs the same trust gate and ranking
+// on top of directory search results.
+func (ec *Client) DirectorySearchTrustedAgentSurfaces(ctx context.Context, nodeRecord string, capability string, limit *int, blockNumber *big.Int) ([]TrustedSearchResultSurface, error) {
+	joined, err := ec.DirectorySearchDiscoveredAgentSurfaces(ctx, nodeRecord, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return RankTrustedAgentSurfaces(joined), nil
+}
+
+// RankTrustedAgentSurfaces filters search results to the trust-minimum set and
+// sorts them by descending local rank score, using node record as a stable
+// tiebreaker.
+func RankTrustedAgentSurfaces(entries []SearchResultSurface) []TrustedSearchResultSurface {
+	out := make([]TrustedSearchResultSurface, 0, len(entries))
+	for _, entry := range entries {
+		if !isTrustedSearchSurface(entry) {
+			continue
+		}
+		score := int64(0)
+		if entry.Result.Trust != nil {
+			score = entry.Result.Trust.LocalRankScore
+		}
+		out = append(out, TrustedSearchResultSurface{
+			SearchResultSurface: entry,
+			TrustScore:          score,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].TrustScore != out[j].TrustScore {
+			return out[i].TrustScore > out[j].TrustScore
+		}
+		return out[i].Result.NodeRecord < out[j].Result.NodeRecord
+	})
+	return out
+}
+
+// FilterPreferredAgentSurfaces applies higher-level client-side preferences on
+// top of trusted/ranked provider surfaces while preserving their existing
+// ordering.
+func FilterPreferredAgentSurfaces(entries []TrustedSearchResultSurface, prefs ProviderSelectionPreferences) []TrustedSearchResultSurface {
+	out := make([]TrustedSearchResultSurface, 0, len(entries))
+	for _, entry := range entries {
+		if !matchesProviderPreferences(entry, prefs) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// SearchPreferredAgentSurfaces searches, joins, trust-filters, ranks, then
+// applies higher-level provider selection preferences.
+func (ec *Client) SearchPreferredAgentSurfaces(ctx context.Context, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) ([]TrustedSearchResultSurface, error) {
+	trusted, err := ec.SearchTrustedAgentSurfaces(ctx, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return FilterPreferredAgentSurfaces(trusted, prefs), nil
+}
+
+// DirectorySearchPreferredAgentSurfaces performs the same preference filtering
+// on top of directory search results.
+func (ec *Client) DirectorySearchPreferredAgentSurfaces(ctx context.Context, nodeRecord string, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) ([]TrustedSearchResultSurface, error) {
+	trusted, err := ec.DirectorySearchTrustedAgentSurfaces(ctx, nodeRecord, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return FilterPreferredAgentSurfaces(trusted, prefs), nil
+}
+
+// SelectPreferredAgentSurface returns the first provider that matches the
+// supplied preferences from an already-ranked trusted surface list.
+func SelectPreferredAgentSurface(entries []TrustedSearchResultSurface, prefs ProviderSelectionPreferences) *TrustedSearchResultSurface {
+	filtered := FilterPreferredAgentSurfaces(entries, prefs)
+	if len(filtered) == 0 {
+		return nil
+	}
+	return &filtered[0]
+}
+
+// ResolvePreferredAgentSurface performs discovery search, joins runtime
+// metadata, applies trust/ranking, applies the supplied preferences, and
+// returns the best remaining provider when one exists.
+func (ec *Client) ResolvePreferredAgentSurface(ctx context.Context, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) (*TrustedSearchResultSurface, error) {
+	preferred, err := ec.SearchPreferredAgentSurfaces(ctx, capability, limit, blockNumber, prefs)
+	if err != nil {
+		return nil, err
+	}
+	return SelectPreferredAgentSurface(preferred, ProviderSelectionPreferences{}), nil
+}
+
+// ResolveDirectoryPreferredAgentSurface performs the same end-to-end provider
+// resolution on top of directory search.
+func (ec *Client) ResolveDirectoryPreferredAgentSurface(ctx context.Context, nodeRecord string, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) (*TrustedSearchResultSurface, error) {
+	preferred, err := ec.DirectorySearchPreferredAgentSurfaces(ctx, nodeRecord, capability, limit, blockNumber, prefs)
+	if err != nil {
+		return nil, err
+	}
+	return SelectPreferredAgentSurface(preferred, ProviderSelectionPreferences{}), nil
+}
+
+// SearchPreferredAgentSurfaceDiagnostics runs search and returns per-provider
+// diagnostic records describing trust and preference failures.
+func (ec *Client) SearchPreferredAgentSurfaceDiagnostics(ctx context.Context, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) ([]ProviderSelectionDiagnostics, error) {
+	joined, err := ec.SearchDiscoveredAgentSurfaces(ctx, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return DiagnosePreferredAgentSurfaces(joined, prefs), nil
+}
+
+// DirectorySearchPreferredAgentSurfaceDiagnostics runs directory search and
+// returns per-provider diagnostic records describing trust and preference
+// failures.
+func (ec *Client) DirectorySearchPreferredAgentSurfaceDiagnostics(ctx context.Context, nodeRecord string, capability string, limit *int, blockNumber *big.Int, prefs ProviderSelectionPreferences) ([]ProviderSelectionDiagnostics, error) {
+	joined, err := ec.DirectorySearchDiscoveredAgentSurfaces(ctx, nodeRecord, capability, limit, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return DiagnosePreferredAgentSurfaces(joined, prefs), nil
+}
+
+// DiagnosePreferredAgentSurfaces annotates joined provider surfaces with the
+// reasons they failed trust gating or higher-level preference filters.
+func DiagnosePreferredAgentSurfaces(entries []SearchResultSurface, prefs ProviderSelectionPreferences) []ProviderSelectionDiagnostics {
+	out := make([]ProviderSelectionDiagnostics, 0, len(entries))
+	for _, entry := range entries {
+		diag := ProviderSelectionDiagnostics{
+			SearchResultSurface: entry,
+		}
+		if entry.Result.Trust != nil {
+			diag.TrustScore = entry.Result.Trust.LocalRankScore
+		} else {
+			diag.TrustFailures = append(diag.TrustFailures, "missing trust summary")
+		}
+		trust := entry.Result.Trust
+		if trust != nil {
+			if !trust.Registered {
+				diag.TrustFailures = append(diag.TrustFailures, "provider not registered")
+			}
+			if trust.Suspended {
+				diag.TrustFailures = append(diag.TrustFailures, "provider suspended")
+			}
+			if !trust.HasOnchainCapability {
+				diag.TrustFailures = append(diag.TrustFailures, "capability missing on-chain")
+			}
+		}
+		if entry.Surface != nil && entry.Surface.Runtime != nil && entry.Surface.Runtime.Published != nil && !entry.Surface.Runtime.Published.Trusted {
+			diag.TrustFailures = append(diag.TrustFailures, "package is untrusted")
+		}
+		diag.Trusted = len(diag.TrustFailures) == 0
+		diag.PreferenceFailures = preferenceFailures(entry, diag.TrustScore, prefs)
+		diag.Preferred = diag.Trusted && len(diag.PreferenceFailures) == 0
+		out = append(out, diag)
+	}
+	return out
+}
+
+func isTrustedSearchSurface(entry SearchResultSurface) bool {
+	trust := entry.Result.Trust
+	if trust == nil {
+		return false
+	}
+	if !trust.Registered || trust.Suspended || !trust.HasOnchainCapability {
+		return false
+	}
+	if entry.Surface != nil && entry.Surface.Runtime != nil && entry.Surface.Runtime.Published != nil && !entry.Surface.Runtime.Published.Trusted {
+		return false
+	}
+	return true
+}
+
+func matchesProviderPreferences(entry TrustedSearchResultSurface, prefs ProviderSelectionPreferences) bool {
+	return len(preferenceFailures(entry.SearchResultSurface, entry.TrustScore, prefs)) == 0
+}
+
+func preferenceFailures(entry SearchResultSurface, trustScore int64, prefs ProviderSelectionPreferences) []string {
+	var failures []string
+	if prefs.MinTrustScore > 0 && trustScore < prefs.MinTrustScore {
+		failures = append(failures, "trust score below minimum")
+	}
+	if prefs.RequiredConnectionModes != 0 && (entry.Result.ConnectionModes&prefs.RequiredConnectionModes) != prefs.RequiredConnectionModes {
+		failures = append(failures, "required connection modes missing")
+	}
+	if entry.Surface == nil || entry.Surface.Runtime == nil {
+		if prefs.PackagePrefix != "" || prefs.ServiceKind != "" || prefs.CapabilityKind != "" || prefs.PrivacyMode != "" || prefs.ReceiptMode != "" || prefs.RequireDisclosureReady {
+			failures = append(failures, "runtime metadata missing")
+		}
+		return failures
+	}
+	runtime := entry.Surface.Runtime
+	if prefs.PackagePrefix != "" && !strings.HasPrefix(runtime.PackageName, prefs.PackagePrefix) {
+		failures = append(failures, "package prefix mismatch")
+	}
+	if prefs.ServiceKind == "" && prefs.CapabilityKind == "" && prefs.PrivacyMode == "" && prefs.ReceiptMode == "" && !prefs.RequireDisclosureReady {
+		return failures
+	}
+	if runtime.Routing == nil {
+		failures = append(failures, "routing profile missing")
+		return failures
+	}
+	if prefs.ServiceKind != "" {
+		match := runtime.Routing.ServiceKind == prefs.ServiceKind
+		if !match {
+			for _, kind := range runtime.Routing.ServiceKinds {
+				if kind == prefs.ServiceKind {
+					match = true
+					break
+				}
+			}
+		}
+		if !match {
+			failures = append(failures, "service kind mismatch")
+		}
+	}
+	if prefs.CapabilityKind != "" && runtime.Routing.CapabilityKind != prefs.CapabilityKind {
+		failures = append(failures, "capability kind mismatch")
+	}
+	if prefs.PrivacyMode != "" && runtime.Routing.PrivacyMode != prefs.PrivacyMode {
+		failures = append(failures, "privacy mode mismatch")
+	}
+	if prefs.ReceiptMode != "" && runtime.Routing.ReceiptMode != prefs.ReceiptMode {
+		failures = append(failures, "receipt mode mismatch")
+	}
+	if prefs.RequireDisclosureReady && !runtime.Routing.DisclosureReady {
+		failures = append(failures, "disclosure-ready requirement not met")
+	}
+	return failures
 }
 
 // CreateAccessList tries to create an access list for a specific transaction based on the
