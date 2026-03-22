@@ -50,6 +50,39 @@ contract Solo {
 }
 `
 
+const contractMetadataDiscoverySource = `pragma tolang 0.4.0;
+
+contract ServiceDirectory {
+    function registerService(bytes32 manifest_ref, bytes32 capability_ref, bytes32 version_ref, bytes32 quote_ref) public returns (u256 service_id) {
+        return 1;
+    }
+
+    function serviceKindOf(u256 service_id) public pure returns (u256 service_kind) {
+        return 8;
+    }
+
+    function capabilityTypeOf(u256 service_id) public pure returns (u256 capability_type) {
+        return 1;
+    }
+
+    function pricingKindOf(u256 service_id) public pure returns (u256 pricing_kind) {
+        return 1;
+    }
+
+    function privacyModeOf(u256 service_id) public pure returns (u256 privacy_mode) {
+        return 4;
+    }
+
+    function receiptModeOf(u256 service_id) public pure returns (u256 receipt_mode) {
+        return 4;
+    }
+
+    function trustFloorRefOf(u256 service_id) public pure returns (bytes32 trust_floor_ref) {
+        return bytes32(0);
+    }
+}
+`
+
 func TestGetContractMetadataReturnsPackageDescriptor(t *testing.T) {
 	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	if err != nil {
@@ -174,6 +207,47 @@ func TestGetContractMetadataReturnsArtifactDescriptor(t *testing.T) {
 	}
 	if got.Artifact.AgentPackage == nil || len(got.Artifact.AgentPackage.Errors) != 1 {
 		t.Fatalf("unexpected agent package %#v", got.Artifact.AgentPackage)
+	}
+}
+
+func TestGetContractMetadataReturnsRoutingProfile(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	artifactBytes, err := lua.CompileArtifact([]byte(contractMetadataDiscoverySource), "ServiceDirectory.tol")
+	if err != nil {
+		t.Fatalf("CompileArtifact failed: %v", err)
+	}
+	addr := common.HexToAddress("0x2525252525252525252525252525252525252525252525252525252525252525")
+	st.SetCode(addr, artifactBytes)
+
+	api := NewBlockChainAPI(&getCodeBackendMock{
+		backendMock: newBackendMock(),
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(199)},
+	})
+	got, err := api.GetContractMetadata(context.Background(), addr, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.Artifact == nil {
+		t.Fatal("expected artifact descriptor")
+	}
+	if got.Artifact.Discovery == nil || got.Artifact.Discovery.TypedDiscovery == nil {
+		t.Fatalf("expected typed discovery manifest, got %#v", got.Artifact.Discovery)
+	}
+	if got.Artifact.Routing == nil {
+		t.Fatal("expected routing profile")
+	}
+	if got.Artifact.Routing.ServiceKind != "DISCOVERY" {
+		t.Fatalf("routing service kind: got %q want %q", got.Artifact.Routing.ServiceKind, "DISCOVERY")
+	}
+	if got.Artifact.Routing.CapabilityKind != "READ_ONLY" {
+		t.Fatalf("routing capability kind: got %q want %q", got.Artifact.Routing.CapabilityKind, "READ_ONLY")
+	}
+	if got.Artifact.Routing.PrivacyMode != "PUBLIC_ONLY" {
+		t.Fatalf("routing privacy mode: got %q want %q", got.Artifact.Routing.PrivacyMode, "PUBLIC_ONLY")
 	}
 }
 

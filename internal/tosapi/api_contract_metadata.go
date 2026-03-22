@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/rpc"
 	lua "github.com/tos-network/tolang"
@@ -24,12 +25,13 @@ type DeployedCodeInfo struct {
 
 // TOLArtifactInfo is the inspection payload for one compiled .toc artifact.
 type TOLArtifactInfo struct {
-	ContractName string                     `json:"contract_name"`
-	BytecodeHash string                     `json:"bytecode_hash"`
-	ABI          json.RawMessage            `json:"abi"`
-	Metadata     *tolmeta.ContractMetadata  `json:"metadata,omitempty"`
-	Discovery    *tolmeta.DiscoveryManifest `json:"discovery,omitempty"`
-	AgentPackage *tolmeta.AgentPackageInfo  `json:"agent_package,omitempty"`
+	ContractName string                              `json:"contract_name"`
+	BytecodeHash string                              `json:"bytecode_hash"`
+	ABI          json.RawMessage                     `json:"abi"`
+	Metadata     *tolmeta.ContractMetadata           `json:"metadata,omitempty"`
+	Discovery    *tolmeta.DiscoveryManifest          `json:"discovery,omitempty"`
+	AgentPackage *tolmeta.AgentPackageInfo           `json:"agent_package,omitempty"`
+	Routing      *agentdiscovery.TypedRoutingProfile `json:"routing_profile,omitempty"`
 }
 
 // TOLPackageInfo is the inspection payload for one deployed .tor package.
@@ -176,13 +178,15 @@ func inspectTOLArtifact(artifactBytes []byte, packageName string) (*TOLArtifactI
 	if strings.TrimSpace(packageName) == "" {
 		packageName = defaultArtifactPackageName(meta, art)
 	}
+	discovery := tolmeta.BuildDiscoveryManifest(meta, packageName)
 	return &TOLArtifactInfo{
 		ContractName: art.ContractName,
 		BytecodeHash: art.BytecodeHash,
 		ABI:          append(json.RawMessage(nil), art.ABIJSON...),
 		Metadata:     meta,
-		Discovery:    tolmeta.BuildDiscoveryManifest(meta, packageName),
+		Discovery:    discovery,
 		AgentPackage: tolmeta.BuildAgentPackageInfo(meta, packageName),
+		Routing:      agentdiscovery.BuildTypedRoutingProfile(discovery),
 	}, nil
 }
 
