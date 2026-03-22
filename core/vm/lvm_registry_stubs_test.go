@@ -431,5 +431,255 @@ tos.sstore("canpay_denied", 1)
 	}
 }
 
+// ── tos.isverified (comprehensive subtests) ──────────────────────────────────
+
+func TestIsVerifiedRegistryBacked(t *testing.T) {
+	caller := common.Address{0xFF}
+
+	t.Run("verified_active", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE4}
+		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+			Name:         "kyc",
+			VerifierType: 1,
+			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			Version:      1,
+			Status:       verifyregistry.VerifierActive,
+		})
+		verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+			Subject:    caller,
+			ProofType:  "kyc",
+			VerifiedAt: 1,
+			ExpiryMS:   2_000_000_000_000, // far future
+			Status:     verifyregistry.VerificationActive,
+		})
+		src := `
+local ok = tos.isverified(tos.caller, "kyc")
+if not ok then error("expected true for active verification") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+		if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+			t.Fatal("ok slot not set — isverified should return true")
+		}
+	})
+
+	t.Run("verified_expired", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE5}
+		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+			Name:         "kyc",
+			VerifierType: 1,
+			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			Version:      1,
+			Status:       verifyregistry.VerifierActive,
+		})
+		verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+			Subject:    caller,
+			ProofType:  "kyc",
+			VerifiedAt: 1,
+			ExpiryMS:   1000, // 1 second — blockCtx.Time=1_700_000_000 → expired
+			Status:     verifyregistry.VerificationActive,
+		})
+		src := `
+local ok = tos.isverified(tos.caller, "kyc")
+if ok then error("expected false for expired verification") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("verified_revoked", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE6}
+		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+			Name:         "kyc",
+			VerifierType: 1,
+			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			Version:      1,
+			Status:       verifyregistry.VerifierActive,
+		})
+		verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+			Subject:    caller,
+			ProofType:  "kyc",
+			VerifiedAt: 1,
+			ExpiryMS:   2_000_000_000_000,
+			Status:     verifyregistry.VerificationRevoked,
+		})
+		src := `
+local ok = tos.isverified(tos.caller, "kyc")
+if ok then error("expected false for revoked verification") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("no_record", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE7}
+		// No verifier and no subject verification written — must fail closed.
+		src := `
+local ok = tos.isverified(tos.caller, "kyc")
+if ok then error("expected false when no record exists") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("verifier_inactive", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE8}
+		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+			Name:         "kyc",
+			VerifierType: 1,
+			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			Version:      1,
+			Status:       verifyregistry.VerifierRevoked, // inactive
+		})
+		verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+			Subject:    caller,
+			ProofType:  "kyc",
+			VerifiedAt: 1,
+			ExpiryMS:   2_000_000_000_000,
+			Status:     verifyregistry.VerificationActive,
+		})
+		src := `
+local ok = tos.isverified(tos.caller, "kyc")
+if ok then error("expected false when verifier is inactive") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+}
+
+// ── tos.canpay (comprehensive subtests) ──────────────────────────────────────
+
+func TestCanPayPolicyEnforced(t *testing.T) {
+	caller := common.Address{0xFF}
+
+	t.Run("sufficient_balance_no_policy", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE9}
+		st.AddBalance(caller, big.NewInt(1_000))
+		// No policy written — balance check only.
+		src := `
+local ok = tos.canpay(tos.caller, "500", "TOS")
+if not ok then error("expected true with sufficient balance and no policy") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+		if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+			t.Fatal("ok slot not set")
+		}
+	})
+
+	t.Run("sufficient_balance_within_cap", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xEA}
+		st.AddBalance(caller, big.NewInt(1_000))
+		paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+			PolicyID:  [32]byte{0x10},
+			Kind:      2,
+			Owner:     caller,
+			Asset:     "TOS",
+			MaxAmount: big.NewInt(500),
+			Status:    paypolicy.PolicyActive,
+		})
+		src := `
+local ok = tos.canpay(tos.caller, "300", "TOS")
+if not ok then error("expected true within cap") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+		if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+			t.Fatal("ok slot not set")
+		}
+	})
+
+	t.Run("sufficient_balance_over_cap", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xEB}
+		st.AddBalance(caller, big.NewInt(1_000))
+		paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+			PolicyID:  [32]byte{0x11},
+			Kind:      2,
+			Owner:     caller,
+			Asset:     "TOS",
+			MaxAmount: big.NewInt(500),
+			Status:    paypolicy.PolicyActive,
+		})
+		src := `
+local ok = tos.canpay(tos.caller, "600", "TOS")
+if ok then error("expected false when amount exceeds policy cap") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("insufficient_balance", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xEC}
+		st.AddBalance(caller, big.NewInt(100))
+		src := `
+local ok = tos.canpay(tos.caller, "500", "TOS")
+if ok then error("expected false with insufficient balance") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("policy_revoked", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xED}
+		st.AddBalance(caller, big.NewInt(1_000))
+		paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+			PolicyID:  [32]byte{0x12},
+			Kind:      2,
+			Owner:     caller,
+			Asset:     "TOS",
+			MaxAmount: big.NewInt(500),
+			Status:    paypolicy.PolicyRevoked,
+		})
+		// Revoked policy record exists → implementation treats as policy
+		// check failure (status != Active), so canpay returns false.
+		src := `
+local ok = tos.canpay(tos.caller, "300", "TOS")
+if ok then error("expected false when policy is revoked") end
+tos.sstore("ok", 1)
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+	})
+}
+
 // suppress unused import warning
 var _ = params.AgentLoadGas
