@@ -1,7 +1,9 @@
 package vm
 
 import (
+	"encoding/binary"
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
@@ -61,7 +63,7 @@ func deployTorPackage(t *testing.T, st StateDB, addr common.Address, contractNam
 }
 
 // TestPackageCallNoRegistryRecord verifies that a package_call to a deployed
-// package with no registry record succeeds (backward-compatible).
+// package with no registry record fails closed.
 func TestPackageCallNoRegistryRecord(t *testing.T) {
 	st := newAgentTestState()
 	calleeAddr := common.Address{0xD1}
@@ -72,6 +74,9 @@ func TestPackageCallNoRegistryRecord(t *testing.T) {
 	src := `
 local ok, ret = tos.package_call("` + calleeAddr.Hex() + `", "` + contractName + `", nil)
 tos.sstore("ok", ok and 1 or 0)
+if ret ~= nil then
+  tos.setStr("ret", ret)
+end
 `
 	_, _, _, err := runLua(st, parentAddr, src, 5_000_000)
 	if err != nil {
@@ -79,8 +84,11 @@ tos.sstore("ok", ok and 1 or 0)
 	}
 
 	okSlot := st.GetState(parentAddr, StorageSlot("ok"))
-	if got := okSlot.Big().Uint64(); got != 1 {
-		t.Fatalf("expected ok=1 (call succeeded), got %d", got)
+	if got := okSlot.Big().Uint64(); got != 0 {
+		t.Fatalf("expected ok=0 (call rejected), got %d", got)
+	}
+	if got := readStateString(t, st, parentAddr, "ret"); got != "PACKAGE_UNPUBLISHED" {
+		t.Fatalf("expected PACKAGE_UNPUBLISHED, got %q", got)
 	}
 }
 
@@ -202,4 +210,72 @@ tos.sstore("ok", ok and 1 or 0)
 	if got := okSlot.Big().Uint64(); got != 0 {
 		t.Fatalf("expected ok=0 (call rejected), got %d", got)
 	}
+}
+
+func TestPackageCallMalformedAddrRejected(t *testing.T) {
+	st := newAgentTestState()
+	parentAddr := common.Address{0xA5}
+	src := `
+local ok, ret = tos.package_call("0x1234", "Greeter", nil)
+tos.sstore("ok", ok and 1 or 0)
+`
+	_, _, _, err := runLua(st, parentAddr, src, 5_000_000)
+	if err == nil {
+		t.Fatal("expected malformed addr to raise an error")
+	}
+	if got := err.Error(); got == "" || !containsAll(got, "bad argument #1", "invalid addr") {
+		t.Fatalf("unexpected malformed addr error: %v", err)
+	}
+}
+
+func TestPackageCallMalformedDataRejected(t *testing.T) {
+	st := newAgentTestState()
+	calleeAddr := common.Address{0xD5}
+	parentAddr := common.Address{0xA6}
+	contractName := "Greeter"
+	deployTorPackage(t, st, calleeAddr, contractName)
+
+	src := `
+local ok, ret = tos.package_call("` + calleeAddr.Hex() + `", "` + contractName + `", "0xxyz")
+tos.sstore("ok", ok and 1 or 0)
+`
+	_, _, _, err := runLua(st, parentAddr, src, 5_000_000)
+	if err == nil {
+		t.Fatal("expected malformed data to raise an error")
+	}
+	if got := err.Error(); got == "" || !containsAll(got, "bad argument #3", "invalid data") {
+		t.Fatalf("unexpected malformed data error: %v", err)
+	}
+}
+
+func readStateString(t *testing.T, st StateDB, addr common.Address, key string) string {
+	t.Helper()
+	lenSlot := st.GetState(addr, StrLenSlot(key))
+	if lenSlot == (common.Hash{}) {
+		return ""
+	}
+	length := int(binary.BigEndian.Uint64(lenSlot[24:])) - 1
+	if length <= 0 {
+		return ""
+	}
+	data := make([]byte, length)
+	base := StrLenSlot(key)
+	for i := 0; i < length; i += 32 {
+		chunk := st.GetState(addr, StrChunkSlot(base, i/32))
+		end := i + 32
+		if end > length {
+			end = length
+		}
+		copy(data[i:end], chunk[:end-i])
+	}
+	return string(data)
+}
+
+func containsAll(s string, parts ...string) bool {
+	for _, part := range parts {
+		if !strings.Contains(s, part) {
+			return false
+		}
+	}
+	return true
 }
