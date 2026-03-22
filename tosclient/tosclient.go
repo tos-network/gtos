@@ -288,6 +288,39 @@ type AgentIdentityInfo struct {
 	BindingExpiry   uint64 `json:"binding_expiry"`
 }
 
+// RuntimeReceiptInfo is the client-facing settlement-bus runtime receipt view.
+type RuntimeReceiptInfo struct {
+	ReceiptRef    string `json:"receipt_ref"`
+	ReceiptKind   uint16 `json:"receipt_kind"`
+	Status        string `json:"status"`
+	Mode          uint16 `json:"mode"`
+	ModeName      string `json:"mode_name,omitempty"`
+	Sender        string `json:"sender"`
+	Recipient     string `json:"recipient"`
+	SettlementRef string `json:"settlement_ref,omitempty"`
+	ProofRef      string `json:"proof_ref,omitempty"`
+	FailureRef    string `json:"failure_ref,omitempty"`
+	PolicyRef     string `json:"policy_ref,omitempty"`
+	ArtifactRef   string `json:"artifact_ref,omitempty"`
+	AmountRef     string `json:"amount_ref,omitempty"`
+	OpenedAt      uint64 `json:"opened_at,omitempty"`
+	FinalizedAt   uint64 `json:"finalized_at,omitempty"`
+}
+
+// SettlementEffectInfo is the client-facing settlement-bus effect view.
+type SettlementEffectInfo struct {
+	SettlementRef string `json:"settlement_ref"`
+	ReceiptRef    string `json:"receipt_ref,omitempty"`
+	Mode          uint16 `json:"mode"`
+	ModeName      string `json:"mode_name,omitempty"`
+	Sender        string `json:"sender"`
+	Recipient     string `json:"recipient"`
+	AmountRef     string `json:"amount_ref,omitempty"`
+	PolicyRef     string `json:"policy_ref,omitempty"`
+	ArtifactRef   string `json:"artifact_ref,omitempty"`
+	CreatedAt     uint64 `json:"created_at,omitempty"`
+}
+
 // TOLArtifactInfo is the client-facing view of deployed `.toc` metadata.
 type TOLArtifactInfo struct {
 	ContractName  string                              `json:"contract_name"`
@@ -717,6 +750,24 @@ func (ec *Client) GetSettlementPolicy(ctx context.Context, owner common.Address,
 func (ec *Client) GetAgentIdentity(ctx context.Context, agent common.Address) (*AgentIdentityInfo, error) {
 	var out *AgentIdentityInfo
 	if err := ec.c.CallContext(ctx, &out, "tos_tolGetAgentIdentity", agent.Hex()); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetRuntimeReceipt returns one settlement-bus runtime receipt by receipt ref.
+func (ec *Client) GetRuntimeReceipt(ctx context.Context, receiptRef common.Hash) (*RuntimeReceiptInfo, error) {
+	var out *RuntimeReceiptInfo
+	if err := ec.c.CallContext(ctx, &out, "settlement_getRuntimeReceipt", receiptRef); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetSettlementEffect returns one settlement-bus settlement effect by settlement ref.
+func (ec *Client) GetSettlementEffect(ctx context.Context, settlementRef common.Hash) (*SettlementEffectInfo, error) {
+	var out *SettlementEffectInfo
+	if err := ec.c.CallContext(ctx, &out, "settlement_getSettlementEffect", settlementRef); err != nil {
 		return nil, err
 	}
 	return out, nil

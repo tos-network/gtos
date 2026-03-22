@@ -57,6 +57,8 @@ type rpcExtTestService struct {
 	lastGetSettlementPolicyOwner string
 	lastGetSettlementPolicyAsset string
 	lastGetAgentIdentityAddress  string
+	lastGetRuntimeReceiptRef     common.Hash
+	lastGetSettlementEffectRef   common.Hash
 
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
@@ -394,6 +396,37 @@ func (s *rpcExtTestService) TolGetAgentIdentity(agentHex string) interface{} {
 		Registered:   true,
 		Status:       1,
 		Stake:        "42",
+	}
+}
+
+func (s *rpcExtTestService) GetRuntimeReceipt(receiptRef common.Hash) interface{} {
+	s.lastGetRuntimeReceiptRef = receiptRef
+	return &RuntimeReceiptInfo{
+		ReceiptRef:    receiptRef.Hex(),
+		ReceiptKind:   7,
+		Status:        "success",
+		Mode:          1,
+		ModeName:      "PUBLIC_TRANSFER",
+		Sender:        common.HexToAddress("0x1111").Hex(),
+		Recipient:     common.HexToAddress("0x2222").Hex(),
+		SettlementRef: common.HexToHash("0xabcdef").Hex(),
+		ProofRef:      common.HexToHash("0x3333").Hex(),
+		OpenedAt:      100,
+		FinalizedAt:   110,
+	}
+}
+
+func (s *rpcExtTestService) GetSettlementEffect(settlementRef common.Hash) interface{} {
+	s.lastGetSettlementEffectRef = settlementRef
+	return &SettlementEffectInfo{
+		SettlementRef: settlementRef.Hex(),
+		ReceiptRef:    common.HexToHash("0x9999").Hex(),
+		Mode:          4,
+		ModeName:      "REFUND_PUBLIC",
+		Sender:        common.HexToAddress("0x2222").Hex(),
+		Recipient:     common.HexToAddress("0x3333").Hex(),
+		AmountRef:     common.HexToHash("0x4444").Hex(),
+		CreatedAt:     120,
 	}
 }
 
@@ -745,6 +778,9 @@ func newRPCExtTestClient(t *testing.T) (*Client, *rpcExtTestService, func()) {
 	if err := server.RegisterName("dpos", service); err != nil {
 		t.Fatalf("failed to register dpos service: %v", err)
 	}
+	if err := server.RegisterName("settlement", service); err != nil {
+		t.Fatalf("failed to register settlement service: %v", err)
+	}
 	raw := rpc.DialInProc(server)
 	client := NewClient(raw)
 	return client, service, func() {
@@ -950,6 +986,22 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	}
 	if svc.lastGetAgentIdentityAddress != address.Hex() || agentIdentityInfo == nil || !agentIdentityInfo.Registered {
 		t.Fatalf("unexpected agent identity info: address=%q out=%+v", svc.lastGetAgentIdentityAddress, agentIdentityInfo)
+	}
+
+	receiptInfo, err := client.GetRuntimeReceipt(ctx, common.HexToHash("0x9999"))
+	if err != nil {
+		t.Fatalf("GetRuntimeReceipt error: %v", err)
+	}
+	if svc.lastGetRuntimeReceiptRef != common.HexToHash("0x9999") || receiptInfo == nil || receiptInfo.SettlementRef != common.HexToHash("0xabcdef").Hex() {
+		t.Fatalf("unexpected runtime receipt info: ref=%s out=%+v", svc.lastGetRuntimeReceiptRef.Hex(), receiptInfo)
+	}
+
+	effectInfo, err := client.GetSettlementEffect(ctx, common.HexToHash("0xabcdef"))
+	if err != nil {
+		t.Fatalf("GetSettlementEffect error: %v", err)
+	}
+	if svc.lastGetSettlementEffectRef != common.HexToHash("0xabcdef") || effectInfo == nil || effectInfo.ModeName != "REFUND_PUBLIC" {
+		t.Fatalf("unexpected settlement effect info: ref=%s out=%+v", svc.lastGetSettlementEffectRef.Hex(), effectInfo)
 	}
 
 	codeHash := common.HexToHash("0x1234")

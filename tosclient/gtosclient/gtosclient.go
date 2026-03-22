@@ -46,6 +46,16 @@ type AgentRuntimeSurface struct {
 	Package        *tosclient.TOLPackageInfo
 }
 
+// SettlementRuntimeSurface is the normalized client-side view of one runtime
+// settlement receipt/effect pair, optionally joined with deployed metadata for
+// the sender and recipient when those endpoints are contracts/packages.
+type SettlementRuntimeSurface struct {
+	Receipt          *tosclient.RuntimeReceiptInfo
+	Effect           *tosclient.SettlementEffectInfo
+	SenderRuntime    *AgentRuntimeSurface
+	RecipientRuntime *AgentRuntimeSurface
+}
+
 // DiscoveredAgentSurface joins a published discovery card with the normalized
 // deployed runtime metadata for the advertised agent address when available.
 type DiscoveredAgentSurface struct {
@@ -174,6 +184,80 @@ func (ec *Client) GetDiscoveredAgentSurface(ctx context.Context, nodeRecord stri
 		return nil, err
 	}
 	out.Runtime = runtimeSurface
+	return out, nil
+}
+
+// GetRuntimeReceiptSurface returns one runtime settlement receipt plus its
+// settlement effect and any deployed metadata surfaces reachable from sender
+// and recipient addresses.
+func (ec *Client) GetRuntimeReceiptSurface(ctx context.Context, receiptRef common.Hash, blockNumber *big.Int) (*SettlementRuntimeSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	receipt, err := metaClient.GetRuntimeReceipt(ctx, receiptRef)
+	if err != nil {
+		return nil, err
+	}
+	out := &SettlementRuntimeSurface{Receipt: receipt}
+	if receipt == nil {
+		return out, nil
+	}
+	if strings.TrimSpace(receipt.SettlementRef) != "" {
+		effect, err := metaClient.GetSettlementEffect(ctx, common.HexToHash(receipt.SettlementRef))
+		if err != nil {
+			return nil, err
+		}
+		out.Effect = effect
+	}
+	if common.IsHexAddress(strings.TrimSpace(receipt.Sender)) {
+		senderRuntime, err := ec.GetAgentRuntimeSurface(ctx, common.HexToAddress(receipt.Sender), blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		out.SenderRuntime = senderRuntime
+	}
+	if common.IsHexAddress(strings.TrimSpace(receipt.Recipient)) {
+		recipientRuntime, err := ec.GetAgentRuntimeSurface(ctx, common.HexToAddress(receipt.Recipient), blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		out.RecipientRuntime = recipientRuntime
+	}
+	return out, nil
+}
+
+// GetSettlementEffectSurface returns one runtime settlement effect plus the
+// linked receipt and any deployed metadata surfaces reachable from sender and
+// recipient addresses.
+func (ec *Client) GetSettlementEffectSurface(ctx context.Context, settlementRef common.Hash, blockNumber *big.Int) (*SettlementRuntimeSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	effect, err := metaClient.GetSettlementEffect(ctx, settlementRef)
+	if err != nil {
+		return nil, err
+	}
+	out := &SettlementRuntimeSurface{Effect: effect}
+	if effect == nil {
+		return out, nil
+	}
+	if strings.TrimSpace(effect.ReceiptRef) != "" {
+		receipt, err := metaClient.GetRuntimeReceipt(ctx, common.HexToHash(effect.ReceiptRef))
+		if err != nil {
+			return nil, err
+		}
+		out.Receipt = receipt
+	}
+	if common.IsHexAddress(strings.TrimSpace(effect.Sender)) {
+		senderRuntime, err := ec.GetAgentRuntimeSurface(ctx, common.HexToAddress(effect.Sender), blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		out.SenderRuntime = senderRuntime
+	}
+	if common.IsHexAddress(strings.TrimSpace(effect.Recipient)) {
+		recipientRuntime, err := ec.GetAgentRuntimeSurface(ctx, common.HexToAddress(effect.Recipient), blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		out.RecipientRuntime = recipientRuntime
+	}
 	return out, nil
 }
 

@@ -22,6 +22,8 @@ type agentSurfaceRPCService struct {
 	lastDirectoryNode    string
 	lastDirectoryCap     string
 	lastDirectoryLimit   *int
+	lastReceiptRef       common.Hash
+	lastSettlementRef    common.Hash
 }
 
 func (s *agentSurfaceRPCService) GetContractMetadata(address common.Address, block string) interface{} {
@@ -306,12 +308,54 @@ func (s *agentSurfaceRPCService) AgentDiscoveryDirectorySearch(nodeRecord string
 	}
 }
 
+func (s *agentSurfaceRPCService) GetRuntimeReceipt(receiptRef common.Hash) interface{} {
+	s.lastReceiptRef = receiptRef
+	switch receiptRef {
+	case common.HexToHash("0xaaa1"):
+		return tosclient.RuntimeReceiptInfo{
+			ReceiptRef:    receiptRef.Hex(),
+			ReceiptKind:   7,
+			Status:        "success",
+			Mode:          1,
+			ModeName:      "PUBLIC_TRANSFER",
+			Sender:        common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000aa").Hex(),
+			Recipient:     common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000bb").Hex(),
+			SettlementRef: common.HexToHash("0xbbb1").Hex(),
+			OpenedAt:      10,
+			FinalizedAt:   11,
+		}
+	default:
+		return nil
+	}
+}
+
+func (s *agentSurfaceRPCService) GetSettlementEffect(settlementRef common.Hash) interface{} {
+	s.lastSettlementRef = settlementRef
+	switch settlementRef {
+	case common.HexToHash("0xbbb1"):
+		return tosclient.SettlementEffectInfo{
+			SettlementRef: settlementRef.Hex(),
+			ReceiptRef:    common.HexToHash("0xaaa1").Hex(),
+			Mode:          1,
+			ModeName:      "PUBLIC_TRANSFER",
+			Sender:        common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000aa").Hex(),
+			Recipient:     common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000bb").Hex(),
+			CreatedAt:     10,
+		}
+	default:
+		return nil
+	}
+}
+
 func newAgentSurfaceClient(t *testing.T) (*Client, *agentSurfaceRPCService, func()) {
 	t.Helper()
 	svc := new(agentSurfaceRPCService)
 	server := rpc.NewServer()
 	if err := server.RegisterName("tos", svc); err != nil {
 		t.Fatalf("RegisterName: %v", err)
+	}
+	if err := server.RegisterName("settlement", svc); err != nil {
+		t.Fatalf("RegisterName settlement: %v", err)
 	}
 	raw := rpc.DialInProc(server)
 	return New(raw), svc, func() { raw.Close(); server.Stop() }
@@ -399,6 +443,47 @@ func TestGetDiscoveredAgentSurfaceSkipsMalformedAddress(t *testing.T) {
 	}
 	if surface == nil || surface.Card == nil || surface.Runtime != nil {
 		t.Fatalf("expected malformed address to fail closed without runtime join, got %+v", surface)
+	}
+}
+
+func TestGetRuntimeReceiptSurfaceJoinsReceiptEffectAndRuntime(t *testing.T) {
+	client, svc, cleanup := newAgentSurfaceClient(t)
+	defer cleanup()
+
+	surface, err := client.GetRuntimeReceiptSurface(context.Background(), common.HexToHash("0xaaa1"), big.NewInt(4))
+	if err != nil {
+		t.Fatalf("GetRuntimeReceiptSurface error: %v", err)
+	}
+	if svc.lastReceiptRef != common.HexToHash("0xaaa1") || svc.lastSettlementRef != common.HexToHash("0xbbb1") {
+		t.Fatalf("unexpected lookup refs: receipt=%s settlement=%s", svc.lastReceiptRef.Hex(), svc.lastSettlementRef.Hex())
+	}
+	if surface == nil || surface.Receipt == nil || surface.Effect == nil {
+		t.Fatalf("expected settlement surface, got %+v", surface)
+	}
+	if surface.SenderRuntime == nil || surface.SenderRuntime.ContractName != "TaskSettlement" {
+		t.Fatalf("expected sender runtime join, got %+v", surface.SenderRuntime)
+	}
+	if surface.RecipientRuntime == nil || surface.RecipientRuntime.PackageName != "tolang.openlib.privacy" {
+		t.Fatalf("expected recipient runtime join, got %+v", surface.RecipientRuntime)
+	}
+}
+
+func TestGetSettlementEffectSurfaceJoinsReceiptAndRuntime(t *testing.T) {
+	client, svc, cleanup := newAgentSurfaceClient(t)
+	defer cleanup()
+
+	surface, err := client.GetSettlementEffectSurface(context.Background(), common.HexToHash("0xbbb1"), big.NewInt(5))
+	if err != nil {
+		t.Fatalf("GetSettlementEffectSurface error: %v", err)
+	}
+	if svc.lastSettlementRef != common.HexToHash("0xbbb1") || svc.lastReceiptRef != common.HexToHash("0xaaa1") {
+		t.Fatalf("unexpected lookup refs: settlement=%s receipt=%s", svc.lastSettlementRef.Hex(), svc.lastReceiptRef.Hex())
+	}
+	if surface == nil || surface.Effect == nil || surface.Receipt == nil {
+		t.Fatalf("expected joined effect surface, got %+v", surface)
+	}
+	if surface.Receipt.ReceiptRef != common.HexToHash("0xaaa1").Hex() {
+		t.Fatalf("unexpected receipt info: %+v", surface.Receipt)
 	}
 }
 

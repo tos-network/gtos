@@ -13,6 +13,15 @@ Implemented in code today:
 - state-backed `RuntimeReceipt` and `SettlementEffect` records in `settlement/`
 - `PublicSettlementAPI.GetRuntimeReceipt(...)` and
   `GetSettlementEffect(...)`
+- client/runtime consumption layers:
+  - Go `tosclient.GetRuntimeReceipt(...)` / `GetSettlementEffect(...)`
+  - Go `gtosclient.GetRuntimeReceiptSurface(...)` /
+    `GetSettlementEffectSurface(...)`
+  - TypeScript `inspectRuntimeReceipt(...)` / `inspectSettlementEffect(...)`
+  - OpenFox runtime/operator consumption via
+    `openfox settlement runtime-receipt ...`,
+    `openfox settlement runtime-effect ...`, and matching operator API
+    endpoints
 - VM/runtime tests for:
   - public transfer + auto-finalized receipt
   - split-phase settle + `receipt_success`
@@ -24,7 +33,9 @@ Still open for later waves:
 
 - sponsor-aware settlement joins
 - `ESCROW_RELEASE_UNO` and deeper confidential refund/release normalization
-- broader OpenFox / deployed-metadata consumption of runtime settlement records
+- bridging legacy OpenFox local settlement anchor IDs onto canonical runtime
+  `receipt_ref` / `settlement_ref` values when a publisher flow adopts native
+  settlement-bus identifiers end to end
 - deciding which flows should mirror runtime receipts into app-level
   `ReceiptBook` by default
 
