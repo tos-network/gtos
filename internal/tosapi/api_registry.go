@@ -25,12 +25,15 @@ import (
 // CapabilityInfo describes a single capability record from the protocol
 // Capability Registry.
 type CapabilityInfo struct {
+	Owner       string `json:"owner,omitempty"`
 	Name        string `json:"name"`
 	BitIndex    uint64 `json:"bit_index"`
 	Category    uint64 `json:"category"`
 	Version     uint64 `json:"version"`
 	Status      string `json:"status"` // "active", "deprecated", "revoked"
 	ManifestRef string `json:"manifest_ref,omitempty"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
 }
 
 // DelegationInfo describes a single delegation record from the protocol
@@ -45,6 +48,8 @@ type DelegationInfo struct {
 	ExpiryMS        uint64 `json:"expiry_ms"`
 	Status          string `json:"status"`
 	EffectiveStatus string `json:"effective_status,omitempty"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
 }
 
 // PackageInfo describes a single package record from the protocol
@@ -62,6 +67,8 @@ type PackageInfo struct {
 	ContractCount uint64 `json:"contract_count"`
 	DiscoveryRef  string `json:"discovery_ref,omitempty"`
 	PublishedAt   uint64 `json:"published_at"`
+	CreatedAt     uint64 `json:"created_at,omitempty"`
+	UpdatedAt     uint64 `json:"updated_at,omitempty"`
 }
 
 // PublisherInfo describes a single publisher record from the protocol
@@ -72,15 +79,20 @@ type PublisherInfo struct {
 	MetadataRef string `json:"metadata_ref"`
 	Namespace   string `json:"namespace,omitempty"`
 	Status      string `json:"status"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
 }
 
 type VerifierInfo struct {
 	Name         string `json:"name"`
 	VerifierType uint64 `json:"verifier_type"`
+	Controller   string `json:"controller,omitempty"`
 	VerifierAddr string `json:"verifier_addr"`
 	PolicyRef    string `json:"policy_ref,omitempty"`
 	Version      uint64 `json:"version"`
 	Status       string `json:"status"`
+	CreatedAt    uint64 `json:"created_at,omitempty"`
+	UpdatedAt    uint64 `json:"updated_at,omitempty"`
 }
 
 type VerificationClaimInfo struct {
@@ -90,6 +102,7 @@ type VerificationClaimInfo struct {
 	ExpiryMS        uint64 `json:"expiry_ms"`
 	Status          string `json:"status"`
 	EffectiveStatus string `json:"effective_status,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
 }
 
 type SettlementPolicyInfo struct {
@@ -100,6 +113,8 @@ type SettlementPolicyInfo struct {
 	MaxAmount string `json:"max_amount"`
 	RulesRef  string `json:"rules_ref,omitempty"`
 	Status    string `json:"status"`
+	CreatedAt uint64 `json:"created_at,omitempty"`
+	UpdatedAt uint64 `json:"updated_at,omitempty"`
 }
 
 type AgentIdentityInfo struct {
@@ -146,12 +161,15 @@ func (s *TOSAPI) TolGetCapability(ctx context.Context, name string) (*Capability
 		return nil, nil
 	}
 	info := &CapabilityInfo{
+		Owner:       rec.Owner.Hex(),
 		Name:        rec.Name,
 		BitIndex:    uint64(rec.BitIndex),
 		Category:    uint64(rec.Category),
 		Version:     uint64(rec.Version),
 		Status:      capabilityStatusString(rec.Status),
 		ManifestRef: common.Hash(rec.ManifestRef).Hex(),
+		CreatedAt:   rec.CreatedAt,
+		UpdatedAt:   rec.UpdatedAt,
 	}
 	return info, nil
 }
@@ -184,6 +202,8 @@ func (s *TOSAPI) TolGetDelegation(ctx context.Context, principalHex, delegateHex
 		ExpiryMS:        rec.ExpiryMS,
 		Status:          delegationStatusString(rec.Status),
 		EffectiveStatus: delegationStatusString(rec.EffectiveStatus(nowMS)),
+		CreatedAt:       rec.CreatedAt,
+		UpdatedAt:       rec.UpdatedAt,
 	}, nil
 }
 
@@ -284,10 +304,13 @@ func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo
 	return &VerifierInfo{
 		Name:         rec.Name,
 		VerifierType: uint64(rec.VerifierType),
+		Controller:   rec.Controller.Hex(),
 		VerifierAddr: rec.VerifierAddr.Hex(),
 		PolicyRef:    common.Hash(rec.PolicyRef).Hex(),
 		Version:      uint64(rec.Version),
 		Status:       verifierStatusString(rec.Status),
+		CreatedAt:    rec.CreatedAt,
+		UpdatedAt:    rec.UpdatedAt,
 	}, nil
 }
 
@@ -312,6 +335,7 @@ func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType s
 		ExpiryMS:        rec.ExpiryMS,
 		Status:          verificationStatusString(rec.Status),
 		EffectiveStatus: verificationStatusString(rec.EffectiveStatus(nowMS)),
+		UpdatedAt:       rec.UpdatedAt,
 	}, nil
 }
 
@@ -336,6 +360,8 @@ func (s *TOSAPI) TolGetSettlementPolicy(ctx context.Context, ownerHex, asset str
 		MaxAmount: maxAmount,
 		RulesRef:  common.Hash(rec.RulesRef).Hex(),
 		Status:    payPolicyStatusString(rec.Status),
+		CreatedAt: rec.CreatedAt,
+		UpdatedAt: rec.UpdatedAt,
 	}, nil
 }
 
@@ -388,9 +414,13 @@ func delegationStatusString(status registry.DelegationStatus) string {
 }
 
 func packageStatusString(status pkgregistry.PackageStatus) string {
+	return status.String()
+}
+
+func publisherStatusString(status pkgregistry.PackageStatus) string {
 	switch status {
 	case pkgregistry.PkgDeprecated:
-		return "deprecated"
+		return "suspended"
 	case pkgregistry.PkgRevoked:
 		return "revoked"
 	default:
@@ -473,6 +503,8 @@ func packageInfoFromRecord(rec pkgregistry.PackageRecord, pubRec pkgregistry.Pub
 		ContractCount: uint64(rec.ContractCount),
 		DiscoveryRef:  common.Hash(rec.DiscoveryRef).Hex(),
 		PublishedAt:   rec.PublishedAt,
+		CreatedAt:     rec.CreatedAt,
+		UpdatedAt:     rec.UpdatedAt,
 	}
 }
 
@@ -482,6 +514,8 @@ func publisherInfoFromRecord(rec pkgregistry.PublisherRecord) *PublisherInfo {
 		Controller:  rec.Controller.Hex(),
 		MetadataRef: common.Hash(rec.MetadataRef).Hex(),
 		Namespace:   rec.Namespace,
-		Status:      packageStatusString(rec.Status),
+		Status:      publisherStatusString(rec.Status),
+		CreatedAt:   rec.CreatedAt,
+		UpdatedAt:   rec.UpdatedAt,
 	}
 }

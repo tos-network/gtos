@@ -8,6 +8,10 @@ import (
 	"github.com/tos-network/gtos/common"
 )
 
+// GovernorCapabilityBit is the protocol governor override bit for registry
+// actions. v1.1 reuses the well-known Registrar capability bit.
+const GovernorCapabilityBit uint8 = 0
+
 // CapabilityStatus represents the lifecycle state of a registered capability.
 type CapabilityStatus uint8
 
@@ -41,12 +45,15 @@ func (s CapabilityStatus) CanTransitionTo(next CapabilityStatus) bool {
 
 // CapabilityRecord is a protocol-level capability entry.
 type CapabilityRecord struct {
+	Owner       common.Address
 	Name        string
 	BitIndex    uint16
 	Category    uint16
 	Version     uint32
 	Status      CapabilityStatus
 	ManifestRef [32]byte
+	CreatedAt   uint64
+	UpdatedAt   uint64
 }
 
 // DelegationStatus represents the lifecycle state of a delegation.
@@ -79,6 +86,8 @@ type DelegationRecord struct {
 	NotBeforeMS   uint64
 	ExpiryMS      uint64
 	Status        DelegationStatus
+	CreatedAt     uint64
+	UpdatedAt     uint64
 }
 
 func (r DelegationRecord) EffectiveStatus(nowMS uint64) DelegationStatus {
@@ -102,10 +111,12 @@ var (
 	ErrCapabilityNotFound          = errors.New("registry: capability not found")
 	ErrCapabilityAlreadyDeprecated = errors.New("registry: capability already deprecated")
 	ErrCapabilityAlreadyRevoked    = errors.New("registry: capability already revoked")
+	ErrUnauthorizedCapability      = errors.New("registry: sender is not capability owner or governor")
 	ErrDelegationNotFound          = errors.New("registry: delegation not found")
 	ErrDelegationAlreadyRevoked    = errors.New("registry: delegation already revoked")
 	ErrDelegationExpired           = errors.New("registry: delegation expired")
 	ErrInvalidDelegationWindow     = errors.New("registry: invalid delegation time window")
 	ErrInvalidCapabilityName       = errors.New("registry: invalid capability name")
 	ErrInvalidDelegation           = errors.New("registry: invalid delegation parameters")
+	ErrUnauthorizedDelegation      = errors.New("registry: sender is not delegation principal or governor")
 )

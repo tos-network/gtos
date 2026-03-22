@@ -5,10 +5,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -37,6 +39,11 @@ func makeSysAction(t *testing.T, action sysaction.ActionKind, payload any) *sysa
 	return &sysaction.SysAction{Action: action, Payload: raw}
 }
 
+func grantGovernor(t *testing.T, st *state.StateDB, addr common.Address) {
+	t.Helper()
+	capability.GrantCapability(st, addr, registry.GovernorCapabilityBit)
+}
+
 func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
@@ -54,7 +61,7 @@ func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 		t.Fatalf("register policy: %v", err)
 	}
 	rec := ReadPolicyByOwnerAsset(st, owner, "TOS")
-	if rec.Owner != owner || rec.MaxAmount == nil || rec.MaxAmount.Cmp(big.NewInt(1000)) != 0 {
+	if rec.Owner != owner || rec.MaxAmount == nil || rec.MaxAmount.Cmp(big.NewInt(1000)) != 0 || rec.CreatedAt != 9 || rec.UpdatedAt != 9 {
 		t.Fatalf("unexpected policy %+v", rec)
 	}
 
@@ -70,5 +77,34 @@ func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 
 	if err := h.Handle(newCtx(st, owner), deactivate); err != ErrPolicyAlreadyRevoked {
 		t.Fatalf("expected already revoked error, got %v", err)
+	}
+}
+
+func TestGovernorCanRegisterAndDeactivatePayPolicy(t *testing.T) {
+	st := newTestState()
+	h := &handler{}
+	governor := common.HexToAddress("0x9999000000000000000000000000000000000000")
+	owner := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	policyID := common.HexToHash("0x02")
+	grantGovernor(t, st, governor)
+
+	register := makeSysAction(t, sysaction.ActionRegistryRegisterPayPolicy, registerPolicyPayload{
+		PolicyID:  policyID.Hex(),
+		Kind:      2,
+		Owner:     owner.Hex(),
+		Asset:     "TOS",
+		MaxAmount: "500",
+	})
+	if err := h.Handle(newCtx(st, governor), register); err != nil {
+		t.Fatalf("governor register policy: %v", err)
+	}
+	deactivate := makeSysAction(t, sysaction.ActionRegistryDeactivatePayPolicy, deactivatePolicyPayload{
+		PolicyID: policyID.Hex(),
+	})
+	if err := h.Handle(newCtx(st, governor), deactivate); err != nil {
+		t.Fatalf("governor deactivate policy: %v", err)
+	}
+	if got := ReadPolicy(st, policyID); got.Status != PolicyRevoked || got.UpdatedAt != 9 {
+		t.Fatalf("unexpected revoked policy %+v", got)
 	}
 }

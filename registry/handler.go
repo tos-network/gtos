@@ -1,7 +1,9 @@
 package registry
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 
 	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
@@ -57,7 +59,15 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
 	}
+	p.Name = strings.TrimSpace(p.Name)
 	if p.Name == "" {
+		return ErrInvalidCapabilityName
+	}
+	if !IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedCapability
+	}
+	manifestRef, err := parseOptionalBytes32(p.ManifestRef)
+	if err != nil {
 		return ErrInvalidCapabilityName
 	}
 
@@ -66,23 +76,25 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 	if existing.Name != "" {
 		return ErrCapabilityAlreadyRegistered
 	}
-	if bit, ok := capability.CapabilityBit(ctx.StateDB, p.Name); ok {
+	if bit, ok := capabilityBit(ctx.StateDB, p.Name); ok {
 		if bit != uint8(p.BitIndex) {
-			return capability.ErrCapabilityBitConflict
+			return errCapabilityBitConflict()
 		}
-	} else if err := capability.RegisterCapabilityNameAtBit(ctx.StateDB, p.Name, uint8(p.BitIndex)); err != nil {
+	} else if err := registerCapabilityNameAtBit(ctx.StateDB, p.Name, uint8(p.BitIndex)); err != nil {
 		return err
 	}
+	now := currentBlockU64(ctx)
 
 	rec := CapabilityRecord{
-		Name:     p.Name,
-		BitIndex: p.BitIndex,
-		Category: p.Category,
-		Version:  p.Version,
-		Status:   CapActive,
-	}
-	if p.ManifestRef != "" {
-		rec.ManifestRef = common.HexToHash(p.ManifestRef)
+		Owner:       ctx.From,
+		Name:        p.Name,
+		BitIndex:    p.BitIndex,
+		Category:    p.Category,
+		Version:     p.Version,
+		Status:      CapActive,
+		ManifestRef: manifestRef,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	WriteCapability(ctx.StateDB, rec)
@@ -103,6 +115,9 @@ func (h *registryHandler) handleDeprecateCap(ctx *sysaction.Context, sa *sysacti
 	if rec.Name == "" {
 		return ErrCapabilityNotFound
 	}
+	if rec.Owner != (common.Address{}) && ctx.From != rec.Owner && !IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedCapability
+	}
 	if rec.Status == CapDeprecated {
 		return ErrCapabilityAlreadyDeprecated
 	}
@@ -113,6 +128,7 @@ func (h *registryHandler) handleDeprecateCap(ctx *sysaction.Context, sa *sysacti
 		return ErrCapabilityAlreadyDeprecated
 	}
 	rec.Status = CapDeprecated
+	rec.UpdatedAt = currentBlockU64(ctx)
 	WriteCapability(ctx.StateDB, rec)
 	return nil
 }
@@ -127,6 +143,9 @@ func (h *registryHandler) handleRevokeCap(ctx *sysaction.Context, sa *sysaction.
 	if rec.Name == "" {
 		return ErrCapabilityNotFound
 	}
+	if rec.Owner != (common.Address{}) && ctx.From != rec.Owner && !IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedCapability
+	}
 	if rec.Status == CapRevoked {
 		return ErrCapabilityAlreadyRevoked
 	}
@@ -135,6 +154,7 @@ func (h *registryHandler) handleRevokeCap(ctx *sysaction.Context, sa *sysaction.
 	}
 
 	rec.Status = CapRevoked
+	rec.UpdatedAt = currentBlockU64(ctx)
 	WriteCapability(ctx.StateDB, rec)
 	return nil
 }
@@ -159,18 +179,37 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 		return err
 	}
 
-	principal := common.HexToAddress(p.Principal)
-	delegate := common.HexToAddress(p.Delegate)
+	principal, err := parseStrictHexAddress(p.Principal)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	delegate, err := parseStrictHexAddress(p.Delegate)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
 	if principal == (common.Address{}) || delegate == (common.Address{}) {
 		return ErrInvalidDelegation
 	}
+	if ctx.From != principal && !IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedDelegation
+	}
 
-	scopeRef := common.HexToHash(p.ScopeRef)
-	capRef := common.HexToHash(p.CapabilityRef)
-	policyRef := common.HexToHash(p.PolicyRef)
+	scopeRef, err := parseOptionalBytes32(p.ScopeRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	capRef, err := parseOptionalBytes32(p.CapabilityRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	policyRef, err := parseOptionalBytes32(p.PolicyRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
 	if p.ExpiryMS > 0 && p.NotBeforeMS > 0 && p.ExpiryMS < p.NotBeforeMS {
 		return ErrInvalidDelegationWindow
 	}
+	now := currentBlockU64(ctx)
 
 	rec := DelegationRecord{
 		Principal:     principal,
@@ -181,6 +220,8 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 		NotBeforeMS:   p.NotBeforeMS,
 		ExpiryMS:      p.ExpiryMS,
 		Status:        DelActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	WriteDelegation(ctx.StateDB, rec)
@@ -199,9 +240,21 @@ func (h *registryHandler) handleRevokeDelegation(ctx *sysaction.Context, sa *sys
 		return err
 	}
 
-	principal := common.HexToAddress(p.Principal)
-	delegate := common.HexToAddress(p.Delegate)
-	scopeRef := common.HexToHash(p.ScopeRef)
+	principal, err := parseStrictHexAddress(p.Principal)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	delegate, err := parseStrictHexAddress(p.Delegate)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	scopeRef, err := parseOptionalBytes32(p.ScopeRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
+	if ctx.From != principal && !IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedDelegation
+	}
 
 	if !DelegationExists(ctx.StateDB, principal, delegate, scopeRef) {
 		return ErrDelegationNotFound
@@ -213,6 +266,55 @@ func (h *registryHandler) handleRevokeDelegation(ctx *sysaction.Context, sa *sys
 	}
 
 	rec.Status = DelRevoked
+	rec.UpdatedAt = currentBlockU64(ctx)
 	WriteDelegation(ctx.StateDB, rec)
 	return nil
+}
+
+func currentBlockU64(ctx *sysaction.Context) uint64 {
+	if ctx == nil || ctx.BlockNumber == nil || ctx.BlockNumber.Sign() < 0 || !ctx.BlockNumber.IsUint64() {
+		return 0
+	}
+	return ctx.BlockNumber.Uint64()
+}
+
+func parseStrictHexAddress(input string) (common.Address, error) {
+	input = strings.TrimSpace(input)
+	if !common.IsHexAddress(input) {
+		return common.Address{}, ErrInvalidDelegation
+	}
+	return common.HexToAddress(input), nil
+}
+
+func parseOptionalBytes32(input string) ([32]byte, error) {
+	var out [32]byte
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return out, nil
+	}
+	raw := input
+	if strings.HasPrefix(raw, "0x") || strings.HasPrefix(raw, "0X") {
+		raw = raw[2:]
+	}
+	if len(raw) != 64 {
+		return out, ErrInvalidDelegation
+	}
+	decoded, err := hex.DecodeString(raw)
+	if err != nil || len(decoded) != 32 {
+		return out, ErrInvalidDelegation
+	}
+	copy(out[:], decoded)
+	return out, nil
+}
+
+func capabilityBit(db capabilityStateDB, name string) (uint8, bool) {
+	return capability.CapabilityBit(db, name)
+}
+
+func registerCapabilityNameAtBit(db capabilityStateDB, name string, bit uint8) error {
+	return capability.RegisterCapabilityNameAtBit(db, name, bit)
+}
+
+func errCapabilityBitConflict() error {
+	return capability.ErrCapabilityBitConflict
 }

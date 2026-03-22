@@ -42,9 +42,13 @@ func capFieldSlot(base common.Hash, offset uint64) common.Hash {
 //
 //	0: bitIndex(u16) | category(u16) | version(u32) | status(u8)  (packed)
 //	1: manifestRef (bytes32)
+//	2: owner (address)
+//	3: createdAt(u64) | updatedAt(u64)
 const (
 	capFieldPacked   uint64 = 0
 	capFieldManifest uint64 = 1
+	capFieldOwner    uint64 = 2
+	capFieldMeta     uint64 = 3
 )
 
 // ReadCapability reads a capability record from state. Returns a zero record
@@ -70,6 +74,13 @@ func ReadCapability(db stateDB, name string) CapabilityRecord {
 	manifest := db.GetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldManifest))
 	copy(rec.ManifestRef[:], manifest[:])
 
+	owner := db.GetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldOwner))
+	rec.Owner = common.BytesToAddress(owner[:])
+
+	meta := db.GetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldMeta))
+	rec.CreatedAt = binary.BigEndian.Uint64(meta[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(meta[8:16])
+
 	return rec
 }
 
@@ -89,6 +100,15 @@ func WriteCapability(db stateDB, rec CapabilityRecord) {
 	var manifest common.Hash
 	copy(manifest[:], rec.ManifestRef[:])
 	db.SetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldManifest), manifest)
+
+	var owner common.Hash
+	copy(owner[:], rec.Owner.Bytes())
+	db.SetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldOwner), owner)
+
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(params.CapabilityRegistryAddress, capFieldSlot(base, capFieldMeta), meta)
 }
 
 // ---------------------------------------------------------------------------
@@ -120,10 +140,12 @@ func delFieldSlot(base common.Hash, offset uint64) common.Hash {
 //	0: capabilityRef (bytes32)
 //	1: policyRef (bytes32)
 //	2: notBeforeMS(u64) | expiryMS(u64) | status(u8)  (packed)
+//	3: createdAt(u64) | updatedAt(u64)
 const (
 	delFieldCapRef  uint64 = 0
 	delFieldPolRef  uint64 = 1
 	delFieldTimings uint64 = 2
+	delFieldMeta    uint64 = 3
 )
 
 // ReadDelegation reads a delegation record from state. Returns a zero record
@@ -151,6 +173,10 @@ func ReadDelegation(db stateDB, principal, delegate common.Address, scope [32]by
 	rec.NotBeforeMS = binary.BigEndian.Uint64(timings[0:8])
 	rec.ExpiryMS = binary.BigEndian.Uint64(timings[8:16])
 	rec.Status = DelegationStatus(timings[16])
+
+	meta := db.GetState(params.DelegationRegistryAddress, delFieldSlot(base, delFieldMeta))
+	rec.CreatedAt = binary.BigEndian.Uint64(meta[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(meta[8:16])
 
 	return rec
 }
@@ -185,4 +211,9 @@ func WriteDelegation(db stateDB, rec DelegationRecord) {
 	binary.BigEndian.PutUint64(timings[8:16], rec.ExpiryMS)
 	timings[16] = byte(rec.Status)
 	db.SetState(params.DelegationRegistryAddress, delFieldSlot(base, delFieldTimings), timings)
+
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(params.DelegationRegistryAddress, delFieldSlot(base, delFieldMeta), meta)
 }

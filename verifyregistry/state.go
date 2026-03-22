@@ -49,6 +49,8 @@ func slotOffset(base common.Hash, off uint64) common.Hash {
 // 0: verifierType(u16)|version(u32)|status(u8)
 // 1: verifierAddr
 // 2: policyRef
+// 3: controller
+// 4: createdAt(u64)|updatedAt(u64)
 func ReadVerifier(db stateDB, name string) VerifierRecord {
 	base := verifierSlot(name)
 	packed := db.GetState(params.VerificationRegistryAddress, base)
@@ -63,6 +65,11 @@ func ReadVerifier(db stateDB, name string) VerifierRecord {
 	rec.VerifierAddr = common.BytesToAddress(addrRaw[:])
 	policyRaw := db.GetState(params.VerificationRegistryAddress, slotOffset(base, 2))
 	copy(rec.PolicyRef[:], policyRaw[:])
+	controllerRaw := db.GetState(params.VerificationRegistryAddress, slotOffset(base, 3))
+	rec.Controller = common.BytesToAddress(controllerRaw[:])
+	metaRaw := db.GetState(params.VerificationRegistryAddress, slotOffset(base, 4))
+	rec.CreatedAt = binary.BigEndian.Uint64(metaRaw[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(metaRaw[8:16])
 	return rec
 }
 
@@ -77,22 +84,32 @@ func WriteVerifier(db stateDB, rec VerifierRecord) {
 	copy(addr[:], rec.VerifierAddr.Bytes())
 	db.SetState(params.VerificationRegistryAddress, slotOffset(base, 1), addr)
 	db.SetState(params.VerificationRegistryAddress, slotOffset(base, 2), common.Hash(rec.PolicyRef))
+	var controller common.Hash
+	copy(controller[:], rec.Controller.Bytes())
+	db.SetState(params.VerificationRegistryAddress, slotOffset(base, 3), controller)
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(params.VerificationRegistryAddress, slotOffset(base, 4), meta)
 }
 
 // Subject verification layout:
 // 0: verifiedAt(u64)|expiryMS(u64)|status(u8)
+// 1: updatedAt(u64)
 func ReadSubjectVerification(db stateDB, subject common.Address, proofType string) SubjectVerificationRecord {
 	base := verificationSlot(subject, proofType)
 	packed := db.GetState(params.VerificationRegistryAddress, base)
 	if packed == (common.Hash{}) {
 		return SubjectVerificationRecord{}
 	}
+	meta := db.GetState(params.VerificationRegistryAddress, slotOffset(base, 1))
 	return SubjectVerificationRecord{
 		Subject:    subject,
 		ProofType:  proofType,
 		VerifiedAt: binary.BigEndian.Uint64(packed[0:8]),
 		ExpiryMS:   binary.BigEndian.Uint64(packed[8:16]),
 		Status:     VerificationStatus(packed[16]),
+		UpdatedAt:  binary.BigEndian.Uint64(meta[0:8]),
 	}
 }
 
@@ -103,4 +120,7 @@ func WriteSubjectVerification(db stateDB, rec SubjectVerificationRecord) {
 	binary.BigEndian.PutUint64(packed[8:16], rec.ExpiryMS)
 	packed[16] = byte(rec.Status)
 	db.SetState(params.VerificationRegistryAddress, base, packed)
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.UpdatedAt)
+	db.SetState(params.VerificationRegistryAddress, slotOffset(base, 1), meta)
 }

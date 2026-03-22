@@ -47,12 +47,15 @@ func TestTolGetCapabilityReturnsRegistryBackedRecord(t *testing.T) {
 		t.Fatalf("register capability bit: %v", err)
 	}
 	registry.WriteCapability(st, registry.CapabilityRecord{
+		Owner:       common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		Name:        "oracle",
 		BitIndex:    0,
 		Category:    7,
 		Version:     2,
 		Status:      registry.CapActive,
 		ManifestRef: [32]byte{0xAA},
+		CreatedAt:   12,
+		UpdatedAt:   13,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -65,7 +68,7 @@ func TestTolGetCapabilityReturnsRegistryBackedRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil capability")
 	}
-	if got.BitIndex != 0 || got.Category != 7 || got.Version != 2 || got.Status != "active" {
+	if got.BitIndex != 0 || got.Category != 7 || got.Version != 2 || got.Status != "active" || got.Owner == "" || got.CreatedAt != 12 || got.UpdatedAt != 13 {
 		t.Fatalf("unexpected capability payload %+v", got)
 	}
 }
@@ -98,6 +101,8 @@ func TestTolGetDelegationReturnsRecord(t *testing.T) {
 		NotBeforeMS:   100,
 		ExpiryMS:      200,
 		Status:        registry.DelActive,
+		CreatedAt:     14,
+		UpdatedAt:     15,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -110,7 +115,7 @@ func TestTolGetDelegationReturnsRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil delegation")
 	}
-	if got.Status != "active" || got.NotBeforeMS != 100 || got.ExpiryMS != 200 {
+	if got.Status != "active" || got.NotBeforeMS != 100 || got.ExpiryMS != 200 || got.CreatedAt != 14 || got.UpdatedAt != 15 {
 		t.Fatalf("unexpected delegation payload %+v", got)
 	}
 }
@@ -130,6 +135,8 @@ func TestTolGetDelegationReturnsEffectiveExpiredStatus(t *testing.T) {
 		NotBeforeMS: 100,
 		ExpiryMS:    200,
 		Status:      registry.DelActive,
+		CreatedAt:   16,
+		UpdatedAt:   17,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -172,6 +179,8 @@ func TestTolGetPackageReturnsRecord(t *testing.T) {
 		ContractCount:  2,
 		DiscoveryRef:   [32]byte{0x44},
 		PublishedAt:    1234,
+		CreatedAt:      1234,
+		UpdatedAt:      1235,
 	}
 	pkgregistry.WritePackage(st, rec)
 	backend := newBackendMock()
@@ -185,7 +194,7 @@ func TestTolGetPackageReturnsRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil package")
 	}
-	if got.Channel != "stable" || got.ContractCount != 2 || got.PublishedAt != 1234 {
+	if got.Channel != "stable" || got.ContractCount != 2 || got.PublishedAt != 1234 || got.CreatedAt != 1234 || got.UpdatedAt != 1235 {
 		t.Fatalf("unexpected package payload %+v", got)
 	}
 	if got.Trusted {
@@ -212,12 +221,16 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 		PublisherID:    [32]byte{0xAA},
 		Channel:        pkgregistry.ChannelStable,
 		Status:         pkgregistry.PkgActive,
+		CreatedAt:      1,
+		UpdatedAt:      1,
 	})
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: [32]byte{0xAA},
 		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
 		Namespace:   "demo",
 		Status:      pkgregistry.PkgActive,
+		CreatedAt:   2,
+		UpdatedAt:   2,
 	})
 	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
 		PackageName:    "demo.checkout",
@@ -226,6 +239,8 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 		PublisherID:    [32]byte{0xAA},
 		Channel:        pkgregistry.ChannelStable,
 		Status:         pkgregistry.PkgActive,
+		CreatedAt:      3,
+		UpdatedAt:      3,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -240,6 +255,43 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 	}
 	if got.Version != "1.1.0" || got.Channel != "stable" || got.Namespace != "demo" || !got.Trusted {
 		t.Fatalf("unexpected latest package %+v", got)
+	}
+}
+
+func TestTolGetPackageReturnsUntrustedWhenPublisherSuspended(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pubID := [32]byte{0xAB}
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Namespace:   "demo",
+		Status:      pkgregistry.PkgDeprecated,
+		CreatedAt:   2,
+		UpdatedAt:   3,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "2.0.0",
+		PackageHash:    [32]byte{0x22},
+		PublisherID:    pubID,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+		CreatedAt:      4,
+		UpdatedAt:      4,
+	})
+	backend := newBackendMock()
+	backend.state = st
+	api := NewTOSAPI(backend)
+
+	got, err := api.TolGetPackage(context.Background(), "demo.checkout", "2.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.Trusted {
+		t.Fatalf("expected package to be untrusted under suspended publisher, got %+v", got)
 	}
 }
 
@@ -276,6 +328,8 @@ func TestTolGetPublisherReturnsRecord(t *testing.T) {
 		MetadataRef: [32]byte{0xAB},
 		Namespace:   "demo.checkout",
 		Status:      pkgregistry.PkgActive,
+		CreatedAt:   55,
+		UpdatedAt:   56,
 	}
 	pkgregistry.WritePublisher(st, rec)
 	backend := newBackendMock()
@@ -289,7 +343,7 @@ func TestTolGetPublisherReturnsRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil publisher")
 	}
-	if got.Controller != rec.Controller.Hex() || got.Status != "active" || got.Namespace != "demo.checkout" {
+	if got.Controller != rec.Controller.Hex() || got.Status != "active" || got.Namespace != "demo.checkout" || got.CreatedAt != 55 || got.UpdatedAt != 56 {
 		t.Fatalf("unexpected publisher payload %+v", got)
 	}
 }
@@ -303,7 +357,9 @@ func TestTolGetPublisherByNamespaceReturnsRecord(t *testing.T) {
 		PublisherID: [32]byte{0x98},
 		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
 		Namespace:   "demo.checkout",
-		Status:      pkgregistry.PkgActive,
+		Status:      pkgregistry.PkgDeprecated,
+		CreatedAt:   77,
+		UpdatedAt:   88,
 	}
 	pkgregistry.WritePublisher(st, rec)
 	backend := newBackendMock()
@@ -320,6 +376,9 @@ func TestTolGetPublisherByNamespaceReturnsRecord(t *testing.T) {
 	if got.Namespace != "demo.checkout" || got.Controller != rec.Controller.Hex() {
 		t.Fatalf("unexpected publisher payload %+v", got)
 	}
+	if got.Status != "suspended" || got.CreatedAt != 77 || got.UpdatedAt != 88 {
+		t.Fatalf("unexpected publisher lifecycle payload %+v", got)
+	}
 }
 
 func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
@@ -331,9 +390,12 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
+		Controller:   common.HexToAddress("0xaaaa000000000000000000000000000000000000"),
 		VerifierAddr: verifierAddr,
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
+		CreatedAt:    20,
+		UpdatedAt:    21,
 	})
 	subject := common.HexToAddress("0xabcd")
 	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
@@ -342,6 +404,7 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 		VerifiedAt: 7,
 		ExpiryMS:   1000,
 		Status:     verifyregistry.VerificationActive,
+		UpdatedAt:  22,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -351,14 +414,14 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected verifier error: %v", err)
 	}
-	if verifier == nil || verifier.VerifierAddr != verifierAddr.Hex() {
+	if verifier == nil || verifier.VerifierAddr != verifierAddr.Hex() || verifier.Controller == "" || verifier.CreatedAt != 20 || verifier.UpdatedAt != 21 {
 		t.Fatalf("unexpected verifier payload %+v", verifier)
 	}
 	claim, err := api.TolGetVerification(context.Background(), subject.Hex(), "state_proof")
 	if err != nil {
 		t.Fatalf("unexpected verification error: %v", err)
 	}
-	if claim == nil || claim.Status != "active" || claim.VerifiedAt != 7 {
+	if claim == nil || claim.Status != "active" || claim.VerifiedAt != 7 || claim.UpdatedAt != 22 {
 		t.Fatalf("unexpected verification payload %+v", claim)
 	}
 }
@@ -372,9 +435,12 @@ func TestTolGetVerificationReturnsEffectiveExpiredStatus(t *testing.T) {
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
+		Controller:   common.HexToAddress("0xaaaa000000000000000000000000000000000000"),
 		VerifierAddr: verifierAddr,
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
+		CreatedAt:    20,
+		UpdatedAt:    21,
 	})
 	subject := common.HexToAddress("0xabcd")
 	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
@@ -383,6 +449,7 @@ func TestTolGetVerificationReturnsEffectiveExpiredStatus(t *testing.T) {
 		VerifiedAt: 7,
 		ExpiryMS:   1000,
 		Status:     verifyregistry.VerificationActive,
+		UpdatedAt:  22,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -411,6 +478,8 @@ func TestTolGetSettlementPolicyReturnsRecord(t *testing.T) {
 		Asset:     "TOS",
 		MaxAmount: big.NewInt(500),
 		Status:    paypolicy.PolicyActive,
+		CreatedAt: 30,
+		UpdatedAt: 31,
 	})
 	backend := newBackendMock()
 	backend.state = st
@@ -420,7 +489,7 @@ func TestTolGetSettlementPolicyReturnsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected settlement policy error: %v", err)
 	}
-	if got == nil || got.MaxAmount != "500" || got.Status != "active" {
+	if got == nil || got.MaxAmount != "500" || got.Status != "active" || got.CreatedAt != 30 || got.UpdatedAt != 31 {
 		t.Fatalf("unexpected settlement policy payload %+v", got)
 	}
 }

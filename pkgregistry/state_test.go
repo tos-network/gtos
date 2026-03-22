@@ -42,6 +42,8 @@ func TestPublisherRoundTrip(t *testing.T) {
 		MetadataRef: metaRef,
 		Namespace:   "demo.checkout",
 		Status:      PkgActive,
+		CreatedAt:   10,
+		UpdatedAt:   12,
 	}
 	WritePublisher(db, rec)
 
@@ -57,6 +59,9 @@ func TestPublisherRoundTrip(t *testing.T) {
 	}
 	if got.Namespace != "demo.checkout" {
 		t.Fatalf("Namespace mismatch: got %q, want %q", got.Namespace, "demo.checkout")
+	}
+	if got.CreatedAt != 10 || got.UpdatedAt != 12 {
+		t.Fatalf("timestamps mismatch: got (%d,%d), want (10,12)", got.CreatedAt, got.UpdatedAt)
 	}
 
 	// Update status
@@ -77,6 +82,8 @@ func TestPublisherNamespaceLookup(t *testing.T) {
 		Controller:  common.HexToAddress("0xABCDEF0123456789ABCDEF0123456789ABCDEF01"),
 		Namespace:   "demo.checkout",
 		Status:      PkgActive,
+		CreatedAt:   1,
+		UpdatedAt:   1,
 	}
 	WritePublisher(db, rec)
 
@@ -103,6 +110,8 @@ func TestPackageRoundTrip(t *testing.T) {
 		ContractCount:  3,
 		DiscoveryRef:   [32]byte{0xA1, 0xB2, 0xC3},
 		PublishedAt:    1700000000,
+		CreatedAt:      1700000000,
+		UpdatedAt:      1700001000,
 	}
 	WritePackage(db, rec)
 
@@ -137,6 +146,9 @@ func TestPackageRoundTrip(t *testing.T) {
 	if got.PublishedAt != 1700000000 {
 		t.Fatalf("PublishedAt: got %d, want 1700000000", got.PublishedAt)
 	}
+	if got.CreatedAt != 1700000000 || got.UpdatedAt != 1700001000 {
+		t.Fatalf("timestamps mismatch: got (%d,%d), want (1700000000,1700001000)", got.CreatedAt, got.UpdatedAt)
+	}
 }
 
 func TestPackageByHashLookup(t *testing.T) {
@@ -151,6 +163,8 @@ func TestPackageByHashLookup(t *testing.T) {
 		Status:         PkgDeprecated,
 		ContractCount:  1,
 		PublishedAt:    1700001000,
+		CreatedAt:      1700001000,
+		UpdatedAt:      1700002000,
 	}
 	WritePackage(db, rec)
 
@@ -199,6 +213,8 @@ func TestLatestPackageByChannelRoundTrip(t *testing.T) {
 		PublisherID:    [32]byte{0x01},
 		Channel:        ChannelStable,
 		Status:         PkgActive,
+		CreatedAt:      1,
+		UpdatedAt:      1,
 	}
 	v2 := PackageRecord{
 		PackageName:    "tol.std.discovery",
@@ -207,6 +223,8 @@ func TestLatestPackageByChannelRoundTrip(t *testing.T) {
 		PublisherID:    [32]byte{0x01},
 		Channel:        ChannelStable,
 		Status:         PkgActive,
+		CreatedAt:      2,
+		UpdatedAt:      2,
 	}
 	WritePackage(db, v1)
 	WritePackage(db, v2)
@@ -230,6 +248,8 @@ func TestLatestPackageClearsWhenIndexedVersionBecomesInactive(t *testing.T) {
 		PublisherID:    [32]byte{0x02},
 		Channel:        ChannelBeta,
 		Status:         PkgActive,
+		CreatedAt:      3,
+		UpdatedAt:      3,
 	}
 	WritePackage(db, rec)
 	if got := ReadLatestPackage(db, rec.PackageName, rec.Channel); got.PackageVersion != rec.PackageVersion {

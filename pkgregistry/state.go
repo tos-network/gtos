@@ -19,6 +19,9 @@ type stateDB interface {
 // addr is the system address for the package registry.
 var addr = params.PackageRegistryAddress
 
+const publisherNamespaceOffset = 3
+const publisherMetaOffset = publisherNamespaceOffset + stringBudget
+
 // ---------------------------------------------------------------------------
 // Slot formulas
 // ---------------------------------------------------------------------------
@@ -112,7 +115,12 @@ func ReadPublisher(db stateDB, pubID [32]byte) PublisherRecord {
 	rec.Status = PackageStatus(raw[31])
 
 	// slot+3: Namespace
-	rec.Namespace = readString(db, base, 3)
+	rec.Namespace = readString(db, base, publisherNamespaceOffset)
+
+	// slot+meta: CreatedAt / UpdatedAt packed
+	raw = db.GetState(addr, slotOffset(base, publisherMetaOffset))
+	rec.CreatedAt = binary.BigEndian.Uint64(raw[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(raw[8:16])
 
 	return rec
 }
@@ -136,9 +144,15 @@ func WritePublisher(db stateDB, rec PublisherRecord) {
 
 	// slot+3: Namespace
 	if ns := strings.TrimSpace(rec.Namespace); ns != "" {
-		writeString(db, base, 3, ns)
+		writeString(db, base, publisherNamespaceOffset, ns)
 		writeNamespaceLookup(db, ns, rec.PublisherID)
 	}
+
+	// slot+meta: CreatedAt / UpdatedAt packed
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(addr, slotOffset(base, publisherMetaOffset), meta)
 }
 
 func writeNamespaceLookup(db stateDB, namespace string, pubID [32]byte) {
@@ -232,6 +246,7 @@ func readString(db stateDB, base common.Hash, offset uint64) string {
 //	M+3     : Channel(uint16) | Status(uint8) | ContractCount(uint16) packed
 //	M+4     : DiscoveryRef
 //	M+5     : PublishedAt
+//	M+6     : CreatedAt | UpdatedAt packed
 //
 // Because strings are variable-length we store them with a fixed max budget:
 // maxSlots = 1 + ceil(maxPackageStringLen/32) = 5 slots each.
@@ -284,6 +299,12 @@ func readPackageFromBase(db stateDB, base common.Hash, name, version string) Pac
 	// PublishedAt
 	raw = db.GetState(addr, slotOffset(base, off))
 	rec.PublishedAt = binary.BigEndian.Uint64(raw[24:])
+	off++
+
+	// CreatedAt / UpdatedAt packed
+	raw = db.GetState(addr, slotOffset(base, off))
+	rec.CreatedAt = binary.BigEndian.Uint64(raw[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(raw[8:16])
 
 	return rec
 }
@@ -328,6 +349,13 @@ func WritePackage(db stateDB, rec PackageRecord) {
 	var tsVal common.Hash
 	binary.BigEndian.PutUint64(tsVal[24:], rec.PublishedAt)
 	db.SetState(addr, slotOffset(base, off), tsVal)
+	off++
+
+	// CreatedAt / UpdatedAt packed
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(addr, slotOffset(base, off), meta)
 
 	// Hash lookup: store name+version so ReadPackageByHash can reconstruct.
 	writeHashLookup(db, rec.PackageHash, rec.PackageName, rec.PackageVersion)

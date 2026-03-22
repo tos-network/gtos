@@ -25,6 +25,39 @@ const (
 	PkgRevoked    PackageStatus = 2
 )
 
+func (s PackageStatus) String() string {
+	switch s {
+	case PkgDeprecated:
+		return "deprecated"
+	case PkgRevoked:
+		return "revoked"
+	default:
+		return "active"
+	}
+}
+
+func canTransitionPackageStatus(cur, next PackageStatus) bool {
+	switch cur {
+	case PkgActive:
+		return next == PkgDeprecated || next == PkgRevoked
+	case PkgDeprecated:
+		return next == PkgRevoked
+	default:
+		return false
+	}
+}
+
+func canTransitionPublisherStatus(cur, next PackageStatus) bool {
+	switch cur {
+	case PkgActive:
+		return next == PkgDeprecated || next == PkgRevoked
+	case PkgDeprecated:
+		return next == PkgActive || next == PkgRevoked
+	default:
+		return false
+	}
+}
+
 // PublisherRecord is the on-chain identity of a package publisher.
 type PublisherRecord struct {
 	PublisherID [32]byte
@@ -32,6 +65,8 @@ type PublisherRecord struct {
 	MetadataRef [32]byte
 	Namespace   string
 	Status      PackageStatus
+	CreatedAt   uint64
+	UpdatedAt   uint64
 }
 
 // PackageRecord is the on-chain record for a published package version.
@@ -46,17 +81,22 @@ type PackageRecord struct {
 	ContractCount  uint16
 	DiscoveryRef   [32]byte
 	PublishedAt    uint64
+	CreatedAt      uint64
+	UpdatedAt      uint64
 }
 
 var (
-	ErrPublisherExists   = errors.New("pkgregistry: publisher already registered")
-	ErrPublisherNotFound = errors.New("pkgregistry: publisher not found")
-	ErrPackageExists     = errors.New("pkgregistry: package version already published")
-	ErrPackageNotFound   = errors.New("pkgregistry: package version not found")
-	ErrInvalidPublisher  = errors.New("pkgregistry: invalid publisher payload")
-	ErrInvalidPackage    = errors.New("pkgregistry: invalid package payload")
-	ErrPublisherInactive = errors.New("pkgregistry: publisher is not active")
-	ErrNamespaceExists   = errors.New("pkgregistry: namespace already claimed")
-	ErrNamespaceMissing  = errors.New("pkgregistry: namespace missing")
-	ErrNamespaceMismatch = errors.New("pkgregistry: package namespace mismatch")
+	ErrPublisherExists       = errors.New("pkgregistry: publisher already registered")
+	ErrPublisherNotFound     = errors.New("pkgregistry: publisher not found")
+	ErrPackageExists         = errors.New("pkgregistry: package version already published")
+	ErrPackageNotFound       = errors.New("pkgregistry: package version not found")
+	ErrInvalidPublisher      = errors.New("pkgregistry: invalid publisher payload")
+	ErrInvalidPackage        = errors.New("pkgregistry: invalid package payload")
+	ErrPublisherInactive     = errors.New("pkgregistry: publisher is not active")
+	ErrNamespaceExists       = errors.New("pkgregistry: namespace already claimed")
+	ErrNamespaceMissing      = errors.New("pkgregistry: namespace missing")
+	ErrNamespaceMismatch     = errors.New("pkgregistry: package namespace mismatch")
+	ErrUnauthorizedPublisher = errors.New("pkgregistry: sender is not publisher controller or governor")
+	ErrInvalidPublisherState = errors.New("pkgregistry: invalid publisher status transition")
+	ErrInvalidPackageState   = errors.New("pkgregistry: invalid package status transition")
 )

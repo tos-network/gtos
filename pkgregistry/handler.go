@@ -1,10 +1,12 @@
 package pkgregistry
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -53,20 +55,26 @@ func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa 
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
 	}
-	controller := common.HexToAddress(p.Controller)
-	pubID := common.HexToHash(p.PublisherID)
+	controller, err := parseStrictHexAddress(p.Controller)
+	if err != nil {
+		return ErrInvalidPublisher
+	}
+	pubID, err := parseRequiredBytes32(p.PublisherID)
+	if err != nil {
+		return ErrInvalidPublisher
+	}
 	namespace := strings.TrimSpace(p.Namespace)
-	if controller == (common.Address{}) || pubID == (common.Hash{}) {
+	if controller == (common.Address{}) {
 		return ErrInvalidPublisher
 	}
 	if namespace == "" {
 		return ErrNamespaceMissing
 	}
-	if ctx.From != controller {
-		return ErrInvalidPublisher
-	}
 	var pubKey [32]byte
 	copy(pubKey[:], pubID[:])
+	if ctx.From != controller && !registry.IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedPublisher
+	}
 	if existing := ReadPublisher(ctx.StateDB, pubKey); existing.Controller != (common.Address{}) {
 		return ErrPublisherExists
 	}
@@ -80,9 +88,15 @@ func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa 
 		Status:      PkgActive,
 	}
 	if p.MetadataRef != "" {
-		meta := common.HexToHash(p.MetadataRef)
-		copy(rec.MetadataRef[:], meta[:])
+		meta, err := parseOptionalBytes32(p.MetadataRef)
+		if err != nil {
+			return ErrInvalidPublisher
+		}
+		rec.MetadataRef = meta
 	}
+	now := currentBlockU64(ctx)
+	rec.CreatedAt = now
+	rec.UpdatedAt = now
 	WritePublisher(ctx.StateDB, rec)
 	return nil
 }
@@ -98,21 +112,36 @@ func (h *pkgRegistryHandler) handleSetPublisherStatus(ctx *sysaction.Context, sa
 	if err := json.Unmarshal(sa.Payload, &p); err != nil {
 		return err
 	}
-	pubID := common.HexToHash(p.PublisherID)
+	pubID, err := parseRequiredBytes32(p.PublisherID)
+	if err != nil {
+		return ErrInvalidPublisher
+	}
 	var pubKey [32]byte
 	copy(pubKey[:], pubID[:])
 	rec := ReadPublisher(ctx.StateDB, pubKey)
 	if rec.Controller == (common.Address{}) {
 		return ErrPublisherNotFound
 	}
-	if ctx.From != rec.Controller {
-		return ErrInvalidPublisher
+	if ctx.From != rec.Controller && !registry.IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedPublisher
 	}
-	rec.Status = PackageStatus(p.Status)
+	next := PackageStatus(p.Status)
+	if rec.Status == next {
+		if p.MetadataRef == "" {
+			return nil
+		}
+	} else if !canTransitionPublisherStatus(rec.Status, next) {
+		return ErrInvalidPublisherState
+	}
+	rec.Status = next
 	if p.MetadataRef != "" {
-		meta := common.HexToHash(p.MetadataRef)
-		copy(rec.MetadataRef[:], meta[:])
+		meta, err := parseOptionalBytes32(p.MetadataRef)
+		if err != nil {
+			return ErrInvalidPublisher
+		}
+		rec.MetadataRef = meta
 	}
+	rec.UpdatedAt = currentBlockU64(ctx)
 	WritePublisher(ctx.StateDB, rec)
 	return nil
 }
@@ -140,26 +169,30 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 	if existing := ReadPackage(ctx.StateDB, p.PackageName, p.PackageVersion); existing.PackageHash != ([32]byte{}) {
 		return ErrPackageExists
 	}
-	pubIDHash := common.HexToHash(p.PublisherID)
+	pubIDHash, err := parseRequiredBytes32(p.PublisherID)
+	if err != nil {
+		return ErrInvalidPackage
+	}
 	var pubID [32]byte
 	copy(pubID[:], pubIDHash[:])
 	publisher := ReadPublisher(ctx.StateDB, pubID)
 	if publisher.Controller == (common.Address{}) {
 		return ErrPublisherNotFound
 	}
-	if ctx.From != publisher.Controller {
-		return ErrInvalidPublisher
+	if ctx.From != publisher.Controller && !registry.IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedPublisher
 	}
 	if publisher.Status != PkgActive {
 		return ErrPublisherInactive
 	}
-	pkgHash := common.HexToHash(p.PackageHash)
-	if pkgHash == (common.Hash{}) {
+	pkgHash, err := parseRequiredBytes32(p.PackageHash)
+	if err != nil {
 		return ErrInvalidPackage
 	}
 	if !PackageMatchesNamespace(p.PackageName, publisher.Namespace) {
 		return ErrNamespaceMismatch
 	}
+	now := currentBlockU64(ctx)
 	rec := PackageRecord{
 		PackageName:    p.PackageName,
 		PackageVersion: p.PackageVersion,
@@ -168,18 +201,26 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 		ContractCount:  p.ContractCount,
 		PublishedAt:    p.PublishedAt,
 		PublisherID:    pubID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	copy(rec.PackageHash[:], pkgHash[:])
 	if p.ManifestHash != "" {
-		manifest := common.HexToHash(p.ManifestHash)
-		copy(rec.ManifestHash[:], manifest[:])
+		manifest, err := parseOptionalBytes32(p.ManifestHash)
+		if err != nil {
+			return ErrInvalidPackage
+		}
+		rec.ManifestHash = manifest
 	}
 	if p.DiscoveryRef != "" {
-		discovery := common.HexToHash(p.DiscoveryRef)
-		copy(rec.DiscoveryRef[:], discovery[:])
+		discovery, err := parseOptionalBytes32(p.DiscoveryRef)
+		if err != nil {
+			return ErrInvalidPackage
+		}
+		rec.DiscoveryRef = discovery
 	}
-	if rec.PublishedAt == 0 && ctx.BlockNumber != nil {
-		rec.PublishedAt = ctx.BlockNumber.Uint64()
+	if rec.PublishedAt == 0 {
+		rec.PublishedAt = now
 	}
 	WritePackage(ctx.StateDB, rec)
 	return nil
@@ -200,10 +241,67 @@ func (h *pkgRegistryHandler) handleSetPackageStatus(ctx *sysaction.Context, sa *
 		return ErrPackageNotFound
 	}
 	publisher := ReadPublisher(ctx.StateDB, rec.PublisherID)
-	if publisher.Controller == (common.Address{}) || ctx.From != publisher.Controller {
-		return ErrInvalidPublisher
+	if publisher.Controller == (common.Address{}) {
+		return ErrPublisherNotFound
+	}
+	if ctx.From != publisher.Controller && !registry.IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedPublisher
+	}
+	if rec.Status == status {
+		return nil
+	}
+	if !canTransitionPackageStatus(rec.Status, status) {
+		return ErrInvalidPackageState
 	}
 	rec.Status = status
+	rec.UpdatedAt = currentBlockU64(ctx)
 	WritePackage(ctx.StateDB, rec)
 	return nil
+}
+
+func currentBlockU64(ctx *sysaction.Context) uint64 {
+	if ctx == nil || ctx.BlockNumber == nil || ctx.BlockNumber.Sign() < 0 || !ctx.BlockNumber.IsUint64() {
+		return 0
+	}
+	return ctx.BlockNumber.Uint64()
+}
+
+func parseStrictHexAddress(input string) (common.Address, error) {
+	input = strings.TrimSpace(input)
+	if !common.IsHexAddress(input) {
+		return common.Address{}, ErrInvalidPublisher
+	}
+	return common.HexToAddress(input), nil
+}
+
+func parseRequiredBytes32(input string) ([32]byte, error) {
+	out, err := parseOptionalBytes32(input)
+	if err != nil {
+		return out, err
+	}
+	if out == ([32]byte{}) {
+		return out, ErrInvalidPackage
+	}
+	return out, nil
+}
+
+func parseOptionalBytes32(input string) ([32]byte, error) {
+	var out [32]byte
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return out, nil
+	}
+	raw := input
+	if strings.HasPrefix(raw, "0x") || strings.HasPrefix(raw, "0X") {
+		raw = raw[2:]
+	}
+	if len(raw) != 64 {
+		return out, ErrInvalidPackage
+	}
+	decoded, err := hex.DecodeString(raw)
+	if err != nil || len(decoded) != 32 {
+		return out, ErrInvalidPackage
+	}
+	copy(out[:], decoded)
+	return out, nil
 }

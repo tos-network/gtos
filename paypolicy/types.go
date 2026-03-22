@@ -22,6 +22,8 @@ type PolicyRecord struct {
 	MaxAmount *big.Int
 	RulesRef  [32]byte
 	Status    PolicyStatus
+	CreatedAt uint64
+	UpdatedAt uint64
 }
 
 var (

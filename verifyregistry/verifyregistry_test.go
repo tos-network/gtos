@@ -5,10 +5,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/sysaction"
 )
 
@@ -37,6 +39,11 @@ func makeSysAction(t *testing.T, action sysaction.ActionKind, payload any) *sysa
 	return &sysaction.SysAction{Action: action, Payload: raw}
 }
 
+func grantGovernor(t *testing.T, st *state.StateDB, addr common.Address) {
+	t.Helper()
+	capability.GrantCapability(st, addr, registry.GovernorCapabilityBit)
+}
+
 func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
@@ -52,7 +59,7 @@ func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 		t.Fatalf("register verifier: %v", err)
 	}
 	rec := ReadVerifier(st, "state_proof")
-	if rec.Name != "state_proof" || rec.Status != VerifierActive {
+	if rec.Name != "state_proof" || rec.Status != VerifierActive || rec.Controller != verifier || rec.CreatedAt != 7 || rec.UpdatedAt != 7 {
 		t.Fatalf("unexpected verifier record %+v", rec)
 	}
 
@@ -66,7 +73,7 @@ func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 		t.Fatalf("attest verification: %v", err)
 	}
 	claim := ReadSubjectVerification(st, subject, "state_proof")
-	if claim.Subject != subject || claim.Status != VerificationActive || claim.VerifiedAt != 7 {
+	if claim.Subject != subject || claim.Status != VerificationActive || claim.VerifiedAt != 7 || claim.UpdatedAt != 7 {
 		t.Fatalf("unexpected subject verification %+v", claim)
 	}
 }
@@ -100,6 +107,47 @@ func TestInactiveVerifierBlocksVerificationWrites(t *testing.T) {
 	}
 	if err := h.Handle(newCtx(st, verifier), makeSysAction(t, sysaction.ActionRegistryDeactivateVerifier, verifierNamePayload{Name: "state_proof"})); err != ErrVerifierAlreadyRevoked {
 		t.Fatalf("expected already revoked error, got %v", err)
+	}
+}
+
+func TestGovernorCanDeactivateVerifierAndRevokeClaim(t *testing.T) {
+	st := newTestState()
+	h := &handler{}
+	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	governor := common.HexToAddress("0x9999000000000000000000000000000000000000")
+	subject := common.HexToAddress("0xabcd")
+	grantGovernor(t, st, governor)
+
+	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: verifier.Hex(),
+		Version:      1,
+	})
+	if err := h.Handle(newCtx(st, verifier), register); err != nil {
+		t.Fatalf("register verifier: %v", err)
+	}
+	attest := makeSysAction(t, sysaction.ActionRegistryAttestVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+		ExpiryMS:  2_000_000_000_000,
+	})
+	if err := h.Handle(newCtx(st, verifier), attest); err != nil {
+		t.Fatalf("attest verification: %v", err)
+	}
+	if err := h.Handle(newCtx(st, governor), makeSysAction(t, sysaction.ActionRegistryDeactivateVerifier, verifierNamePayload{Name: "state_proof"})); err != nil {
+		t.Fatalf("governor deactivate verifier: %v", err)
+	}
+	revoke := makeSysAction(t, sysaction.ActionRegistryRevokeVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+	})
+	if err := h.Handle(newCtx(st, governor), revoke); err != nil {
+		t.Fatalf("governor revoke verification: %v", err)
+	}
+	claim := ReadSubjectVerification(st, subject, "state_proof")
+	if claim.Status != VerificationRevoked || claim.UpdatedAt != 7 {
+		t.Fatalf("unexpected revoked claim %+v", claim)
 	}
 }
 

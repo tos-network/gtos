@@ -24,10 +24,13 @@ const (
 type VerifierRecord struct {
 	Name         string
 	VerifierType uint16
+	Controller   common.Address
 	VerifierAddr common.Address
 	PolicyRef    [32]byte
 	Version      uint32
 	Status       VerifierStatus
+	CreatedAt    uint64
+	UpdatedAt    uint64
 }
 
 type SubjectVerificationRecord struct {
@@ -36,6 +39,7 @@ type SubjectVerificationRecord struct {
 	VerifiedAt uint64
 	ExpiryMS   uint64
 	Status     VerificationStatus
+	UpdatedAt  uint64
 }
 
 var (

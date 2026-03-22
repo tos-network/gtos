@@ -56,6 +56,7 @@ func readAsset(db stateDB, base common.Hash) string {
 // 2: max amount
 // 3: rules ref
 // 4: kind(u16) | status(u8)
+// 5: createdAt(u64) | updatedAt(u64)
 func ReadPolicy(db stateDB, policyID [32]byte) PolicyRecord {
 	base := policySlot(policyID)
 	raw := db.GetState(params.PayPolicyRegistryAddress, base)
@@ -71,6 +72,9 @@ func ReadPolicy(db stateDB, policyID [32]byte) PolicyRecord {
 	head := db.GetState(params.PayPolicyRegistryAddress, slotOffset(base, 4))
 	rec.Kind = binary.BigEndian.Uint16(head[29:31])
 	rec.Status = PolicyStatus(head[31])
+	meta := db.GetState(params.PayPolicyRegistryAddress, slotOffset(base, 5))
+	rec.CreatedAt = binary.BigEndian.Uint64(meta[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(meta[8:16])
 	return rec
 }
 
@@ -89,6 +93,10 @@ func WritePolicy(db stateDB, rec PolicyRecord) {
 	binary.BigEndian.PutUint16(head[29:31], rec.Kind)
 	head[31] = byte(rec.Status)
 	db.SetState(params.PayPolicyRegistryAddress, slotOffset(base, 4), head)
+	var meta common.Hash
+	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
+	db.SetState(params.PayPolicyRegistryAddress, slotOffset(base, 5), meta)
 	db.SetState(params.PayPolicyRegistryAddress, ownerAssetSlot(rec.Owner, rec.Asset), common.Hash(rec.PolicyID))
 }
 

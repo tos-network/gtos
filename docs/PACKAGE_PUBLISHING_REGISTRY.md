@@ -1,6 +1,6 @@
 # Package Publishing Registry
 
-**Status: V1.2 IMPLEMENTED (2026-03-22)**
+**Status: V1.3 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
@@ -10,6 +10,9 @@ Implemented in code today:
 - package-hash lookup
 - latest-by-channel indexes for active published packages
 - system actions for publisher registration/status and package publish/deprecate/revoke
+- publisher controller-or-governor authorization for lifecycle changes
+- lifecycle metadata (`created_at` / `updated_at`) for publisher and package records
+- publisher suspend/resume semantics on top of the package status enum
 - RPC query surface for package, package-by-hash, latest-by-channel, publisher, and namespace inspection
 - deployed metadata joins protocol package identity and publisher trust when a
   deployed `.tor` matches a published package hash
@@ -136,6 +139,8 @@ PublisherRecord {
   metadata_ref: bytes32
   namespace: string
   status: uint8            // active, suspended, revoked
+  created_at: uint64
+  updated_at: uint64
 }
 ```
 
@@ -164,6 +169,8 @@ PackageRecord {
   contract_count: uint16
   discovery_ref: bytes32
   published_at: uint64
+  created_at: uint64
+  updated_at: uint64
 }
 ```
 
@@ -337,6 +344,15 @@ Deliverables:
   decisions; LVM now also exposes `tos.packageinfo(...)`,
   `tos.packagelatest(...)`, and `tos.publisherinfo(...)` for runtime trust
   checks; broader OpenFox/discovery routing adoption remains open
+
+### Phase 5: governance hardening
+
+Deliverables:
+
+- **DONE**: publisher lifecycle now has controller-or-governor authorization
+- **DONE**: package publish/deprecate/revoke now supports governor override
+- **DONE**: publisher and package records expose lifecycle timestamps
+- **DONE**: RPC surfaces expose governance metadata needed by agent runtimes
 
 ---
 

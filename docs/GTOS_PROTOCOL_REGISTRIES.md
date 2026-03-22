@@ -1,6 +1,6 @@
 # GTOS Protocol Registries
 
-**Status: V1 IMPLEMENTED (2026-03-22)**
+**Status: V1.1 IMPLEMENTED (2026-03-22)**
 
 Current v1 scope now implemented in code:
 
@@ -10,11 +10,14 @@ Current v1 scope now implemented in code:
 - pay-policy registry state + system actions + `tos.canpay(...)`
 - package / publisher registry state + system actions + RPC query surface
 - agent identity RPC query surface over GTOS agent + identity-binding state
+- owner/controller-aware governance and revocation workflows for capability,
+  delegation, verifier, and pay-policy records
+- lifecycle metadata (`created_at` / `updated_at`) exposed through RPC for the
+  governed registry families
 
 Still open for later waves:
 
 - richer verifier / settlement-policy classes
-- network-wide governance and revocation workflows
 - broader agent/runtime consumption paths
 
 ## Purpose
