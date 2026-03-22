@@ -1,6 +1,20 @@
 # LVM Native Economic Primitives
 
-**Status: DESIGN READY FOR IMPLEMENTATION**
+**Status: V1 PARTIALLY IMPLEMENTED (2026-03-22)**
+
+Implemented in code today:
+
+- native `tos.package_call` validation and rollback semantics
+- state-backed `tos.hascapability(...)` and `tos.hasdelegation(...)`
+- protocol-backed `tos.isverified(...)`
+- protocol-backed `tos.canpay(...)`
+- package / contract inspection over deployed TOL code and package metadata
+
+Still open for later waves:
+
+- deeper `escrow/release` standardization
+- fuller UNO rails normalization
+- richer runtime-native settlement / receipt hooks
 
 ## Purpose
 

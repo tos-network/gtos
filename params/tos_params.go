@@ -74,6 +74,14 @@ var (
 	// PackageRegistryAddress stores on-chain package publishing registry state
 	// (publisher records, package records, hash lookups).
 	PackageRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000200")
+
+	// VerificationRegistryAddress stores verifier definitions and subject-proof
+	// verification attestations for protocol-backed `tos.isverified(...)`.
+	VerificationRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000201")
+
+	// PayPolicyRegistryAddress stores settlement/pay policy records used by
+	// protocol-backed `tos.canpay(...)`.
+	PayPolicyRegistryAddress = common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000000202")
 )
 
 // DPoS validator stake and reward parameters.
@@ -152,9 +160,9 @@ const (
 // UNO (Untraceable Native cOin) unit system.
 // 1 TOS = 1 UNO; UNO has 2 decimal places.
 const (
-	UNODecimals      = 2
-	Unomi     uint64 = 1e16 // 1 UNO base unit = 0.01 TOS = 10^16 tomi
-	UNOBaseFee uint64 = 1   // base fee per priv tx in UNO base units (0.01 UNO)
+	UNODecimals        = 2
+	Unomi       uint64 = 1e16 // 1 UNO base unit = 0.01 TOS = 10^16 tomi
+	UNOBaseFee  uint64 = 1    // base fee per priv tx in UNO base units (0.01 UNO)
 
 )
 

@@ -1,19 +1,22 @@
 package vm
 
-// Tests for protocol-backed annotation registry stubs and registry-backed
-// implementations: tos.hascapability (name path), tos.hasdelegation,
-// tos.isverified, tos.canpay.
+// Tests for protocol-backed annotation registry implementations:
+// tos.hascapability (name path), tos.hasdelegation, tos.isverified, tos.canpay.
 //
-// Each host function is tested in two modes:
-//   1. Fallback (no RegistryReader) — returns true for backward compatibility.
-//   2. Registry-backed — uses a mock RegistryReader and checks status/expiry.
+// Capability/delegation checks are exercised in two modes:
+//   1. state-backed default resolution from on-chain registry state
+//   2. explicit mock RegistryReader injection for override behaviour
 
 import (
 	"math/big"
 	"testing"
 
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/paypolicy"
+	"github.com/tos-network/gtos/registry"
+	"github.com/tos-network/gtos/verifyregistry"
 )
 
 // ── mock RegistryReader ──────────────────────────────────────────────────────
@@ -28,8 +31,9 @@ type mockRegistryReader struct {
 }
 
 type mockDelegation struct {
-	status   uint8
-	expiryMS uint64
+	status      uint8
+	notBeforeMS uint64
+	expiryMS    uint64
 }
 
 func (m *mockRegistryReader) ReadCapabilityStatus(name string) (uint8, bool) {
@@ -43,13 +47,13 @@ func (m *mockRegistryReader) ReadAgentCapabilityBit(addr common.Address, name st
 	return has, ok
 }
 
-func (m *mockRegistryReader) ReadDelegationStatus(principal, delegate common.Address, scope [32]byte) (uint8, uint64, bool) {
+func (m *mockRegistryReader) ReadDelegationStatus(principal, delegate common.Address, scope [32]byte) (uint8, uint64, uint64, bool) {
 	key := principal.Hex() + "|" + delegate.Hex() + "|" + string(scope[:])
 	d, ok := m.delegations[key]
 	if !ok {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	return d.status, d.expiryMS, true
+	return d.status, d.notBeforeMS, d.expiryMS, true
 }
 
 // runLuaWithRegistry is like runLua but allows injecting a RegistryReader via
@@ -70,16 +74,26 @@ func runLuaWithRegistry(st StateDB, contractAddr common.Address, src string, gas
 
 // ── tos.hasdelegation ────────────────────────────────────────────────────────
 
-// TestDelegationRegistryStub verifies tos.hasdelegation(caller, operator, scope)
-// returns true when no RegistryReader is configured (fallback behaviour).
-func TestDelegationRegistryStub(t *testing.T) {
+func TestDelegationRegistryStateBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD1}
+	principal := common.Address{0xFF}
+	delegate := common.HexToAddress("0xaaaa")
+	var scope [32]byte
+	copy(scope[:], []byte("transfer"))
+	registry.WriteDelegation(st, registry.DelegationRecord{
+		Principal:   principal,
+		Delegate:    delegate,
+		ScopeRef:    scope,
+		NotBeforeMS: 1,
+		ExpiryMS:    2_000_000_000_000,
+		Status:      registry.DelActive,
+	})
 
 	src := `
 local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
 if not ok then
-  error("hasdelegation stub should return true")
+  error("state-backed delegation should return true")
 end
 tos.sstore("delegation_ok", 1)
 `
@@ -90,7 +104,7 @@ tos.sstore("delegation_ok", 1)
 
 	slot := st.GetState(contractAddr, StorageSlot("delegation_ok"))
 	if slot == (common.Hash{}) {
-		t.Fatal("delegation_ok slot not set; stub did not return true")
+		t.Fatal("delegation_ok slot not set")
 	}
 }
 
@@ -165,16 +179,17 @@ tos.sstore("ok", 1)
 		}
 	})
 
-	t.Run("no_record_fallback", func(t *testing.T) {
+	t.Run("not_yet_active", func(t *testing.T) {
 		st := newAgentTestState()
 		contractAddr := common.Address{0xD7}
-		// RegistryReader exists but has no delegation record → permissive fallback.
 		rr := &mockRegistryReader{
-			delegations: map[string]mockDelegation{},
+			delegations: map[string]mockDelegation{
+				delegKey: {status: RegistryStatusActive, notBeforeMS: 2_000_000_000_000, expiryMS: 3_000_000_000_000},
+			},
 		}
 		src := `
 local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
-if not ok then error("expected true for missing record (fallback)") end
+if ok then error("expected false for not-yet-active delegation") end
 tos.sstore("ok", 1)
 `
 		_, _, _, err := runLuaWithRegistry(st, contractAddr, src, 1_000_000, rr)
@@ -186,15 +201,18 @@ tos.sstore("ok", 1)
 
 // ── tos.hascapability (name path) ────────────────────────────────────────────
 
-// TestHasCapabilityNameFallback verifies that tos.hascapability(addr, "name")
-// returns true when no RegistryReader is configured (fallback).
-func TestHasCapabilityNameFallback(t *testing.T) {
+func TestHasCapabilityNameStateBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD8}
+	addr := common.HexToAddress("0x1234")
+	if _, err := capability.RegisterCapabilityName(st, "oracle"); err != nil {
+		t.Fatalf("register capability name: %v", err)
+	}
+	capability.GrantCapability(st, addr, 0)
 
 	src := `
 local ok = tos.hascapability("0x1234", "oracle")
-if not ok then error("expected true for fallback") end
+if not ok then error("expected true for state-backed capability") end
 tos.sstore("ok", 1)
 `
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
@@ -265,7 +283,7 @@ tos.sstore("ok", 1)
 		}
 	})
 
-	t.Run("no_record_fallback", func(t *testing.T) {
+	t.Run("no_record_fail_closed", func(t *testing.T) {
 		st := newAgentTestState()
 		contractAddr := common.Address{0xDC}
 		rr := &mockRegistryReader{
@@ -273,7 +291,7 @@ tos.sstore("ok", 1)
 		}
 		src := `
 local ok = tos.hascapability("0x1234", "oracle")
-if not ok then error("expected true — no record, permissive fallback") end
+if ok then error("expected false — no record must fail closed") end
 tos.sstore("ok", 1)
 `
 		_, _, _, err := runLuaWithRegistry(st, contractAddr, src, 1_000_000, rr)
@@ -283,18 +301,31 @@ tos.sstore("ok", 1)
 	})
 }
 
-// ── tos.isverified (stub) ────────────────────────────────────────────────────
+// ── tos.isverified ───────────────────────────────────────────────────────────
 
-// TestVerificationRegistryStub verifies tos.isverified(caller, proof_type)
-// returns true (stub behaviour).
-func TestVerificationRegistryStub(t *testing.T) {
+func TestVerificationRegistryBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD2}
+	caller := common.Address{0xFF}
+	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Version:      1,
+		Status:       verifyregistry.VerifierActive,
+	})
+	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+		Subject:    caller,
+		ProofType:  "state_proof",
+		VerifiedAt: 1,
+		ExpiryMS:   2_000_000_000_000,
+		Status:     verifyregistry.VerificationActive,
+	})
 
 	src := `
 local ok = tos.isverified(tos.caller, "state_proof")
 if not ok then
-  error("isverified stub should return true")
+  error("isverified should return true for active verification")
 end
 tos.sstore("verified_ok", 1)
 `
@@ -305,22 +336,61 @@ tos.sstore("verified_ok", 1)
 
 	slot := st.GetState(contractAddr, StorageSlot("verified_ok"))
 	if slot == (common.Hash{}) {
-		t.Fatal("verified_ok slot not set; stub did not return true")
+		t.Fatal("verified_ok slot not set")
 	}
 }
 
-// ── tos.canpay (stub) ────────────────────────────────────────────────────────
+func TestVerificationRegistryExpired(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xE2}
+	caller := common.Address{0xFF}
+	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Version:      1,
+		Status:       verifyregistry.VerifierActive,
+	})
+	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+		Subject:    caller,
+		ProofType:  "state_proof",
+		VerifiedAt: 1,
+		ExpiryMS:   1000,
+		Status:     verifyregistry.VerificationActive,
+	})
+	src := `
+local ok = tos.isverified(tos.caller, "state_proof")
+if ok then
+  error("isverified should return false for expired verification")
+end
+tos.sstore("verified_expired", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+}
 
-// TestPaymentRegistryStub verifies tos.canpay(caller, amount, asset)
-// returns true (stub behaviour).
-func TestPaymentRegistryStub(t *testing.T) {
+// ── tos.canpay ───────────────────────────────────────────────────────────────
+
+func TestPaymentRegistryBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD3}
+	caller := common.Address{0xFF}
+	st.AddBalance(caller, big.NewInt(1_000))
+	paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+		PolicyID:  [32]byte{0x01},
+		Kind:      2,
+		Owner:     caller,
+		Asset:     "TOS",
+		MaxAmount: big.NewInt(600),
+		Status:    paypolicy.PolicyActive,
+	})
 
 	src := `
-local ok = tos.canpay(tos.caller, "1000", "TOS")
+local ok = tos.canpay(tos.caller, "500", "TOS")
 if not ok then
-  error("canpay stub should return true")
+  error("canpay should return true within balance and policy cap")
 end
 tos.sstore("canpay_ok", 1)
 `
@@ -331,7 +401,33 @@ tos.sstore("canpay_ok", 1)
 
 	slot := st.GetState(contractAddr, StorageSlot("canpay_ok"))
 	if slot == (common.Hash{}) {
-		t.Fatal("canpay_ok slot not set; stub did not return true")
+		t.Fatal("canpay_ok slot not set")
+	}
+}
+
+func TestPaymentRegistryCapExceeded(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xE3}
+	caller := common.Address{0xFF}
+	st.AddBalance(caller, big.NewInt(1_000))
+	paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+		PolicyID:  [32]byte{0x02},
+		Kind:      2,
+		Owner:     caller,
+		Asset:     "TOS",
+		MaxAmount: big.NewInt(300),
+		Status:    paypolicy.PolicyActive,
+	})
+	src := `
+local ok = tos.canpay(tos.caller, "500", "TOS")
+if ok then
+  error("canpay should return false when policy cap is exceeded")
+end
+tos.sstore("canpay_denied", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
 	}
 }
 

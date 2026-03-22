@@ -1,6 +1,20 @@
 # Package Publishing Registry
 
-**Status: DESIGN READY FOR IMPLEMENTATION**
+**Status: V1 IMPLEMENTED (2026-03-22)**
+
+Implemented in code today:
+
+- publisher state model
+- package record state model
+- package-hash lookup
+- system actions for publisher registration/status and package publish/deprecate/revoke
+- RPC query surface for package, package-by-hash, and publisher inspection
+
+Still open for later waves:
+
+- latest-by-channel indexes
+- stronger publisher governance and namespace control
+- deeper discovery / deployment trust integration
 
 ## Purpose
 

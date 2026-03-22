@@ -151,3 +151,22 @@ func RegisterCapabilityName(db stateDB, name string) (uint8, error) {
 	writeBitCount(db, next+1)
 	return next, nil
 }
+
+// RegisterCapabilityNameAtBit binds a new capability name to the requested bit
+// index. v1 only allows sequential allocation so the requested bit must match
+// the current next-available bit.
+func RegisterCapabilityNameAtBit(db stateDB, name string, bit uint8) error {
+	if _, exists := readNameBit(db, name); exists {
+		return ErrCapabilityNameExists
+	}
+	next := readBitCount(db)
+	if bit >= 255 {
+		return ErrCapabilityBitFull
+	}
+	if bit != next {
+		return ErrCapabilityBitConflict
+	}
+	writeNameBit(db, name, bit)
+	writeBitCount(db, next+1)
+	return nil
+}

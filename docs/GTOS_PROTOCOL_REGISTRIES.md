@@ -1,6 +1,21 @@
 # GTOS Protocol Registries
 
-**Status: DESIGN READY FOR IMPLEMENTATION**
+**Status: V1 IMPLEMENTED (2026-03-22)**
+
+Current v1 scope now implemented in code:
+
+- capability registry state + system actions + LVM-backed capability checks
+- delegation registry state + system actions + LVM-backed delegation checks
+- verification registry state + system actions + `tos.isverified(...)`
+- pay-policy registry state + system actions + `tos.canpay(...)`
+- package / publisher registry state + system actions + RPC query surface
+- agent identity RPC query surface over GTOS agent + identity-binding state
+
+Still open for later waves:
+
+- richer verifier / settlement-policy classes
+- network-wide governance and revocation workflows
+- broader agent/runtime consumption paths
 
 ## Purpose
 

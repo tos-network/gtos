@@ -89,11 +89,24 @@ const (
 	ActionPolicySetAuditorKey     ActionKind = "POLICY_SET_AUDITOR_KEY"
 
 	// Protocol registry lifecycle.
-	ActionRegistryRegisterCap      ActionKind = "REGISTRY_REGISTER_CAP"
-	ActionRegistryDeprecateCap     ActionKind = "REGISTRY_DEPRECATE_CAP"
-	ActionRegistryRevokeCap        ActionKind = "REGISTRY_REVOKE_CAP"
-	ActionRegistryGrantDelegation  ActionKind = "REGISTRY_GRANT_DELEGATION"
-	ActionRegistryRevokeDelegation ActionKind = "REGISTRY_REVOKE_DELEGATION"
+	ActionRegistryRegisterCap         ActionKind = "REGISTRY_REGISTER_CAP"
+	ActionRegistryDeprecateCap        ActionKind = "REGISTRY_DEPRECATE_CAP"
+	ActionRegistryRevokeCap           ActionKind = "REGISTRY_REVOKE_CAP"
+	ActionRegistryGrantDelegation     ActionKind = "REGISTRY_GRANT_DELEGATION"
+	ActionRegistryRevokeDelegation    ActionKind = "REGISTRY_REVOKE_DELEGATION"
+	ActionRegistryRegisterVerifier    ActionKind = "REGISTRY_REGISTER_VERIFIER"
+	ActionRegistryDeactivateVerifier  ActionKind = "REGISTRY_DEACTIVATE_VERIFIER"
+	ActionRegistryAttestVerification  ActionKind = "REGISTRY_ATTEST_VERIFICATION"
+	ActionRegistryRevokeVerification  ActionKind = "REGISTRY_REVOKE_VERIFICATION"
+	ActionRegistryRegisterPayPolicy   ActionKind = "REGISTRY_REGISTER_PAY_POLICY"
+	ActionRegistryDeactivatePayPolicy ActionKind = "REGISTRY_DEACTIVATE_PAY_POLICY"
+
+	// Package publishing registry lifecycle.
+	ActionPackageRegisterPublisher  ActionKind = "PACKAGE_REGISTER_PUBLISHER"
+	ActionPackageSetPublisherStatus ActionKind = "PACKAGE_SET_PUBLISHER_STATUS"
+	ActionPackagePublish            ActionKind = "PACKAGE_PUBLISH"
+	ActionPackageDeprecate          ActionKind = "PACKAGE_DEPRECATE"
+	ActionPackageRevoke             ActionKind = "PACKAGE_REVOKE"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/tos-network/gtos/accounts/abi"
 	"github.com/tos-network/gtos/agent"
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
@@ -23,10 +24,13 @@ import (
 	"github.com/tos-network/gtos/kyc"
 	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/paypolicy"
 	"github.com/tos-network/gtos/referral"
+	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/reputation"
 	"github.com/tos-network/gtos/task"
 	"github.com/tos-network/gtos/tns"
+	"github.com/tos-network/gtos/verifyregistry"
 	lua "github.com/tos-network/tolang"
 	goripemd160 "golang.org/x/crypto/ripemd160"
 )
@@ -1585,10 +1589,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	// tos.hascapability(addr, bit_or_name) → bool
 	//   Returns true if addr holds the capability identified by bit (number)
 	//   or by name (string, registry-backed).
-	//   When a RegistryReader is available and the capability is looked up by
-	//   name, the registry record must exist and be Active; the agent must hold
-	//   the capability bit.  If no registry record exists, falls back to true
-	//   for backward compatibility.
+	//   The name path is protocol-backed: if a capability name is not resolved
+	//   through registry state, the check fails closed.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "hascapability", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
@@ -1606,30 +1608,27 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 1
 		}
 
-		// String name path — registry-backed when available.
+		// String name path — protocol-backed.
 		name := L.CheckString(2)
 		rr := blockCtx.RegistryReader
-		if rr != nil {
-			status, exists := rr.ReadCapabilityStatus(name)
-			if exists {
-				// Record found: capability must be Active and agent must hold it.
-				if status != RegistryStatusActive {
-					L.Push(lua.LFalse)
-					return 1
-				}
-				has, _ := rr.ReadAgentCapabilityBit(addr, name)
-				if has {
-					L.Push(lua.LTrue)
-				} else {
-					L.Push(lua.LFalse)
-				}
-				return 1
-			}
-			// No registry record — fall through to permissive fallback.
+		if rr == nil {
+			rr = registry.NewStateReader(stateDB)
 		}
-
-		// TODO: remove permissive fallback once registry is populated
-		L.Push(lua.LTrue)
+		status, exists := rr.ReadCapabilityStatus(name)
+		if !exists || status != RegistryStatusActive {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		has, exists := rr.ReadAgentCapabilityBit(addr, name)
+		if !exists {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		if has {
+			L.Push(lua.LTrue)
+		} else {
+			L.Push(lua.LFalse)
+		}
 		return 1
 	}))
 
@@ -1651,9 +1650,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// tos.hasdelegation(caller, operator, scope) → bool
 	//   Checks if caller has delegated scope to operator.
-	//   When a RegistryReader is available, the delegation record must exist,
-	//   be Active, and not expired.  If no record exists, falls back to true
-	//   for backward compatibility.
+	//   The scope path is protocol-backed: the delegation record must exist, be
+	//   Active, satisfy not-before, and not be expired.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "hasdelegation", L.NewFunction(func(L *lua.LState) int {
 		principalHex := L.CheckString(1) // caller / principal
@@ -1662,61 +1660,111 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		chargePrimGas(params.AgentLoadGas)
 
 		rr := blockCtx.RegistryReader
-		if rr != nil {
-			principal := common.HexToAddress(principalHex)
-			delegate := common.HexToAddress(delegateHex)
-			var scope [32]byte
-			copy(scope[:], []byte(scopeStr))
+		if rr == nil {
+			rr = registry.NewStateReader(stateDB)
+		}
+		principal := common.HexToAddress(principalHex)
+		delegate := common.HexToAddress(delegateHex)
+		var scope [32]byte
+		copy(scope[:], []byte(scopeStr))
 
-			status, expiryMS, exists := rr.ReadDelegationStatus(principal, delegate, scope)
-			if exists {
-				if status != RegistryStatusActive {
-					L.Push(lua.LFalse)
-					return 1
-				}
-				// Check expiry if non-zero.  blockCtx.Time is seconds;
-				// expiryMS is milliseconds.
-				if expiryMS > 0 && blockCtx.Time != nil {
-					nowMS := blockCtx.Time.Uint64() * 1000
-					if nowMS >= expiryMS {
-						L.Push(lua.LFalse)
-						return 1
-					}
-				}
-				L.Push(lua.LTrue)
+		status, notBeforeMS, expiryMS, exists := rr.ReadDelegationStatus(principal, delegate, scope)
+		if !exists || status != RegistryStatusActive {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		if blockCtx.Time != nil {
+			nowMS := blockCtx.Time.Uint64() * 1000
+			if notBeforeMS > 0 && nowMS < notBeforeMS {
+				L.Push(lua.LFalse)
 				return 1
 			}
-			// No registry record — fall through to permissive fallback.
+			if expiryMS > 0 && nowMS >= expiryMS {
+				L.Push(lua.LFalse)
+				return 1
+			}
 		}
-
-		// TODO: remove permissive fallback once registry is populated
 		L.Push(lua.LTrue)
 		return 1
 	}))
 
 	// tos.isverified(caller, proof_type) → bool
-	//   Checks if caller has a verified proof of proof_type on record.
-	//   STUB: returns true pending protocol registry implementation.
+	//   Checks if caller has an active verification attestation for proof_type,
+	//   or an active identity binding for the special "identity_binding" /
+	//   "agent_identity" proof types.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "isverified", L.NewFunction(func(L *lua.LState) int {
-		_ = L.CheckString(1) // caller
-		_ = L.CheckString(2) // proof_type
+		callerHex := L.CheckString(1)
+		proofType := strings.TrimSpace(L.CheckString(2))
 		chargePrimGas(params.AgentLoadGas)
-		// STUB: returns true pending protocol registry implementation
-		L.Push(lua.LTrue)
-		return 1
+		caller := common.HexToAddress(callerHex)
+		switch strings.ToLower(proofType) {
+		case "identity_binding", "agent_identity":
+			binding := agentdiscovery.ReadIdentityBinding(stateDB, caller)
+			if binding == nil || !binding.OnChainVerified || !binding.Active {
+				L.Push(lua.LFalse)
+				return 1
+			}
+			if blockCtx.BlockNumber != nil && binding.ExpiresAt > 0 && blockCtx.BlockNumber.Uint64() >= binding.ExpiresAt {
+				L.Push(lua.LFalse)
+				return 1
+			}
+			L.Push(lua.LTrue)
+			return 1
+		default:
+			verifier := verifyregistry.ReadVerifier(stateDB, proofType)
+			if verifier.Name == "" || verifier.Status != verifyregistry.VerifierActive {
+				L.Push(lua.LFalse)
+				return 1
+			}
+			record := verifyregistry.ReadSubjectVerification(stateDB, caller, proofType)
+			if record.Subject == (common.Address{}) || record.Status != verifyregistry.VerificationActive {
+				L.Push(lua.LFalse)
+				return 1
+			}
+			if record.ExpiryMS > 0 && blockCtx.Time != nil {
+				nowMS := blockCtx.Time.Uint64() * 1000
+				if nowMS >= record.ExpiryMS {
+					L.Push(lua.LFalse)
+					return 1
+				}
+			}
+			L.Push(lua.LTrue)
+			return 1
+		}
 	}))
 
 	// tos.canpay(caller, amount, asset) → bool
-	//   Checks if caller can pay amount of asset.
-	//   STUB: returns true pending protocol registry implementation.
+	//   Checks if caller can pay amount of asset. v1 supports public TOS balance
+	//   checks and, when present, enforces an active protocol pay policy cap for
+	//   the caller + asset pair.
 	//   Gas cost: params.AgentLoadGas.
 	L.SetField(tosTable, "canpay", L.NewFunction(func(L *lua.LState) int {
-		_ = L.CheckString(1) // caller
-		_ = L.CheckString(2) // amount
-		_ = L.CheckString(3) // asset
+		callerHex := L.CheckString(1)
+		amountStr := strings.TrimSpace(L.CheckString(2))
+		asset := strings.ToUpper(strings.TrimSpace(L.CheckString(3)))
 		chargePrimGas(params.AgentLoadGas)
-		// STUB: returns true pending protocol registry implementation
+		amount, ok := new(big.Int).SetString(amountStr, 10)
+		if !ok || amount.Sign() < 0 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		caller := common.HexToAddress(callerHex)
+		if asset != "TOS" {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		if stateDB.GetBalance(caller).Cmp(amount) < 0 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		policy := paypolicy.ReadPolicyByOwnerAsset(stateDB, caller, asset)
+		if policy.PolicyID != ([32]byte{}) {
+			if policy.Status != paypolicy.PolicyActive || policy.MaxAmount == nil || policy.MaxAmount.Cmp(amount) < 0 {
+				L.Push(lua.LFalse)
+				return 1
+			}
+		}
 		L.Push(lua.LTrue)
 		return 1
 	}))

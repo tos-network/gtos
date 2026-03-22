@@ -1,6 +1,10 @@
 package pkgregistry
 
-import "github.com/tos-network/gtos/common"
+import (
+	"errors"
+
+	"github.com/tos-network/gtos/common"
+)
 
 // ChannelKind identifies the release channel of a published package.
 type ChannelKind uint16
@@ -42,3 +46,13 @@ type PackageRecord struct {
 	DiscoveryRef   [32]byte
 	PublishedAt    uint64
 }
+
+var (
+	ErrPublisherExists   = errors.New("pkgregistry: publisher already registered")
+	ErrPublisherNotFound = errors.New("pkgregistry: publisher not found")
+	ErrPackageExists     = errors.New("pkgregistry: package version already published")
+	ErrPackageNotFound   = errors.New("pkgregistry: package version not found")
+	ErrInvalidPublisher  = errors.New("pkgregistry: invalid publisher payload")
+	ErrInvalidPackage    = errors.New("pkgregistry: invalid package payload")
+	ErrPublisherInactive = errors.New("pkgregistry: publisher is not active")
+)

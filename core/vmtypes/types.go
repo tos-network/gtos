@@ -66,8 +66,9 @@ type RegistryReader interface {
 	ReadCapabilityStatus(name string) (status uint8, exists bool)
 	// ReadAgentCapabilityBit returns whether addr holds the named capability.
 	ReadAgentCapabilityBit(addr common.Address, name string) (has bool, exists bool)
-	// ReadDelegationStatus returns delegation status, expiry (unix ms), and existence.
-	ReadDelegationStatus(principal, delegate common.Address, scope [32]byte) (status uint8, expiryMS uint64, exists bool)
+	// ReadDelegationStatus returns delegation status, not-before time, expiry
+	// (unix ms), and existence.
+	ReadDelegationStatus(principal, delegate common.Address, scope [32]byte) (status uint8, notBeforeMS uint64, expiryMS uint64, exists bool)
 }
 
 // BlockContext provides auxiliary information for transaction processing.

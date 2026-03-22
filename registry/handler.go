@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 
+	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/sysaction"
 )
@@ -64,6 +65,13 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 	existing := ReadCapability(ctx.StateDB, p.Name)
 	if existing.Name != "" {
 		return ErrCapabilityAlreadyRegistered
+	}
+	if bit, ok := capability.CapabilityBit(ctx.StateDB, p.Name); ok {
+		if bit != uint8(p.BitIndex) {
+			return capability.ErrCapabilityBitConflict
+		}
+	} else if err := capability.RegisterCapabilityNameAtBit(ctx.StateDB, p.Name, uint8(p.BitIndex)); err != nil {
+		return err
 	}
 
 	rec := CapabilityRecord{
