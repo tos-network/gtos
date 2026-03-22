@@ -115,6 +115,36 @@ func TestTolGetDelegationReturnsRecord(t *testing.T) {
 	}
 }
 
+func TestTolGetDelegationReturnsEffectiveExpiredStatus(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	principal := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	delegate := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	scope := common.HexToHash("0x01")
+	registry.WriteDelegation(st, registry.DelegationRecord{
+		Principal:   principal,
+		Delegate:    delegate,
+		ScopeRef:    scope,
+		NotBeforeMS: 100,
+		ExpiryMS:    200,
+		Status:      registry.DelActive,
+	})
+	backend := newBackendMock()
+	backend.state = st
+	backend.current.Time = 1
+	api := NewTOSAPI(backend)
+
+	got, err := api.TolGetDelegation(context.Background(), principal.Hex(), delegate.Hex(), scope.Hex())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.EffectiveStatus != "expired" {
+		t.Fatalf("expected expired effective status, got %+v", got)
+	}
+}
+
 func TestTolGetPackageReturnsNilForEmptyState(t *testing.T) {
 	api := NewTOSAPI(newBackendMock())
 	got, err := api.TolGetPackage(context.Background(), "demo.checkout", "1.0.0")
@@ -158,6 +188,9 @@ func TestTolGetPackageReturnsRecord(t *testing.T) {
 	if got.Channel != "stable" || got.ContractCount != 2 || got.PublishedAt != 1234 {
 		t.Fatalf("unexpected package payload %+v", got)
 	}
+	if got.Trusted {
+		t.Fatalf("expected package to be untrusted without publisher record, got %+v", got)
+	}
 	byHash, err := api.TolGetPackageByHash(context.Background(), common.Hash(rec.PackageHash).Hex())
 	if err != nil {
 		t.Fatalf("unexpected hash lookup error: %v", err)
@@ -180,6 +213,12 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 		Channel:        pkgregistry.ChannelStable,
 		Status:         pkgregistry.PkgActive,
 	})
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: [32]byte{0xAA},
+		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Namespace:   "demo",
+		Status:      pkgregistry.PkgActive,
+	})
 	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
 		PackageName:    "demo.checkout",
 		PackageVersion: "1.1.0",
@@ -199,7 +238,7 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil latest package")
 	}
-	if got.Version != "1.1.0" || got.Channel != "stable" {
+	if got.Version != "1.1.0" || got.Channel != "stable" || got.Namespace != "demo" || !got.Trusted {
 		t.Fatalf("unexpected latest package %+v", got)
 	}
 }
@@ -235,6 +274,7 @@ func TestTolGetPublisherReturnsRecord(t *testing.T) {
 		PublisherID: [32]byte{0x99},
 		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
 		MetadataRef: [32]byte{0xAB},
+		Namespace:   "demo.checkout",
 		Status:      pkgregistry.PkgActive,
 	}
 	pkgregistry.WritePublisher(st, rec)
@@ -249,7 +289,35 @@ func TestTolGetPublisherReturnsRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil publisher")
 	}
-	if got.Controller != rec.Controller.Hex() || got.Status != "active" {
+	if got.Controller != rec.Controller.Hex() || got.Status != "active" || got.Namespace != "demo.checkout" {
+		t.Fatalf("unexpected publisher payload %+v", got)
+	}
+}
+
+func TestTolGetPublisherByNamespaceReturnsRecord(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	rec := pkgregistry.PublisherRecord{
+		PublisherID: [32]byte{0x98},
+		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Namespace:   "demo.checkout",
+		Status:      pkgregistry.PkgActive,
+	}
+	pkgregistry.WritePublisher(st, rec)
+	backend := newBackendMock()
+	backend.state = st
+	api := NewTOSAPI(backend)
+
+	got, err := api.TolGetPublisherByNamespace(context.Background(), "demo.checkout")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil publisher")
+	}
+	if got.Namespace != "demo.checkout" || got.Controller != rec.Controller.Hex() {
 		t.Fatalf("unexpected publisher payload %+v", got)
 	}
 }
@@ -292,6 +360,41 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 	}
 	if claim == nil || claim.Status != "active" || claim.VerifiedAt != 7 {
 		t.Fatalf("unexpected verification payload %+v", claim)
+	}
+}
+
+func TestTolGetVerificationReturnsEffectiveExpiredStatus(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	verifierAddr := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: verifierAddr,
+		Version:      1,
+		Status:       verifyregistry.VerifierActive,
+	})
+	subject := common.HexToAddress("0xabcd")
+	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
+		Subject:    subject,
+		ProofType:  "state_proof",
+		VerifiedAt: 7,
+		ExpiryMS:   1000,
+		Status:     verifyregistry.VerificationActive,
+	})
+	backend := newBackendMock()
+	backend.state = st
+	backend.current.Time = 2
+	api := NewTOSAPI(backend)
+
+	claim, err := api.TolGetVerification(context.Background(), subject.Hex(), "state_proof")
+	if err != nil {
+		t.Fatalf("unexpected verification error: %v", err)
+	}
+	if claim == nil || claim.EffectiveStatus != "expired" {
+		t.Fatalf("expected expired effective status, got %+v", claim)
 	}
 }
 

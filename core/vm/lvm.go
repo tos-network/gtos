@@ -20,6 +20,7 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/crypto"
+	cryptopriv "github.com/tos-network/gtos/crypto/priv"
 	"github.com/tos-network/gtos/delegation"
 	"github.com/tos-network/gtos/kyc"
 	"github.com/tos-network/gtos/lease"
@@ -29,6 +30,7 @@ import (
 	"github.com/tos-network/gtos/referral"
 	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/reputation"
+	"github.com/tos-network/gtos/settlement"
 	"github.com/tos-network/gtos/task"
 	"github.com/tos-network/gtos/tns"
 	"github.com/tos-network/gtos/verifyregistry"
@@ -675,6 +677,325 @@ func parseStrictHexBytes32(input string, label string) ([32]byte, error) {
 	return out, nil
 }
 
+func bytes32ToHash(v [32]byte) common.Hash {
+	return common.BytesToHash(v[:])
+}
+
+func hashHexOrNil(h common.Hash) lua.LValue {
+	if h == (common.Hash{}) {
+		return lua.LNil
+	}
+	return lua.LString(h.Hex())
+}
+
+func parseOptionalBytes32Field(tbl *lua.LTable, key string) (common.Hash, error) {
+	if tbl == nil {
+		return common.Hash{}, nil
+	}
+	lv := tbl.RawGetString(key)
+	if lv == lua.LNil {
+		return common.Hash{}, nil
+	}
+	s, ok := lv.(lua.LString)
+	if !ok {
+		return common.Hash{}, fmt.Errorf("%s: expected 32-byte hex string", key)
+	}
+	out, err := parseStrictHexBytes32(string(s), key)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return bytes32ToHash(out), nil
+}
+
+func parseOptionalPurposeField(tbl *lua.LTable, key string) (uint8, error) {
+	if tbl == nil {
+		return 0, nil
+	}
+	lv := tbl.RawGetString(key)
+	if lv == lua.LNil {
+		return 0, nil
+	}
+	value, err := parseUint256Value(lv)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	if value.Sign() < 0 || value.Cmp(big.NewInt(math.MaxUint8)) > 0 {
+		return 0, fmt.Errorf("%s: exceeds uint8", key)
+	}
+	return uint8(value.Uint64()), nil
+}
+
+func parseOptionalBoolField(tbl *lua.LTable, key string, def bool) (bool, error) {
+	if tbl == nil {
+		return def, nil
+	}
+	lv := tbl.RawGetString(key)
+	if lv == lua.LNil {
+		return def, nil
+	}
+	switch v := lv.(type) {
+	case lua.LBool:
+		return bool(v), nil
+	default:
+		return def, fmt.Errorf("%s: expected boolean", key)
+	}
+}
+
+func currentBlockMillis(blockCtx BlockContext) uint64 {
+	if blockCtx.Time == nil || blockCtx.Time.Sign() < 0 {
+		return 0
+	}
+	if !blockCtx.Time.IsUint64() {
+		return math.MaxUint64
+	}
+	return blockCtx.Time.Uint64() * 1000
+}
+
+func mintSettlementRef(contractAddr common.Address, receiptRef common.Hash, mode uint16, recipient common.Address, amountRef common.Hash, createdAt uint64) common.Hash {
+	buf := make([]byte, 0, common.AddressLength+common.HashLength+2+common.AddressLength+common.HashLength+8)
+	buf = append(buf, contractAddr.Bytes()...)
+	buf = append(buf, receiptRef[:]...)
+	var modeBytes [2]byte
+	binary.BigEndian.PutUint16(modeBytes[:], mode)
+	buf = append(buf, modeBytes[:]...)
+	buf = append(buf, recipient.Bytes()...)
+	buf = append(buf, amountRef[:]...)
+	var ts [8]byte
+	binary.BigEndian.PutUint64(ts[:], createdAt)
+	buf = append(buf, ts[:]...)
+	return crypto.Keccak256Hash(buf)
+}
+
+func publicAmountRef(amount *big.Int) common.Hash {
+	return crypto.Keccak256Hash([]byte(amount.String()))
+}
+
+func unoAmountRef(ct [64]byte) common.Hash {
+	return crypto.Keccak256Hash(ct[:])
+}
+
+func applyUnoTransfer(stateDB StateDB, to common.Address, deposit [64]byte) error {
+	curCommit := stateDB.GetState(to, privCommitmentSlot)
+	curHandle := stateDB.GetState(to, privHandleSlot)
+	var curCt [64]byte
+	copy(curCt[:32], curCommit[:])
+	copy(curCt[32:], curHandle[:])
+
+	var newCt [64]byte
+	if curCommit == (common.Hash{}) && curHandle == (common.Hash{}) {
+		newCt = deposit
+	} else {
+		out, err := cryptopriv.AddCompressedCiphertexts(curCt[:], deposit[:])
+		if err != nil {
+			return fmt.Errorf("homomorphic add failed: %w", err)
+		}
+		copy(newCt[:], out)
+	}
+
+	stateDB.SetState(to, privCommitmentSlot, common.BytesToHash(newCt[:32]))
+	stateDB.SetState(to, privHandleSlot, common.BytesToHash(newCt[32:]))
+
+	versionWord := stateDB.GetState(to, privVersionSlot)
+	version := binary.BigEndian.Uint64(versionWord[24:])
+	if version == math.MaxUint64 {
+		return fmt.Errorf("recipient version overflow")
+	}
+	var newVersionWord common.Hash
+	binary.BigEndian.PutUint64(newVersionWord[24:], version+1)
+	stateDB.SetState(to, privVersionSlot, newVersionWord)
+	return nil
+}
+
+func buildRuntimeReceiptTable(L *lua.LState, receipt *settlement.RuntimeReceipt) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("receipt_ref", lua.LString(receipt.ReceiptRef.Hex()))
+	tbl.RawSetString("receipt_kind", luBig(new(big.Int).SetUint64(uint64(receipt.ReceiptKind))))
+	tbl.RawSetString("status", lua.LString(settlement.ReceiptStatusName(receipt.Status)))
+	tbl.RawSetString("mode", luBig(new(big.Int).SetUint64(uint64(receipt.Mode))))
+	tbl.RawSetString("mode_name", lua.LString(settlement.SettlementModeName(receipt.Mode)))
+	if receipt.Sender != (common.Address{}) {
+		tbl.RawSetString("sender", lua.LString(receipt.Sender.Hex()))
+	}
+	if receipt.Recipient != (common.Address{}) {
+		tbl.RawSetString("recipient", lua.LString(receipt.Recipient.Hex()))
+	}
+	tbl.RawSetString("settlement_ref", hashHexOrNil(receipt.SettlementRef))
+	tbl.RawSetString("proof_ref", hashHexOrNil(receipt.ProofRef))
+	tbl.RawSetString("failure_ref", hashHexOrNil(receipt.FailureRef))
+	tbl.RawSetString("policy_ref", hashHexOrNil(receipt.PolicyRef))
+	tbl.RawSetString("artifact_ref", hashHexOrNil(receipt.ArtifactRef))
+	tbl.RawSetString("amount_ref", hashHexOrNil(receipt.AmountRef))
+	tbl.RawSetString("opened_at", luBig(new(big.Int).SetUint64(receipt.OpenedAt)))
+	tbl.RawSetString("finalized_at", luBig(new(big.Int).SetUint64(receipt.FinalizedAt)))
+	return tbl
+}
+
+func buildSettlementEffectTable(L *lua.LState, effect *settlement.SettlementEffect) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("settlement_ref", lua.LString(effect.SettlementRef.Hex()))
+	tbl.RawSetString("receipt_ref", lua.LString(effect.ReceiptRef.Hex()))
+	tbl.RawSetString("mode", luBig(new(big.Int).SetUint64(uint64(effect.Mode))))
+	tbl.RawSetString("mode_name", lua.LString(settlement.SettlementModeName(effect.Mode)))
+	if effect.Sender != (common.Address{}) {
+		tbl.RawSetString("sender", lua.LString(effect.Sender.Hex()))
+	}
+	if effect.Recipient != (common.Address{}) {
+		tbl.RawSetString("recipient", lua.LString(effect.Recipient.Hex()))
+	}
+	tbl.RawSetString("amount_ref", hashHexOrNil(effect.AmountRef))
+	tbl.RawSetString("policy_ref", hashHexOrNil(effect.PolicyRef))
+	tbl.RawSetString("artifact_ref", hashHexOrNil(effect.ArtifactRef))
+	tbl.RawSetString("created_at", luBig(new(big.Int).SetUint64(effect.CreatedAt)))
+	return tbl
+}
+
+func executeRuntimeSettlement(
+	stateDB StateDB,
+	blockCtx BlockContext,
+	contractAddr common.Address,
+	mode uint16,
+	recipient common.Address,
+	amountArg lua.LValue,
+	receiptRef common.Hash,
+	purpose uint8,
+	autoFinalize bool,
+	proofRef common.Hash,
+	policyRef common.Hash,
+	artifactRef common.Hash,
+) (common.Hash, error) {
+	if !settlement.ReadRuntimeReceiptExists(stateDB, receiptRef) {
+		return common.Hash{}, settlement.ErrReceiptNotFound
+	}
+	if settlement.ReadRuntimeReceiptStatus(stateDB, receiptRef) != settlement.ReceiptStatusOpen {
+		return common.Hash{}, settlement.ErrReceiptNotOpen
+	}
+
+	createdAt := currentBlockMillis(blockCtx)
+	var amountRef common.Hash
+
+	switch mode {
+	case settlement.ModePublicTransfer, settlement.ModeRefundPublic:
+		amount, err := parseUint256Value(amountArg)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if amount.Sign() <= 0 {
+			return common.Hash{}, fmt.Errorf("amount must be positive")
+		}
+		if !blockCtx.CanTransfer(stateDB, contractAddr, amount) {
+			return common.Hash{}, fmt.Errorf("insufficient contract balance")
+		}
+		blockCtx.Transfer(stateDB, contractAddr, recipient, amount)
+		amountRef = publicAmountRef(amount)
+	case settlement.ModeUnoTransfer, settlement.ModeRefundUno:
+		ctStr, ok := amountArg.(lua.LString)
+		if !ok {
+			return common.Hash{}, fmt.Errorf("ciphertext mode requires hex string payload")
+		}
+		ct, err := parseCiphertextHex(string(ctStr))
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if err := applyUnoTransfer(stateDB, recipient, ct); err != nil {
+			return common.Hash{}, err
+		}
+		amountRef = unoAmountRef(ct)
+	case settlement.ModeEscrowReleasePublic:
+		amount, err := parseUint256Value(amountArg)
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if amount.Sign() <= 0 {
+			return common.Hash{}, fmt.Errorf("amount must be positive")
+		}
+		key := append([]byte("tol.escrow."), contractAddr.Bytes()...)
+		key = append(key, recipient.Bytes()...)
+		key = append(key, purpose)
+		slot := common.BytesToHash(crypto.Keccak256(key))
+		current := stateDB.GetState(contractAddr, slot).Big()
+		if current.Cmp(amount) < 0 {
+			return common.Hash{}, fmt.Errorf("escrow balance insufficient")
+		}
+		stateDB.SetState(contractAddr, slot, common.BigToHash(new(big.Int).Sub(current, amount)))
+		stateDB.AddBalance(recipient, amount)
+		amountRef = publicAmountRef(amount)
+	default:
+		return common.Hash{}, settlement.ErrInvalidSettlementMode
+	}
+
+	settlementRef := mintSettlementRef(contractAddr, receiptRef, mode, recipient, amountRef, createdAt)
+	if settlement.ReadSettlementEffectExists(stateDB, settlementRef) {
+		return common.Hash{}, fmt.Errorf("settlement already exists")
+	}
+
+	settlement.WriteSettlementEffectExists(stateDB, settlementRef)
+	settlement.WriteSettlementEffectReceiptRef(stateDB, settlementRef, receiptRef)
+	settlement.WriteSettlementEffectMode(stateDB, settlementRef, mode)
+	settlement.WriteSettlementEffectSender(stateDB, settlementRef, contractAddr)
+	settlement.WriteSettlementEffectRecipient(stateDB, settlementRef, recipient)
+	settlement.WriteSettlementEffectAmountRef(stateDB, settlementRef, amountRef)
+	settlement.WriteSettlementEffectPolicyRef(stateDB, settlementRef, policyRef)
+	settlement.WriteSettlementEffectArtifactRef(stateDB, settlementRef, artifactRef)
+	settlement.WriteSettlementEffectCreatedAt(stateDB, settlementRef, createdAt)
+
+	settlement.WriteRuntimeReceiptMode(stateDB, receiptRef, mode)
+	settlement.WriteRuntimeReceiptSender(stateDB, receiptRef, contractAddr)
+	settlement.WriteRuntimeReceiptRecipient(stateDB, receiptRef, recipient)
+	settlement.WriteRuntimeReceiptSettlementRef(stateDB, receiptRef, settlementRef)
+	settlement.WriteRuntimeReceiptAmountRef(stateDB, receiptRef, amountRef)
+	settlement.WriteRuntimeReceiptPolicyRef(stateDB, receiptRef, policyRef)
+	settlement.WriteRuntimeReceiptArtifactRef(stateDB, receiptRef, artifactRef)
+	if autoFinalize {
+		settlement.WriteRuntimeReceiptStatus(stateDB, receiptRef, settlement.ReceiptStatusSuccess)
+		settlement.WriteRuntimeReceiptProofRef(stateDB, receiptRef, proofRef)
+		settlement.WriteRuntimeReceiptFinalizedAt(stateDB, receiptRef, createdAt)
+	}
+
+	return settlementRef, nil
+}
+
+func finalizeRuntimeReceiptSuccess(stateDB StateDB, receiptRef common.Hash, settlementRef common.Hash, proofRef common.Hash) error {
+	if !settlement.ReadRuntimeReceiptExists(stateDB, receiptRef) {
+		return settlement.ErrReceiptNotFound
+	}
+	if settlement.ReadRuntimeReceiptStatus(stateDB, receiptRef) != settlement.ReceiptStatusOpen {
+		return settlement.ErrReceiptNotOpen
+	}
+	if !settlement.ReadSettlementEffectExists(stateDB, settlementRef) {
+		return settlement.ErrSettlementNotFound
+	}
+	effect, err := settlement.ReadSettlementEffect(stateDB, settlementRef)
+	if err != nil {
+		return err
+	}
+	now := settlement.ReadSettlementEffectCreatedAt(stateDB, settlementRef)
+	settlement.WriteRuntimeReceiptMode(stateDB, receiptRef, effect.Mode)
+	settlement.WriteRuntimeReceiptSender(stateDB, receiptRef, effect.Sender)
+	settlement.WriteRuntimeReceiptRecipient(stateDB, receiptRef, effect.Recipient)
+	settlement.WriteRuntimeReceiptSettlementRef(stateDB, receiptRef, settlementRef)
+	settlement.WriteRuntimeReceiptAmountRef(stateDB, receiptRef, effect.AmountRef)
+	settlement.WriteRuntimeReceiptPolicyRef(stateDB, receiptRef, effect.PolicyRef)
+	settlement.WriteRuntimeReceiptArtifactRef(stateDB, receiptRef, effect.ArtifactRef)
+	settlement.WriteRuntimeReceiptProofRef(stateDB, receiptRef, proofRef)
+	settlement.WriteRuntimeReceiptStatus(stateDB, receiptRef, settlement.ReceiptStatusSuccess)
+	settlement.WriteRuntimeReceiptFinalizedAt(stateDB, receiptRef, now)
+	return nil
+}
+
+func finalizeRuntimeReceiptFailure(stateDB StateDB, blockCtx BlockContext, receiptRef common.Hash, failureRef common.Hash, proofRef common.Hash) error {
+	if !settlement.ReadRuntimeReceiptExists(stateDB, receiptRef) {
+		return settlement.ErrReceiptNotFound
+	}
+	if settlement.ReadRuntimeReceiptStatus(stateDB, receiptRef) != settlement.ReceiptStatusOpen {
+		return settlement.ErrReceiptNotOpen
+	}
+	settlement.WriteRuntimeReceiptFailureRef(stateDB, receiptRef, failureRef)
+	settlement.WriteRuntimeReceiptProofRef(stateDB, receiptRef, proofRef)
+	settlement.WriteRuntimeReceiptStatus(stateDB, receiptRef, settlement.ReceiptStatusFailure)
+	settlement.WriteRuntimeReceiptFinalizedAt(stateDB, receiptRef, currentBlockMillis(blockCtx))
+	return nil
+}
+
 func childFrameGasLimit(available uint64, explicit uint64, hasExplicit bool) uint64 {
 	defaultLimit := available - available/64 // keep 1/64 gas in parent frame
 	if hasExplicit && explicit < defaultLimit {
@@ -983,6 +1304,322 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 		blockCtx.Transfer(stateDB, contractAddr, recipient, amount)
 		return 0
+	}))
+
+	// tos.receipt_open(receiptRef, kind)
+	L.SetField(tosTable, "receipt_open", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.receipt_open: state modification not allowed in staticcall")
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(1), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_open: %v", err)
+			return 0
+		}
+		receiptRef := bytes32ToHash(receiptRefRaw)
+		if settlement.ReadRuntimeReceiptExists(stateDB, receiptRef) {
+			L.RaiseError("tos.receipt_open: %v", settlement.ErrReceiptAlreadyExists)
+			return 0
+		}
+		kind := uint16(L.CheckInt(2))
+		chargePrimGas(gasSStore * 2)
+		settlement.WriteRuntimeReceiptExists(stateDB, receiptRef)
+		settlement.WriteRuntimeReceiptKind(stateDB, receiptRef, kind)
+		settlement.WriteRuntimeReceiptStatus(stateDB, receiptRef, settlement.ReceiptStatusOpen)
+		settlement.WriteRuntimeReceiptOpenedAt(stateDB, receiptRef, currentBlockMillis(blockCtx))
+		return 0
+	}))
+
+	// tos.receipt_success(receiptRef, settlementRef, proofRef?)
+	L.SetField(tosTable, "receipt_success", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.receipt_success: state modification not allowed in staticcall")
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(1), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_success: %v", err)
+			return 0
+		}
+		settlementRefRaw, err := parseStrictHexBytes32(L.CheckString(2), "settlement_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_success: %v", err)
+			return 0
+		}
+		var proofRef common.Hash
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			proofRaw, err := parseStrictHexBytes32(L.CheckString(3), "proof_ref")
+			if err != nil {
+				L.RaiseError("tos.receipt_success: %v", err)
+				return 0
+			}
+			proofRef = bytes32ToHash(proofRaw)
+		}
+		chargePrimGas(gasSStore * 2)
+		if err := finalizeRuntimeReceiptSuccess(stateDB, bytes32ToHash(receiptRefRaw), bytes32ToHash(settlementRefRaw), proofRef); err != nil {
+			L.RaiseError("tos.receipt_success: %v", err)
+			return 0
+		}
+		return 0
+	}))
+
+	// tos.receipt_failure(receiptRef, failureRef, proofRef?)
+	L.SetField(tosTable, "receipt_failure", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.receipt_failure: state modification not allowed in staticcall")
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(1), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_failure: %v", err)
+			return 0
+		}
+		failureRefRaw, err := parseStrictHexBytes32(L.CheckString(2), "failure_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_failure: %v", err)
+			return 0
+		}
+		var proofRef common.Hash
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			proofRaw, err := parseStrictHexBytes32(L.CheckString(3), "proof_ref")
+			if err != nil {
+				L.RaiseError("tos.receipt_failure: %v", err)
+				return 0
+			}
+			proofRef = bytes32ToHash(proofRaw)
+		}
+		chargePrimGas(gasSStore * 2)
+		if err := finalizeRuntimeReceiptFailure(stateDB, blockCtx, bytes32ToHash(receiptRefRaw), bytes32ToHash(failureRefRaw), proofRef); err != nil {
+			L.RaiseError("tos.receipt_failure: %v", err)
+			return 0
+		}
+		return 0
+	}))
+
+	// tos.receipt_info(receiptRef) -> table | nil
+	L.SetField(tosTable, "receipt_info", L.NewFunction(func(L *lua.LState) int {
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(1), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.receipt_info: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSLoad * 2)
+		receipt, err := settlement.ReadRuntimeReceipt(stateDB, bytes32ToHash(receiptRefRaw))
+		if err != nil {
+			L.Push(lua.LNil)
+			return 1
+		}
+		L.Push(buildRuntimeReceiptTable(L, receipt))
+		return 1
+	}))
+
+	// tos.settlement_info(settlementRef) -> table | nil
+	L.SetField(tosTable, "settlement_info", L.NewFunction(func(L *lua.LState) int {
+		settlementRefRaw, err := parseStrictHexBytes32(L.CheckString(1), "settlement_ref")
+		if err != nil {
+			L.RaiseError("tos.settlement_info: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSLoad * 2)
+		effect, err := settlement.ReadSettlementEffect(stateDB, bytes32ToHash(settlementRefRaw))
+		if err != nil {
+			L.Push(lua.LNil)
+			return 1
+		}
+		L.Push(buildSettlementEffectTable(L, effect))
+		return 1
+	}))
+
+	settleFn := L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.settle: state modification not allowed in staticcall")
+			return 0
+		}
+		modeValue, err := settlement.ParseSettlementMode(L.CheckString(1))
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		recipient, err := parseStrictHexAddress(L.CheckString(2))
+		if err != nil {
+			L.RaiseError("tos.settle: recipient: %v", err)
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(4), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		var opts *lua.LTable
+		if L.GetTop() >= 5 && L.Get(5) != lua.LNil {
+			tbl, ok := L.Get(5).(*lua.LTable)
+			if !ok {
+				L.RaiseError("tos.settle: opts must be a table")
+				return 0
+			}
+			opts = tbl
+		}
+		autoFinalize, err := parseOptionalBoolField(opts, "auto_finalize", true)
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		proofRef, err := parseOptionalBytes32Field(opts, "proof_ref")
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		policyRef, err := parseOptionalBytes32Field(opts, "policy_ref")
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		artifactRef, err := parseOptionalBytes32Field(opts, "artifact_ref")
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSStore*3 + gasTransfer)
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef)
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
+		L.Push(lua.LString(settlementRef.Hex()))
+		return 1
+	})
+	L.SetField(tosTable, "settle", settleFn)
+
+	L.SetField(tosTable, "settle_refund", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.settle_refund: state modification not allowed in staticcall")
+			return 0
+		}
+		modeValue, err := settlement.ParseSettlementMode(L.CheckString(1))
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		if modeValue != settlement.ModeRefundPublic && modeValue != settlement.ModeRefundUno {
+			L.RaiseError("tos.settle_refund: invalid refund mode")
+			return 0
+		}
+		recipient, err := parseStrictHexAddress(L.CheckString(2))
+		if err != nil {
+			L.RaiseError("tos.settle_refund: refundee: %v", err)
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(4), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		var opts *lua.LTable
+		if L.GetTop() >= 5 && L.Get(5) != lua.LNil {
+			tbl, ok := L.Get(5).(*lua.LTable)
+			if !ok {
+				L.RaiseError("tos.settle_refund: opts must be a table")
+				return 0
+			}
+			opts = tbl
+		}
+		autoFinalize, err := parseOptionalBoolField(opts, "auto_finalize", true)
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		proofRef, err := parseOptionalBytes32Field(opts, "proof_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		policyRef, err := parseOptionalBytes32Field(opts, "policy_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		artifactRef, err := parseOptionalBytes32Field(opts, "artifact_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSStore*3 + gasTransfer)
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef)
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
+		L.Push(lua.LString(settlementRef.Hex()))
+		return 1
+	}))
+
+	L.SetField(tosTable, "settle_escrow", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.settle_escrow: state modification not allowed in staticcall")
+			return 0
+		}
+		modeValue, err := settlement.ParseSettlementMode(L.CheckString(1))
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		if modeValue != settlement.ModeEscrowReleasePublic {
+			L.RaiseError("tos.settle_escrow: only ESCROW_RELEASE_PUBLIC is supported in v1")
+			return 0
+		}
+		recipient, err := parseStrictHexAddress(L.CheckString(2))
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: beneficiary: %v", err)
+			return 0
+		}
+		receiptRefRaw, err := parseStrictHexBytes32(L.CheckString(4), "receipt_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		var opts *lua.LTable
+		if L.GetTop() >= 5 && L.Get(5) != lua.LNil {
+			tbl, ok := L.Get(5).(*lua.LTable)
+			if !ok {
+				L.RaiseError("tos.settle_escrow: opts must be a table")
+				return 0
+			}
+			opts = tbl
+		}
+		purpose, err := parseOptionalPurposeField(opts, "purpose")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		autoFinalize, err := parseOptionalBoolField(opts, "auto_finalize", true)
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		proofRef, err := parseOptionalBytes32Field(opts, "proof_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		policyRef, err := parseOptionalBytes32Field(opts, "policy_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		artifactRef, err := parseOptionalBytes32Field(opts, "artifact_ref")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSStore*3 + gasTransfer)
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), purpose, autoFinalize, proofRef, policyRef, artifactRef)
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
+		L.Push(lua.LString(settlementRef.Hex()))
+		return 1
 	}))
 
 	// tos.send(toAddr, amount) → bool

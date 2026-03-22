@@ -103,10 +103,15 @@ func (h *registryHandler) handleDeprecateCap(ctx *sysaction.Context, sa *sysacti
 	if rec.Name == "" {
 		return ErrCapabilityNotFound
 	}
+	if rec.Status == CapDeprecated {
+		return ErrCapabilityAlreadyDeprecated
+	}
 	if rec.Status == CapRevoked {
 		return ErrCapabilityAlreadyRevoked
 	}
-
+	if !rec.Status.CanTransitionTo(CapDeprecated) {
+		return ErrCapabilityAlreadyDeprecated
+	}
 	rec.Status = CapDeprecated
 	WriteCapability(ctx.StateDB, rec)
 	return nil
@@ -123,6 +128,9 @@ func (h *registryHandler) handleRevokeCap(ctx *sysaction.Context, sa *sysaction.
 		return ErrCapabilityNotFound
 	}
 	if rec.Status == CapRevoked {
+		return ErrCapabilityAlreadyRevoked
+	}
+	if !rec.Status.CanTransitionTo(CapRevoked) {
 		return ErrCapabilityAlreadyRevoked
 	}
 
@@ -160,6 +168,9 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 	scopeRef := common.HexToHash(p.ScopeRef)
 	capRef := common.HexToHash(p.CapabilityRef)
 	policyRef := common.HexToHash(p.PolicyRef)
+	if p.ExpiryMS > 0 && p.NotBeforeMS > 0 && p.ExpiryMS < p.NotBeforeMS {
+		return ErrInvalidDelegationWindow
+	}
 
 	rec := DelegationRecord{
 		Principal:     principal,

@@ -1,11 +1,15 @@
 package registry
 
 import (
+	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/sysaction"
 )
 
 func newTestState() *state.StateDB {
@@ -86,6 +90,62 @@ func TestCapabilityStatusUpdate(t *testing.T) {
 	got = ReadCapability(st, "Mint")
 	if got.Status != CapRevoked {
 		t.Errorf("Status: want %d (revoked), got %d", CapRevoked, got.Status)
+	}
+}
+
+func makeRegistryAction(t *testing.T, action sysaction.ActionKind, payload any) *sysaction.SysAction {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return &sysaction.SysAction{Action: action, Payload: raw}
+}
+
+func makeRegistryCtx(st *state.StateDB, from common.Address) *sysaction.Context {
+	return &sysaction.Context{
+		From:        from,
+		Value:       big.NewInt(0),
+		BlockNumber: big.NewInt(9),
+		StateDB:     st,
+		ChainConfig: &params.ChainConfig{},
+	}
+}
+
+func TestCapabilityTransitionGuards(t *testing.T) {
+	st := newTestState()
+	h := &registryHandler{}
+	admin := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	register := makeRegistryAction(t, sysaction.ActionRegistryRegisterCap, registerCapPayload{
+		Name:     "Mint",
+		BitIndex: 0,
+		Version:  1,
+	})
+	if err := h.Handle(makeRegistryCtx(st, admin), register); err != nil {
+		t.Fatalf("register capability: %v", err)
+	}
+
+	deprecate := makeRegistryAction(t, sysaction.ActionRegistryDeprecateCap, capNamePayload{Name: "Mint"})
+	if err := h.Handle(makeRegistryCtx(st, admin), deprecate); err != nil {
+		t.Fatalf("deprecate capability: %v", err)
+	}
+	if got := ReadCapability(st, "Mint"); got.Status != CapDeprecated {
+		t.Fatalf("expected deprecated status, got %d", got.Status)
+	}
+	if err := h.Handle(makeRegistryCtx(st, admin), deprecate); err != ErrCapabilityAlreadyDeprecated {
+		t.Fatalf("expected already deprecated error, got %v", err)
+	}
+
+	revoke := makeRegistryAction(t, sysaction.ActionRegistryRevokeCap, capNamePayload{Name: "Mint"})
+	if err := h.Handle(makeRegistryCtx(st, admin), revoke); err != nil {
+		t.Fatalf("revoke capability: %v", err)
+	}
+	if got := ReadCapability(st, "Mint"); got.Status != CapRevoked {
+		t.Fatalf("expected revoked status, got %d", got.Status)
+	}
+	if err := h.Handle(makeRegistryCtx(st, admin), revoke); err != ErrCapabilityAlreadyRevoked {
+		t.Fatalf("expected already revoked error, got %v", err)
 	}
 }
 
@@ -199,5 +259,24 @@ func TestDelegationRevoke(t *testing.T) {
 	}
 	if got.ExpiryMS != 1500 {
 		t.Errorf("ExpiryMS: want 1500, got %d", got.ExpiryMS)
+	}
+}
+
+func TestDelegationRejectsInvalidWindow(t *testing.T) {
+	st := newTestState()
+	h := &registryHandler{}
+	sender := common.HexToAddress("0x5555555555555555555555555555555555555555")
+	delegate := common.HexToAddress("0x6666666666666666666666666666666666666666")
+	scope := common.HexToHash("0x77")
+
+	err := h.Handle(makeRegistryCtx(st, sender), makeRegistryAction(t, sysaction.ActionRegistryGrantDelegation, grantDelegationPayload{
+		Principal:   sender.Hex(),
+		Delegate:    delegate.Hex(),
+		ScopeRef:    scope.Hex(),
+		NotBeforeMS: 2000,
+		ExpiryMS:    1000,
+	}))
+	if err != ErrInvalidDelegationWindow {
+		t.Fatalf("expected invalid delegation window error, got %v", err)
 	}
 }

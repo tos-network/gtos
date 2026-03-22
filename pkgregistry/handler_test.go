@@ -46,6 +46,7 @@ func TestRegisterPublisherAndPublishPackage(t *testing.T) {
 		PublisherID: pubID.Hex(),
 		Controller:  "0x1234000000000000000000000000000000000000",
 		MetadataRef: "0xabc",
+		Namespace:   "demo",
 	})
 	controller := common.HexToAddress("0x1234000000000000000000000000000000000000")
 	if err := h.Handle(newHandlerCtx(st, controller), register); err != nil {
@@ -55,6 +56,9 @@ func TestRegisterPublisherAndPublishPackage(t *testing.T) {
 	copy(pubKey[:], pubID[:])
 	if got := ReadPublisher(st, pubKey); got.Controller == (common.Address{}) {
 		t.Fatal("publisher not written")
+	}
+	if got := ReadPublisher(st, pubKey); got.Namespace != "demo" {
+		t.Fatalf("unexpected publisher namespace %q", got.Namespace)
 	}
 
 	publish := makePackageSysAction(t, sysaction.ActionPackagePublish, publishPackagePayload{
@@ -79,6 +83,29 @@ func TestRegisterPublisherAndPublishPackage(t *testing.T) {
 	}
 }
 
+func TestRegisterPublisherRejectsDuplicateNamespace(t *testing.T) {
+	st := newHandlerTestState()
+	h := &pkgRegistryHandler{}
+	controller := common.HexToAddress("0x1234000000000000000000000000000000000000")
+
+	first := makePackageSysAction(t, sysaction.ActionPackageRegisterPublisher, registerPublisherPayload{
+		PublisherID: common.HexToHash("0x01").Hex(),
+		Controller:  controller.Hex(),
+		Namespace:   "demo",
+	})
+	if err := h.Handle(newHandlerCtx(st, controller), first); err != nil {
+		t.Fatalf("register first publisher: %v", err)
+	}
+	second := makePackageSysAction(t, sysaction.ActionPackageRegisterPublisher, registerPublisherPayload{
+		PublisherID: common.HexToHash("0x02").Hex(),
+		Controller:  controller.Hex(),
+		Namespace:   "demo",
+	})
+	if err := h.Handle(newHandlerCtx(st, controller), second); err != ErrNamespaceExists {
+		t.Fatalf("expected ErrNamespaceExists, got %v", err)
+	}
+}
+
 func TestPackageStatusTransitions(t *testing.T) {
 	st := newHandlerTestState()
 	h := &pkgRegistryHandler{}
@@ -88,6 +115,7 @@ func TestPackageStatusTransitions(t *testing.T) {
 	WritePublisher(st, PublisherRecord{
 		PublisherID: pubKey,
 		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Namespace:   "demo",
 		Status:      PkgActive,
 	})
 	WritePackage(st, PackageRecord{
@@ -118,5 +146,32 @@ func TestPackageStatusTransitions(t *testing.T) {
 	}
 	if got := ReadPackage(st, "demo.checkout", "2.0.0"); got.Status != PkgRevoked {
 		t.Fatalf("expected revoked status, got %d", got.Status)
+	}
+}
+
+func TestPublishRejectsNamespaceMismatch(t *testing.T) {
+	st := newHandlerTestState()
+	h := &pkgRegistryHandler{}
+	pubID := common.HexToHash("0x03")
+	controller := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	var pubKey [32]byte
+	copy(pubKey[:], pubID[:])
+	WritePublisher(st, PublisherRecord{
+		PublisherID: pubKey,
+		Controller:  controller,
+		Namespace:   "demo",
+		Status:      PkgActive,
+	})
+
+	publish := makePackageSysAction(t, sysaction.ActionPackagePublish, publishPackagePayload{
+		PackageName:    "other.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    common.HexToHash("0x11").Hex(),
+		PublisherID:    pubID.Hex(),
+		Channel:        uint16(ChannelStable),
+		ContractCount:  1,
+	})
+	if err := h.Handle(newHandlerCtx(st, controller), publish); err != ErrNamespaceMismatch {
+		t.Fatalf("expected ErrNamespaceMismatch, got %v", err)
 	}
 }

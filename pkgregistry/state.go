@@ -3,6 +3,7 @@ package pkgregistry
 import (
 	"encoding/binary"
 	"math/big"
+	"strings"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/crypto"
@@ -44,6 +45,13 @@ func hashLookupSlot(pkgHash [32]byte) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
+// namespaceSlot returns the storage slot for a namespace ownership pointer.
+// slot = keccak256("pkg\x00ns\x00" || namespace)
+func namespaceSlot(namespace string) common.Hash {
+	key := append([]byte("pkg\x00ns\x00"), namespace...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
 // latestLookupSlot returns the storage slot for the latest package pointer
 // for a given package name and channel.
 // slot = keccak256("pkg\x00latest\x00" || name || uint16(channel))
@@ -66,6 +74,24 @@ func slotOffset(base common.Hash, offset uint64) common.Hash {
 // Publisher read / write
 // ---------------------------------------------------------------------------
 
+// ReadPublisherByNamespace resolves the canonical publisher record for a
+// claimed namespace. If no owner exists, the returned record has a zero
+// Controller.
+func ReadPublisherByNamespace(db stateDB, namespace string) PublisherRecord {
+	var rec PublisherRecord
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return rec
+	}
+	raw := db.GetState(addr, namespaceSlot(namespace))
+	if raw == (common.Hash{}) {
+		return rec
+	}
+	var pubID [32]byte
+	copy(pubID[:], raw[:])
+	return ReadPublisher(db, pubID)
+}
+
 // ReadPublisher reads a PublisherRecord from state.
 // If the publisher does not exist the returned record has a zero Controller.
 func ReadPublisher(db stateDB, pubID [32]byte) PublisherRecord {
@@ -84,6 +110,9 @@ func ReadPublisher(db stateDB, pubID [32]byte) PublisherRecord {
 	// slot+2: Status (uint8 in last byte)
 	raw = db.GetState(addr, slotOffset(base, 2))
 	rec.Status = PackageStatus(raw[31])
+
+	// slot+3: Namespace
+	rec.Namespace = readString(db, base, 3)
 
 	return rec
 }
@@ -104,6 +133,33 @@ func WritePublisher(db stateDB, rec PublisherRecord) {
 	val = common.Hash{}
 	val[31] = byte(rec.Status)
 	db.SetState(addr, slotOffset(base, 2), val)
+
+	// slot+3: Namespace
+	if ns := strings.TrimSpace(rec.Namespace); ns != "" {
+		writeString(db, base, 3, ns)
+		writeNamespaceLookup(db, ns, rec.PublisherID)
+	}
+}
+
+func writeNamespaceLookup(db stateDB, namespace string, pubID [32]byte) {
+	if namespace == "" {
+		return
+	}
+	base := namespaceSlot(namespace)
+	var val common.Hash
+	copy(val[:], pubID[:])
+	db.SetState(addr, base, val)
+}
+
+func namespaceOwnerID(db stateDB, namespace string) [32]byte {
+	var pubID [32]byte
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return pubID
+	}
+	raw := db.GetState(addr, namespaceSlot(namespace))
+	copy(pubID[:], raw[:])
+	return pubID
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +357,20 @@ func ReadPackageByHash(db stateDB, pkgHash [32]byte) PackageRecord {
 		return PackageRecord{}
 	}
 	return ReadPackage(db, name, version)
+}
+
+// PackageMatchesNamespace reports whether a package name belongs to a
+// claimed namespace. The namespace must be an exact prefix segment.
+func PackageMatchesNamespace(packageName, namespace string) bool {
+	packageName = strings.TrimSpace(packageName)
+	namespace = strings.TrimSpace(namespace)
+	if packageName == "" || namespace == "" {
+		return namespace == ""
+	}
+	if packageName == namespace {
+		return true
+	}
+	return strings.HasPrefix(packageName, namespace+".")
 }
 
 func writeLatestLookup(db stateDB, name string, channel ChannelKind, version string) {

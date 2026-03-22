@@ -15,6 +15,10 @@ Implemented in code today:
   `tos.uno_value`, `tos.uno_balance(...)`, `tos.uno_transfer(...)`, with
   fail-closed address validation and rollback coverage for top-level revert and
   nested-call failure
+- runtime-native settlement bus v1:
+  `tos.settle(...)`, `tos.settle_refund(...)`, `tos.settle_escrow(...)`,
+  `tos.receipt_open/success/failure/info`, and `tos.settlement_info(...)`,
+  backed by `settlement.RuntimeReceipt` + `SettlementEffect`
 - stable runtime inspection primitives: `tos.agentinfo(...)`,
   `tos.packageinfo(...)`, `tos.packagelatest(...)`, `tos.publisherinfo(...)`
 - package / contract inspection over deployed TOL code and package metadata
@@ -23,8 +27,9 @@ Implemented in code today:
 
 Still open for later waves:
 
-- deeper `escrow/release` standardization
-- richer runtime-native settlement / receipt hooks
+- sponsor-aware settlement joins
+- `ESCROW_RELEASE_UNO` and deeper confidential refund/release normalization
+- broader runtime/deployed-metadata consumption of settlement records
 
 ## Purpose
 

@@ -1,21 +1,23 @@
 # Package Publishing Registry
 
-**Status: V1.1 IMPLEMENTED (2026-03-22)**
+**Status: V1.2 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
 - publisher state model
+- namespace ownership and namespace-to-publisher lookup
 - package record state model
 - package-hash lookup
 - latest-by-channel indexes for active published packages
 - system actions for publisher registration/status and package publish/deprecate/revoke
-- RPC query surface for package, package-by-hash, latest-by-channel, and publisher inspection
+- RPC query surface for package, package-by-hash, latest-by-channel, publisher, and namespace inspection
 - deployed metadata joins protocol package identity and publisher trust when a
   deployed `.tor` matches a published package hash
+- deployment trust join includes publisher namespace and trusted flag
+  semantics when the package is resolved through the protocol registry
 
 Still open for later waves:
 
-- stronger publisher governance and namespace control
 - deeper discovery / deployment trust integration
 
 ## Purpose
@@ -132,13 +134,14 @@ PublisherRecord {
   publisher_id: bytes32
   controller: address
   metadata_ref: bytes32
+  namespace: string
   status: uint8            // active, suspended, revoked
 }
 ```
 
 Publisher responsibilities:
 
-- claim namespace
+- claim a namespace
 - publish package versions
 - deprecate/revoke versions
 - rotate metadata
@@ -225,6 +228,8 @@ Used for discovery, deployment, and agent runtime trust decisions.
 - package name + version resolves through protocol registry
 - package hash must match deployed or referenced package
 - publisher status must be checked
+- namespace ownership must match the published package name if a namespace is
+  claimed
 
 Recommended rule:
 

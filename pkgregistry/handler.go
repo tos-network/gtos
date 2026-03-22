@@ -2,6 +2,7 @@ package pkgregistry
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/sysaction"
@@ -44,6 +45,7 @@ type registerPublisherPayload struct {
 	PublisherID string `json:"publisher_id"`
 	Controller  string `json:"controller"`
 	MetadataRef string `json:"metadata_ref"`
+	Namespace   string `json:"namespace"`
 }
 
 func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -53,8 +55,12 @@ func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa 
 	}
 	controller := common.HexToAddress(p.Controller)
 	pubID := common.HexToHash(p.PublisherID)
+	namespace := strings.TrimSpace(p.Namespace)
 	if controller == (common.Address{}) || pubID == (common.Hash{}) {
 		return ErrInvalidPublisher
+	}
+	if namespace == "" {
+		return ErrNamespaceMissing
 	}
 	if ctx.From != controller {
 		return ErrInvalidPublisher
@@ -64,9 +70,13 @@ func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa 
 	if existing := ReadPublisher(ctx.StateDB, pubKey); existing.Controller != (common.Address{}) {
 		return ErrPublisherExists
 	}
+	if owner := namespaceOwnerID(ctx.StateDB, namespace); owner != ([32]byte{}) && owner != pubKey {
+		return ErrNamespaceExists
+	}
 	rec := PublisherRecord{
 		PublisherID: pubKey,
 		Controller:  controller,
+		Namespace:   namespace,
 		Status:      PkgActive,
 	}
 	if p.MetadataRef != "" {
@@ -146,6 +156,9 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 	pkgHash := common.HexToHash(p.PackageHash)
 	if pkgHash == (common.Hash{}) {
 		return ErrInvalidPackage
+	}
+	if !PackageMatchesNamespace(p.PackageName, publisher.Namespace) {
+		return ErrNamespaceMismatch
 	}
 	rec := PackageRecord{
 		PackageName:    p.PackageName,

@@ -96,6 +96,9 @@ func (h *handler) handleDeactivate(ctx *sysaction.Context, sa *sysaction.SysActi
 	if ctx.From != rec.Owner {
 		return ErrUnauthorizedOwner
 	}
+	if rec.Status == PolicyRevoked {
+		return ErrPolicyAlreadyRevoked
+	}
 	rec.Status = PolicyRevoked
 	WritePolicy(ctx.StateDB, rec)
 	return nil

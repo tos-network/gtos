@@ -36,26 +36,29 @@ type CapabilityInfo struct {
 // DelegationInfo describes a single delegation record from the protocol
 // Delegation Registry.
 type DelegationInfo struct {
-	Principal     string `json:"principal"`
-	Delegate      string `json:"delegate"`
-	ScopeRef      string `json:"scope_ref"`
-	CapabilityRef string `json:"capability_ref"`
-	PolicyRef     string `json:"policy_ref"`
-	NotBeforeMS   uint64 `json:"not_before_ms"`
-	ExpiryMS      uint64 `json:"expiry_ms"`
-	Status        string `json:"status"`
+	Principal       string `json:"principal"`
+	Delegate        string `json:"delegate"`
+	ScopeRef        string `json:"scope_ref"`
+	CapabilityRef   string `json:"capability_ref"`
+	PolicyRef       string `json:"policy_ref"`
+	NotBeforeMS     uint64 `json:"not_before_ms"`
+	ExpiryMS        uint64 `json:"expiry_ms"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
 }
 
 // PackageInfo describes a single package record from the protocol
 // Package Registry.
 type PackageInfo struct {
 	Name          string `json:"name"`
+	Namespace     string `json:"namespace,omitempty"`
 	Version       string `json:"version"`
 	PackageHash   string `json:"package_hash"`
 	ManifestHash  string `json:"manifest_hash,omitempty"`
 	PublisherID   string `json:"publisher_id"`
 	Channel       string `json:"channel"`
 	Status        string `json:"status"`
+	Trusted       bool   `json:"trusted"`
 	ContractCount uint64 `json:"contract_count"`
 	DiscoveryRef  string `json:"discovery_ref,omitempty"`
 	PublishedAt   uint64 `json:"published_at"`
@@ -67,6 +70,7 @@ type PublisherInfo struct {
 	PublisherID string `json:"publisher_id"`
 	Controller  string `json:"controller"`
 	MetadataRef string `json:"metadata_ref"`
+	Namespace   string `json:"namespace,omitempty"`
 	Status      string `json:"status"`
 }
 
@@ -80,11 +84,12 @@ type VerifierInfo struct {
 }
 
 type VerificationClaimInfo struct {
-	Subject    string `json:"subject"`
-	ProofType  string `json:"proof_type"`
-	VerifiedAt uint64 `json:"verified_at"`
-	ExpiryMS   uint64 `json:"expiry_ms"`
-	Status     string `json:"status"`
+	Subject         string `json:"subject"`
+	ProofType       string `json:"proof_type"`
+	VerifiedAt      uint64 `json:"verified_at"`
+	ExpiryMS        uint64 `json:"expiry_ms"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
 }
 
 type SettlementPolicyInfo struct {
@@ -154,7 +159,7 @@ func (s *TOSAPI) TolGetCapability(ctx context.Context, name string) (*Capability
 // TolGetDelegation returns the delegation record for the given
 // (principal, delegate, scopeRef) triple, or nil if no record exists.
 func (s *TOSAPI) TolGetDelegation(ctx context.Context, principalHex, delegateHex, scopeHex string) (*DelegationInfo, error) {
-	st, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
 	if err != nil || st == nil {
 		return nil, err
 	}
@@ -165,15 +170,20 @@ func (s *TOSAPI) TolGetDelegation(ctx context.Context, principalHex, delegateHex
 		return nil, nil
 	}
 	rec := registry.ReadDelegation(st, principal, delegate, scopeHash)
+	var nowMS uint64
+	if header != nil {
+		nowMS = header.Time * 1000
+	}
 	return &DelegationInfo{
-		Principal:     rec.Principal.Hex(),
-		Delegate:      rec.Delegate.Hex(),
-		ScopeRef:      common.Hash(rec.ScopeRef).Hex(),
-		CapabilityRef: common.Hash(rec.CapabilityRef).Hex(),
-		PolicyRef:     common.Hash(rec.PolicyRef).Hex(),
-		NotBeforeMS:   rec.NotBeforeMS,
-		ExpiryMS:      rec.ExpiryMS,
-		Status:        delegationStatusString(rec.Status),
+		Principal:       rec.Principal.Hex(),
+		Delegate:        rec.Delegate.Hex(),
+		ScopeRef:        common.Hash(rec.ScopeRef).Hex(),
+		CapabilityRef:   common.Hash(rec.CapabilityRef).Hex(),
+		PolicyRef:       common.Hash(rec.PolicyRef).Hex(),
+		NotBeforeMS:     rec.NotBeforeMS,
+		ExpiryMS:        rec.ExpiryMS,
+		Status:          delegationStatusString(rec.Status),
+		EffectiveStatus: delegationStatusString(rec.EffectiveStatus(nowMS)),
 	}, nil
 }
 
@@ -188,7 +198,8 @@ func (s *TOSAPI) TolGetPackage(ctx context.Context, name, version string) (*Pack
 	if rec.PackageHash == ([32]byte{}) {
 		return nil, nil
 	}
-	return packageInfoFromRecord(rec), nil
+	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
+	return packageInfoFromRecord(rec, pubRec), nil
 }
 
 // TolGetPackageByHash returns the package record for the given package hash.
@@ -202,7 +213,8 @@ func (s *TOSAPI) TolGetPackageByHash(ctx context.Context, packageHash string) (*
 	if rec.PackageHash == ([32]byte{}) {
 		return nil, nil
 	}
-	return packageInfoFromRecord(rec), nil
+	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
+	return packageInfoFromRecord(rec, pubRec), nil
 }
 
 // TolGetLatestPackage returns the latest active package currently indexed for
@@ -225,7 +237,8 @@ func (s *TOSAPI) TolGetLatestPackage(ctx context.Context, name, channel string) 
 	if rec.PackageHash == ([32]byte{}) {
 		return nil, nil
 	}
-	return packageInfoFromRecord(rec), nil
+	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
+	return packageInfoFromRecord(rec, pubRec), nil
 }
 
 // TolGetPublisher returns the publisher record for the given publisher ID,
@@ -239,6 +252,20 @@ func (s *TOSAPI) TolGetPublisher(ctx context.Context, publisherID string) (*Publ
 	var pubID [32]byte
 	copy(pubID[:], pubHash[:])
 	rec := pkgregistry.ReadPublisher(st, pubID)
+	if rec.Controller == (common.Address{}) {
+		return nil, nil
+	}
+	return publisherInfoFromRecord(rec), nil
+}
+
+// TolGetPublisherByNamespace returns the publisher record for the given
+// claimed namespace, or nil if no namespace owner exists.
+func (s *TOSAPI) TolGetPublisherByNamespace(ctx context.Context, namespace string) (*PublisherInfo, error) {
+	st, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil || st == nil {
+		return nil, err
+	}
+	rec := pkgregistry.ReadPublisherByNamespace(st, namespace)
 	if rec.Controller == (common.Address{}) {
 		return nil, nil
 	}
@@ -265,7 +292,7 @@ func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo
 }
 
 func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType string) (*VerificationClaimInfo, error) {
-	st, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	st, header, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
 	if err != nil || st == nil {
 		return nil, err
 	}
@@ -274,12 +301,17 @@ func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType s
 	if rec.Subject == (common.Address{}) {
 		return nil, nil
 	}
+	var nowMS uint64
+	if header != nil {
+		nowMS = header.Time * 1000
+	}
 	return &VerificationClaimInfo{
-		Subject:    rec.Subject.Hex(),
-		ProofType:  rec.ProofType,
-		VerifiedAt: rec.VerifiedAt,
-		ExpiryMS:   rec.ExpiryMS,
-		Status:     verificationStatusString(rec.Status),
+		Subject:         rec.Subject.Hex(),
+		ProofType:       rec.ProofType,
+		VerifiedAt:      rec.VerifiedAt,
+		ExpiryMS:        rec.ExpiryMS,
+		Status:          verificationStatusString(rec.Status),
+		EffectiveStatus: verificationStatusString(rec.EffectiveStatus(nowMS)),
 	}, nil
 }
 
@@ -379,6 +411,8 @@ func verificationStatusString(status verifyregistry.VerificationStatus) string {
 	switch status {
 	case verifyregistry.VerificationRevoked:
 		return "revoked"
+	case verifyregistry.VerificationExpired:
+		return "expired"
 	default:
 		return "active"
 	}
@@ -421,15 +455,21 @@ func parsePackageChannel(channel string) (pkgregistry.ChannelKind, bool) {
 	}
 }
 
-func packageInfoFromRecord(rec pkgregistry.PackageRecord) *PackageInfo {
+func packageInfoFromRecord(rec pkgregistry.PackageRecord, pubRec pkgregistry.PublisherRecord) *PackageInfo {
+	trusted := rec.Status == pkgregistry.PkgActive && pubRec.Controller != (common.Address{}) && pubRec.Status == pkgregistry.PkgActive
+	if pubRec.Namespace != "" && !pkgregistry.PackageMatchesNamespace(rec.PackageName, pubRec.Namespace) {
+		trusted = false
+	}
 	return &PackageInfo{
 		Name:          rec.PackageName,
+		Namespace:     pubRec.Namespace,
 		Version:       rec.PackageVersion,
 		PackageHash:   common.Hash(rec.PackageHash).Hex(),
 		ManifestHash:  common.Hash(rec.ManifestHash).Hex(),
 		PublisherID:   common.Hash(rec.PublisherID).Hex(),
 		Channel:       packageChannelString(rec.Channel),
 		Status:        packageStatusString(rec.Status),
+		Trusted:       trusted,
 		ContractCount: uint64(rec.ContractCount),
 		DiscoveryRef:  common.Hash(rec.DiscoveryRef).Hex(),
 		PublishedAt:   rec.PublishedAt,
@@ -441,6 +481,7 @@ func publisherInfoFromRecord(rec pkgregistry.PublisherRecord) *PublisherInfo {
 		PublisherID: common.Hash(rec.PublisherID).Hex(),
 		Controller:  rec.Controller.Hex(),
 		MetadataRef: common.Hash(rec.MetadataRef).Hex(),
+		Namespace:   rec.Namespace,
 		Status:      packageStatusString(rec.Status),
 	}
 }

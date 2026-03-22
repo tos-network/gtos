@@ -70,3 +70,94 @@ func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 		t.Fatalf("unexpected subject verification %+v", claim)
 	}
 }
+
+func TestInactiveVerifierBlocksVerificationWrites(t *testing.T) {
+	st := newTestState()
+	h := &handler{}
+	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	subject := common.HexToAddress("0xabcd")
+
+	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: verifier.Hex(),
+		Version:      1,
+	})
+	if err := h.Handle(newCtx(st, verifier), register); err != nil {
+		t.Fatalf("register verifier: %v", err)
+	}
+	if err := h.Handle(newCtx(st, verifier), makeSysAction(t, sysaction.ActionRegistryDeactivateVerifier, verifierNamePayload{Name: "state_proof"})); err != nil {
+		t.Fatalf("deactivate verifier: %v", err)
+	}
+
+	attest := makeSysAction(t, sysaction.ActionRegistryAttestVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+		ExpiryMS:  2_000_000_000_000,
+	})
+	if err := h.Handle(newCtx(st, verifier), attest); err != ErrVerifierInactive {
+		t.Fatalf("expected verifier inactive error, got %v", err)
+	}
+	if err := h.Handle(newCtx(st, verifier), makeSysAction(t, sysaction.ActionRegistryDeactivateVerifier, verifierNamePayload{Name: "state_proof"})); err != ErrVerifierAlreadyRevoked {
+		t.Fatalf("expected already revoked error, got %v", err)
+	}
+}
+
+func TestRevokeVerificationRequiresExistingClaim(t *testing.T) {
+	st := newTestState()
+	h := &handler{}
+	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	subject := common.HexToAddress("0xabcd")
+
+	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: verifier.Hex(),
+		Version:      1,
+	})
+	if err := h.Handle(newCtx(st, verifier), register); err != nil {
+		t.Fatalf("register verifier: %v", err)
+	}
+	revoke := makeSysAction(t, sysaction.ActionRegistryRevokeVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+	})
+	if err := h.Handle(newCtx(st, verifier), revoke); err != ErrVerificationNotFound {
+		t.Fatalf("expected verification not found error, got %v", err)
+	}
+}
+
+func TestRevokeVerificationTwiceRejected(t *testing.T) {
+	st := newTestState()
+	h := &handler{}
+	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	subject := common.HexToAddress("0xabcd")
+
+	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
+		Name:         "state_proof",
+		VerifierType: 1,
+		VerifierAddr: verifier.Hex(),
+		Version:      1,
+	})
+	if err := h.Handle(newCtx(st, verifier), register); err != nil {
+		t.Fatalf("register verifier: %v", err)
+	}
+	attest := makeSysAction(t, sysaction.ActionRegistryAttestVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+		ExpiryMS:  2_000_000_000_000,
+	})
+	if err := h.Handle(newCtx(st, verifier), attest); err != nil {
+		t.Fatalf("attest verification: %v", err)
+	}
+	revoke := makeSysAction(t, sysaction.ActionRegistryRevokeVerification, subjectVerificationPayload{
+		Subject:   subject.Hex(),
+		ProofType: "state_proof",
+	})
+	if err := h.Handle(newCtx(st, verifier), revoke); err != nil {
+		t.Fatalf("revoke verification: %v", err)
+	}
+	if err := h.Handle(newCtx(st, verifier), revoke); err != ErrVerificationAlreadyRevoked {
+		t.Fatalf("expected already revoked error, got %v", err)
+	}
+}

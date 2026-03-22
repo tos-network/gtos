@@ -187,6 +187,7 @@ func TestGetContractMetadataReturnsPublishedPackageIdentity(t *testing.T) {
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: pubID,
 		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Namespace:   "demo",
 		Status:      pkgregistry.PkgActive,
 	})
 	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
@@ -217,7 +218,10 @@ func TestGetContractMetadataReturnsPublishedPackageIdentity(t *testing.T) {
 	if got.Package.Published.Name != "demo.checkout" || got.Package.Published.Channel != "stable" {
 		t.Fatalf("unexpected published package %+v", got.Package.Published)
 	}
-	if got.Package.Publisher == nil || got.Package.Publisher.Status != "active" {
+	if got.Package.Published.Namespace != "demo" || !got.Package.Published.Trusted {
+		t.Fatalf("unexpected published package trust %+v", got.Package.Published)
+	}
+	if got.Package.Publisher == nil || got.Package.Publisher.Status != "active" || got.Package.Publisher.Namespace != "demo" {
 		t.Fatalf("unexpected publisher info %+v", got.Package.Publisher)
 	}
 }

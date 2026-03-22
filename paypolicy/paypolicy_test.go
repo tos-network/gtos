@@ -67,4 +67,8 @@ func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 	if got := ReadPolicy(st, policyID); got.Status != PolicyRevoked {
 		t.Fatalf("expected revoked status, got %d", got.Status)
 	}
+
+	if err := h.Handle(newCtx(st, owner), deactivate); err != ErrPolicyAlreadyRevoked {
+		t.Fatalf("expected already revoked error, got %v", err)
+	}
 }

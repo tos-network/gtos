@@ -14,6 +14,18 @@ type stateDB interface {
 	SetState(common.Address, common.Hash, common.Hash)
 }
 
+func (r SubjectVerificationRecord) EffectiveStatus(nowMS uint64) VerificationStatus {
+	switch r.Status {
+	case VerificationRevoked:
+		return VerificationRevoked
+	default:
+		if r.ExpiryMS > 0 && nowMS >= r.ExpiryMS {
+			return VerificationExpired
+		}
+		return VerificationActive
+	}
+}
+
 func verifierSlot(name string) common.Hash {
 	key := append([]byte("vr\x00reg\x00"), []byte(name)...)
 	return common.BytesToHash(crypto.Keccak256(key))

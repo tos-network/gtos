@@ -1,6 +1,32 @@
 # GTOS Settlement Bus And Receipt Hooks
 
-**Status: DESIGN DRAFT (2026-03-22)**
+**Status: V1 IMPLEMENTED (2026-03-22)**
+
+Implemented in code today:
+
+- runtime receipt hooks:
+  `tos.receipt_open(...)`, `tos.receipt_success(...)`,
+  `tos.receipt_failure(...)`, `tos.receipt_info(...)`
+- runtime settlement hooks:
+  `tos.settle(...)`, `tos.settle_refund(...)`,
+  `tos.settle_escrow(...)`, `tos.settlement_info(...)`
+- state-backed `RuntimeReceipt` and `SettlementEffect` records in `settlement/`
+- `PublicSettlementAPI.GetRuntimeReceipt(...)` and
+  `GetSettlementEffect(...)`
+- VM/runtime tests for:
+  - public transfer + auto-finalized receipt
+  - split-phase settle + `receipt_success`
+  - rollback on missing/open receipt precondition failure
+  - escrow release settlement
+  - UNO settlement
+
+Still open for later waves:
+
+- sponsor-aware settlement joins
+- `ESCROW_RELEASE_UNO` and deeper confidential refund/release normalization
+- broader OpenFox / deployed-metadata consumption of runtime settlement records
+- deciding which flows should mirror runtime receipts into app-level
+  `ReceiptBook` by default
 
 This document defines the next GTOS-owned protocol/runtime wave after:
 

@@ -30,6 +30,7 @@ type PublisherRecord struct {
 	PublisherID [32]byte
 	Controller  common.Address
 	MetadataRef [32]byte
+	Namespace   string
 	Status      PackageStatus
 }
 
@@ -55,4 +56,7 @@ var (
 	ErrInvalidPublisher  = errors.New("pkgregistry: invalid publisher payload")
 	ErrInvalidPackage    = errors.New("pkgregistry: invalid package payload")
 	ErrPublisherInactive = errors.New("pkgregistry: publisher is not active")
+	ErrNamespaceExists   = errors.New("pkgregistry: namespace already claimed")
+	ErrNamespaceMissing  = errors.New("pkgregistry: namespace missing")
+	ErrNamespaceMismatch = errors.New("pkgregistry: package namespace mismatch")
 )

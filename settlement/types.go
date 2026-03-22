@@ -23,6 +23,22 @@ const (
 	CallbackOnRefund  CallbackType = "on_refund"
 )
 
+// Runtime receipt statuses.
+const (
+	ReceiptStatusOpen uint8 = iota + 1
+	ReceiptStatusSuccess
+	ReceiptStatusFailure
+)
+
+// Settlement modes exposed through the GTOS settlement bus v1.
+const (
+	ModePublicTransfer uint16 = iota + 1
+	ModeUnoTransfer
+	ModeEscrowReleasePublic
+	ModeRefundPublic
+	ModeRefundUno
+)
+
 // CallbackStatus tracks the lifecycle of a callback.
 const (
 	StatusPending  = "pending"
@@ -108,6 +124,11 @@ var (
 	ErrTTLTooLong            = errors.New("settlement: ttl_blocks exceeds maximum")
 	ErrInvalidTxHash         = errors.New("settlement: tx_hash must not be zero")
 	ErrFulfillmentNotAllowed = errors.New("settlement: fulfillment not allowed")
+	ErrReceiptNotFound       = errors.New("settlement: receipt not found")
+	ErrReceiptAlreadyExists  = errors.New("settlement: receipt already exists")
+	ErrReceiptNotOpen        = errors.New("settlement: receipt is not open")
+	ErrSettlementNotFound    = errors.New("settlement: settlement not found")
+	ErrInvalidSettlementMode = errors.New("settlement: invalid settlement mode")
 )
 
 // Settlement parameter limits.
@@ -122,4 +143,82 @@ var validCallbackTypes = map[CallbackType]bool{
 	CallbackOnFail:    true,
 	CallbackOnTimeout: true,
 	CallbackOnRefund:  true,
+}
+
+// RuntimeReceipt is the protocol-native receipt shape stored by the settlement bus.
+type RuntimeReceipt struct {
+	ReceiptRef    common.Hash    `json:"receipt_ref"`
+	ReceiptKind   uint16         `json:"receipt_kind"`
+	Status        uint8          `json:"status"`
+	Mode          uint16         `json:"mode"`
+	Sender        common.Address `json:"sender"`
+	Recipient     common.Address `json:"recipient"`
+	SettlementRef common.Hash    `json:"settlement_ref"`
+	ProofRef      common.Hash    `json:"proof_ref,omitempty"`
+	FailureRef    common.Hash    `json:"failure_ref,omitempty"`
+	PolicyRef     common.Hash    `json:"policy_ref,omitempty"`
+	ArtifactRef   common.Hash    `json:"artifact_ref,omitempty"`
+	AmountRef     common.Hash    `json:"amount_ref,omitempty"`
+	OpenedAt      uint64         `json:"opened_at"`
+	FinalizedAt   uint64         `json:"finalized_at,omitempty"`
+}
+
+// SettlementEffect is the protocol-native settlement record stored by the settlement bus.
+type SettlementEffect struct {
+	SettlementRef common.Hash    `json:"settlement_ref"`
+	ReceiptRef    common.Hash    `json:"receipt_ref"`
+	Mode          uint16         `json:"mode"`
+	Sender        common.Address `json:"sender"`
+	Recipient     common.Address `json:"recipient"`
+	AmountRef     common.Hash    `json:"amount_ref,omitempty"`
+	PolicyRef     common.Hash    `json:"policy_ref,omitempty"`
+	ArtifactRef   common.Hash    `json:"artifact_ref,omitempty"`
+	CreatedAt     uint64         `json:"created_at"`
+}
+
+func ReceiptStatusName(status uint8) string {
+	switch status {
+	case ReceiptStatusOpen:
+		return "open"
+	case ReceiptStatusSuccess:
+		return "success"
+	case ReceiptStatusFailure:
+		return "failure"
+	default:
+		return ""
+	}
+}
+
+func SettlementModeName(mode uint16) string {
+	switch mode {
+	case ModePublicTransfer:
+		return "PUBLIC_TRANSFER"
+	case ModeUnoTransfer:
+		return "UNO_TRANSFER"
+	case ModeEscrowReleasePublic:
+		return "ESCROW_RELEASE_PUBLIC"
+	case ModeRefundPublic:
+		return "REFUND_PUBLIC"
+	case ModeRefundUno:
+		return "REFUND_UNO"
+	default:
+		return ""
+	}
+}
+
+func ParseSettlementMode(mode string) (uint16, error) {
+	switch mode {
+	case "PUBLIC_TRANSFER":
+		return ModePublicTransfer, nil
+	case "UNO_TRANSFER":
+		return ModeUnoTransfer, nil
+	case "ESCROW_RELEASE_PUBLIC":
+		return ModeEscrowReleasePublic, nil
+	case "REFUND_PUBLIC":
+		return ModeRefundPublic, nil
+	case "REFUND_UNO":
+		return ModeRefundUno, nil
+	default:
+		return 0, ErrInvalidSettlementMode
+	}
 }

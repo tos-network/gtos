@@ -32,6 +32,39 @@ type AsyncFulfillmentResult struct {
 	ReceiptRef       common.Hash    `json:"receipt_ref"`
 }
 
+// RuntimeReceiptResult is the JSON-friendly result for GetRuntimeReceipt.
+type RuntimeReceiptResult struct {
+	ReceiptRef    common.Hash    `json:"receipt_ref"`
+	ReceiptKind   uint16         `json:"receipt_kind"`
+	Status        string         `json:"status"`
+	Mode          uint16         `json:"mode"`
+	ModeName      string         `json:"mode_name"`
+	Sender        common.Address `json:"sender"`
+	Recipient     common.Address `json:"recipient"`
+	SettlementRef common.Hash    `json:"settlement_ref"`
+	ProofRef      common.Hash    `json:"proof_ref"`
+	FailureRef    common.Hash    `json:"failure_ref"`
+	PolicyRef     common.Hash    `json:"policy_ref"`
+	ArtifactRef   common.Hash    `json:"artifact_ref"`
+	AmountRef     common.Hash    `json:"amount_ref"`
+	OpenedAt      uint64         `json:"opened_at"`
+	FinalizedAt   uint64         `json:"finalized_at"`
+}
+
+// SettlementEffectResult is the JSON-friendly result for GetSettlementEffect.
+type SettlementEffectResult struct {
+	SettlementRef common.Hash    `json:"settlement_ref"`
+	ReceiptRef    common.Hash    `json:"receipt_ref"`
+	Mode          uint16         `json:"mode"`
+	ModeName      string         `json:"mode_name"`
+	Sender        common.Address `json:"sender"`
+	Recipient     common.Address `json:"recipient"`
+	AmountRef     common.Hash    `json:"amount_ref"`
+	PolicyRef     common.Hash    `json:"policy_ref"`
+	ArtifactRef   common.Hash    `json:"artifact_ref"`
+	CreatedAt     uint64         `json:"created_at"`
+}
+
 // PublicSettlementAPI provides RPC methods for querying settlement state.
 type PublicSettlementAPI struct {
 	stateReader func() stateDB
@@ -78,6 +111,53 @@ func (api *PublicSettlementAPI) GetFulfillment(fulfillmentID common.Hash) (*Asyn
 		PolicyCheck:      ReadFulfillmentPolicyCheck(db, fulfillmentID),
 		FulfilledAt:      ReadFulfillmentFulfilledAt(db, fulfillmentID),
 		ReceiptRef:       ReadFulfillmentReceiptRef(db, fulfillmentID),
+	}, nil
+}
+
+// GetRuntimeReceipt returns a settlement-bus runtime receipt by ref.
+func (api *PublicSettlementAPI) GetRuntimeReceipt(receiptRef common.Hash) (*RuntimeReceiptResult, error) {
+	db := api.stateReader()
+	receipt, err := ReadRuntimeReceipt(db, receiptRef)
+	if err != nil {
+		return nil, err
+	}
+	return &RuntimeReceiptResult{
+		ReceiptRef:    receipt.ReceiptRef,
+		ReceiptKind:   receipt.ReceiptKind,
+		Status:        ReceiptStatusName(receipt.Status),
+		Mode:          receipt.Mode,
+		ModeName:      SettlementModeName(receipt.Mode),
+		Sender:        receipt.Sender,
+		Recipient:     receipt.Recipient,
+		SettlementRef: receipt.SettlementRef,
+		ProofRef:      receipt.ProofRef,
+		FailureRef:    receipt.FailureRef,
+		PolicyRef:     receipt.PolicyRef,
+		ArtifactRef:   receipt.ArtifactRef,
+		AmountRef:     receipt.AmountRef,
+		OpenedAt:      receipt.OpenedAt,
+		FinalizedAt:   receipt.FinalizedAt,
+	}, nil
+}
+
+// GetSettlementEffect returns a settlement-bus effect by settlement ref.
+func (api *PublicSettlementAPI) GetSettlementEffect(settlementRef common.Hash) (*SettlementEffectResult, error) {
+	db := api.stateReader()
+	effect, err := ReadSettlementEffect(db, settlementRef)
+	if err != nil {
+		return nil, err
+	}
+	return &SettlementEffectResult{
+		SettlementRef: effect.SettlementRef,
+		ReceiptRef:    effect.ReceiptRef,
+		Mode:          effect.Mode,
+		ModeName:      SettlementModeName(effect.Mode),
+		Sender:        effect.Sender,
+		Recipient:     effect.Recipient,
+		AmountRef:     effect.AmountRef,
+		PolicyRef:     effect.PolicyRef,
+		ArtifactRef:   effect.ArtifactRef,
+		CreatedAt:     effect.CreatedAt,
 	}, nil
 }
 

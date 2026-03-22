@@ -217,8 +217,8 @@ func inspectPublishedPackage(st *state.StateDB, pkgBytes []byte) (*PackageInfo, 
 	if rec.PackageHash == ([32]byte{}) {
 		return nil, nil
 	}
-	published := packageInfoFromRecord(rec)
 	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
+	published := packageInfoFromRecord(rec, pubRec)
 	if pubRec.Controller == (common.Address{}) {
 		return published, nil
 	}

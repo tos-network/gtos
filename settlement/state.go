@@ -323,3 +323,290 @@ func IncrementFulfillmentCount(db stateDB) {
 	n := ReadFulfillmentCount(db)
 	db.SetState(registry, fulfillmentCountSlot, common.BigToHash(new(big.Int).SetUint64(n+1)))
 }
+
+// ---------- Runtime receipt + settlement effect CRUD ----------
+
+func rrSlot(receiptRef common.Hash, field string) common.Hash {
+	key := make([]byte, 0, 3+common.HashLength+1+len(field))
+	key = append(key, "rr\x00"...)
+	key = append(key, receiptRef[:]...)
+	key = append(key, 0x00)
+	key = append(key, field...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
+func seSlot(settlementRef common.Hash, field string) common.Hash {
+	key := make([]byte, 0, 3+common.HashLength+1+len(field))
+	key = append(key, "se\x00"...)
+	key = append(key, settlementRef[:]...)
+	key = append(key, 0x00)
+	key = append(key, field...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
+func readUint64Slot(db stateDB, slot common.Hash) uint64 {
+	raw := db.GetState(registry, slot)
+	return binary.BigEndian.Uint64(raw[24:])
+}
+
+func writeUint64Slot(db stateDB, slot common.Hash, value uint64) {
+	var word common.Hash
+	binary.BigEndian.PutUint64(word[24:], value)
+	db.SetState(registry, slot, word)
+}
+
+func readUint16Slot(db stateDB, slot common.Hash) uint16 {
+	raw := db.GetState(registry, slot)
+	return binary.BigEndian.Uint16(raw[30:])
+}
+
+func writeUint16Slot(db stateDB, slot common.Hash, value uint16) {
+	var word common.Hash
+	binary.BigEndian.PutUint16(word[30:], value)
+	db.SetState(registry, slot, word)
+}
+
+func readUint8Slot(db stateDB, slot common.Hash) uint8 {
+	raw := db.GetState(registry, slot)
+	return raw[31]
+}
+
+func writeUint8Slot(db stateDB, slot common.Hash, value uint8) {
+	var word common.Hash
+	word[31] = value
+	db.SetState(registry, slot, word)
+}
+
+func readAddressSlot(db stateDB, slot common.Hash) common.Address {
+	raw := db.GetState(registry, slot)
+	return common.BytesToAddress(raw[:])
+}
+
+func writeAddressSlot(db stateDB, slot common.Hash, addr common.Address) {
+	var word common.Hash
+	copy(word[common.HashLength-common.AddressLength:], addr.Bytes())
+	db.SetState(registry, slot, word)
+}
+
+func ReadRuntimeReceiptExists(db stateDB, receiptRef common.Hash) bool {
+	return readUint8Slot(db, rrSlot(receiptRef, "exists")) != 0
+}
+
+func WriteRuntimeReceiptExists(db stateDB, receiptRef common.Hash) {
+	writeUint8Slot(db, rrSlot(receiptRef, "exists"), 1)
+}
+
+func ReadRuntimeReceiptKind(db stateDB, receiptRef common.Hash) uint16 {
+	return readUint16Slot(db, rrSlot(receiptRef, "kind"))
+}
+
+func WriteRuntimeReceiptKind(db stateDB, receiptRef common.Hash, kind uint16) {
+	writeUint16Slot(db, rrSlot(receiptRef, "kind"), kind)
+}
+
+func ReadRuntimeReceiptStatus(db stateDB, receiptRef common.Hash) uint8 {
+	return readUint8Slot(db, rrSlot(receiptRef, "status"))
+}
+
+func WriteRuntimeReceiptStatus(db stateDB, receiptRef common.Hash, status uint8) {
+	writeUint8Slot(db, rrSlot(receiptRef, "status"), status)
+}
+
+func ReadRuntimeReceiptMode(db stateDB, receiptRef common.Hash) uint16 {
+	return readUint16Slot(db, rrSlot(receiptRef, "mode"))
+}
+
+func WriteRuntimeReceiptMode(db stateDB, receiptRef common.Hash, mode uint16) {
+	writeUint16Slot(db, rrSlot(receiptRef, "mode"), mode)
+}
+
+func ReadRuntimeReceiptSender(db stateDB, receiptRef common.Hash) common.Address {
+	return readAddressSlot(db, rrSlot(receiptRef, "sender"))
+}
+
+func WriteRuntimeReceiptSender(db stateDB, receiptRef common.Hash, sender common.Address) {
+	writeAddressSlot(db, rrSlot(receiptRef, "sender"), sender)
+}
+
+func ReadRuntimeReceiptRecipient(db stateDB, receiptRef common.Hash) common.Address {
+	return readAddressSlot(db, rrSlot(receiptRef, "recipient"))
+}
+
+func WriteRuntimeReceiptRecipient(db stateDB, receiptRef common.Hash, recipient common.Address) {
+	writeAddressSlot(db, rrSlot(receiptRef, "recipient"), recipient)
+}
+
+func ReadRuntimeReceiptSettlementRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "settlementRef"))
+}
+
+func WriteRuntimeReceiptSettlementRef(db stateDB, receiptRef common.Hash, settlementRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "settlementRef"), settlementRef)
+}
+
+func ReadRuntimeReceiptProofRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "proofRef"))
+}
+
+func WriteRuntimeReceiptProofRef(db stateDB, receiptRef common.Hash, proofRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "proofRef"), proofRef)
+}
+
+func ReadRuntimeReceiptFailureRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "failureRef"))
+}
+
+func WriteRuntimeReceiptFailureRef(db stateDB, receiptRef common.Hash, failureRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "failureRef"), failureRef)
+}
+
+func ReadRuntimeReceiptPolicyRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "policyRef"))
+}
+
+func WriteRuntimeReceiptPolicyRef(db stateDB, receiptRef common.Hash, policyRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "policyRef"), policyRef)
+}
+
+func ReadRuntimeReceiptArtifactRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "artifactRef"))
+}
+
+func WriteRuntimeReceiptArtifactRef(db stateDB, receiptRef common.Hash, artifactRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "artifactRef"), artifactRef)
+}
+
+func ReadRuntimeReceiptAmountRef(db stateDB, receiptRef common.Hash) common.Hash {
+	return db.GetState(registry, rrSlot(receiptRef, "amountRef"))
+}
+
+func WriteRuntimeReceiptAmountRef(db stateDB, receiptRef common.Hash, amountRef common.Hash) {
+	db.SetState(registry, rrSlot(receiptRef, "amountRef"), amountRef)
+}
+
+func ReadRuntimeReceiptOpenedAt(db stateDB, receiptRef common.Hash) uint64 {
+	return readUint64Slot(db, rrSlot(receiptRef, "openedAt"))
+}
+
+func WriteRuntimeReceiptOpenedAt(db stateDB, receiptRef common.Hash, openedAt uint64) {
+	writeUint64Slot(db, rrSlot(receiptRef, "openedAt"), openedAt)
+}
+
+func ReadRuntimeReceiptFinalizedAt(db stateDB, receiptRef common.Hash) uint64 {
+	return readUint64Slot(db, rrSlot(receiptRef, "finalizedAt"))
+}
+
+func WriteRuntimeReceiptFinalizedAt(db stateDB, receiptRef common.Hash, finalizedAt uint64) {
+	writeUint64Slot(db, rrSlot(receiptRef, "finalizedAt"), finalizedAt)
+}
+
+func ReadSettlementEffectExists(db stateDB, settlementRef common.Hash) bool {
+	return readUint8Slot(db, seSlot(settlementRef, "exists")) != 0
+}
+
+func WriteSettlementEffectExists(db stateDB, settlementRef common.Hash) {
+	writeUint8Slot(db, seSlot(settlementRef, "exists"), 1)
+}
+
+func ReadSettlementEffectReceiptRef(db stateDB, settlementRef common.Hash) common.Hash {
+	return db.GetState(registry, seSlot(settlementRef, "receiptRef"))
+}
+
+func WriteSettlementEffectReceiptRef(db stateDB, settlementRef common.Hash, receiptRef common.Hash) {
+	db.SetState(registry, seSlot(settlementRef, "receiptRef"), receiptRef)
+}
+
+func ReadSettlementEffectMode(db stateDB, settlementRef common.Hash) uint16 {
+	return readUint16Slot(db, seSlot(settlementRef, "mode"))
+}
+
+func WriteSettlementEffectMode(db stateDB, settlementRef common.Hash, mode uint16) {
+	writeUint16Slot(db, seSlot(settlementRef, "mode"), mode)
+}
+
+func ReadSettlementEffectSender(db stateDB, settlementRef common.Hash) common.Address {
+	return readAddressSlot(db, seSlot(settlementRef, "sender"))
+}
+
+func WriteSettlementEffectSender(db stateDB, settlementRef common.Hash, sender common.Address) {
+	writeAddressSlot(db, seSlot(settlementRef, "sender"), sender)
+}
+
+func ReadSettlementEffectRecipient(db stateDB, settlementRef common.Hash) common.Address {
+	return readAddressSlot(db, seSlot(settlementRef, "recipient"))
+}
+
+func WriteSettlementEffectRecipient(db stateDB, settlementRef common.Hash, recipient common.Address) {
+	writeAddressSlot(db, seSlot(settlementRef, "recipient"), recipient)
+}
+
+func ReadSettlementEffectAmountRef(db stateDB, settlementRef common.Hash) common.Hash {
+	return db.GetState(registry, seSlot(settlementRef, "amountRef"))
+}
+
+func WriteSettlementEffectAmountRef(db stateDB, settlementRef common.Hash, amountRef common.Hash) {
+	db.SetState(registry, seSlot(settlementRef, "amountRef"), amountRef)
+}
+
+func ReadSettlementEffectPolicyRef(db stateDB, settlementRef common.Hash) common.Hash {
+	return db.GetState(registry, seSlot(settlementRef, "policyRef"))
+}
+
+func WriteSettlementEffectPolicyRef(db stateDB, settlementRef common.Hash, policyRef common.Hash) {
+	db.SetState(registry, seSlot(settlementRef, "policyRef"), policyRef)
+}
+
+func ReadSettlementEffectArtifactRef(db stateDB, settlementRef common.Hash) common.Hash {
+	return db.GetState(registry, seSlot(settlementRef, "artifactRef"))
+}
+
+func WriteSettlementEffectArtifactRef(db stateDB, settlementRef common.Hash, artifactRef common.Hash) {
+	db.SetState(registry, seSlot(settlementRef, "artifactRef"), artifactRef)
+}
+
+func ReadSettlementEffectCreatedAt(db stateDB, settlementRef common.Hash) uint64 {
+	return readUint64Slot(db, seSlot(settlementRef, "createdAt"))
+}
+
+func WriteSettlementEffectCreatedAt(db stateDB, settlementRef common.Hash, createdAt uint64) {
+	writeUint64Slot(db, seSlot(settlementRef, "createdAt"), createdAt)
+}
+
+func ReadRuntimeReceipt(db stateDB, receiptRef common.Hash) (*RuntimeReceipt, error) {
+	if !ReadRuntimeReceiptExists(db, receiptRef) {
+		return nil, ErrReceiptNotFound
+	}
+	return &RuntimeReceipt{
+		ReceiptRef:    receiptRef,
+		ReceiptKind:   ReadRuntimeReceiptKind(db, receiptRef),
+		Status:        ReadRuntimeReceiptStatus(db, receiptRef),
+		Mode:          ReadRuntimeReceiptMode(db, receiptRef),
+		Sender:        ReadRuntimeReceiptSender(db, receiptRef),
+		Recipient:     ReadRuntimeReceiptRecipient(db, receiptRef),
+		SettlementRef: ReadRuntimeReceiptSettlementRef(db, receiptRef),
+		ProofRef:      ReadRuntimeReceiptProofRef(db, receiptRef),
+		FailureRef:    ReadRuntimeReceiptFailureRef(db, receiptRef),
+		PolicyRef:     ReadRuntimeReceiptPolicyRef(db, receiptRef),
+		ArtifactRef:   ReadRuntimeReceiptArtifactRef(db, receiptRef),
+		AmountRef:     ReadRuntimeReceiptAmountRef(db, receiptRef),
+		OpenedAt:      ReadRuntimeReceiptOpenedAt(db, receiptRef),
+		FinalizedAt:   ReadRuntimeReceiptFinalizedAt(db, receiptRef),
+	}, nil
+}
+
+func ReadSettlementEffect(db stateDB, settlementRef common.Hash) (*SettlementEffect, error) {
+	if !ReadSettlementEffectExists(db, settlementRef) {
+		return nil, ErrSettlementNotFound
+	}
+	return &SettlementEffect{
+		SettlementRef: settlementRef,
+		ReceiptRef:    ReadSettlementEffectReceiptRef(db, settlementRef),
+		Mode:          ReadSettlementEffectMode(db, settlementRef),
+		Sender:        ReadSettlementEffectSender(db, settlementRef),
+		Recipient:     ReadSettlementEffectRecipient(db, settlementRef),
+		AmountRef:     ReadSettlementEffectAmountRef(db, settlementRef),
+		PolicyRef:     ReadSettlementEffectPolicyRef(db, settlementRef),
+		ArtifactRef:   ReadSettlementEffectArtifactRef(db, settlementRef),
+		CreatedAt:     ReadSettlementEffectCreatedAt(db, settlementRef),
+	}, nil
+}

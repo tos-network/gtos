@@ -25,8 +25,9 @@ type PolicyRecord struct {
 }
 
 var (
-	ErrPolicyExists      = errors.New("paypolicy: policy already registered")
-	ErrPolicyNotFound    = errors.New("paypolicy: policy not found")
-	ErrInvalidPolicy     = errors.New("paypolicy: invalid policy payload")
-	ErrUnauthorizedOwner = errors.New("paypolicy: sender is not policy owner")
+	ErrPolicyExists         = errors.New("paypolicy: policy already registered")
+	ErrPolicyNotFound       = errors.New("paypolicy: policy not found")
+	ErrPolicyAlreadyRevoked = errors.New("paypolicy: policy already revoked")
+	ErrInvalidPolicy        = errors.New("paypolicy: invalid policy payload")
+	ErrUnauthorizedOwner    = errors.New("paypolicy: sender is not policy owner")
 )

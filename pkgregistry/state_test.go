@@ -40,6 +40,7 @@ func TestPublisherRoundTrip(t *testing.T) {
 		PublisherID: pubID,
 		Controller:  controller,
 		MetadataRef: metaRef,
+		Namespace:   "demo.checkout",
 		Status:      PkgActive,
 	}
 	WritePublisher(db, rec)
@@ -54,6 +55,9 @@ func TestPublisherRoundTrip(t *testing.T) {
 	if got.Status != PkgActive {
 		t.Fatalf("Status mismatch: got %d, want %d", got.Status, PkgActive)
 	}
+	if got.Namespace != "demo.checkout" {
+		t.Fatalf("Namespace mismatch: got %q, want %q", got.Namespace, "demo.checkout")
+	}
 
 	// Update status
 	rec.Status = PkgRevoked
@@ -61,6 +65,27 @@ func TestPublisherRoundTrip(t *testing.T) {
 	got = ReadPublisher(db, pubID)
 	if got.Status != PkgRevoked {
 		t.Fatalf("Status after update: got %d, want %d", got.Status, PkgRevoked)
+	}
+}
+
+func TestPublisherNamespaceLookup(t *testing.T) {
+	db := newMockStateDB()
+
+	pubID := [32]byte{0x04, 0x05, 0x06}
+	rec := PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0xABCDEF0123456789ABCDEF0123456789ABCDEF01"),
+		Namespace:   "demo.checkout",
+		Status:      PkgActive,
+	}
+	WritePublisher(db, rec)
+
+	got := ReadPublisherByNamespace(db, "demo.checkout")
+	if got.Controller != rec.Controller {
+		t.Fatalf("namespace lookup Controller mismatch: got %s, want %s", got.Controller.Hex(), rec.Controller.Hex())
+	}
+	if got.Namespace != rec.Namespace {
+		t.Fatalf("namespace lookup Namespace mismatch: got %q, want %q", got.Namespace, rec.Namespace)
 	}
 }
 

@@ -118,3 +118,63 @@ func TestAPIGetFulfillmentNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrCallbackNotFound", err)
 	}
 }
+
+func TestAPIGetRuntimeReceipt(t *testing.T) {
+	db := newMockStateDB()
+	receiptRef := common.HexToHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa11")
+	settlementRef := common.HexToHash("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb22")
+	sender := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	recipient := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	WriteRuntimeReceiptExists(db, receiptRef)
+	WriteRuntimeReceiptKind(db, receiptRef, 7)
+	WriteRuntimeReceiptStatus(db, receiptRef, ReceiptStatusSuccess)
+	WriteRuntimeReceiptMode(db, receiptRef, ModePublicTransfer)
+	WriteRuntimeReceiptSender(db, receiptRef, sender)
+	WriteRuntimeReceiptRecipient(db, receiptRef, recipient)
+	WriteRuntimeReceiptSettlementRef(db, receiptRef, settlementRef)
+	WriteRuntimeReceiptOpenedAt(db, receiptRef, 10)
+	WriteRuntimeReceiptFinalizedAt(db, receiptRef, 20)
+
+	api := newTestSettlementAPI(db)
+	got, err := api.GetRuntimeReceipt(receiptRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "success" {
+		t.Fatalf("status=%q want success", got.Status)
+	}
+	if got.ModeName != "PUBLIC_TRANSFER" {
+		t.Fatalf("mode_name=%q want PUBLIC_TRANSFER", got.ModeName)
+	}
+	if got.Sender != sender || got.Recipient != recipient {
+		t.Fatalf("unexpected sender/recipient: %+v", got)
+	}
+}
+
+func TestAPIGetSettlementEffect(t *testing.T) {
+	db := newMockStateDB()
+	settlementRef := common.HexToHash("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+	receiptRef := common.HexToHash("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+	sender := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	recipient := common.HexToAddress("0x4444444444444444444444444444444444444444")
+
+	WriteSettlementEffectExists(db, settlementRef)
+	WriteSettlementEffectReceiptRef(db, settlementRef, receiptRef)
+	WriteSettlementEffectMode(db, settlementRef, ModeRefundPublic)
+	WriteSettlementEffectSender(db, settlementRef, sender)
+	WriteSettlementEffectRecipient(db, settlementRef, recipient)
+	WriteSettlementEffectCreatedAt(db, settlementRef, 77)
+
+	api := newTestSettlementAPI(db)
+	got, err := api.GetSettlementEffect(settlementRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModeName != "REFUND_PUBLIC" {
+		t.Fatalf("mode_name=%q want REFUND_PUBLIC", got.ModeName)
+	}
+	if got.CreatedAt != 77 {
+		t.Fatalf("created_at=%d want 77", got.CreatedAt)
+	}
+}

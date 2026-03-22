@@ -88,6 +88,9 @@ func (h *handler) handleDeactivateVerifier(ctx *sysaction.Context, sa *sysaction
 	if ctx.From != rec.VerifierAddr {
 		return ErrUnauthorizedVerifier
 	}
+	if rec.Status == VerifierRevoked {
+		return ErrVerifierAlreadyRevoked
+	}
 	rec.Status = VerifierRevoked
 	WriteVerifier(ctx.StateDB, rec)
 	return nil
@@ -115,6 +118,21 @@ func (h *handler) handleSetVerification(ctx *sysaction.Context, sa *sysaction.Sy
 	}
 	if ctx.From != verifier.VerifierAddr {
 		return ErrUnauthorizedVerifier
+	}
+	if verifier.Status != VerifierActive {
+		return ErrVerifierInactive
+	}
+	if status == VerificationRevoked {
+		existing := ReadSubjectVerification(ctx.StateDB, subject, p.ProofType)
+		if existing.Subject == (common.Address{}) {
+			return ErrVerificationNotFound
+		}
+		if existing.Status == VerificationRevoked {
+			return ErrVerificationAlreadyRevoked
+		}
+	}
+	if p.ExpiryMS > 0 && p.VerifiedAt > 0 && p.ExpiryMS < p.VerifiedAt {
+		return ErrInvalidVerification
 	}
 	record := SubjectVerificationRecord{
 		Subject:    subject,
