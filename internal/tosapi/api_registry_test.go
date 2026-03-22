@@ -167,6 +167,54 @@ func TestTolGetPackageReturnsRecord(t *testing.T) {
 	}
 }
 
+func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    [32]byte{0x10},
+		PublisherID:    [32]byte{0xAA},
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.1.0",
+		PackageHash:    [32]byte{0x11},
+		PublisherID:    [32]byte{0xAA},
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+	})
+	backend := newBackendMock()
+	backend.state = st
+	api := NewTOSAPI(backend)
+
+	got, err := api.TolGetLatestPackage(context.Background(), "demo.checkout", "stable")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil latest package")
+	}
+	if got.Version != "1.1.0" || got.Channel != "stable" {
+		t.Fatalf("unexpected latest package %+v", got)
+	}
+}
+
+func TestTolGetLatestPackageReturnsNilForUnknownChannel(t *testing.T) {
+	api := NewTOSAPI(newBackendMock())
+	got, err := api.TolGetLatestPackage(context.Background(), "demo.checkout", "nightly")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil for unknown channel, got %+v", got)
+	}
+}
+
 func TestTolGetPublisherReturnsNilForEmptyState(t *testing.T) {
 	api := NewTOSAPI(newBackendMock())
 	got, err := api.TolGetPublisher(context.Background(), "pub-001")

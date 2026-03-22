@@ -18,9 +18,8 @@ import (
 // ---------------------------------------------------------------------------
 // Protocol Registry RPC types
 //
-// v1 skeleton — response types for the protocol registry query RPCs defined
-// in docs/GTOS_PROTOCOL_REGISTRIES.md.  The methods return nil when the
-// underlying registry state packages are not yet wired up.
+// v1 registry query surfaces for the protocol registry RPCs defined in
+// docs/GTOS_PROTOCOL_REGISTRIES.md.
 // ---------------------------------------------------------------------------
 
 // CapabilityInfo describes a single capability record from the protocol
@@ -112,12 +111,11 @@ type AgentIdentityInfo struct {
 }
 
 // ---------------------------------------------------------------------------
-// RPC methods — v1 skeleton
+// RPC methods — v1
 //
-// These methods are intended to read from StateDB via registry state
-// functions once those are implemented.  For v1 they return nil to indicate
-// "no record found" rather than erroring, so callers can safely probe
-// without depending on registry state being present.
+// These methods read from StateDB via the protocol registry state packages.
+// They return nil to indicate "no record found" so callers can safely probe
+// the registry surface.
 // ---------------------------------------------------------------------------
 
 // TolGetCapability returns the capability record for the given canonical
@@ -207,6 +205,29 @@ func (s *TOSAPI) TolGetPackageByHash(ctx context.Context, packageHash string) (*
 	return packageInfoFromRecord(rec), nil
 }
 
+// TolGetLatestPackage returns the latest active package currently indexed for
+// the given package name and channel. Supported channels are "dev", "beta",
+// "stable", and "deprecated". Empty channel defaults to "stable".
+func (s *TOSAPI) TolGetLatestPackage(ctx context.Context, name, channel string) (*PackageInfo, error) {
+	st, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil || st == nil {
+		return nil, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, nil
+	}
+	ch, ok := parsePackageChannel(channel)
+	if !ok {
+		return nil, nil
+	}
+	rec := pkgregistry.ReadLatestPackage(st, name, ch)
+	if rec.PackageHash == ([32]byte{}) {
+		return nil, nil
+	}
+	return packageInfoFromRecord(rec), nil
+}
+
 // TolGetPublisher returns the publisher record for the given publisher ID,
 // or nil if no record exists.
 func (s *TOSAPI) TolGetPublisher(ctx context.Context, publisherID string) (*PublisherInfo, error) {
@@ -221,12 +242,7 @@ func (s *TOSAPI) TolGetPublisher(ctx context.Context, publisherID string) (*Publ
 	if rec.Controller == (common.Address{}) {
 		return nil, nil
 	}
-	return &PublisherInfo{
-		PublisherID: common.Hash(rec.PublisherID).Hex(),
-		Controller:  rec.Controller.Hex(),
-		MetadataRef: common.Hash(rec.MetadataRef).Hex(),
-		Status:      packageStatusString(rec.Status),
-	}, nil
+	return publisherInfoFromRecord(rec), nil
 }
 
 func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo, error) {
@@ -390,6 +406,21 @@ func packageChannelString(channel pkgregistry.ChannelKind) string {
 	}
 }
 
+func parsePackageChannel(channel string) (pkgregistry.ChannelKind, bool) {
+	switch strings.ToLower(strings.TrimSpace(channel)) {
+	case "", "stable":
+		return pkgregistry.ChannelStable, true
+	case "dev":
+		return pkgregistry.ChannelDev, true
+	case "beta":
+		return pkgregistry.ChannelBeta, true
+	case "deprecated":
+		return pkgregistry.ChannelDeprecated, true
+	default:
+		return 0, false
+	}
+}
+
 func packageInfoFromRecord(rec pkgregistry.PackageRecord) *PackageInfo {
 	return &PackageInfo{
 		Name:          rec.PackageName,
@@ -402,5 +433,14 @@ func packageInfoFromRecord(rec pkgregistry.PackageRecord) *PackageInfo {
 		ContractCount: uint64(rec.ContractCount),
 		DiscoveryRef:  common.Hash(rec.DiscoveryRef).Hex(),
 		PublishedAt:   rec.PublishedAt,
+	}
+}
+
+func publisherInfoFromRecord(rec pkgregistry.PublisherRecord) *PublisherInfo {
+	return &PublisherInfo{
+		PublisherID: common.Hash(rec.PublisherID).Hex(),
+		Controller:  rec.Controller.Hex(),
+		MetadataRef: common.Hash(rec.MetadataRef).Hex(),
+		Status:      packageStatusString(rec.Status),
 	}
 }

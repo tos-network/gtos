@@ -9,6 +9,8 @@ import (
 	"github.com/tos-network/gtos/core/rawdb"
 	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/pkgregistry"
 	"github.com/tos-network/gtos/rpc"
 	lua "github.com/tos-network/tolang"
 )
@@ -163,6 +165,60 @@ func TestGetContractMetadataReturnsPackageDescriptor(t *testing.T) {
 	}
 	if beta.Artifact == nil || beta.Artifact.Metadata == nil || beta.Artifact.Metadata.Contract.Name != "Beta" {
 		t.Fatalf("unexpected Beta artifact %#v", beta.Artifact)
+	}
+}
+
+func TestGetContractMetadataReturnsPublishedPackageIdentity(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pkgBytes, err := lua.CompilePackage([]byte(contractMetadataPackageSource), "DemoCheckout.tol", &lua.PackageOptions{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("CompilePackage failed: %v", err)
+	}
+	addr := common.HexToAddress("0x1212121212121212121212121212121212121212121212121212121212121212")
+	st.SetCode(addr, pkgBytes)
+
+	pubID := [32]byte{0x42}
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.2.3",
+		PackageHash:    crypto.Keccak256Hash(pkgBytes),
+		PublisherID:    pubID,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+		ContractCount:  2,
+	})
+
+	api := NewBlockChainAPI(&getCodeBackendMock{
+		backendMock: newBackendMock(),
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(199)},
+	})
+	got, err := api.GetContractMetadata(context.Background(), addr, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.Package == nil {
+		t.Fatal("expected package descriptor")
+	}
+	if got.Package.Published == nil {
+		t.Fatal("expected published package info")
+	}
+	if got.Package.Published.Name != "demo.checkout" || got.Package.Published.Channel != "stable" {
+		t.Fatalf("unexpected published package %+v", got.Package.Published)
+	}
+	if got.Package.Publisher == nil || got.Package.Publisher.Status != "active" {
+		t.Fatalf("unexpected publisher info %+v", got.Package.Publisher)
 	}
 }
 

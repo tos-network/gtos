@@ -9,6 +9,8 @@ Implemented in code today:
 - protocol-backed `tos.isverified(...)`
 - protocol-backed `tos.canpay(...)`
 - package / contract inspection over deployed TOL code and package metadata
+- package inspection now joins published package identity, publisher status,
+  and latest-channel package resolution through GTOS RPC
 
 Still open for later waves:
 
@@ -301,8 +303,9 @@ Deliverables:
 - ~~registry-backed capability lookup~~ — **DONE**: `tos.hascapability` upgraded
   with `RegistryReader` interface; checks status + agent bit; 14 tests with
   mock registry in `lvm_registry_stubs_test.go`
-- updated metadata/RPC inspection — RPC skeleton defined (`TolGetCapability`,
-  `TolGetPackage`, etc.) but not yet wired to state reads
+- ~~updated metadata/RPC inspection~~ — **DONE**: registry RPCs are now
+  state-backed, `TolGetLatestPackage` resolves latest active package by
+  channel, and deployed contract metadata joins published package identity
 
 ### Phase 2: escrow / release native semantics
 

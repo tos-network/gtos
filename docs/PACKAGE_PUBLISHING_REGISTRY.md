@@ -1,18 +1,20 @@
 # Package Publishing Registry
 
-**Status: V1 IMPLEMENTED (2026-03-22)**
+**Status: V1.1 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
 - publisher state model
 - package record state model
 - package-hash lookup
+- latest-by-channel indexes for active published packages
 - system actions for publisher registration/status and package publish/deprecate/revoke
-- RPC query surface for package, package-by-hash, and publisher inspection
+- RPC query surface for package, package-by-hash, latest-by-channel, and publisher inspection
+- deployed metadata joins protocol package identity and publisher trust when a
+  deployed `.tor` matches a published package hash
 
 Still open for later waves:
 
-- latest-by-channel indexes
 - stronger publisher governance and namespace control
 - deeper discovery / deployment trust integration
 
@@ -316,16 +318,18 @@ Deliverables:
 
 Deliverables:
 
-- system package or registry hub entry
-- sysactions
-- RPC
-- discovery join
+- ~~system package or registry hub entry~~ — **DONE**
+- ~~sysactions~~ — **DONE**
+- ~~RPC~~ — **DONE**
+- ~~discovery join~~ — **DONE** for deployed metadata / package identity lookup
 
 ### Phase 4: runtime trust integration
 
 Deliverables:
 
-- OpenFox / discovery consumers prefer protocol resolution for trust decisions
+- **PARTIALLY DONE**: deployed metadata and package RPC now expose protocol
+  package identity, latest-channel resolution, and publisher status for trust
+  decisions; broader OpenFox/discovery routing adoption remains open
 
 ---
 

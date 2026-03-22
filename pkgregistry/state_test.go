@@ -163,3 +163,58 @@ func TestPublisherNotFound(t *testing.T) {
 		t.Fatalf("expected zero status for unknown publisher, got %d", got.Status)
 	}
 }
+
+func TestLatestPackageByChannelRoundTrip(t *testing.T) {
+	db := newMockStateDB()
+
+	v1 := PackageRecord{
+		PackageName:    "tol.std.discovery",
+		PackageVersion: "1.0.0",
+		PackageHash:    [32]byte{0x10},
+		PublisherID:    [32]byte{0x01},
+		Channel:        ChannelStable,
+		Status:         PkgActive,
+	}
+	v2 := PackageRecord{
+		PackageName:    "tol.std.discovery",
+		PackageVersion: "1.1.0",
+		PackageHash:    [32]byte{0x11},
+		PublisherID:    [32]byte{0x01},
+		Channel:        ChannelStable,
+		Status:         PkgActive,
+	}
+	WritePackage(db, v1)
+	WritePackage(db, v2)
+
+	got := ReadLatestPackage(db, "tol.std.discovery", ChannelStable)
+	if got.PackageVersion != "1.1.0" {
+		t.Fatalf("latest stable version: got %q want %q", got.PackageVersion, "1.1.0")
+	}
+	if got.PackageHash != v2.PackageHash {
+		t.Fatalf("latest stable hash mismatch")
+	}
+}
+
+func TestLatestPackageClearsWhenIndexedVersionBecomesInactive(t *testing.T) {
+	db := newMockStateDB()
+
+	rec := PackageRecord{
+		PackageName:    "tol.std.discovery",
+		PackageVersion: "2.0.0",
+		PackageHash:    [32]byte{0x20},
+		PublisherID:    [32]byte{0x02},
+		Channel:        ChannelBeta,
+		Status:         PkgActive,
+	}
+	WritePackage(db, rec)
+	if got := ReadLatestPackage(db, rec.PackageName, rec.Channel); got.PackageVersion != rec.PackageVersion {
+		t.Fatalf("expected active beta latest, got %+v", got)
+	}
+
+	rec.Status = PkgRevoked
+	WritePackage(db, rec)
+	got := ReadLatestPackage(db, rec.PackageName, rec.Channel)
+	if got.PackageHash != ([32]byte{}) {
+		t.Fatalf("expected latest beta index cleared, got %+v", got)
+	}
+}

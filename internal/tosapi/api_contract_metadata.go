@@ -8,6 +8,9 @@ import (
 
 	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/core/state"
+	"github.com/tos-network/gtos/crypto"
+	"github.com/tos-network/gtos/pkgregistry"
 	"github.com/tos-network/gtos/rpc"
 	lua "github.com/tos-network/tolang"
 	tolmeta "github.com/tos-network/tolang/metadata"
@@ -43,6 +46,8 @@ type TOLPackageInfo struct {
 	InitCode     string                   `json:"init_code,omitempty"`
 	Manifest     json.RawMessage          `json:"manifest"`
 	Contracts    []TOLPackageContractInfo `json:"contracts"`
+	Published    *PackageInfo             `json:"published,omitempty"`
+	Publisher    *PublisherInfo           `json:"publisher,omitempty"`
 }
 
 // TOLPackageContractInfo describes one manifest contract entry inside a .tor package.
@@ -80,14 +85,14 @@ func (s *BlockChainAPI) GetContractMetadata(ctx context.Context, address common.
 	if state == nil || header == nil || err != nil {
 		return nil, err
 	}
-	info, err := inspectDeployedCode(address, state.GetCodeHash(address), state.GetCode(address))
+	info, err := inspectDeployedCode(address, state.GetCodeHash(address), state.GetCode(address), state)
 	if err != nil {
 		return nil, err
 	}
 	return info, state.Error()
 }
 
-func inspectDeployedCode(address common.Address, codeHash common.Hash, code []byte) (*DeployedCodeInfo, error) {
+func inspectDeployedCode(address common.Address, codeHash common.Hash, code []byte, st *state.StateDB) (*DeployedCodeInfo, error) {
 	info := &DeployedCodeInfo{
 		Address:  address,
 		CodeHash: codeHash,
@@ -97,7 +102,7 @@ func inspectDeployedCode(address common.Address, codeHash common.Hash, code []by
 		return info, nil
 	}
 	if lua.IsPackage(code) {
-		pkgInfo, err := inspectTOLPackage(code)
+		pkgInfo, err := inspectTOLPackage(code, st)
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +123,7 @@ func inspectDeployedCode(address common.Address, codeHash common.Hash, code []by
 	return info, nil
 }
 
-func inspectTOLPackage(pkgBytes []byte) (*TOLPackageInfo, error) {
+func inspectTOLPackage(pkgBytes []byte, st *state.StateDB) (*TOLPackageInfo, error) {
 	pkg, err := lua.DecodePackage(pkgBytes)
 	if err != nil {
 		return nil, fmt.Errorf("decode deployed .tor package: %w", err)
@@ -160,6 +165,12 @@ func inspectTOLPackage(pkgBytes []byte) (*TOLPackageInfo, error) {
 		}
 		info.Contracts = append(info.Contracts, entry)
 	}
+	if st != nil {
+		if published, publisher := inspectPublishedPackage(st, pkgBytes); published != nil {
+			info.Published = published
+			info.Publisher = publisher
+		}
+	}
 	return info, nil
 }
 
@@ -198,4 +209,18 @@ func defaultArtifactPackageName(meta *tolmeta.ContractMetadata, art *lua.Artifac
 		return strings.ToLower(strings.TrimSpace(art.ContractName))
 	}
 	return "contract"
+}
+
+func inspectPublishedPackage(st *state.StateDB, pkgBytes []byte) (*PackageInfo, *PublisherInfo) {
+	pkgHash := crypto.Keccak256Hash(pkgBytes)
+	rec := pkgregistry.ReadPackageByHash(st, pkgHash)
+	if rec.PackageHash == ([32]byte{}) {
+		return nil, nil
+	}
+	published := packageInfoFromRecord(rec)
+	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
+	if pubRec.Controller == (common.Address{}) {
+		return published, nil
+	}
+	return published, publisherInfoFromRecord(pubRec)
 }

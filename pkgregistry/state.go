@@ -44,6 +44,17 @@ func hashLookupSlot(pkgHash [32]byte) common.Hash {
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
+// latestLookupSlot returns the storage slot for the latest package pointer
+// for a given package name and channel.
+// slot = keccak256("pkg\x00latest\x00" || name || uint16(channel))
+func latestLookupSlot(name string, channel ChannelKind) common.Hash {
+	key := append([]byte("pkg\x00latest\x00"), name...)
+	var raw [2]byte
+	binary.BigEndian.PutUint16(raw[:], uint16(channel))
+	key = append(key, raw[:]...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
 // slotOffset returns base + offset as a storage key.
 func slotOffset(base common.Hash, offset uint64) common.Hash {
 	b := base.Big()
@@ -156,14 +167,15 @@ func readString(db stateDB, base common.Hash, offset uint64) string {
 }
 
 // Package record slot layout (offsets from base):
-//   0..N-1  : PackageName  (length + data)
-//   N..M-1  : PackageVersion (length + data)
-//   M       : PackageHash
-//   M+1     : PublisherID
-//   M+2     : ManifestHash
-//   M+3     : Channel(uint16) | Status(uint8) | ContractCount(uint16) packed
-//   M+4     : DiscoveryRef
-//   M+5     : PublishedAt
+//
+//	0..N-1  : PackageName  (length + data)
+//	N..M-1  : PackageVersion (length + data)
+//	M       : PackageHash
+//	M+1     : PublisherID
+//	M+2     : ManifestHash
+//	M+3     : Channel(uint16) | Status(uint8) | ContractCount(uint16) packed
+//	M+4     : DiscoveryRef
+//	M+5     : PublishedAt
 //
 // Because strings are variable-length we store them with a fixed max budget:
 // maxSlots = 1 + ceil(maxPackageStringLen/32) = 5 slots each.
@@ -263,6 +275,12 @@ func WritePackage(db stateDB, rec PackageRecord) {
 
 	// Hash lookup: store name+version so ReadPackageByHash can reconstruct.
 	writeHashLookup(db, rec.PackageHash, rec.PackageName, rec.PackageVersion)
+
+	if rec.Status == PkgActive {
+		writeLatestLookup(db, rec.PackageName, rec.Channel, rec.PackageVersion)
+		return
+	}
+	clearLatestLookupIfCurrent(db, rec.PackageName, rec.Channel, rec.PackageVersion)
 }
 
 // writeHashLookup stores name and version at the hash-lookup slot so that
@@ -284,3 +302,39 @@ func ReadPackageByHash(db stateDB, pkgHash [32]byte) PackageRecord {
 	}
 	return ReadPackage(db, name, version)
 }
+
+func writeLatestLookup(db stateDB, name string, channel ChannelKind, version string) {
+	base := latestLookupSlot(name, channel)
+	writeString(db, base, 0, version)
+}
+
+func readLatestVersion(db stateDB, name string, channel ChannelKind) string {
+	base := latestLookupSlot(name, channel)
+	return readString(db, base, 0)
+}
+
+func clearLatestLookupIfCurrent(db stateDB, name string, channel ChannelKind, version string) {
+	if stringsEqual(readLatestVersion(db, name, channel), version) {
+		writeLatestLookup(db, name, channel, "")
+	}
+}
+
+// ReadLatestPackage returns the currently indexed latest active package record
+// for a given package name and channel. If the index is unset or stale, it
+// returns an empty record.
+func ReadLatestPackage(db stateDB, name string, channel ChannelKind) PackageRecord {
+	version := readLatestVersion(db, name, channel)
+	if version == "" {
+		return PackageRecord{}
+	}
+	rec := ReadPackage(db, name, version)
+	if rec.PackageHash == ([32]byte{}) {
+		return PackageRecord{}
+	}
+	if rec.Status != PkgActive || rec.Channel != channel {
+		return PackageRecord{}
+	}
+	return rec
+}
+
+func stringsEqual(a, b string) bool { return a == b }
