@@ -24,6 +24,8 @@ type PolicyRecord struct {
 	Status    PolicyStatus
 	CreatedAt uint64
 	UpdatedAt uint64
+	UpdatedBy common.Address
+	StatusRef [32]byte
 }
 
 var (

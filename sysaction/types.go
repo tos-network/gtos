@@ -107,6 +107,8 @@ const (
 	ActionPackagePublish            ActionKind = "PACKAGE_PUBLISH"
 	ActionPackageDeprecate          ActionKind = "PACKAGE_DEPRECATE"
 	ActionPackageRevoke             ActionKind = "PACKAGE_REVOKE"
+	ActionPackageDisputeNamespace   ActionKind = "PACKAGE_DISPUTE_NAMESPACE"
+	ActionPackageResolveNamespace   ActionKind = "PACKAGE_RESOLVE_NAMESPACE"
 )
 
 // SysAction is the top-level envelope stored in tx.Data for system action txs.

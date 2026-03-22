@@ -2284,11 +2284,23 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return "dev"
 		}
 	}
+	publisherStatusString := func(status pkgregistry.PackageStatus) string {
+		switch status {
+		case pkgregistry.PkgDeprecated:
+			return "suspended"
+		case pkgregistry.PkgRevoked:
+			return "revoked"
+		default:
+			return "active"
+		}
+	}
 
-	pushPackageInfoField := func(L *lua.LState, rec pkgregistry.PackageRecord, field string) bool {
+	pushPackageInfoField := func(L *lua.LState, rec pkgregistry.PackageRecord, pub pkgregistry.PublisherRecord, ns pkgregistry.NamespaceGovernanceRecord, field string) bool {
 		switch field {
 		case "package_name":
 			L.Push(lua.LString(rec.PackageName))
+		case "namespace":
+			L.Push(lua.LString(pub.Namespace))
 		case "package_version":
 			L.Push(lua.LString(rec.PackageVersion))
 		case "package_hash":
@@ -2301,10 +2313,28 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LString(packageChannelString(rec.Channel)))
 		case "status":
 			L.Push(lua.LString(packageStatusString(rec.Status)))
+		case "effective_status":
+			L.Push(lua.LString(pkgregistry.EffectivePackageStatus(rec, pub, ns)))
+		case "namespace_status":
+			L.Push(lua.LString(ns.Status.String()))
+		case "trusted":
+			if pkgregistry.PackageTrusted(rec, pub, ns) {
+				L.Push(lua.LTrue)
+			} else {
+				L.Push(lua.LFalse)
+			}
 		case "contract_count":
 			L.Push(lua.Lu256FromUint64(uint64(rec.ContractCount)))
 		case "published_at":
 			L.Push(lua.Lu256FromUint64(rec.PublishedAt))
+		case "created_at":
+			L.Push(lua.Lu256FromUint64(rec.CreatedAt))
+		case "updated_at":
+			L.Push(lua.Lu256FromUint64(rec.UpdatedAt))
+		case "updated_by":
+			L.Push(lua.LString(rec.UpdatedBy.Hex()))
+		case "status_ref":
+			L.Push(lua.LString(common.Hash(rec.StatusRef).Hex()))
 		case "discovery_ref":
 			L.Push(lua.LString(common.Hash(rec.DiscoveryRef).Hex()))
 		default:
@@ -2314,7 +2344,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return true
 	}
 
-	pushPublisherInfoField := func(L *lua.LState, rec pkgregistry.PublisherRecord, field string) bool {
+	pushPublisherInfoField := func(L *lua.LState, rec pkgregistry.PublisherRecord, ns pkgregistry.NamespaceGovernanceRecord, field string) bool {
 		switch field {
 		case "publisher_id":
 			L.Push(lua.LString(common.Hash(rec.PublisherID).Hex()))
@@ -2322,8 +2352,45 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LString(rec.Controller.Hex()))
 		case "metadata_ref":
 			L.Push(lua.LString(common.Hash(rec.MetadataRef).Hex()))
+		case "namespace":
+			L.Push(lua.LString(rec.Namespace))
 		case "status":
-			L.Push(lua.LString(packageStatusString(rec.Status)))
+			L.Push(lua.LString(publisherStatusString(rec.Status)))
+		case "effective_status":
+			L.Push(lua.LString(pkgregistry.EffectivePublisherStatus(rec, ns)))
+		case "namespace_status":
+			L.Push(lua.LString(ns.Status.String()))
+		case "created_at":
+			L.Push(lua.Lu256FromUint64(rec.CreatedAt))
+		case "updated_at":
+			L.Push(lua.Lu256FromUint64(rec.UpdatedAt))
+		case "updated_by":
+			L.Push(lua.LString(rec.UpdatedBy.Hex()))
+		case "status_ref":
+			L.Push(lua.LString(common.Hash(rec.StatusRef).Hex()))
+		default:
+			L.Push(lua.LNil)
+			return false
+		}
+		return true
+	}
+
+	pushNamespaceInfoField := func(L *lua.LState, namespace string, rec pkgregistry.NamespaceGovernanceRecord, field string) bool {
+		switch field {
+		case "namespace":
+			L.Push(lua.LString(namespace))
+		case "publisher_id":
+			L.Push(lua.LString(common.Hash(rec.PublisherID).Hex()))
+		case "status":
+			L.Push(lua.LString(rec.Status.String()))
+		case "evidence_ref":
+			L.Push(lua.LString(common.Hash(rec.EvidenceRef).Hex()))
+		case "created_at":
+			L.Push(lua.Lu256FromUint64(rec.CreatedAt))
+		case "updated_at":
+			L.Push(lua.Lu256FromUint64(rec.UpdatedAt))
+		case "updated_by":
+			L.Push(lua.LString(rec.UpdatedBy.Hex()))
 		default:
 			L.Push(lua.LNil)
 			return false
@@ -2592,7 +2659,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LNil)
 			return 1
 		}
-		pushPackageInfoField(L, rec, field)
+		pub := pkgregistry.ReadPublisher(stateDB, rec.PublisherID)
+		ns := pkgregistry.ReadNamespaceGovernance(stateDB, pub.Namespace)
+		pushPackageInfoField(L, rec, pub, ns, field)
 		return 1
 	}))
 
@@ -2623,7 +2692,9 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LNil)
 			return 1
 		}
-		pushPackageInfoField(L, rec, field)
+		pub := pkgregistry.ReadPublisher(stateDB, rec.PublisherID)
+		ns := pkgregistry.ReadNamespaceGovernance(stateDB, pub.Namespace)
+		pushPackageInfoField(L, rec, pub, ns, field)
 		return 1
 	}))
 
@@ -2641,7 +2712,24 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LNil)
 			return 1
 		}
-		pushPublisherInfoField(L, rec, field)
+		ns := pkgregistry.ReadNamespaceGovernance(stateDB, rec.Namespace)
+		pushPublisherInfoField(L, rec, ns, field)
+		return 1
+	}))
+
+	// tos.namespaceinfo(namespace, field) → value | nil
+	//   Runtime-backed inspection of package namespace dispute/freeze state.
+	L.SetField(tosTable, "namespaceinfo", L.NewFunction(func(L *lua.LState) int {
+		namespace := strings.TrimSpace(L.CheckString(1))
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		pub := pkgregistry.ReadPublisherByNamespace(stateDB, namespace)
+		if pub.Controller == (common.Address{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		rec := pkgregistry.ReadNamespaceGovernance(stateDB, namespace)
+		pushNamespaceInfoField(L, namespace, rec, field)
 		return 1
 	}))
 

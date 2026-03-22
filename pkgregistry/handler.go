@@ -23,6 +23,8 @@ func (h *pkgRegistryHandler) Actions() []sysaction.ActionKind {
 		sysaction.ActionPackagePublish,
 		sysaction.ActionPackageDeprecate,
 		sysaction.ActionPackageRevoke,
+		sysaction.ActionPackageDisputeNamespace,
+		sysaction.ActionPackageResolveNamespace,
 	}
 }
 
@@ -38,6 +40,10 @@ func (h *pkgRegistryHandler) Handle(ctx *sysaction.Context, sa *sysaction.SysAct
 		return h.handleSetPackageStatus(ctx, sa, PkgDeprecated)
 	case sysaction.ActionPackageRevoke:
 		return h.handleSetPackageStatus(ctx, sa, PkgRevoked)
+	case sysaction.ActionPackageDisputeNamespace:
+		return h.handleSetNamespaceStatus(ctx, sa, NamespaceDisputed)
+	case sysaction.ActionPackageResolveNamespace:
+		return h.handleSetNamespaceStatus(ctx, sa, NamespaceClear)
 	default:
 		return nil
 	}
@@ -86,6 +92,7 @@ func (h *pkgRegistryHandler) handleRegisterPublisher(ctx *sysaction.Context, sa 
 		Controller:  controller,
 		Namespace:   namespace,
 		Status:      PkgActive,
+		UpdatedBy:   ctx.From,
 	}
 	if p.MetadataRef != "" {
 		meta, err := parseOptionalBytes32(p.MetadataRef)
@@ -105,6 +112,7 @@ type setPublisherStatusPayload struct {
 	PublisherID string `json:"publisher_id"`
 	Status      uint8  `json:"status"`
 	MetadataRef string `json:"metadata_ref,omitempty"`
+	ReasonRef   string `json:"reason_ref,omitempty"`
 }
 
 func (h *pkgRegistryHandler) handleSetPublisherStatus(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -127,7 +135,7 @@ func (h *pkgRegistryHandler) handleSetPublisherStatus(ctx *sysaction.Context, sa
 	}
 	next := PackageStatus(p.Status)
 	if rec.Status == next {
-		if p.MetadataRef == "" {
+		if p.MetadataRef == "" && p.ReasonRef == "" {
 			return nil
 		}
 	} else if !canTransitionPublisherStatus(rec.Status, next) {
@@ -141,7 +149,15 @@ func (h *pkgRegistryHandler) handleSetPublisherStatus(ctx *sysaction.Context, sa
 		}
 		rec.MetadataRef = meta
 	}
+	if p.ReasonRef != "" {
+		reason, err := parseOptionalBytes32(p.ReasonRef)
+		if err != nil {
+			return ErrInvalidPublisher
+		}
+		rec.StatusRef = reason
+	}
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
 	WritePublisher(ctx.StateDB, rec)
 	return nil
 }
@@ -185,6 +201,9 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 	if publisher.Status != PkgActive {
 		return ErrPublisherInactive
 	}
+	if ns := ReadNamespaceGovernance(ctx.StateDB, publisher.Namespace); ns.Status == NamespaceDisputed {
+		return ErrNamespaceDisputed
+	}
 	pkgHash, err := parseRequiredBytes32(p.PackageHash)
 	if err != nil {
 		return ErrInvalidPackage
@@ -203,6 +222,7 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 		PublisherID:    pubID,
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		UpdatedBy:      ctx.From,
 	}
 	copy(rec.PackageHash[:], pkgHash[:])
 	if p.ManifestHash != "" {
@@ -229,6 +249,7 @@ func (h *pkgRegistryHandler) handlePublish(ctx *sysaction.Context, sa *sysaction
 type packageStatusPayload struct {
 	PackageName    string `json:"package_name"`
 	PackageVersion string `json:"package_version"`
+	ReasonRef      string `json:"reason_ref,omitempty"`
 }
 
 func (h *pkgRegistryHandler) handleSetPackageStatus(ctx *sysaction.Context, sa *sysaction.SysAction, status PackageStatus) error {
@@ -255,7 +276,64 @@ func (h *pkgRegistryHandler) handleSetPackageStatus(ctx *sysaction.Context, sa *
 	}
 	rec.Status = status
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	if p.ReasonRef != "" {
+		reason, err := parseOptionalBytes32(p.ReasonRef)
+		if err != nil {
+			return ErrInvalidPackage
+		}
+		rec.StatusRef = reason
+	}
 	WritePackage(ctx.StateDB, rec)
+	return nil
+}
+
+type namespaceGovernancePayload struct {
+	Namespace   string `json:"namespace"`
+	EvidenceRef string `json:"evidence_ref,omitempty"`
+}
+
+func (h *pkgRegistryHandler) handleSetNamespaceStatus(ctx *sysaction.Context, sa *sysaction.SysAction, status NamespaceStatus) error {
+	if !registry.IsGovernor(ctx.StateDB, ctx.From) {
+		return ErrUnauthorizedGovernor
+	}
+	var p namespaceGovernancePayload
+	if err := json.Unmarshal(sa.Payload, &p); err != nil {
+		return err
+	}
+	namespace := strings.TrimSpace(p.Namespace)
+	if namespace == "" {
+		return ErrNamespaceMissing
+	}
+	pubID := namespaceOwnerID(ctx.StateDB, namespace)
+	if pubID == ([32]byte{}) {
+		return ErrNamespaceMissing
+	}
+	rec := ReadNamespaceGovernance(ctx.StateDB, namespace)
+	if rec.Namespace == "" {
+		rec.Namespace = namespace
+		rec.PublisherID = pubID
+		rec.CreatedAt = currentBlockU64(ctx)
+	}
+	if rec.PublisherID == ([32]byte{}) {
+		rec.PublisherID = pubID
+	}
+	if status == NamespaceClear && rec.Status != NamespaceDisputed {
+		return ErrNamespaceNotDisputed
+	}
+	rec.Status = status
+	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	if p.EvidenceRef != "" {
+		evidence, err := parseOptionalBytes32(p.EvidenceRef)
+		if err != nil {
+			return ErrInvalidPublisher
+		}
+		rec.EvidenceRef = evidence
+	} else if status == NamespaceClear {
+		rec.EvidenceRef = [32]byte{}
+	}
+	WriteNamespaceGovernance(ctx.StateDB, rec)
 	return nil
 }
 

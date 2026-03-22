@@ -317,3 +317,59 @@ func TestPublishAndPackageStatusAllowGovernorOverride(t *testing.T) {
 		t.Fatalf("expected revoked package, got %+v", got)
 	}
 }
+
+func TestNamespaceDisputeBlocksPublishUntilResolved(t *testing.T) {
+	st := newHandlerTestState()
+	h := &pkgRegistryHandler{}
+	controller := common.HexToAddress("0x1234000000000000000000000000000000000000000000000000000000000000")
+	governor := common.HexToAddress("0x7777000000000000000000000000000000000000000000000000000000000000")
+	grantGovernor(t, st, governor)
+	pubHash := common.HexToHash("0x07")
+	var pubID [32]byte
+	copy(pubID[:], pubHash[:])
+	WritePublisher(st, PublisherRecord{
+		PublisherID: pubID,
+		Controller:  controller,
+		Namespace:   "demo",
+		Status:      PkgActive,
+		CreatedAt:   1,
+		UpdatedAt:   1,
+	})
+
+	dispute := makePackageSysAction(t, sysaction.ActionPackageDisputeNamespace, namespaceGovernancePayload{
+		Namespace:   "demo",
+		EvidenceRef: common.HexToHash("0xdead").Hex(),
+	})
+	if err := h.Handle(newHandlerCtx(st, governor), dispute); err != nil {
+		t.Fatalf("dispute namespace: %v", err)
+	}
+	ns := ReadNamespaceGovernance(st, "demo")
+	if ns.Status != NamespaceDisputed || ns.UpdatedBy != governor {
+		t.Fatalf("unexpected namespace governance %+v", ns)
+	}
+
+	publish := makePackageSysAction(t, sysaction.ActionPackagePublish, publishPackagePayload{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    common.HexToHash("0x11").Hex(),
+		PublisherID:    pubHash.Hex(),
+		Channel:        uint16(ChannelStable),
+		ContractCount:  1,
+	})
+	if err := h.Handle(newHandlerCtx(st, controller), publish); err != ErrNamespaceDisputed {
+		t.Fatalf("expected ErrNamespaceDisputed, got %v", err)
+	}
+
+	resolve := makePackageSysAction(t, sysaction.ActionPackageResolveNamespace, namespaceGovernancePayload{
+		Namespace: "demo",
+	})
+	if err := h.Handle(newHandlerCtx(st, governor), resolve); err != nil {
+		t.Fatalf("resolve namespace: %v", err)
+	}
+	if got := ReadNamespaceGovernance(st, "demo"); got.Status != NamespaceClear {
+		t.Fatalf("expected cleared namespace status, got %+v", got)
+	}
+	if err := h.Handle(newHandlerCtx(st, controller), publish); err != nil {
+		t.Fatalf("publish after resolve: %v", err)
+	}
+}

@@ -249,9 +249,10 @@ func inspectPublishedPackage(st *state.StateDB, pkgBytes []byte) (*PackageInfo, 
 		return nil, nil
 	}
 	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
-	published := packageInfoFromRecord(rec, pubRec)
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, pubRec.Namespace)
+	published := packageInfoFromRecord(rec, pubRec, nsRec)
 	if pubRec.Controller == (common.Address{}) {
 		return published, nil
 	}
-	return published, publisherInfoFromRecord(pubRec)
+	return published, publisherInfoFromRecord(pubRec, nsRec)
 }

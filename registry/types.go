@@ -54,6 +54,8 @@ type CapabilityRecord struct {
 	ManifestRef [32]byte
 	CreatedAt   uint64
 	UpdatedAt   uint64
+	UpdatedBy   common.Address
+	StatusRef   [32]byte
 }
 
 // DelegationStatus represents the lifecycle state of a delegation.
@@ -88,6 +90,8 @@ type DelegationRecord struct {
 	Status        DelegationStatus
 	CreatedAt     uint64
 	UpdatedAt     uint64
+	UpdatedBy     common.Address
+	StatusRef     [32]byte
 }
 
 func (r DelegationRecord) EffectiveStatus(nowMS uint64) DelegationStatus {

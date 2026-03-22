@@ -13,6 +13,11 @@ Implemented in code today:
 - publisher controller-or-governor authorization for lifecycle changes
 - lifecycle metadata (`created_at` / `updated_at`) for publisher and package records
 - publisher suspend/resume semantics on top of the package status enum
+- governor-managed namespace dispute / resolve workflows
+- effective status propagation into latest-package lookup, runtime inspection,
+  and trust evaluation
+- operator-facing lifecycle metadata (`updated_by` / `status_ref`) for
+  publisher/package records
 - RPC query surface for package, package-by-hash, latest-by-channel, publisher, and namespace inspection
 - deployed metadata joins protocol package identity and publisher trust when a
   deployed `.tor` matches a published package hash
@@ -353,6 +358,13 @@ Deliverables:
 - **DONE**: package publish/deprecate/revoke now supports governor override
 - **DONE**: publisher and package records expose lifecycle timestamps
 - **DONE**: RPC surfaces expose governance metadata needed by agent runtimes
+- **DONE**: governor-only namespace dispute / resolve system actions now freeze
+  new package publication and expose a machine-readable `namespace_status`
+- **DONE**: effective status now propagates through `TolGetLatestPackage`,
+  runtime `tos.packagelatest(...)`, and trust evaluation so disputed or
+  publisher-suspended packages disappear from active/latest consumption paths
+- **DONE**: publisher/package lifecycle projections now expose `updated_by` and
+  `status_ref` for operator-facing auditability
 
 ---
 

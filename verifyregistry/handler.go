@@ -47,6 +47,7 @@ type registerVerifierPayload struct {
 	Controller   string `json:"controller,omitempty"`
 	PolicyRef    string `json:"policy_ref,omitempty"`
 	Version      uint32 `json:"version"`
+	StatusRef    string `json:"status_ref,omitempty"`
 }
 
 func (h *handler) handleRegisterVerifier(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -66,6 +67,10 @@ func (h *handler) handleRegisterVerifier(ctx *sysaction.Context, sa *sysaction.S
 		}
 	}
 	policyRef, err := parseOptionalBytes32(p.PolicyRef)
+	if err != nil {
+		return ErrInvalidVerifier
+	}
+	statusRef, err := parseOptionalBytes32(p.StatusRef)
 	if err != nil {
 		return ErrInvalidVerifier
 	}
@@ -89,13 +94,16 @@ func (h *handler) handleRegisterVerifier(ctx *sysaction.Context, sa *sysaction.S
 		Status:       VerifierActive,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		UpdatedBy:    ctx.From,
+		StatusRef:    statusRef,
 	}
 	WriteVerifier(ctx.StateDB, rec)
 	return nil
 }
 
 type verifierNamePayload struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	ReasonRef string `json:"reason_ref,omitempty"`
 }
 
 func (h *handler) handleDeactivateVerifier(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -113,8 +121,14 @@ func (h *handler) handleDeactivateVerifier(ctx *sysaction.Context, sa *sysaction
 	if rec.Status == VerifierRevoked {
 		return ErrVerifierAlreadyRevoked
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidVerifier
+	}
 	rec.Status = VerifierRevoked
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	rec.StatusRef = reason
 	WriteVerifier(ctx.StateDB, rec)
 	return nil
 }
@@ -124,6 +138,7 @@ type subjectVerificationPayload struct {
 	ProofType  string `json:"proof_type"`
 	VerifiedAt uint64 `json:"verified_at,omitempty"`
 	ExpiryMS   uint64 `json:"expiry_ms,omitempty"`
+	ReasonRef  string `json:"reason_ref,omitempty"`
 }
 
 func (h *handler) handleSetVerification(ctx *sysaction.Context, sa *sysaction.SysAction, status VerificationStatus) error {
@@ -164,6 +179,10 @@ func (h *handler) handleSetVerification(ctx *sysaction.Context, sa *sysaction.Sy
 	if p.ExpiryMS > 0 && p.VerifiedAt > 0 && p.ExpiryMS < p.VerifiedAt {
 		return ErrInvalidVerification
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidVerification
+	}
 	record := SubjectVerificationRecord{
 		Subject:    subject,
 		ProofType:  p.ProofType,
@@ -171,6 +190,8 @@ func (h *handler) handleSetVerification(ctx *sysaction.Context, sa *sysaction.Sy
 		ExpiryMS:   p.ExpiryMS,
 		Status:     status,
 		UpdatedAt:  currentBlockU64(ctx),
+		UpdatedBy:  ctx.From,
+		StatusRef:  reason,
 	}
 	if record.VerifiedAt == 0 && ctx.BlockNumber != nil {
 		record.VerifiedAt = ctx.BlockNumber.Uint64()

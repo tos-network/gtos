@@ -21,6 +21,8 @@ var addr = params.PackageRegistryAddress
 
 const publisherNamespaceOffset = 3
 const publisherMetaOffset = publisherNamespaceOffset + stringBudget
+const publisherUpdatedByOffset = publisherMetaOffset + 1
+const publisherStatusRefOffset = publisherMetaOffset + 2
 
 // ---------------------------------------------------------------------------
 // Slot formulas
@@ -52,6 +54,14 @@ func hashLookupSlot(pkgHash [32]byte) common.Hash {
 // slot = keccak256("pkg\x00ns\x00" || namespace)
 func namespaceSlot(namespace string) common.Hash {
 	key := append([]byte("pkg\x00ns\x00"), namespace...)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
+// namespaceGovernanceSlot returns the storage slot for namespace dispute/freeze
+// metadata.
+// slot = keccak256("pkg\x00nsmeta\x00" || namespace)
+func namespaceGovernanceSlot(namespace string) common.Hash {
+	key := append([]byte("pkg\x00nsmeta\x00"), namespace...)
 	return common.BytesToHash(crypto.Keccak256(key))
 }
 
@@ -122,6 +132,14 @@ func ReadPublisher(db stateDB, pubID [32]byte) PublisherRecord {
 	rec.CreatedAt = binary.BigEndian.Uint64(raw[0:8])
 	rec.UpdatedAt = binary.BigEndian.Uint64(raw[8:16])
 
+	// slot+meta+1: UpdatedBy
+	raw = db.GetState(addr, slotOffset(base, publisherUpdatedByOffset))
+	rec.UpdatedBy = common.BytesToAddress(raw[:])
+
+	// slot+meta+2: StatusRef
+	raw = db.GetState(addr, slotOffset(base, publisherStatusRefOffset))
+	copy(rec.StatusRef[:], raw[:])
+
 	return rec
 }
 
@@ -153,6 +171,14 @@ func WritePublisher(db stateDB, rec PublisherRecord) {
 	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
 	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
 	db.SetState(addr, slotOffset(base, publisherMetaOffset), meta)
+
+	// slot+meta+1: UpdatedBy
+	val = common.Hash{}
+	copy(val[:], rec.UpdatedBy.Bytes())
+	db.SetState(addr, slotOffset(base, publisherUpdatedByOffset), val)
+
+	// slot+meta+2: StatusRef
+	db.SetState(addr, slotOffset(base, publisherStatusRefOffset), common.Hash(rec.StatusRef))
 }
 
 func writeNamespaceLookup(db stateDB, namespace string, pubID [32]byte) {
@@ -174,6 +200,62 @@ func namespaceOwnerID(db stateDB, namespace string) [32]byte {
 	raw := db.GetState(addr, namespaceSlot(namespace))
 	copy(pubID[:], raw[:])
 	return pubID
+}
+
+// ReadNamespaceGovernance reads namespace dispute/freeze metadata for a
+// claimed namespace. Empty namespace or empty storage returns a zero record.
+func ReadNamespaceGovernance(db stateDB, namespace string) NamespaceGovernanceRecord {
+	var rec NamespaceGovernanceRecord
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return rec
+	}
+	base := namespaceGovernanceSlot(namespace)
+	raw := db.GetState(addr, base)
+	if raw == (common.Hash{}) {
+		return rec
+	}
+	rec.Namespace = namespace
+	copy(rec.PublisherID[:], raw[:])
+
+	raw = db.GetState(addr, slotOffset(base, 1))
+	rec.Status = NamespaceStatus(raw[31])
+
+	raw = db.GetState(addr, slotOffset(base, 2))
+	copy(rec.EvidenceRef[:], raw[:])
+
+	raw = db.GetState(addr, slotOffset(base, 3))
+	rec.CreatedAt = binary.BigEndian.Uint64(raw[0:8])
+	rec.UpdatedAt = binary.BigEndian.Uint64(raw[8:16])
+
+	raw = db.GetState(addr, slotOffset(base, 4))
+	rec.UpdatedBy = common.BytesToAddress(raw[:])
+	return rec
+}
+
+// WriteNamespaceGovernance writes namespace dispute/freeze metadata.
+func WriteNamespaceGovernance(db stateDB, rec NamespaceGovernanceRecord) {
+	namespace := strings.TrimSpace(rec.Namespace)
+	if namespace == "" {
+		return
+	}
+	base := namespaceGovernanceSlot(namespace)
+	db.SetState(addr, base, common.Hash(rec.PublisherID))
+
+	var raw common.Hash
+	raw[31] = byte(rec.Status)
+	db.SetState(addr, slotOffset(base, 1), raw)
+
+	db.SetState(addr, slotOffset(base, 2), common.Hash(rec.EvidenceRef))
+
+	raw = common.Hash{}
+	binary.BigEndian.PutUint64(raw[0:8], rec.CreatedAt)
+	binary.BigEndian.PutUint64(raw[8:16], rec.UpdatedAt)
+	db.SetState(addr, slotOffset(base, 3), raw)
+
+	raw = common.Hash{}
+	copy(raw[:], rec.UpdatedBy.Bytes())
+	db.SetState(addr, slotOffset(base, 4), raw)
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +329,8 @@ func readString(db stateDB, base common.Hash, offset uint64) string {
 //	M+4     : DiscoveryRef
 //	M+5     : PublishedAt
 //	M+6     : CreatedAt | UpdatedAt packed
+//	M+7     : UpdatedBy
+//	M+8     : StatusRef
 //
 // Because strings are variable-length we store them with a fixed max budget:
 // maxSlots = 1 + ceil(maxPackageStringLen/32) = 5 slots each.
@@ -305,6 +389,16 @@ func readPackageFromBase(db stateDB, base common.Hash, name, version string) Pac
 	raw = db.GetState(addr, slotOffset(base, off))
 	rec.CreatedAt = binary.BigEndian.Uint64(raw[0:8])
 	rec.UpdatedAt = binary.BigEndian.Uint64(raw[8:16])
+	off++
+
+	// UpdatedBy
+	raw = db.GetState(addr, slotOffset(base, off))
+	rec.UpdatedBy = common.BytesToAddress(raw[:])
+	off++
+
+	// StatusRef
+	raw = db.GetState(addr, slotOffset(base, off))
+	copy(rec.StatusRef[:], raw[:])
 
 	return rec
 }
@@ -356,6 +450,16 @@ func WritePackage(db stateDB, rec PackageRecord) {
 	binary.BigEndian.PutUint64(meta[0:8], rec.CreatedAt)
 	binary.BigEndian.PutUint64(meta[8:16], rec.UpdatedAt)
 	db.SetState(addr, slotOffset(base, off), meta)
+	off++
+
+	// UpdatedBy
+	var updater common.Hash
+	copy(updater[:], rec.UpdatedBy.Bytes())
+	db.SetState(addr, slotOffset(base, off), updater)
+	off++
+
+	// StatusRef
+	db.SetState(addr, slotOffset(base, off), common.Hash(rec.StatusRef))
 
 	// Hash lookup: store name+version so ReadPackageByHash can reconstruct.
 	writeHashLookup(db, rec.PackageHash, rec.PackageName, rec.PackageVersion)
@@ -401,6 +505,58 @@ func PackageMatchesNamespace(packageName, namespace string) bool {
 	return strings.HasPrefix(packageName, namespace+".")
 }
 
+// EffectivePublisherStatus returns the operator-facing lifecycle state of a
+// publisher after namespace governance is applied.
+func EffectivePublisherStatus(rec PublisherRecord, ns NamespaceGovernanceRecord) string {
+	switch rec.Status {
+	case PkgRevoked:
+		return "revoked"
+	case PkgDeprecated:
+		return "suspended"
+	default:
+		if ns.Status == NamespaceDisputed {
+			return "namespace_disputed"
+		}
+		return "active"
+	}
+}
+
+// EffectivePackageStatus returns the operator-facing lifecycle state of a
+// package record after publisher and namespace governance are applied.
+func EffectivePackageStatus(rec PackageRecord, pub PublisherRecord, ns NamespaceGovernanceRecord) string {
+	switch rec.Status {
+	case PkgRevoked:
+		return "revoked"
+	case PkgDeprecated:
+		return "deprecated"
+	}
+	switch pub.Status {
+	case PkgRevoked:
+		return "publisher_revoked"
+	case PkgDeprecated:
+		return "publisher_suspended"
+	}
+	if ns.Status == NamespaceDisputed {
+		return "namespace_disputed"
+	}
+	return "active"
+}
+
+// PackageTrusted reports whether a package remains consumable through the
+// protocol trust surface after publisher and namespace governance are applied.
+func PackageTrusted(rec PackageRecord, pub PublisherRecord, ns NamespaceGovernanceRecord) bool {
+	if rec.PackageHash == ([32]byte{}) || pub.Controller == (common.Address{}) {
+		return false
+	}
+	if EffectivePackageStatus(rec, pub, ns) != "active" {
+		return false
+	}
+	if pub.Namespace != "" && !PackageMatchesNamespace(rec.PackageName, pub.Namespace) {
+		return false
+	}
+	return true
+}
+
 func writeLatestLookup(db stateDB, name string, channel ChannelKind, version string) {
 	base := latestLookupSlot(name, channel)
 	writeString(db, base, 0, version)
@@ -430,6 +586,11 @@ func ReadLatestPackage(db stateDB, name string, channel ChannelKind) PackageReco
 		return PackageRecord{}
 	}
 	if rec.Status != PkgActive || rec.Channel != channel {
+		return PackageRecord{}
+	}
+	pub := ReadPublisher(db, rec.PublisherID)
+	ns := ReadNamespaceGovernance(db, pub.Namespace)
+	if !PackageTrusted(rec, pub, ns) {
 		return PackageRecord{}
 	}
 	return rec

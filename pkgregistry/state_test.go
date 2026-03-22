@@ -44,6 +44,8 @@ func TestPublisherRoundTrip(t *testing.T) {
 		Status:      PkgActive,
 		CreatedAt:   10,
 		UpdatedAt:   12,
+		UpdatedBy:   controller,
+		StatusRef:   [32]byte{0x10},
 	}
 	WritePublisher(db, rec)
 
@@ -62,6 +64,9 @@ func TestPublisherRoundTrip(t *testing.T) {
 	}
 	if got.CreatedAt != 10 || got.UpdatedAt != 12 {
 		t.Fatalf("timestamps mismatch: got (%d,%d), want (10,12)", got.CreatedAt, got.UpdatedAt)
+	}
+	if got.UpdatedBy != controller || got.StatusRef != ([32]byte{0x10}) {
+		t.Fatalf("governance metadata mismatch: got %+v", got)
 	}
 
 	// Update status
@@ -112,6 +117,8 @@ func TestPackageRoundTrip(t *testing.T) {
 		PublishedAt:    1700000000,
 		CreatedAt:      1700000000,
 		UpdatedAt:      1700001000,
+		UpdatedBy:      common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
+		StatusRef:      [32]byte{0x42},
 	}
 	WritePackage(db, rec)
 
@@ -148,6 +155,9 @@ func TestPackageRoundTrip(t *testing.T) {
 	}
 	if got.CreatedAt != 1700000000 || got.UpdatedAt != 1700001000 {
 		t.Fatalf("timestamps mismatch: got (%d,%d), want (1700000000,1700001000)", got.CreatedAt, got.UpdatedAt)
+	}
+	if got.StatusRef != rec.StatusRef || got.UpdatedBy != rec.UpdatedBy {
+		t.Fatalf("package governance metadata mismatch: got %+v", got)
 	}
 }
 
@@ -205,6 +215,12 @@ func TestPublisherNotFound(t *testing.T) {
 
 func TestLatestPackageByChannelRoundTrip(t *testing.T) {
 	db := newMockStateDB()
+	WritePublisher(db, PublisherRecord{
+		PublisherID: [32]byte{0x01},
+		Controller:  common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
+		Namespace:   "tol.std.discovery",
+		Status:      PkgActive,
+	})
 
 	v1 := PackageRecord{
 		PackageName:    "tol.std.discovery",
@@ -240,6 +256,12 @@ func TestLatestPackageByChannelRoundTrip(t *testing.T) {
 
 func TestLatestPackageClearsWhenIndexedVersionBecomesInactive(t *testing.T) {
 	db := newMockStateDB()
+	WritePublisher(db, PublisherRecord{
+		PublisherID: [32]byte{0x02},
+		Controller:  common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
+		Namespace:   "tol.std.discovery",
+		Status:      PkgActive,
+	})
 
 	rec := PackageRecord{
 		PackageName:    "tol.std.discovery",
@@ -261,5 +283,50 @@ func TestLatestPackageClearsWhenIndexedVersionBecomesInactive(t *testing.T) {
 	got := ReadLatestPackage(db, rec.PackageName, rec.Channel)
 	if got.PackageHash != ([32]byte{}) {
 		t.Fatalf("expected latest beta index cleared, got %+v", got)
+	}
+}
+
+func TestNamespaceGovernanceRoundTrip(t *testing.T) {
+	db := newMockStateDB()
+	rec := NamespaceGovernanceRecord{
+		Namespace:   "demo.checkout",
+		PublisherID: [32]byte{0x01},
+		Status:      NamespaceDisputed,
+		EvidenceRef: [32]byte{0xAA},
+		CreatedAt:   5,
+		UpdatedAt:   7,
+		UpdatedBy:   common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
+	}
+	WriteNamespaceGovernance(db, rec)
+	got := ReadNamespaceGovernance(db, "demo.checkout")
+	if got.Status != NamespaceDisputed || got.EvidenceRef != rec.EvidenceRef || got.UpdatedBy != rec.UpdatedBy {
+		t.Fatalf("unexpected namespace governance %+v", got)
+	}
+}
+
+func TestLatestPackageHiddenWhenNamespaceDisputed(t *testing.T) {
+	db := newMockStateDB()
+	pubID := [32]byte{0x01}
+	WritePublisher(db, PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
+		Namespace:   "demo",
+		Status:      PkgActive,
+	})
+	WritePackage(db, PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    [32]byte{0x11},
+		PublisherID:    pubID,
+		Channel:        ChannelStable,
+		Status:         PkgActive,
+	})
+	WriteNamespaceGovernance(db, NamespaceGovernanceRecord{
+		Namespace:   "demo",
+		PublisherID: pubID,
+		Status:      NamespaceDisputed,
+	})
+	if got := ReadLatestPackage(db, "demo.checkout", ChannelStable); got.PackageHash != ([32]byte{}) {
+		t.Fatalf("expected namespace-disputed package to disappear from latest lookup, got %+v", got)
 	}
 }

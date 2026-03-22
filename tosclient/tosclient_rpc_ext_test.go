@@ -50,6 +50,7 @@ type rpcExtTestService struct {
 	lastGetLatestPackageChannel  string
 	lastGetPublisherID           string
 	lastGetPublisherNamespace    string
+	lastGetNamespaceClaim        string
 	lastGetVerifierName          string
 	lastGetVerificationSubject   string
 	lastGetVerificationProofType string
@@ -276,26 +277,30 @@ func (s *rpcExtTestService) TolGetPackage(name, version string) interface{} {
 	s.lastGetPackageName = name
 	s.lastGetPackageVersion = version
 	return &PackageInfo{
-		Name:        name,
-		Version:     version,
-		PackageHash: common.HexToHash("0x1111").Hex(),
-		PublisherID: common.HexToHash("0x2222").Hex(),
-		Channel:     "stable",
-		Status:      "active",
-		Trusted:     true,
+		Name:            name,
+		Version:         version,
+		PackageHash:     common.HexToHash("0x1111").Hex(),
+		PublisherID:     common.HexToHash("0x2222").Hex(),
+		Channel:         "stable",
+		Status:          "active",
+		EffectiveStatus: "active",
+		NamespaceStatus: "clear",
+		Trusted:         true,
 	}
 }
 
 func (s *rpcExtTestService) TolGetPackageByHash(packageHash string) interface{} {
 	s.lastGetPackageByHash = packageHash
 	return &PackageInfo{
-		Name:        "tolang.openlib.privacy",
-		Version:     "1.0.0",
-		PackageHash: packageHash,
-		PublisherID: common.HexToHash("0x2222").Hex(),
-		Channel:     "stable",
-		Status:      "active",
-		Trusted:     true,
+		Name:            "tolang.openlib.privacy",
+		Version:         "1.0.0",
+		PackageHash:     packageHash,
+		PublisherID:     common.HexToHash("0x2222").Hex(),
+		Channel:         "stable",
+		Status:          "active",
+		EffectiveStatus: "active",
+		NamespaceStatus: "clear",
+		Trusted:         true,
 	}
 }
 
@@ -303,33 +308,49 @@ func (s *rpcExtTestService) TolGetLatestPackage(name, channel string) interface{
 	s.lastGetLatestPackageName = name
 	s.lastGetLatestPackageChannel = channel
 	return &PackageInfo{
-		Name:        name,
-		Version:     "1.2.3",
-		PackageHash: common.HexToHash("0x3333").Hex(),
-		PublisherID: common.HexToHash("0x2222").Hex(),
-		Channel:     channel,
-		Status:      "active",
-		Trusted:     true,
+		Name:            name,
+		Version:         "1.2.3",
+		PackageHash:     common.HexToHash("0x3333").Hex(),
+		PublisherID:     common.HexToHash("0x2222").Hex(),
+		Channel:         channel,
+		Status:          "active",
+		EffectiveStatus: "active",
+		NamespaceStatus: "clear",
+		Trusted:         true,
 	}
 }
 
 func (s *rpcExtTestService) TolGetPublisher(publisherID string) interface{} {
 	s.lastGetPublisherID = publisherID
 	return &PublisherInfo{
-		PublisherID: publisherID,
-		Controller:  common.HexToAddress("0x4444").Hex(),
-		Namespace:   "tolang.openlib",
-		Status:      "active",
+		PublisherID:     publisherID,
+		Controller:      common.HexToAddress("0x4444").Hex(),
+		Namespace:       "tolang.openlib",
+		Status:          "active",
+		EffectiveStatus: "active",
+		NamespaceStatus: "clear",
 	}
 }
 
 func (s *rpcExtTestService) TolGetPublisherByNamespace(namespace string) interface{} {
 	s.lastGetPublisherNamespace = namespace
 	return &PublisherInfo{
-		PublisherID: common.HexToHash("0x2222").Hex(),
-		Controller:  common.HexToAddress("0x4444").Hex(),
+		PublisherID:     common.HexToHash("0x2222").Hex(),
+		Controller:      common.HexToAddress("0x4444").Hex(),
+		Namespace:       namespace,
+		Status:          "active",
+		EffectiveStatus: "active",
+		NamespaceStatus: "clear",
+	}
+}
+
+func (s *rpcExtTestService) TolGetNamespaceClaim(namespace string) interface{} {
+	s.lastGetNamespaceClaim = namespace
+	return &NamespaceGovernanceInfo{
 		Namespace:   namespace,
-		Status:      "active",
+		PublisherID: common.HexToHash("0x2222").Hex(),
+		Status:      "disputed",
+		EvidenceRef: common.HexToHash("0x9999").Hex(),
 	}
 }
 
@@ -889,6 +910,14 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	}
 	if svc.lastGetPublisherNamespace != "tolang.openlib" || publisherByNS == nil || publisherByNS.Namespace != "tolang.openlib" {
 		t.Fatalf("unexpected publisher-by-namespace info: namespace=%q out=%+v", svc.lastGetPublisherNamespace, publisherByNS)
+	}
+
+	namespaceClaim, err := client.GetNamespaceClaim(ctx, "tolang.openlib")
+	if err != nil {
+		t.Fatalf("GetNamespaceClaim error: %v", err)
+	}
+	if svc.lastGetNamespaceClaim != "tolang.openlib" || namespaceClaim == nil || namespaceClaim.Status != "disputed" {
+		t.Fatalf("unexpected namespace claim: namespace=%q out=%+v", svc.lastGetNamespaceClaim, namespaceClaim)
 	}
 
 	verifierInfo, err := client.GetVerifier(ctx, "zk-settlement")

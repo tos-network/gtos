@@ -152,32 +152,51 @@ type AgentDiscoverySuggestedCardArgs struct {
 // PackageInfo is the client-facing package registry projection returned from
 // deployed metadata inspection and package registry RPCs.
 type PackageInfo struct {
-	Name          string `json:"name"`
-	Namespace     string `json:"namespace,omitempty"`
-	Version       string `json:"version"`
-	PackageHash   string `json:"package_hash"`
-	ManifestHash  string `json:"manifest_hash,omitempty"`
-	PublisherID   string `json:"publisher_id"`
-	Channel       string `json:"channel"`
-	Status        string `json:"status"`
-	Trusted       bool   `json:"trusted"`
-	ContractCount uint64 `json:"contract_count"`
-	DiscoveryRef  string `json:"discovery_ref,omitempty"`
-	PublishedAt   uint64 `json:"published_at"`
-	CreatedAt     uint64 `json:"created_at,omitempty"`
-	UpdatedAt     uint64 `json:"updated_at,omitempty"`
+	Name            string `json:"name"`
+	Namespace       string `json:"namespace,omitempty"`
+	Version         string `json:"version"`
+	PackageHash     string `json:"package_hash"`
+	ManifestHash    string `json:"manifest_hash,omitempty"`
+	PublisherID     string `json:"publisher_id"`
+	Channel         string `json:"channel"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	NamespaceStatus string `json:"namespace_status,omitempty"`
+	Trusted         bool   `json:"trusted"`
+	ContractCount   uint64 `json:"contract_count"`
+	DiscoveryRef    string `json:"discovery_ref,omitempty"`
+	PublishedAt     uint64 `json:"published_at"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 // PublisherInfo is the client-facing publisher registry projection returned
 // from deployed metadata inspection and publisher registry RPCs.
 type PublisherInfo struct {
-	PublisherID string `json:"publisher_id"`
-	Controller  string `json:"controller"`
-	MetadataRef string `json:"metadata_ref"`
-	Namespace   string `json:"namespace,omitempty"`
+	PublisherID     string `json:"publisher_id"`
+	Controller      string `json:"controller"`
+	MetadataRef     string `json:"metadata_ref"`
+	Namespace       string `json:"namespace,omitempty"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	NamespaceStatus string `json:"namespace_status,omitempty"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
+}
+
+// NamespaceGovernanceInfo is the client-facing namespace dispute/freeze view.
+type NamespaceGovernanceInfo struct {
+	Namespace   string `json:"namespace"`
+	PublisherID string `json:"publisher_id,omitempty"`
 	Status      string `json:"status"`
+	EvidenceRef string `json:"evidence_ref,omitempty"`
 	CreatedAt   uint64 `json:"created_at,omitempty"`
 	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
 }
 
 // CapabilityInfo is the client-facing capability registry projection.
@@ -191,6 +210,8 @@ type CapabilityInfo struct {
 	ManifestRef string `json:"manifest_ref,omitempty"`
 	CreatedAt   uint64 `json:"created_at,omitempty"`
 	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
+	StatusRef   string `json:"status_ref,omitempty"`
 }
 
 // DelegationInfo is the client-facing delegation registry projection.
@@ -206,6 +227,8 @@ type DelegationInfo struct {
 	EffectiveStatus string `json:"effective_status,omitempty"`
 	CreatedAt       uint64 `json:"created_at,omitempty"`
 	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 // VerifierInfo is the client-facing verifier registry projection.
@@ -219,6 +242,8 @@ type VerifierInfo struct {
 	Status       string `json:"status"`
 	CreatedAt    uint64 `json:"created_at,omitempty"`
 	UpdatedAt    uint64 `json:"updated_at,omitempty"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
+	StatusRef    string `json:"status_ref,omitempty"`
 }
 
 // VerificationClaimInfo is the client-facing proof verification projection.
@@ -230,6 +255,8 @@ type VerificationClaimInfo struct {
 	Status          string `json:"status"`
 	EffectiveStatus string `json:"effective_status,omitempty"`
 	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 // SettlementPolicyInfo is the client-facing pay-policy registry projection.
@@ -243,6 +270,8 @@ type SettlementPolicyInfo struct {
 	Status    string `json:"status"`
 	CreatedAt uint64 `json:"created_at,omitempty"`
 	UpdatedAt uint64 `json:"updated_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+	StatusRef string `json:"status_ref,omitempty"`
 }
 
 // AgentIdentityInfo is the client-facing agent identity registry projection.
@@ -642,6 +671,16 @@ func (ec *Client) GetPublisher(ctx context.Context, publisherID common.Hash) (*P
 func (ec *Client) GetPublisherByNamespace(ctx context.Context, namespace string) (*PublisherInfo, error) {
 	var out *PublisherInfo
 	if err := ec.c.CallContext(ctx, &out, "tos_tolGetPublisherByNamespace", namespace); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetNamespaceClaim returns the governor-managed lifecycle state of a claimed
+// package namespace.
+func (ec *Client) GetNamespaceClaim(ctx context.Context, namespace string) (*NamespaceGovernanceInfo, error) {
+	var out *NamespaceGovernanceInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetNamespaceClaim", namespace); err != nil {
 		return nil, err
 	}
 	return out, nil

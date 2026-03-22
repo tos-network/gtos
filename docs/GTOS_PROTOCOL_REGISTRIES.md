@@ -1,6 +1,6 @@
 # GTOS Protocol Registries
 
-**Status: V1.1 IMPLEMENTED (2026-03-22)**
+**Status: V1.2 IMPLEMENTED (2026-03-22)**
 
 Current v1 scope now implemented in code:
 
@@ -14,6 +14,9 @@ Current v1 scope now implemented in code:
   delegation, verifier, and pay-policy records
 - lifecycle metadata (`created_at` / `updated_at`) exposed through RPC for the
   governed registry families
+- operator-facing lifecycle metadata (`updated_by` / `status_ref`) now exposed
+  across capability, delegation, verifier, verification-claim, and pay-policy
+  registry projections
 
 Still open for later waves:
 

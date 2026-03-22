@@ -194,7 +194,7 @@ func TestTolGetPackageReturnsRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil package")
 	}
-	if got.Channel != "stable" || got.ContractCount != 2 || got.PublishedAt != 1234 || got.CreatedAt != 1234 || got.UpdatedAt != 1235 {
+	if got.Channel != "stable" || got.ContractCount != 2 || got.PublishedAt != 1234 || got.CreatedAt != 1234 || got.UpdatedAt != 1235 || got.EffectiveStatus != "active" || got.NamespaceStatus != "clear" {
 		t.Fatalf("unexpected package payload %+v", got)
 	}
 	if got.Trusted {
@@ -253,8 +253,75 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected non-nil latest package")
 	}
-	if got.Version != "1.1.0" || got.Channel != "stable" || got.Namespace != "demo" || !got.Trusted {
+	if got.Version != "1.1.0" || got.Channel != "stable" || got.Namespace != "demo" || !got.Trusted || got.EffectiveStatus != "active" {
 		t.Fatalf("unexpected latest package %+v", got)
+	}
+}
+
+func TestTolGetLatestPackageReturnsNilWhenNamespaceDisputed(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pubID := [32]byte{0xAA}
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
+		Namespace:   "demo",
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.1.0",
+		PackageHash:    [32]byte{0x11},
+		PublisherID:    pubID,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+	})
+	pkgregistry.WriteNamespaceGovernance(st, pkgregistry.NamespaceGovernanceRecord{
+		Namespace:   "demo",
+		PublisherID: pubID,
+		Status:      pkgregistry.NamespaceDisputed,
+	})
+	backend := newBackendMock()
+	backend.state = st
+	api := NewTOSAPI(backend)
+	got, err := api.TolGetLatestPackage(context.Background(), "demo.checkout", "stable")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil latest package under namespace dispute, got %+v", got)
+	}
+}
+
+func TestTolGetNamespaceClaimReturnsGovernorState(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pubID := [32]byte{0xAA}
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
+		Namespace:   "demo",
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WriteNamespaceGovernance(st, pkgregistry.NamespaceGovernanceRecord{
+		Namespace:   "demo",
+		PublisherID: pubID,
+		Status:      pkgregistry.NamespaceDisputed,
+		EvidenceRef: [32]byte{0x77},
+	})
+	backend := newBackendMock()
+	backend.state = st
+	api := NewTOSAPI(backend)
+	got, err := api.TolGetNamespaceClaim(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.Status != "disputed" || got.PublisherID != common.Hash(pubID).Hex() {
+		t.Fatalf("unexpected namespace claim %+v", got)
 	}
 }
 

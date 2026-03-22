@@ -34,6 +34,8 @@ type CapabilityInfo struct {
 	ManifestRef string `json:"manifest_ref,omitempty"`
 	CreatedAt   uint64 `json:"created_at,omitempty"`
 	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
+	StatusRef   string `json:"status_ref,omitempty"`
 }
 
 // DelegationInfo describes a single delegation record from the protocol
@@ -50,37 +52,59 @@ type DelegationInfo struct {
 	EffectiveStatus string `json:"effective_status,omitempty"`
 	CreatedAt       uint64 `json:"created_at,omitempty"`
 	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 // PackageInfo describes a single package record from the protocol
 // Package Registry.
 type PackageInfo struct {
-	Name          string `json:"name"`
-	Namespace     string `json:"namespace,omitempty"`
-	Version       string `json:"version"`
-	PackageHash   string `json:"package_hash"`
-	ManifestHash  string `json:"manifest_hash,omitempty"`
-	PublisherID   string `json:"publisher_id"`
-	Channel       string `json:"channel"`
-	Status        string `json:"status"`
-	Trusted       bool   `json:"trusted"`
-	ContractCount uint64 `json:"contract_count"`
-	DiscoveryRef  string `json:"discovery_ref,omitempty"`
-	PublishedAt   uint64 `json:"published_at"`
-	CreatedAt     uint64 `json:"created_at,omitempty"`
-	UpdatedAt     uint64 `json:"updated_at,omitempty"`
+	Name            string `json:"name"`
+	Namespace       string `json:"namespace,omitempty"`
+	Version         string `json:"version"`
+	PackageHash     string `json:"package_hash"`
+	ManifestHash    string `json:"manifest_hash,omitempty"`
+	PublisherID     string `json:"publisher_id"`
+	Channel         string `json:"channel"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	NamespaceStatus string `json:"namespace_status,omitempty"`
+	Trusted         bool   `json:"trusted"`
+	ContractCount   uint64 `json:"contract_count"`
+	DiscoveryRef    string `json:"discovery_ref,omitempty"`
+	PublishedAt     uint64 `json:"published_at"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 // PublisherInfo describes a single publisher record from the protocol
 // Publisher Registry.
 type PublisherInfo struct {
-	PublisherID string `json:"publisher_id"`
-	Controller  string `json:"controller"`
-	MetadataRef string `json:"metadata_ref"`
-	Namespace   string `json:"namespace,omitempty"`
+	PublisherID     string `json:"publisher_id"`
+	Controller      string `json:"controller"`
+	MetadataRef     string `json:"metadata_ref"`
+	Namespace       string `json:"namespace,omitempty"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	NamespaceStatus string `json:"namespace_status,omitempty"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
+}
+
+// NamespaceGovernanceInfo describes the governor-managed state of a claimed
+// package namespace.
+type NamespaceGovernanceInfo struct {
+	Namespace   string `json:"namespace"`
+	PublisherID string `json:"publisher_id,omitempty"`
 	Status      string `json:"status"`
+	EvidenceRef string `json:"evidence_ref,omitempty"`
 	CreatedAt   uint64 `json:"created_at,omitempty"`
 	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
 }
 
 type VerifierInfo struct {
@@ -93,6 +117,8 @@ type VerifierInfo struct {
 	Status       string `json:"status"`
 	CreatedAt    uint64 `json:"created_at,omitempty"`
 	UpdatedAt    uint64 `json:"updated_at,omitempty"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
+	StatusRef    string `json:"status_ref,omitempty"`
 }
 
 type VerificationClaimInfo struct {
@@ -103,6 +129,8 @@ type VerificationClaimInfo struct {
 	Status          string `json:"status"`
 	EffectiveStatus string `json:"effective_status,omitempty"`
 	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+	UpdatedBy       string `json:"updated_by,omitempty"`
+	StatusRef       string `json:"status_ref,omitempty"`
 }
 
 type SettlementPolicyInfo struct {
@@ -115,6 +143,8 @@ type SettlementPolicyInfo struct {
 	Status    string `json:"status"`
 	CreatedAt uint64 `json:"created_at,omitempty"`
 	UpdatedAt uint64 `json:"updated_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+	StatusRef string `json:"status_ref,omitempty"`
 }
 
 type AgentIdentityInfo struct {
@@ -170,6 +200,8 @@ func (s *TOSAPI) TolGetCapability(ctx context.Context, name string) (*Capability
 		ManifestRef: common.Hash(rec.ManifestRef).Hex(),
 		CreatedAt:   rec.CreatedAt,
 		UpdatedAt:   rec.UpdatedAt,
+		UpdatedBy:   rec.UpdatedBy.Hex(),
+		StatusRef:   common.Hash(rec.StatusRef).Hex(),
 	}
 	return info, nil
 }
@@ -204,6 +236,8 @@ func (s *TOSAPI) TolGetDelegation(ctx context.Context, principalHex, delegateHex
 		EffectiveStatus: delegationStatusString(rec.EffectiveStatus(nowMS)),
 		CreatedAt:       rec.CreatedAt,
 		UpdatedAt:       rec.UpdatedAt,
+		UpdatedBy:       rec.UpdatedBy.Hex(),
+		StatusRef:       common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 
@@ -219,7 +253,8 @@ func (s *TOSAPI) TolGetPackage(ctx context.Context, name, version string) (*Pack
 		return nil, nil
 	}
 	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
-	return packageInfoFromRecord(rec, pubRec), nil
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, pubRec.Namespace)
+	return packageInfoFromRecord(rec, pubRec, nsRec), nil
 }
 
 // TolGetPackageByHash returns the package record for the given package hash.
@@ -234,7 +269,8 @@ func (s *TOSAPI) TolGetPackageByHash(ctx context.Context, packageHash string) (*
 		return nil, nil
 	}
 	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
-	return packageInfoFromRecord(rec, pubRec), nil
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, pubRec.Namespace)
+	return packageInfoFromRecord(rec, pubRec, nsRec), nil
 }
 
 // TolGetLatestPackage returns the latest active package currently indexed for
@@ -258,7 +294,8 @@ func (s *TOSAPI) TolGetLatestPackage(ctx context.Context, name, channel string) 
 		return nil, nil
 	}
 	pubRec := pkgregistry.ReadPublisher(st, rec.PublisherID)
-	return packageInfoFromRecord(rec, pubRec), nil
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, pubRec.Namespace)
+	return packageInfoFromRecord(rec, pubRec, nsRec), nil
 }
 
 // TolGetPublisher returns the publisher record for the given publisher ID,
@@ -275,7 +312,8 @@ func (s *TOSAPI) TolGetPublisher(ctx context.Context, publisherID string) (*Publ
 	if rec.Controller == (common.Address{}) {
 		return nil, nil
 	}
-	return publisherInfoFromRecord(rec), nil
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, rec.Namespace)
+	return publisherInfoFromRecord(rec, nsRec), nil
 }
 
 // TolGetPublisherByNamespace returns the publisher record for the given
@@ -289,7 +327,27 @@ func (s *TOSAPI) TolGetPublisherByNamespace(ctx context.Context, namespace strin
 	if rec.Controller == (common.Address{}) {
 		return nil, nil
 	}
-	return publisherInfoFromRecord(rec), nil
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, rec.Namespace)
+	return publisherInfoFromRecord(rec, nsRec), nil
+}
+
+// TolGetNamespaceClaim returns governor-managed namespace lifecycle state for
+// the given namespace, or nil if no namespace owner exists.
+func (s *TOSAPI) TolGetNamespaceClaim(ctx context.Context, namespace string) (*NamespaceGovernanceInfo, error) {
+	st, _, err := s.b.StateAndHeaderByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil || st == nil {
+		return nil, err
+	}
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return nil, nil
+	}
+	pubRec := pkgregistry.ReadPublisherByNamespace(st, namespace)
+	if pubRec.Controller == (common.Address{}) {
+		return nil, nil
+	}
+	nsRec := pkgregistry.ReadNamespaceGovernance(st, namespace)
+	return namespaceInfoFromRecord(namespace, pubRec, nsRec), nil
 }
 
 func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo, error) {
@@ -311,6 +369,8 @@ func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo
 		Status:       verifierStatusString(rec.Status),
 		CreatedAt:    rec.CreatedAt,
 		UpdatedAt:    rec.UpdatedAt,
+		UpdatedBy:    rec.UpdatedBy.Hex(),
+		StatusRef:    common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 
@@ -336,6 +396,8 @@ func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType s
 		Status:          verificationStatusString(rec.Status),
 		EffectiveStatus: verificationStatusString(rec.EffectiveStatus(nowMS)),
 		UpdatedAt:       rec.UpdatedAt,
+		UpdatedBy:       rec.UpdatedBy.Hex(),
+		StatusRef:       common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 
@@ -362,6 +424,8 @@ func (s *TOSAPI) TolGetSettlementPolicy(ctx context.Context, ownerHex, asset str
 		Status:    payPolicyStatusString(rec.Status),
 		CreatedAt: rec.CreatedAt,
 		UpdatedAt: rec.UpdatedAt,
+		UpdatedBy: rec.UpdatedBy.Hex(),
+		StatusRef: common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 
@@ -485,37 +549,59 @@ func parsePackageChannel(channel string) (pkgregistry.ChannelKind, bool) {
 	}
 }
 
-func packageInfoFromRecord(rec pkgregistry.PackageRecord, pubRec pkgregistry.PublisherRecord) *PackageInfo {
-	trusted := rec.Status == pkgregistry.PkgActive && pubRec.Controller != (common.Address{}) && pubRec.Status == pkgregistry.PkgActive
-	if pubRec.Namespace != "" && !pkgregistry.PackageMatchesNamespace(rec.PackageName, pubRec.Namespace) {
-		trusted = false
-	}
+func packageInfoFromRecord(rec pkgregistry.PackageRecord, pubRec pkgregistry.PublisherRecord, nsRec pkgregistry.NamespaceGovernanceRecord) *PackageInfo {
+	effective := pkgregistry.EffectivePackageStatus(rec, pubRec, nsRec)
+	trusted := pkgregistry.PackageTrusted(rec, pubRec, nsRec)
 	return &PackageInfo{
-		Name:          rec.PackageName,
-		Namespace:     pubRec.Namespace,
-		Version:       rec.PackageVersion,
-		PackageHash:   common.Hash(rec.PackageHash).Hex(),
-		ManifestHash:  common.Hash(rec.ManifestHash).Hex(),
-		PublisherID:   common.Hash(rec.PublisherID).Hex(),
-		Channel:       packageChannelString(rec.Channel),
-		Status:        packageStatusString(rec.Status),
-		Trusted:       trusted,
-		ContractCount: uint64(rec.ContractCount),
-		DiscoveryRef:  common.Hash(rec.DiscoveryRef).Hex(),
-		PublishedAt:   rec.PublishedAt,
-		CreatedAt:     rec.CreatedAt,
-		UpdatedAt:     rec.UpdatedAt,
+		Name:            rec.PackageName,
+		Namespace:       pubRec.Namespace,
+		Version:         rec.PackageVersion,
+		PackageHash:     common.Hash(rec.PackageHash).Hex(),
+		ManifestHash:    common.Hash(rec.ManifestHash).Hex(),
+		PublisherID:     common.Hash(rec.PublisherID).Hex(),
+		Channel:         packageChannelString(rec.Channel),
+		Status:          packageStatusString(rec.Status),
+		EffectiveStatus: effective,
+		NamespaceStatus: nsRec.Status.String(),
+		Trusted:         trusted,
+		ContractCount:   uint64(rec.ContractCount),
+		DiscoveryRef:    common.Hash(rec.DiscoveryRef).Hex(),
+		PublishedAt:     rec.PublishedAt,
+		CreatedAt:       rec.CreatedAt,
+		UpdatedAt:       rec.UpdatedAt,
+		UpdatedBy:       rec.UpdatedBy.Hex(),
+		StatusRef:       common.Hash(rec.StatusRef).Hex(),
 	}
 }
 
-func publisherInfoFromRecord(rec pkgregistry.PublisherRecord) *PublisherInfo {
+func publisherInfoFromRecord(rec pkgregistry.PublisherRecord, nsRec pkgregistry.NamespaceGovernanceRecord) *PublisherInfo {
 	return &PublisherInfo{
-		PublisherID: common.Hash(rec.PublisherID).Hex(),
-		Controller:  rec.Controller.Hex(),
-		MetadataRef: common.Hash(rec.MetadataRef).Hex(),
-		Namespace:   rec.Namespace,
-		Status:      publisherStatusString(rec.Status),
+		PublisherID:     common.Hash(rec.PublisherID).Hex(),
+		Controller:      rec.Controller.Hex(),
+		MetadataRef:     common.Hash(rec.MetadataRef).Hex(),
+		Namespace:       rec.Namespace,
+		Status:          publisherStatusString(rec.Status),
+		EffectiveStatus: pkgregistry.EffectivePublisherStatus(rec, nsRec),
+		NamespaceStatus: nsRec.Status.String(),
+		CreatedAt:       rec.CreatedAt,
+		UpdatedAt:       rec.UpdatedAt,
+		UpdatedBy:       rec.UpdatedBy.Hex(),
+		StatusRef:       common.Hash(rec.StatusRef).Hex(),
+	}
+}
+
+func namespaceInfoFromRecord(namespace string, pubRec pkgregistry.PublisherRecord, rec pkgregistry.NamespaceGovernanceRecord) *NamespaceGovernanceInfo {
+	status := rec.Status.String()
+	if rec.Namespace == "" {
+		status = "clear"
+	}
+	return &NamespaceGovernanceInfo{
+		Namespace:   namespace,
+		PublisherID: common.Hash(pubRec.PublisherID).Hex(),
+		Status:      status,
+		EvidenceRef: common.Hash(rec.EvidenceRef).Hex(),
 		CreatedAt:   rec.CreatedAt,
 		UpdatedAt:   rec.UpdatedAt,
+		UpdatedBy:   rec.UpdatedBy.Hex(),
 	}
 }

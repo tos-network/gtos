@@ -31,6 +31,8 @@ type VerifierRecord struct {
 	Status       VerifierStatus
 	CreatedAt    uint64
 	UpdatedAt    uint64
+	UpdatedBy    common.Address
+	StatusRef    [32]byte
 }
 
 type SubjectVerificationRecord struct {
@@ -40,6 +42,8 @@ type SubjectVerificationRecord struct {
 	ExpiryMS   uint64
 	Status     VerificationStatus
 	UpdatedAt  uint64
+	UpdatedBy  common.Address
+	StatusRef  [32]byte
 }
 
 var (

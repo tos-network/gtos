@@ -42,6 +42,7 @@ type registerPolicyPayload struct {
 	Asset     string `json:"asset"`
 	MaxAmount string `json:"max_amount"`
 	RulesRef  string `json:"rules_ref,omitempty"`
+	StatusRef string `json:"status_ref,omitempty"`
 }
 
 func (h *handler) handleRegister(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -73,6 +74,10 @@ func (h *handler) handleRegister(ctx *sysaction.Context, sa *sysaction.SysAction
 	if err != nil {
 		return ErrInvalidPolicy
 	}
+	statusRef, err := parseOptionalBytes32(p.StatusRef)
+	if err != nil {
+		return ErrInvalidPolicy
+	}
 	now := currentBlockU64(ctx)
 	rec := PolicyRecord{
 		PolicyID:  policyID,
@@ -84,13 +89,16 @@ func (h *handler) handleRegister(ctx *sysaction.Context, sa *sysaction.SysAction
 		Status:    PolicyActive,
 		CreatedAt: now,
 		UpdatedAt: now,
+		UpdatedBy: ctx.From,
+		StatusRef: statusRef,
 	}
 	WritePolicy(ctx.StateDB, rec)
 	return nil
 }
 
 type deactivatePolicyPayload struct {
-	PolicyID string `json:"policy_id"`
+	PolicyID  string `json:"policy_id"`
+	ReasonRef string `json:"reason_ref,omitempty"`
 }
 
 func (h *handler) handleDeactivate(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -114,8 +122,14 @@ func (h *handler) handleDeactivate(ctx *sysaction.Context, sa *sysaction.SysActi
 	if rec.Status == PolicyRevoked {
 		return ErrPolicyAlreadyRevoked
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidPolicy
+	}
 	rec.Status = PolicyRevoked
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	rec.StatusRef = reason
 	WritePolicy(ctx.StateDB, rec)
 	return nil
 }

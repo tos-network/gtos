@@ -36,6 +36,24 @@ func (s PackageStatus) String() string {
 	}
 }
 
+// NamespaceStatus represents the governor-managed lifecycle of a claimed
+// package namespace.
+type NamespaceStatus uint8
+
+const (
+	NamespaceClear    NamespaceStatus = 0
+	NamespaceDisputed NamespaceStatus = 1
+)
+
+func (s NamespaceStatus) String() string {
+	switch s {
+	case NamespaceDisputed:
+		return "disputed"
+	default:
+		return "clear"
+	}
+}
+
 func canTransitionPackageStatus(cur, next PackageStatus) bool {
 	switch cur {
 	case PkgActive:
@@ -67,6 +85,8 @@ type PublisherRecord struct {
 	Status      PackageStatus
 	CreatedAt   uint64
 	UpdatedAt   uint64
+	UpdatedBy   common.Address
+	StatusRef   [32]byte
 }
 
 // PackageRecord is the on-chain record for a published package version.
@@ -83,6 +103,20 @@ type PackageRecord struct {
 	PublishedAt    uint64
 	CreatedAt      uint64
 	UpdatedAt      uint64
+	UpdatedBy      common.Address
+	StatusRef      [32]byte
+}
+
+// NamespaceGovernanceRecord captures governor-managed freeze/dispute state for
+// a claimed namespace.
+type NamespaceGovernanceRecord struct {
+	Namespace   string
+	PublisherID [32]byte
+	Status      NamespaceStatus
+	EvidenceRef [32]byte
+	CreatedAt   uint64
+	UpdatedAt   uint64
+	UpdatedBy   common.Address
 }
 
 var (
@@ -97,6 +131,9 @@ var (
 	ErrNamespaceMissing      = errors.New("pkgregistry: namespace missing")
 	ErrNamespaceMismatch     = errors.New("pkgregistry: package namespace mismatch")
 	ErrUnauthorizedPublisher = errors.New("pkgregistry: sender is not publisher controller or governor")
+	ErrUnauthorizedGovernor  = errors.New("pkgregistry: sender is not protocol governor")
 	ErrInvalidPublisherState = errors.New("pkgregistry: invalid publisher status transition")
 	ErrInvalidPackageState   = errors.New("pkgregistry: invalid package status transition")
+	ErrNamespaceDisputed     = errors.New("pkgregistry: namespace is under dispute")
+	ErrNamespaceNotDisputed  = errors.New("pkgregistry: namespace is not under dispute")
 )

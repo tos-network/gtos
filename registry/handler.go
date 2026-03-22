@@ -52,6 +52,7 @@ type registerCapPayload struct {
 	Category    uint16 `json:"category"`
 	Version     uint32 `json:"version"`
 	ManifestRef string `json:"manifest_ref"` // hex-encoded bytes32
+	StatusRef   string `json:"status_ref,omitempty"`
 }
 
 func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -67,6 +68,10 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 		return ErrUnauthorizedCapability
 	}
 	manifestRef, err := parseOptionalBytes32(p.ManifestRef)
+	if err != nil {
+		return ErrInvalidCapabilityName
+	}
+	statusRef, err := parseOptionalBytes32(p.StatusRef)
 	if err != nil {
 		return ErrInvalidCapabilityName
 	}
@@ -95,6 +100,8 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 		ManifestRef: manifestRef,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+		UpdatedBy:   ctx.From,
+		StatusRef:   statusRef,
 	}
 
 	WriteCapability(ctx.StateDB, rec)
@@ -102,7 +109,8 @@ func (h *registryHandler) handleRegisterCap(ctx *sysaction.Context, sa *sysactio
 }
 
 type capNamePayload struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	ReasonRef string `json:"reason_ref,omitempty"`
 }
 
 func (h *registryHandler) handleDeprecateCap(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -127,8 +135,14 @@ func (h *registryHandler) handleDeprecateCap(ctx *sysaction.Context, sa *sysacti
 	if !rec.Status.CanTransitionTo(CapDeprecated) {
 		return ErrCapabilityAlreadyDeprecated
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidCapabilityName
+	}
 	rec.Status = CapDeprecated
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	rec.StatusRef = reason
 	WriteCapability(ctx.StateDB, rec)
 	return nil
 }
@@ -152,9 +166,15 @@ func (h *registryHandler) handleRevokeCap(ctx *sysaction.Context, sa *sysaction.
 	if !rec.Status.CanTransitionTo(CapRevoked) {
 		return ErrCapabilityAlreadyRevoked
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidCapabilityName
+	}
 
 	rec.Status = CapRevoked
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	rec.StatusRef = reason
 	WriteCapability(ctx.StateDB, rec)
 	return nil
 }
@@ -171,6 +191,7 @@ type grantDelegationPayload struct {
 	PolicyRef     string `json:"policy_ref"`     // hex bytes32
 	NotBeforeMS   uint64 `json:"not_before_ms"`
 	ExpiryMS      uint64 `json:"expiry_ms"`
+	StatusRef     string `json:"status_ref,omitempty"`
 }
 
 func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -206,6 +227,10 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 	if err != nil {
 		return ErrInvalidDelegation
 	}
+	statusRef, err := parseOptionalBytes32(p.StatusRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
 	if p.ExpiryMS > 0 && p.NotBeforeMS > 0 && p.ExpiryMS < p.NotBeforeMS {
 		return ErrInvalidDelegationWindow
 	}
@@ -222,6 +247,8 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 		Status:        DelActive,
 		CreatedAt:     now,
 		UpdatedAt:     now,
+		UpdatedBy:     ctx.From,
+		StatusRef:     statusRef,
 	}
 
 	WriteDelegation(ctx.StateDB, rec)
@@ -229,9 +256,10 @@ func (h *registryHandler) handleGrantDelegation(ctx *sysaction.Context, sa *sysa
 }
 
 type revokeDelegationPayload struct {
-	Principal string `json:"principal"` // hex address
-	Delegate  string `json:"delegate"`  // hex address
-	ScopeRef  string `json:"scope_ref"` // hex bytes32
+	Principal string `json:"principal"`            // hex address
+	Delegate  string `json:"delegate"`             // hex address
+	ScopeRef  string `json:"scope_ref"`            // hex bytes32
+	ReasonRef string `json:"reason_ref,omitempty"` // hex bytes32
 }
 
 func (h *registryHandler) handleRevokeDelegation(ctx *sysaction.Context, sa *sysaction.SysAction) error {
@@ -252,6 +280,10 @@ func (h *registryHandler) handleRevokeDelegation(ctx *sysaction.Context, sa *sys
 	if err != nil {
 		return ErrInvalidDelegation
 	}
+	reason, err := parseOptionalBytes32(p.ReasonRef)
+	if err != nil {
+		return ErrInvalidDelegation
+	}
 	if ctx.From != principal && !IsGovernor(ctx.StateDB, ctx.From) {
 		return ErrUnauthorizedDelegation
 	}
@@ -267,6 +299,8 @@ func (h *registryHandler) handleRevokeDelegation(ctx *sysaction.Context, sa *sys
 
 	rec.Status = DelRevoked
 	rec.UpdatedAt = currentBlockU64(ctx)
+	rec.UpdatedBy = ctx.From
+	rec.StatusRef = reason
 	WriteDelegation(ctx.StateDB, rec)
 	return nil
 }

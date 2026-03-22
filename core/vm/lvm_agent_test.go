@@ -596,6 +596,7 @@ func TestPackageInfoAndPublisherInfo(t *testing.T) {
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: pubID,
 		Controller:  controller,
+		Namespace:   "demo",
 		Status:      pkgregistry.PkgActive,
 	})
 	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
@@ -623,6 +624,12 @@ end
 if tos.packageinfo(addr, "status") ~= "active" then
   error("status mismatch")
 end
+if tos.packageinfo(addr, "effective_status") ~= "active" then
+  error("effective_status mismatch")
+end
+if tos.packageinfo(addr, "namespace") ~= "demo" then
+  error("namespace mismatch")
+end
 if tos.packageinfo(addr, "contract_count") ~= 1 then
   error("contract_count mismatch")
 end
@@ -632,6 +639,12 @@ if pub == nil then
 end
 if tos.publisherinfo(pub, "status") ~= "active" then
   error("publisher status mismatch")
+end
+if tos.publisherinfo(pub, "effective_status") ~= "active" then
+  error("publisher effective status mismatch")
+end
+if tos.namespaceinfo("demo", "status") ~= "clear" then
+  error("namespace status mismatch")
 end
 if tos.publisherinfo(pub, "controller") ~= "` + controller.Hex() + `" then
   error("publisher controller mismatch")
@@ -644,6 +657,63 @@ tos.sstore("ok", 1)
 	_, _, _, err := runLua(st, contractAddr, src, 5_000_000)
 	if err != nil {
 		t.Fatalf("packageinfo/publisherinfo: %v", err)
+	}
+	if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+		t.Fatal("ok slot not set")
+	}
+}
+
+func TestPackageInfoReflectsNamespaceDispute(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0x76}
+	pkgAddr := common.Address{0x77}
+	pkgBytes := compileAndDeployTestPackage(t, st, pkgAddr, "Greeter", "demo.checkout", "1.0.0")
+	controller := common.HexToAddress("0x1234000000000000000000000000000000000000000000000000000000000000")
+	pubID := [32]byte{0xAA}
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  controller,
+		Namespace:   "demo",
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    crypto.Keccak256Hash(pkgBytes),
+		PublisherID:    pubID,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+		ContractCount:  1,
+	})
+	pkgregistry.WriteNamespaceGovernance(st, pkgregistry.NamespaceGovernanceRecord{
+		Namespace:   "demo",
+		PublisherID: pubID,
+		Status:      pkgregistry.NamespaceDisputed,
+	})
+
+	src := `
+local addr = "` + pkgAddr.Hex() + `"
+local pub = tos.packageinfo(addr, "publisher_id")
+if tos.packageinfo(addr, "effective_status") ~= "namespace_disputed" then
+  error("package effective_status mismatch")
+end
+if tos.packageinfo(addr, "trusted") ~= false then
+  error("expected package to be untrusted")
+end
+if tos.publisherinfo(pub, "effective_status") ~= "namespace_disputed" then
+  error("publisher effective_status mismatch")
+end
+if tos.namespaceinfo("demo", "status") ~= "disputed" then
+  error("namespace status mismatch")
+end
+if tos.packagelatest("demo.checkout", "stable", "package_version") ~= nil then
+  error("expected packagelatest to hide disputed package")
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 5_000_000)
+	if err != nil {
+		t.Fatalf("packageinfo disputed namespace: %v", err)
 	}
 	if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
 		t.Fatal("ok slot not set")
