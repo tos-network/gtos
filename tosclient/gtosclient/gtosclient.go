@@ -8,11 +8,14 @@ import (
 	"runtime/debug"
 
 	"github.com/tos-network/gtos"
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/p2p"
 	"github.com/tos-network/gtos/rpc"
+	"github.com/tos-network/gtos/tosclient"
+	tolmeta "github.com/tos-network/tolang/metadata"
 )
 
 // Client is a wrapper around rpc.Client that implements gtos-specific functionality.
@@ -22,9 +25,80 @@ type Client struct {
 	c *rpc.Client
 }
 
+// AgentRuntimeSurface is the normalized client-side view of deployed agent code.
+// It flattens the most commonly consumed pieces of deployed metadata so agent
+// runtimes do not need to branch separately on `.toc` vs `.tor` inspection.
+type AgentRuntimeSurface struct {
+	Address        common.Address
+	CodeKind       string
+	ContractName   string
+	PackageName    string
+	PackageVersion string
+	Profile        *tolmeta.AgentContractProfile
+	BundleProfile  *tolmeta.AgentBundleProfile
+	Routing        *agentdiscovery.TypedRoutingProfile
+	SuggestedCard  *agentdiscovery.PublishedCard
+	Published      *tosclient.PackageInfo
+	Publisher      *tosclient.PublisherInfo
+	Artifact       *tosclient.TOLArtifactInfo
+	Package        *tosclient.TOLPackageInfo
+}
+
 // New creates a client that uses the given RPC client.
 func New(c *rpc.Client) *Client {
 	return &Client{c}
+}
+
+// GetAgentRuntimeSurface returns a normalized metadata surface for deployed
+// raw, `.toc`, or `.tor` code. It is a higher-level helper built on top of
+// the typed tosclient metadata wrapper.
+func (ec *Client) GetAgentRuntimeSurface(ctx context.Context, address common.Address, blockNumber *big.Int) (*AgentRuntimeSurface, error) {
+	metaClient := tosclient.NewClient(ec.c)
+	info, err := metaClient.GetContractMetadata(ctx, address, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	if info == nil {
+		return nil, nil
+	}
+	out := &AgentRuntimeSurface{
+		Address:  info.Address,
+		CodeKind: info.CodeKind,
+		Artifact: info.Artifact,
+		Package:  info.Package,
+	}
+	if info.Artifact != nil {
+		out.ContractName = info.Artifact.ContractName
+		if info.Artifact.Profile != nil {
+			out.Profile = info.Artifact.Profile
+			out.PackageName = info.Artifact.Profile.Identity.PackageName
+			out.PackageVersion = info.Artifact.Profile.Identity.PackageVersion
+		}
+		out.Routing = info.Artifact.Routing
+		out.SuggestedCard = info.Artifact.SuggestedCard
+	}
+	if info.Package != nil {
+		if out.PackageName == "" {
+			if info.Package.Package != "" {
+				out.PackageName = info.Package.Package
+			} else {
+				out.PackageName = info.Package.Name
+			}
+		}
+		if out.PackageVersion == "" {
+			out.PackageVersion = info.Package.Version
+		}
+		if out.ContractName == "" {
+			out.ContractName = info.Package.MainContract
+		}
+		out.BundleProfile = info.Package.Profile
+		out.Published = info.Package.Published
+		out.Publisher = info.Package.Publisher
+		if out.SuggestedCard == nil {
+			out.SuggestedCard = info.Package.SuggestedCard
+		}
+	}
+	return out, nil
 }
 
 // CreateAccessList tries to create an access list for a specific transaction based on the
