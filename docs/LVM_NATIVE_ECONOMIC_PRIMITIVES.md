@@ -287,7 +287,7 @@ Required mitigations:
 
 ## Implementation Phases
 
-### Phase 1: package_call + capability lookup hardening
+### Phase 1: package_call + capability lookup hardening — IMPLEMENTED (2026-03-22)
 
 Why first:
 
@@ -295,9 +295,14 @@ Why first:
 
 Deliverables:
 
-- native package identity validation
-- registry-backed capability lookup
-- updated metadata/RPC inspection
+- ~~native package identity validation~~ — **DONE**: `tos.package_call` now
+  computes `keccak256(deployedCode)`, queries `pkgregistry.ReadPackageByHash`,
+  blocks revoked packages/publishers; 4 tests in `lvm_pkgreg_test.go`
+- ~~registry-backed capability lookup~~ — **DONE**: `tos.hascapability` upgraded
+  with `RegistryReader` interface; checks status + agent bit; 14 tests with
+  mock registry in `lvm_registry_stubs_test.go`
+- updated metadata/RPC inspection — RPC skeleton defined (`TolGetCapability`,
+  `TolGetPackage`, etc.) but not yet wired to state reads
 
 ### Phase 2: escrow / release native semantics
 
