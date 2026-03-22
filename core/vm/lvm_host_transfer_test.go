@@ -36,6 +36,29 @@ func TestHostTransferSuccess(t *testing.T) {
 	}
 }
 
+func TestHostTransferSuccessWithNumericLiteral(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0x07}
+	recipientAddr := common.Address{0x08}
+
+	st.CreateAccount(contractAddr)
+	st.AddBalance(contractAddr, big.NewInt(1000))
+
+	src := `tos.host_transfer("` + recipientAddr.Hex() + `", 500)`
+
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("host_transfer numeric literal: %v", err)
+	}
+
+	if got := st.GetBalance(contractAddr); got.Cmp(big.NewInt(500)) != 0 {
+		t.Fatalf("sender balance: want 500, got %v", got)
+	}
+	if got := st.GetBalance(recipientAddr); got.Cmp(big.NewInt(500)) != 0 {
+		t.Fatalf("recipient balance: want 500, got %v", got)
+	}
+}
+
 // TestHostTransferInsufficientBalance sets balance 100 and tries to transfer 500.
 func TestHostTransferInsufficientBalance(t *testing.T) {
 	st := newAgentTestState()

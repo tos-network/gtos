@@ -9,10 +9,12 @@ package vm
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/tos-network/gtos/capability"
 	"github.com/tos-network/gtos/common"
+	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/paypolicy"
 	"github.com/tos-network/gtos/registry"
@@ -72,6 +74,13 @@ func runLuaWithRegistry(st StateDB, contractAddr common.Address, src string, gas
 	return Execute(st, bctx, testChainConfig, ctx, []byte(src), gasLimit)
 }
 
+func delegationScopeRef(name string) ([32]byte, string) {
+	hash := crypto.Keccak256Hash([]byte(name))
+	var out [32]byte
+	copy(out[:], hash[:])
+	return out, hash.Hex()
+}
+
 // ── tos.hasdelegation ────────────────────────────────────────────────────────
 
 func TestDelegationRegistryStateBacked(t *testing.T) {
@@ -79,8 +88,7 @@ func TestDelegationRegistryStateBacked(t *testing.T) {
 	contractAddr := common.Address{0xD1}
 	principal := common.Address{0xFF}
 	delegate := common.HexToAddress("0xaaaa")
-	var scope [32]byte
-	copy(scope[:], []byte("transfer"))
+	scope, scopeHex := delegationScopeRef("transfer")
 	registry.WriteDelegation(st, registry.DelegationRecord{
 		Principal:   principal,
 		Delegate:    delegate,
@@ -91,7 +99,7 @@ func TestDelegationRegistryStateBacked(t *testing.T) {
 	})
 
 	src := `
-local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
+local ok = tos.hasdelegation(tos.caller, "` + delegate.Hex() + `", "` + scopeHex + `")
 if not ok then
   error("state-backed delegation should return true")
 end
@@ -113,8 +121,7 @@ tos.sstore("delegation_ok", 1)
 func TestDelegationRegistryBacked(t *testing.T) {
 	principalAddr := common.Address{0xFF} // matches tos.caller in runLuaWithRegistry
 	delegateAddr := common.HexToAddress("0xaaaa")
-	var scope [32]byte
-	copy(scope[:], []byte("transfer"))
+	scope, scopeHex := delegationScopeRef("transfer")
 
 	delegKey := principalAddr.Hex() + "|" + delegateAddr.Hex() + "|" + string(scope[:])
 
@@ -127,7 +134,7 @@ func TestDelegationRegistryBacked(t *testing.T) {
 			},
 		}
 		src := `
-local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
+local ok = tos.hasdelegation(tos.caller, "` + delegateAddr.Hex() + `", "` + scopeHex + `")
 if not ok then error("expected true for active delegation") end
 tos.sstore("ok", 1)
 `
@@ -149,7 +156,7 @@ tos.sstore("ok", 1)
 			},
 		}
 		src := `
-local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
+local ok = tos.hasdelegation(tos.caller, "` + delegateAddr.Hex() + `", "` + scopeHex + `")
 if ok then error("expected false for revoked delegation") end
 tos.sstore("ok", 1)
 `
@@ -169,7 +176,7 @@ tos.sstore("ok", 1)
 			},
 		}
 		src := `
-local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
+local ok = tos.hasdelegation(tos.caller, "` + delegateAddr.Hex() + `", "` + scopeHex + `")
 if ok then error("expected false for expired delegation") end
 tos.sstore("ok", 1)
 `
@@ -188,7 +195,7 @@ tos.sstore("ok", 1)
 			},
 		}
 		src := `
-local ok = tos.hasdelegation(tos.caller, "0xaaaa", "transfer")
+local ok = tos.hasdelegation(tos.caller, "` + delegateAddr.Hex() + `", "` + scopeHex + `")
 if ok then error("expected false for not-yet-active delegation") end
 tos.sstore("ok", 1)
 `
@@ -204,14 +211,14 @@ tos.sstore("ok", 1)
 func TestHasCapabilityNameStateBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD8}
-	addr := common.HexToAddress("0x1234")
+	addr := common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000001234")
 	if _, err := capability.RegisterCapabilityName(st, "oracle"); err != nil {
 		t.Fatalf("register capability name: %v", err)
 	}
 	capability.GrantCapability(st, addr, 0)
 
 	src := `
-local ok = tos.hascapability("0x1234", "oracle")
+local ok = tos.hascapability("` + addr.Hex() + `", "oracle")
 if not ok then error("expected true for state-backed capability") end
 tos.sstore("ok", 1)
 `
@@ -227,7 +234,8 @@ tos.sstore("ok", 1)
 // TestHasCapabilityNameRegistryBacked verifies registry-backed capability
 // checks by name.
 func TestHasCapabilityNameRegistryBacked(t *testing.T) {
-	agentAddr := common.HexToAddress("0x1234")
+	agentAddr := common.HexToAddress("0x0000000000000000000000000000000000000000000000000000000000001234")
+	agentHex := agentAddr.Hex()
 
 	t.Run("active_and_held", func(t *testing.T) {
 		st := newAgentTestState()
@@ -237,7 +245,7 @@ func TestHasCapabilityNameRegistryBacked(t *testing.T) {
 			agentCaps:    map[string]bool{agentAddr.Hex() + "|oracle": true},
 		}
 		src := `
-local ok = tos.hascapability("0x1234", "oracle")
+local ok = tos.hascapability("` + agentHex + `", "oracle")
 if not ok then error("expected true") end
 tos.sstore("ok", 1)
 `
@@ -255,7 +263,7 @@ tos.sstore("ok", 1)
 			agentCaps:    map[string]bool{}, // agent does NOT hold it
 		}
 		src := `
-local ok = tos.hascapability("0x1234", "oracle")
+local ok = tos.hascapability("` + agentHex + `", "oracle")
 if ok then error("expected false — agent does not hold capability") end
 tos.sstore("ok", 1)
 `
@@ -273,7 +281,7 @@ tos.sstore("ok", 1)
 			agentCaps:    map[string]bool{agentAddr.Hex() + "|oracle": true},
 		}
 		src := `
-local ok = tos.hascapability("0x1234", "oracle")
+local ok = tos.hascapability("` + agentHex + `", "oracle")
 if ok then error("expected false — capability deprecated") end
 tos.sstore("ok", 1)
 `
@@ -290,7 +298,7 @@ tos.sstore("ok", 1)
 			capabilities: map[string]uint8{}, // no record for "oracle"
 		}
 		src := `
-local ok = tos.hascapability("0x1234", "oracle")
+local ok = tos.hascapability("` + agentHex + `", "oracle")
 if ok then error("expected false — no record must fail closed") end
 tos.sstore("ok", 1)
 `
@@ -299,6 +307,19 @@ tos.sstore("ok", 1)
 			t.Fatalf("execution failed: %v", err)
 		}
 	})
+}
+
+func TestHasCapabilityRejectsMalformedAgentAddress(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xDD}
+	src := `
+local ok = tos.hascapability("0x1234", "oracle")
+if ok then error("unexpected true") end
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err == nil || !strings.Contains(err.Error(), "invalid agent") {
+		t.Fatalf("expected invalid agent error, got %v", err)
+	}
 }
 
 // ── tos.isverified ───────────────────────────────────────────────────────────
@@ -563,6 +584,19 @@ tos.sstore("ok", 1)
 		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 		if err != nil {
 			t.Fatalf("execution failed: %v", err)
+		}
+	})
+
+	t.Run("malformed_caller_rejected", func(t *testing.T) {
+		st := newAgentTestState()
+		contractAddr := common.Address{0xE9}
+		src := `
+local ok = tos.isverified("0x1234", "kyc")
+if ok then error("unexpected true") end
+`
+		_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+		if err == nil || !strings.Contains(err.Error(), "invalid caller agent") {
+			t.Fatalf("expected invalid caller agent error, got %v", err)
 		}
 	})
 }

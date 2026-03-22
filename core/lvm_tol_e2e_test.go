@@ -24,10 +24,13 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/core/types"
 	lvm "github.com/tos-network/gtos/core/vm"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/pkgregistry"
+	"github.com/tos-network/gtos/trie"
 	lua "github.com/tos-network/tolang"
 )
 
@@ -99,6 +102,15 @@ contract Counter {
 // It fatals if the tx fails or the receipt status is not successful.
 func runLvmCallTor(t *testing.T, bc *BlockChain, key *ecdsa.PrivateKey, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
 	t.Helper()
+	receipt := runLvmCallTorWithStatus(t, bc, key, contractAddr, value, data)
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		t.Fatalf("runLvmCallTor: tx failed (status=%d, gasUsed=%d)", receipt.Status, receipt.GasUsed)
+	}
+	return receipt
+}
+
+func runLvmCallTorWithStatus(t *testing.T, bc *BlockChain, key *ecdsa.PrivateKey, contractAddr common.Address, value *big.Int, data []byte) *types.Receipt {
+	t.Helper()
 	signer := types.LatestSigner(bc.Config())
 	state, _ := bc.State()
 	from := crypto.PubkeyToAddress(key.PublicKey)
@@ -130,9 +142,6 @@ func runLvmCallTor(t *testing.T, bc *BlockChain, key *ecdsa.PrivateKey, contract
 	receipts := rawdb.ReadReceipts(bc.db, block.Hash(), block.NumberU64(), bc.Config())
 	if len(receipts) == 0 {
 		t.Fatal("runLvmCallTor: no receipts found")
-	}
-	if receipts[0].Status != types.ReceiptStatusSuccessful {
-		t.Fatalf("runLvmCallTor: tx failed (status=%d, gasUsed=%d)", receipts[0].Status, receipts[0].GasUsed)
 	}
 	return receipts[0]
 }
@@ -181,6 +190,52 @@ func deployTorTx(t *testing.T, bc *BlockChain, torBytes []byte, ctorArgs []byte)
 		t.Fatalf("deploy failed (status=%d)", receipts[0].Status)
 	}
 	return contractAddr, receipts[0]
+}
+
+func packageRegistryGenesisStorage(t *testing.T, controller common.Address, packageName, version string, pkgHash common.Hash, contractCount uint16) map[common.Hash]common.Hash {
+	t.Helper()
+	pubID := crypto.Keccak256Hash([]byte("publisher:" + packageName))
+	db := state.NewDatabaseWithConfig(rawdb.NewMemoryDatabase(), &trie.Config{Preimages: true})
+	st, err := state.New(common.Hash{}, db, nil)
+	if err != nil {
+		t.Fatalf("state.New: %v", err)
+	}
+	var pubKey [32]byte
+	copy(pubKey[:], pubID[:])
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubKey,
+		Controller:  controller,
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    packageName,
+		PackageVersion: version,
+		PackageHash:    pkgHash,
+		PublisherID:    pubKey,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+		ContractCount:  contractCount,
+		PublishedAt:    1,
+	})
+	root, err := st.Commit(false)
+	if err != nil {
+		t.Fatalf("commit registry temp state: %v", err)
+	}
+	if err := st.Database().TrieDB().Commit(root, true, nil); err != nil {
+		t.Fatalf("persist registry temp trie: %v", err)
+	}
+	st, err = state.New(root, db, nil)
+	if err != nil {
+		t.Fatalf("reload registry temp state: %v", err)
+	}
+	storage := make(map[common.Hash]common.Hash)
+	if err := st.ForEachStorage(params.PackageRegistryAddress, func(key, value common.Hash) bool {
+		storage[key] = value
+		return true
+	}); err != nil {
+		t.Fatalf("ForEachStorage: %v", err)
+	}
+	return storage
 }
 
 // torCalldata builds calldata for a .tor package call:
@@ -435,14 +490,16 @@ func TestTolPackageCallRollbackAndRevertDataEndToEnd(t *testing.T) {
 		ChainID: big.NewInt(1),
 		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
+	registryStorage := packageRegistryGenesisStorage(t, owner, "CounterPkg", "1.0.0", crypto.Keccak256Hash(targetTor), 1)
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
 		Config:    config,
 		GasLimit:  100_000_000,
 		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
-			owner:      {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
-			callerAddr: {Balance: big.NewInt(0), Code: []byte(callerCode)},
+			owner:                         {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
+			callerAddr:                    {Balance: big.NewInt(0), Code: []byte(callerCode)},
+			params.PackageRegistryAddress: {Balance: big.NewInt(0), Storage: registryStorage},
 		},
 	}
 	gspec.MustCommit(db)
@@ -542,14 +599,16 @@ func TestTolPackageCallRejectsMissingContractNameEndToEnd(t *testing.T) {
 		ChainID: big.NewInt(1),
 		DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
 	}
+	registryStorage := packageRegistryGenesisStorage(t, owner, "CounterPkg", "1.0.0", crypto.Keccak256Hash(targetTor), 1)
 	db := rawdb.NewMemoryDatabase()
 	gspec := &Genesis{
 		Config:    config,
 		GasLimit:  100_000_000,
 		ExtraData: testDPoSGenesisExtra(),
 		Alloc: GenesisAlloc{
-			owner:      {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
-			callerAddr: {Balance: big.NewInt(0), Code: []byte(callerCode)},
+			owner:                         {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
+			callerAddr:                    {Balance: big.NewInt(0), Code: []byte(callerCode)},
+			params.PackageRegistryAddress: {Balance: big.NewInt(0), Storage: registryStorage},
 		},
 	}
 	gspec.MustCommit(db)

@@ -637,6 +637,10 @@ func parseStrictHexAddress(input string) (common.Address, error) {
 	return common.HexToAddress(input), nil
 }
 
+func parseStrictAgentAddress(input string) (common.Address, error) {
+	return parseStrictHexAddress(input)
+}
+
 func decodeStrictHexBytes(input string) ([]byte, error) {
 	if input == "" {
 		return nil, nil
@@ -656,6 +660,19 @@ func decodeStrictHexBytes(input string) ([]byte, error) {
 		return nil, fmt.Errorf("malformed hex string")
 	}
 	return decoded, nil
+}
+
+func parseStrictHexBytes32(input string, label string) ([32]byte, error) {
+	var out [32]byte
+	decoded, err := decodeStrictHexBytes(input)
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", label, err)
+	}
+	if len(decoded) != 32 {
+		return out, fmt.Errorf("%s: expected 32-byte hex value", label)
+	}
+	copy(out[:], decoded)
+	return out, nil
 }
 
 func childFrameGasLimit(available uint64, explicit uint64, hasExplicit bool) uint64 {
@@ -1718,7 +1735,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 	L.SetField(tosTable, "hascapability", L.NewFunction(func(L *lua.LState) int {
 		addrHex := L.CheckString(1)
 		chargePrimGas(params.AgentLoadGas)
-		addr := common.HexToAddress(addrHex)
+		addr, err := parseStrictAgentAddress(addrHex)
+		if err != nil {
+			L.ArgError(1, "invalid agent")
+			return 0
+		}
 
 		// Numeric bit path — original behaviour (no registry needed).
 		if L.Get(2).Type() == lua.LTUint256 {
@@ -1786,10 +1807,21 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		if rr == nil {
 			rr = registry.NewStateReader(stateDB)
 		}
-		principal := common.HexToAddress(principalHex)
-		delegate := common.HexToAddress(delegateHex)
-		var scope [32]byte
-		copy(scope[:], []byte(scopeStr))
+		principal, err := parseStrictAgentAddress(principalHex)
+		if err != nil {
+			L.ArgError(1, "invalid principal agent")
+			return 0
+		}
+		delegate, err := parseStrictAgentAddress(delegateHex)
+		if err != nil {
+			L.ArgError(2, "invalid delegate agent")
+			return 0
+		}
+		scope, err := parseStrictHexBytes32(scopeStr, "scope")
+		if err != nil {
+			L.ArgError(3, err.Error())
+			return 0
+		}
 
 		status, notBeforeMS, expiryMS, exists := rr.ReadDelegationStatus(principal, delegate, scope)
 		if !exists || status != RegistryStatusActive {
@@ -1820,7 +1852,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		callerHex := L.CheckString(1)
 		proofType := strings.TrimSpace(L.CheckString(2))
 		chargePrimGas(params.AgentLoadGas)
-		caller := common.HexToAddress(callerHex)
+		caller, err := parseStrictAgentAddress(callerHex)
+		if err != nil {
+			L.ArgError(1, "invalid caller agent")
+			return 0
+		}
 		switch strings.ToLower(proofType) {
 		case "identity_binding", "agent_identity":
 			binding := agentdiscovery.ReadIdentityBinding(stateDB, caller)
@@ -1872,12 +1908,20 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LFalse)
 			return 1
 		}
-		caller := common.HexToAddress(callerHex)
+		caller, err := parseStrictAgentAddress(callerHex)
+		if err != nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
 		if asset != "TOS" {
 			L.Push(lua.LFalse)
 			return 1
 		}
-		if stateDB.GetBalance(caller).Cmp(amount) < 0 {
+		available := new(big.Int).Set(stateDB.GetBalance(caller))
+		if caller == ctx.From && ctx.Value != nil && ctx.Value.Sign() > 0 {
+			available.Add(available, ctx.Value)
+		}
+		if available.Cmp(amount) < 0 {
 			L.Push(lua.LFalse)
 			return 1
 		}
@@ -5100,7 +5144,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 		addrHex := L.CheckString(1)
 		contractName := L.CheckString(2)
-		calleeAddr := common.HexToAddress(addrHex)
+		calleeAddr, err := parseStrictAgentAddress(addrHex)
+		if err != nil {
+			L.ArgError(1, "invalid addr")
+			return 0
+		}
 		currentBlock := uint64(0)
 		if blockCtx.BlockNumber != nil {
 			currentBlock = blockCtx.BlockNumber.Uint64()
@@ -5113,7 +5161,11 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 		var callData []byte
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
-			callData = common.FromHex(L.CheckString(3))
+			callData, err = decodeStrictHexBytes(L.CheckString(3))
+			if err != nil {
+				L.ArgError(3, "invalid data")
+				return 0
+			}
 		}
 		explicitGas, hasExplicitGas := parseOptionalUint64Arg(L, 4, "gas")
 
@@ -5139,24 +5191,24 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		}
 
 		// Registry-backed package identity validation.
-		// If a registry record exists, enforce package and publisher status.
-		// If no record exists, allow the call (backward-compatible).
 		pkgHash := crypto.Keccak256Hash(calleeCode[:])
 		prec := pkgregistry.ReadPackageByHash(stateDB, pkgHash)
-		if prec.PackageName != "" {
-			if prec.Status == pkgregistry.PkgRevoked {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("PACKAGE_REVOKED"))
-				return 2
-			}
-			pub := pkgregistry.ReadPublisher(stateDB, prec.PublisherID)
-			if pub.Status == pkgregistry.PkgRevoked {
-				L.Push(lua.LFalse)
-				L.Push(lua.LString("PUBLISHER_REVOKED"))
-				return 2
-			}
+		if prec.PackageName == "" {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("PACKAGE_UNPUBLISHED"))
+			return 2
 		}
-		// TODO: remove permissive fallback once registry is populated.
+		if prec.Status == pkgregistry.PkgRevoked {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("PACKAGE_REVOKED"))
+			return 2
+		}
+		pub := pkgregistry.ReadPublisher(stateDB, prec.PublisherID)
+		if pub.Status == pkgregistry.PkgRevoked {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("PUBLISHER_REVOKED"))
+			return 2
+		}
 
 		ok, err := packageHasContract(calleeCode, contractName)
 		if err != nil || !ok {

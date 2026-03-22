@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -10,8 +11,11 @@ import (
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/consensus/dpos"
 	"github.com/tos-network/gtos/core/rawdb"
+	"github.com/tos-network/gtos/core/state"
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/paypolicy"
+	"github.com/tos-network/gtos/trie"
 	lua "github.com/tos-network/tolang"
 )
 
@@ -33,6 +37,44 @@ contract ValueReceiver {
   }
 }
 `
+
+func payPolicyGenesisStorage(t *testing.T, owner common.Address, asset string, maxAmount int64) map[common.Hash]common.Hash {
+	t.Helper()
+	db := state.NewDatabaseWithConfig(rawdb.NewMemoryDatabase(), &trie.Config{Preimages: true})
+	st, err := state.New(common.Hash{}, db, nil)
+	if err != nil {
+		t.Fatalf("state.New: %v", err)
+	}
+	policyHash := crypto.Keccak256Hash([]byte("paypolicy:" + owner.Hex() + ":" + asset))
+	var policyID [32]byte
+	copy(policyID[:], policyHash[:])
+	paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
+		PolicyID:  policyID,
+		Owner:     owner,
+		Asset:     asset,
+		MaxAmount: big.NewInt(maxAmount),
+		Status:    paypolicy.PolicyActive,
+	})
+	root, err := st.Commit(false)
+	if err != nil {
+		t.Fatalf("commit paypolicy temp state: %v", err)
+	}
+	if err := st.Database().TrieDB().Commit(root, true, nil); err != nil {
+		t.Fatalf("persist paypolicy temp trie: %v", err)
+	}
+	st, err = state.New(root, db, nil)
+	if err != nil {
+		t.Fatalf("reload paypolicy temp state: %v", err)
+	}
+	storage := make(map[common.Hash]common.Hash)
+	if err := st.ForEachStorage(params.PayPolicyRegistryAddress, func(key, value common.Hash) bool {
+		storage[key] = value
+		return true
+	}); err != nil {
+		t.Fatalf("ForEachStorage: %v", err)
+	}
+	return storage
+}
 
 func tolangRootCore(t *testing.T) string {
 	t.Helper()
@@ -57,12 +99,12 @@ func tolangRootCore(t *testing.T) string {
 	return ""
 }
 
-func mustBuildStdlibReleaseTor(t *testing.T, contract string) []byte {
+func mustBuildOpenlibReleaseTor(t *testing.T, contract string) []byte {
 	t.Helper()
 	root := tolangRootCore(t)
-	var entry lua.StdlibReleaseEntry
+	var entry lua.OpenlibReleaseEntry
 	found := false
-	for _, candidate := range lua.StdlibReleaseCatalog() {
+	for _, candidate := range lua.OpenlibReleaseCatalog() {
 		if candidate.Contract == contract {
 			entry = candidate
 			found = true
@@ -77,7 +119,7 @@ func mustBuildStdlibReleaseTor(t *testing.T, contract string) []byte {
 	if err != nil {
 		t.Fatalf("read %s: %v", sourcePath, err)
 	}
-	built, err := lua.BuildStdlibReleaseArtifacts(source, sourcePath, entry)
+	built, err := lua.BuildOpenlibReleaseArtifacts(source, sourcePath, entry)
 	if err != nil {
 		t.Fatalf("build openlib release artifacts for %s: %v", contract, err)
 	}
@@ -94,7 +136,7 @@ func mustCompileTorPackage(t *testing.T, source []byte, name, packageName string
 }
 
 func TestTolStdlibPolicyAccountExecuteForwardsValueEndToEnd(t *testing.T) {
-	policyTor := mustBuildStdlibReleaseTor(t, "PolicyAccount")
+	policyTor := mustBuildOpenlibReleaseTor(t, "PolicyAccount")
 	targetTor := mustCompileTorPackage(t, []byte(policyAccountValueReceiverTolSource), "<ValueReceiver.tol>", "ValueReceiver")
 
 	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -201,4 +243,93 @@ func TestTolStdlibPolicyAccountExecuteForwardsValueEndToEnd(t *testing.T) {
 	if !foundValueSeen {
 		t.Fatalf("ValueSeen event not found in execute receipt logs=%d", len(executeReceipt.Logs))
 	}
+}
+
+func TestTolPayAnnotationHonorsProtocolPolicyEndToEnd(t *testing.T) {
+	key1, _ := crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	owner := crypto.PubkeyToAddress(key1.PublicKey)
+	treasury := common.HexToAddress("0x000000000000000000000000000000000000000000000000000000000000f00d")
+	source := []byte(fmt.Sprintf(`pragma tolang 0.4.0;
+
+contract PayProbe {
+  /// @pay(10, recipient: "%s")
+  function payMe() public payable returns (bool ok) {
+    return true;
+  }
+}
+`, treasury.Hex()))
+	payTor := mustCompileTorPackage(t, source, "<PayProbe.tol>", "PayProbe")
+	calldata := torCalldata(t, "PayProbe", "payMe()")
+
+	makeChain := func(maxAmount int64) *BlockChain {
+		config := &params.ChainConfig{
+			ChainID: big.NewInt(1),
+			DPoS:    &params.DPoSConfig{PeriodMs: 3000, Epoch: 208, MaxValidators: 21, TurnLength: params.DPoSTurnLength},
+		}
+		db := rawdb.NewMemoryDatabase()
+		policyStorage := payPolicyGenesisStorage(t, owner, "TOS", maxAmount)
+		gspec := &Genesis{
+			Config:    config,
+			GasLimit:  100_000_000,
+			ExtraData: testDPoSGenesisExtra(),
+			Alloc: GenesisAlloc{
+				owner:                           {Balance: new(big.Int).Mul(big.NewInt(100), big.NewInt(params.TOS))},
+				params.PayPolicyRegistryAddress: {Balance: big.NewInt(0), Storage: policyStorage},
+			},
+		}
+		gspec.MustCommit(db)
+		bc, err := NewBlockChain(db, nil, config, dpos.NewFaker(), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bc
+	}
+
+	t.Run("policy_denied", func(t *testing.T) {
+		bc := makeChain(5)
+		defer bc.Stop()
+
+		contractAddr, receipt := deployTorTx(t, bc, payTor, nil)
+		if receipt.ContractAddress != (common.Address{}) {
+			contractAddr = receipt.ContractAddress
+		}
+		callReceipt := runLvmCallTorWithStatus(t, bc, key1, contractAddr, big.NewInt(10), calldata)
+		if callReceipt.Status != 0 {
+			t.Fatalf("expected denied @pay call to fail, got status=%d", callReceipt.Status)
+		}
+		state, err := bc.State()
+		if err != nil {
+			t.Fatalf("bc.State: %v", err)
+		}
+		if got := state.GetBalance(treasury); got.Sign() != 0 {
+			t.Fatalf("treasury balance on denied path: got=%s want=0", got.String())
+		}
+		if got := state.GetBalance(contractAddr); got.Sign() != 0 {
+			t.Fatalf("contract balance on denied path: got=%s want=0", got.String())
+		}
+	})
+
+	t.Run("policy_allowed", func(t *testing.T) {
+		bc := makeChain(10)
+		defer bc.Stop()
+
+		contractAddr, receipt := deployTorTx(t, bc, payTor, nil)
+		if receipt.ContractAddress != (common.Address{}) {
+			contractAddr = receipt.ContractAddress
+		}
+		callReceipt := runLvmCallTorWithStatus(t, bc, key1, contractAddr, big.NewInt(10), calldata)
+		if callReceipt.Status != 1 {
+			t.Fatalf("expected allowed @pay call to succeed, got status=%d", callReceipt.Status)
+		}
+		state, err := bc.State()
+		if err != nil {
+			t.Fatalf("bc.State: %v", err)
+		}
+		if got := state.GetBalance(treasury); got.Cmp(big.NewInt(10)) != 0 {
+			t.Fatalf("treasury balance on allowed path: got=%s want=10", got.String())
+		}
+		if got := state.GetBalance(contractAddr); got.Sign() != 0 {
+			t.Fatalf("contract balance on allowed path: got=%s want=0", got.String())
+		}
+	})
 }
