@@ -27,7 +27,7 @@ func TestCapabilityRoundTrip(t *testing.T) {
 	st := newTestState()
 
 	rec := CapabilityRecord{
-		Owner:       common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		Owner:       common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Name:        "Transfer",
 		BitIndex:    3,
 		Category:    1,
@@ -79,7 +79,7 @@ func TestCapabilityStatusUpdate(t *testing.T) {
 	st := newTestState()
 
 	rec := CapabilityRecord{
-		Owner:     common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		Owner:     common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Name:      "Mint",
 		BitIndex:  7,
 		Version:   1,
@@ -133,7 +133,7 @@ func grantGovernor(t *testing.T, st *state.StateDB, addr common.Address) {
 func TestCapabilityTransitionGuards(t *testing.T) {
 	st := newTestState()
 	h := &registryHandler{}
-	admin := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	admin := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	grantGovernor(t, st, admin)
 
 	register := makeRegistryAction(t, sysaction.ActionRegistryRegisterCap, registerCapPayload{
@@ -171,8 +171,8 @@ func TestCapabilityTransitionGuards(t *testing.T) {
 func TestCapabilityTransitionRequiresOwnerOrGovernor(t *testing.T) {
 	st := newTestState()
 	h := &registryHandler{}
-	governor := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	other := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	governor := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	other := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	grantGovernor(t, st, governor)
 
 	register := makeRegistryAction(t, sysaction.ActionRegistryRegisterCap, registerCapPayload{
@@ -194,8 +194,8 @@ func TestCapabilityTransitionRequiresOwnerOrGovernor(t *testing.T) {
 func TestDelegationRoundTrip(t *testing.T) {
 	st := newTestState()
 
-	principal := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	delegate := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	principal := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	delegate := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	scope := [32]byte{0x01, 0x02, 0x03}
 
 	rec := DelegationRecord{
@@ -246,8 +246,8 @@ func TestDelegationRoundTrip(t *testing.T) {
 func TestDelegationExists(t *testing.T) {
 	st := newTestState()
 
-	principal := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	delegate := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	principal := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
+	delegate := common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
 	scope := [32]byte{0x55}
 
 	if DelegationExists(st, principal, delegate, scope) {
@@ -275,8 +275,8 @@ func TestDelegationExists(t *testing.T) {
 func TestDelegationRevoke(t *testing.T) {
 	st := newTestState()
 
-	principal := common.HexToAddress("0x3333333333333333333333333333333333333333")
-	delegate := common.HexToAddress("0x4444444444444444444444444444444444444444")
+	principal := common.HexToAddress("0x3ccadfb801017cfb0f5dc61ef0e96fdaacbdb11c91ba5a230959e8d14020ea50")
+	delegate := common.HexToAddress("0xc93118fe4956b46c1460d1bb6740f640236701d1210f2160f9c1e0cfeed6b41e")
 	scope := [32]byte{0x99}
 
 	rec := DelegationRecord{
@@ -315,8 +315,8 @@ func TestDelegationRevoke(t *testing.T) {
 func TestDelegationRejectsInvalidWindow(t *testing.T) {
 	st := newTestState()
 	h := &registryHandler{}
-	sender := common.HexToAddress("0x5555555555555555555555555555555555555555")
-	delegate := common.HexToAddress("0x6666666666666666666666666666666666666666")
+	sender := common.HexToAddress("0x0791868d8f29ea735f26a17a9aea038cd4255baac26eac5a74e58a07ed2f1975")
+	delegate := common.HexToAddress("0xc56e1aa20e343822f1ec16c0a9230f7a17603f07dafd3ad5dbb1dd43ee34fdad")
 	scope := common.HexToHash("0x77")
 
 	err := h.Handle(makeRegistryCtx(st, sender), makeRegistryAction(t, sysaction.ActionRegistryGrantDelegation, grantDelegationPayload{
@@ -334,9 +334,9 @@ func TestDelegationRejectsInvalidWindow(t *testing.T) {
 func TestDelegationGrantAndRevokeRequirePrincipalOrGovernor(t *testing.T) {
 	st := newTestState()
 	h := &registryHandler{}
-	principal := common.HexToAddress("0x7777777777777777777777777777777777777777")
-	delegate := common.HexToAddress("0x8888888888888888888888888888888888888888")
-	other := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	principal := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
+	delegate := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
+	other := common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
 	scope := common.HexToHash("0x55")
 
 	grant := makeRegistryAction(t, sysaction.ActionRegistryGrantDelegation, grantDelegationPayload{

@@ -93,10 +93,10 @@ func makeSysAction(kind sysaction.ActionKind, payload interface{}) *sysaction.Sy
 }
 
 var (
-	creatorAddr  = common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	targetHex    = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	creatorAddr  = common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	targetHex    = "0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05"
 	txHashHex    = "0x00000000000000000000000000000000000000000000000000000000deadbeef"
-	strangerAddr = common.HexToAddress("0x9999999999999999999999999999999999999999")
+	strangerAddr = common.HexToAddress("0x3ccadfb801017cfb0f5dc61ef0e96fdaacbdb11c91ba5a230959e8d14020ea50")
 )
 
 // registerTestCallback is a helper that registers a callback and returns its ID.
@@ -356,7 +356,7 @@ func TestHandleFulfillAsync_Success(t *testing.T) {
 	db := newHandlerMockStateDB()
 	h := &settlementHandler{}
 
-	fulfillerAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+	fulfillerAddr := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 
 	ctx := makeCtx(db, fulfillerAddr, 500)
 	sa := makeSysAction(sysaction.ActionSettlementFulfillAsync, FulfillAsyncPayload{

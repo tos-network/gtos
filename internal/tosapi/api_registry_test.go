@@ -47,7 +47,7 @@ func TestTolGetCapabilityReturnsRegistryBackedRecord(t *testing.T) {
 		t.Fatalf("register capability bit: %v", err)
 	}
 	registry.WriteCapability(st, registry.CapabilityRecord{
-		Owner:       common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		Owner:       common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Name:        "oracle",
 		BitIndex:    0,
 		Category:    7,
@@ -89,8 +89,8 @@ func TestTolGetDelegationReturnsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	principal := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	delegate := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	principal := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	delegate := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	scope := common.HexToHash("0x01")
 	registry.WriteDelegation(st, registry.DelegationRecord{
 		Principal:     principal,
@@ -125,8 +125,8 @@ func TestTolGetDelegationReturnsEffectiveExpiredStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	principal := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	delegate := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	principal := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	delegate := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	scope := common.HexToHash("0x01")
 	registry.WriteDelegation(st, registry.DelegationRecord{
 		Principal:   principal,
@@ -226,7 +226,7 @@ func TestTolGetLatestPackageReturnsIndexedStableRecord(t *testing.T) {
 	})
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: [32]byte{0xAA},
-		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
 		Namespace:   "demo",
 		Status:      pkgregistry.PkgActive,
 		CreatedAt:   2,
@@ -266,7 +266,7 @@ func TestTolGetPackageReturnsUntrustedWhenPublisherSuspended(t *testing.T) {
 	pubID := [32]byte{0xAB}
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: pubID,
-		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
 		Namespace:   "demo",
 		Status:      pkgregistry.PkgDeprecated,
 		CreatedAt:   2,
@@ -324,7 +324,7 @@ func TestTolGetPublisherReturnsRecord(t *testing.T) {
 	}
 	rec := pkgregistry.PublisherRecord{
 		PublisherID: [32]byte{0x99},
-		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
 		MetadataRef: [32]byte{0xAB},
 		Namespace:   "demo.checkout",
 		Status:      pkgregistry.PkgActive,
@@ -355,7 +355,7 @@ func TestTolGetPublisherByNamespaceReturnsRecord(t *testing.T) {
 	}
 	rec := pkgregistry.PublisherRecord{
 		PublisherID: [32]byte{0x98},
-		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Controller:  common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7"),
 		Namespace:   "demo.checkout",
 		Status:      pkgregistry.PkgDeprecated,
 		CreatedAt:   77,
@@ -386,18 +386,18 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	verifierAddr := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	verifierAddr := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
-		Controller:   common.HexToAddress("0xaaaa000000000000000000000000000000000000"),
+		Controller:   common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533"),
 		VerifierAddr: verifierAddr,
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
 		CreatedAt:    20,
 		UpdatedAt:    21,
 	})
-	subject := common.HexToAddress("0xabcd")
+	subject := common.HexToAddress("0x3ccadfb801017cfb0f5dc61ef0e96fdaacbdb11c91ba5a230959e8d14020ea50")
 	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
 		Subject:    subject,
 		ProofType:  "state_proof",
@@ -431,18 +431,18 @@ func TestTolGetVerificationReturnsEffectiveExpiredStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	verifierAddr := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	verifierAddr := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
-		Controller:   common.HexToAddress("0xaaaa000000000000000000000000000000000000"),
+		Controller:   common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533"),
 		VerifierAddr: verifierAddr,
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
 		CreatedAt:    20,
 		UpdatedAt:    21,
 	})
-	subject := common.HexToAddress("0xabcd")
+	subject := common.HexToAddress("0x3ccadfb801017cfb0f5dc61ef0e96fdaacbdb11c91ba5a230959e8d14020ea50")
 	verifyregistry.WriteSubjectVerification(st, verifyregistry.SubjectVerificationRecord{
 		Subject:    subject,
 		ProofType:  "state_proof",
@@ -470,7 +470,7 @@ func TestTolGetSettlementPolicyReturnsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	owner := common.HexToAddress("0x2222000000000000000000000000000000000000")
+	owner := common.HexToAddress("0xc93118fe4956b46c1460d1bb6740f640236701d1210f2160f9c1e0cfeed6b41e")
 	paypolicy.WritePolicy(st, paypolicy.PolicyRecord{
 		PolicyID:  [32]byte{0x55},
 		Kind:      2,
@@ -499,7 +499,7 @@ func TestTolGetAgentIdentityReturnsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create state db: %v", err)
 	}
-	addr := common.HexToAddress("0x9999000000000000000000000000000000000000")
+	addr := common.HexToAddress("0x0791868d8f29ea735f26a17a9aea038cd4255baac26eac5a74e58a07ed2f1975")
 	agent.WriteStatus(st, addr, agent.AgentActive)
 	agent.WriteStake(st, addr, big.NewInt(123))
 	agent.WriteMetadata(st, addr, "https://agent.example/profile")

@@ -139,8 +139,8 @@ func setupAgentWithGatewayCapability(db *handlerMockStateDB, addr common.Address
 }
 
 var (
-	agentAddr    = common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	strangerAddr = common.HexToAddress("0x9999999999999999999999999999999999999999")
+	agentAddr    = common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	strangerAddr = common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 )
 
 // ---------- Register ----------

@@ -33,7 +33,7 @@ func TestPublisherRoundTrip(t *testing.T) {
 	db := newMockStateDB()
 
 	pubID := [32]byte{0x01, 0x02, 0x03}
-	controller := common.HexToAddress("0xABCDEF0123456789ABCDEF0123456789ABCDEF01")
+	controller := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	metaRef := [32]byte{0xAA, 0xBB, 0xCC}
 
 	rec := PublisherRecord{
@@ -79,7 +79,7 @@ func TestPublisherNamespaceLookup(t *testing.T) {
 	pubID := [32]byte{0x04, 0x05, 0x06}
 	rec := PublisherRecord{
 		PublisherID: pubID,
-		Controller:  common.HexToAddress("0xABCDEF0123456789ABCDEF0123456789ABCDEF01"),
+		Controller:  common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Namespace:   "demo.checkout",
 		Status:      PkgActive,
 		CreatedAt:   1,

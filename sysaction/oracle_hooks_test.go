@@ -77,7 +77,7 @@ func TestValidateProofHookDispatchesRegisteredVerifierByType(t *testing.T) {
 func TestValidateProofHookDispatchesRegisteredVerifierByAddress(t *testing.T) {
 	resetProofVerifierRegistry()
 
-	verifierAddr := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	verifierAddr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	RegisterProofVerifierAddress(verifierAddr, func(hook *ProofVerificationHook) (bool, error) {
 		return hook.ExpectedRoot == crypto.Keccak256Hash(hook.ProofData), nil
 	})

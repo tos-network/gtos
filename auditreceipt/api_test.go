@@ -57,7 +57,7 @@ func TestAPIGetAuditMetaEmpty(t *testing.T) {
 func TestAPIGetSessionProof(t *testing.T) {
 	db := newMockStateDB()
 	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-	account := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	account := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 
 	proof := BuildSessionProof(txHash, "sess-1", "POS", "term-42", 2, account, 5000)
 	WriteSessionProof(db, proof)

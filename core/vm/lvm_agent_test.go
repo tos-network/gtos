@@ -590,7 +590,7 @@ func TestPackageInfoAndPublisherInfo(t *testing.T) {
 	contractAddr := common.Address{0x72}
 	pkgAddr := common.Address{0x73}
 	pubID := [32]byte{0x44}
-	controller := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	controller := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	pkgBytes := compileAndDeployTestPackage(t, st, pkgAddr, "Greeter", "demo.checkout", "1.0.0")
 
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{

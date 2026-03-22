@@ -15,7 +15,7 @@ func newTestGatewayAPI(db *mockStateDB) *PublicGatewayAPI {
 
 func TestAPIGetGatewayConfig(t *testing.T) {
 	db := newMockStateDB()
-	agent := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	agent := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 
 	// Register a gateway.
 	WriteActive(db, agent, true)
@@ -59,7 +59,7 @@ func TestAPIGetGatewayConfig(t *testing.T) {
 
 func TestAPIGetGatewayConfigNotFound(t *testing.T) {
 	db := newMockStateDB()
-	agent := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	agent := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	api := newTestGatewayAPI(db)
 	_, err := api.GetGatewayConfig(agent)
@@ -70,7 +70,7 @@ func TestAPIGetGatewayConfigNotFound(t *testing.T) {
 
 func TestAPIIsGatewayActive(t *testing.T) {
 	db := newMockStateDB()
-	agent := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	agent := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	WriteActive(db, agent, true)
 
 	api := newTestGatewayAPI(db)
@@ -83,7 +83,7 @@ func TestAPIIsGatewayActive(t *testing.T) {
 	}
 
 	// Check inactive.
-	other := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	other := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 	active, err = api.IsGatewayActive(other)
 	if err != nil {
 		t.Fatal(err)

@@ -239,7 +239,7 @@ func TestSecurity_MultipleConcurrentRecoveryAttempts(t *testing.T) {
 	}
 
 	// Second recovery attempt should fail.
-	otherNewOwner := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	otherNewOwner := common.HexToAddress("0xc56e1aa20e343822f1ec16c0a9230f7a17603f07dafd3ad5dbb1dd43ee34fdad")
 	sa2 := makeSysAction(sysaction.ActionPolicyInitiateRecovery, InitiateRecoveryPayload{
 		Account:  walletAddr,
 		NewOwner: otherNewOwner,
@@ -457,7 +457,7 @@ func TestSecurity_SuspendByStrangerRejected(t *testing.T) {
 	WriteOwner(db, walletAddr, ownerAddr)
 	WriteGuardian(db, walletAddr, guardianAddr)
 
-	stranger := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	stranger := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 	ctx := makeCtx(db, stranger, 100)
 	sa := makeSysAction(sysaction.ActionPolicySuspend, SuspendPayload{
 		Account: walletAddr,
@@ -473,12 +473,12 @@ func TestSecurity_SuspendByStrangerRejected(t *testing.T) {
 func TestSecurity_StorageSlotIsolationBetweenAccounts(t *testing.T) {
 	db := newMockStateDB()
 
-	wallet1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	wallet2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+	wallet1 := common.HexToAddress("0x0791868d8f29ea735f26a17a9aea038cd4255baac26eac5a74e58a07ed2f1975")
+	wallet2 := common.HexToAddress("0xc56e1aa20e343822f1ec16c0a9230f7a17603f07dafd3ad5dbb1dd43ee34fdad")
 
 	// Set different owners for each wallet.
-	owner1 := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	owner2 := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	owner1 := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	owner2 := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	WriteOwner(db, wallet1, owner1)
 	WriteOwner(db, wallet2, owner2)
@@ -639,7 +639,7 @@ func TestSecurity_NonGuardianCannotInitiateRecovery(t *testing.T) {
 	WriteGuardian(db, walletAddr, guardianAddr)
 
 	// A stranger (not owner, not guardian) tries to initiate recovery.
-	stranger := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	stranger := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 	ctx := makeCtx(db, stranger, 1000)
 	sa := makeSysAction(sysaction.ActionPolicyInitiateRecovery, InitiateRecoveryPayload{
 		Account:  walletAddr,
@@ -666,7 +666,7 @@ func TestSecurity_NonGuardianCannotCompleteRecovery(t *testing.T) {
 	})
 
 	// A stranger tries to complete recovery after timelock.
-	stranger := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	stranger := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 	ctx := makeCtx(db, stranger, 1000+RecoveryTimelockBlocks+1)
 	sa := makeSysAction(sysaction.ActionPolicyCompleteRecovery, CompleteRecoveryPayload{
 		Account: walletAddr,

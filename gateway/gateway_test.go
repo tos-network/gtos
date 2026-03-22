@@ -36,8 +36,8 @@ func (m *mockStateDB) SetState(addr common.Address, key common.Hash, val common.
 // ---------- test addresses ----------
 
 var (
-	gwAddrA = common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	gwAddrB = common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	gwAddrA = common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	gwAddrB = common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 )
 
 // ---------- Active flag ----------

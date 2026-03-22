@@ -10,8 +10,8 @@ import (
 
 // testOwner and testGuardian are deterministic addresses used across integration tests.
 var (
-	testOwner    = common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	testGuardian = common.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	testOwner    = common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	testGuardian = common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
 )
 
 func TestDeployTestnetPolicyWallet(t *testing.T) {
@@ -72,7 +72,7 @@ func TestDeployTestnetAgentEconomy(t *testing.T) {
 	root := tolangRoot(t)
 	t.Setenv("TOLANG_PATH", root)
 
-	deployer := common.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
+	deployer := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 	manifest, err := DeployTestnetAgentEconomy(deployer)
 	if err != nil {
 		t.Fatalf("DeployTestnetAgentEconomy failed: %v", err)

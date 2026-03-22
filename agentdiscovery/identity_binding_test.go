@@ -60,7 +60,7 @@ func TestBindAgentCard(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 
 	card := &AgentCard{
@@ -81,7 +81,7 @@ func TestBindAgentCard_NotRegistered(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0xdead")
+	addr := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	card := &AgentCard{AgentAddress: addr}
 	if err := BindAgentCard(db, card); err != ErrAgentNotRegistered {
@@ -93,7 +93,7 @@ func TestBindAgentCard_Suspended(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 	setSuspendedFlag(db, addr, true)
 
@@ -117,7 +117,7 @@ func TestFinalizeIdentityBinding(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 
 	card := &AgentCard{
@@ -159,7 +159,7 @@ func TestFinalizeIdentityBinding_NotRegistered(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	card := &AgentCard{AgentAddress: common.HexToAddress("0xdead")}
+	card := &AgentCard{AgentAddress: common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")}
 
 	_, err := FinalizeIdentityBinding(db, card, 100)
 	if err != ErrAgentNotRegistered {
@@ -171,7 +171,7 @@ func TestFinalizeIdentityBinding_Suspended(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 	setSuspendedFlag(db, addr, true)
 
@@ -186,7 +186,7 @@ func TestFinalizeIdentityBinding_ExcessiveFee(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 
 	card := &AgentCard{
@@ -212,7 +212,7 @@ func TestWriteReadIdentityBinding(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 
 	binding := &IdentityBinding{
 		AgentAddress:      addr,
@@ -257,7 +257,7 @@ func TestReadIdentityBinding_NotFound(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0xdead")
+	addr := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	got := ReadIdentityBinding(db, addr)
 	if got != nil {
@@ -269,7 +269,7 @@ func TestResolveAgentCard(t *testing.T) {
 	t.Parallel()
 
 	db := newMockStateDB()
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	registerAgent(db, addr)
 
 	card, err := ResolveAgentCard(db, addr)
@@ -287,7 +287,7 @@ func TestResolveAgentCard(t *testing.T) {
 func TestComputeBindingHash_Deterministic(t *testing.T) {
 	t.Parallel()
 
-	addr := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	addr := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	h1 := computeBindingHash(addr, 100)
 	h2 := computeBindingHash(addr, 100)
 	if h1 != h2 {

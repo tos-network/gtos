@@ -126,7 +126,7 @@ func TestHandleSetSpendCaps_NotOwner(t *testing.T) {
 	// Set owner first.
 	WriteOwner(db, walletAddr, ownerAddr)
 
-	stranger := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	stranger := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 	ctx := makeCtx(db, stranger, 100)
 	sa := makeSysAction(sysaction.ActionPolicySetSpendCaps, SetSpendCapsPayload{
 		Account:       walletAddr,
@@ -580,7 +580,7 @@ func TestHandleSuspend_Unauthorized(t *testing.T) {
 	WriteOwner(db, walletAddr, ownerAddr)
 	WriteGuardian(db, walletAddr, guardianAddr)
 
-	stranger := common.HexToAddress("0x9999999999999999999999999999999999999999")
+	stranger := common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 	ctx := makeCtx(db, stranger, 100)
 	sa := makeSysAction(sysaction.ActionPolicySuspend, SuspendPayload{
 		Account: walletAddr,

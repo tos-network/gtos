@@ -47,7 +47,7 @@ func grantGovernor(t *testing.T, st *state.StateDB, addr common.Address) {
 func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	owner := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	owner := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	policyID := common.HexToHash("0x01")
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterPayPolicy, registerPolicyPayload{
@@ -83,8 +83,8 @@ func TestRegisterAndDeactivatePayPolicy(t *testing.T) {
 func TestGovernorCanRegisterAndDeactivatePayPolicy(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	governor := common.HexToAddress("0x9999000000000000000000000000000000000000")
-	owner := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	governor := common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
+	owner := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	policyID := common.HexToHash("0x02")
 	grantGovernor(t, st, governor)
 

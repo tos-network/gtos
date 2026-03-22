@@ -87,7 +87,7 @@ func TestDelegationRegistryStateBacked(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xD1}
 	principal := common.Address{0xFF}
-	delegate := common.HexToAddress("0xaaaa")
+	delegate := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	scope, scopeHex := delegationScopeRef("transfer")
 	registry.WriteDelegation(st, registry.DelegationRecord{
 		Principal:   principal,
@@ -120,7 +120,7 @@ tos.sstore("delegation_ok", 1)
 // when a RegistryReader is available.
 func TestDelegationRegistryBacked(t *testing.T) {
 	principalAddr := common.Address{0xFF} // matches tos.caller in runLuaWithRegistry
-	delegateAddr := common.HexToAddress("0xaaaa")
+	delegateAddr := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	scope, scopeHex := delegationScopeRef("transfer")
 
 	delegKey := principalAddr.Hex() + "|" + delegateAddr.Hex() + "|" + string(scope[:])
@@ -331,7 +331,7 @@ func TestVerificationRegistryBacked(t *testing.T) {
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
-		VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
 	})
@@ -368,7 +368,7 @@ func TestVerificationRegistryExpired(t *testing.T) {
 	verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 		Name:         "state_proof",
 		VerifierType: 1,
-		VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Version:      1,
 		Status:       verifyregistry.VerifierActive,
 	})
@@ -463,7 +463,7 @@ func TestIsVerifiedRegistryBacked(t *testing.T) {
 		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 			Name:         "kyc",
 			VerifierType: 1,
-			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 			Version:      1,
 			Status:       verifyregistry.VerifierActive,
 		})
@@ -494,7 +494,7 @@ tos.sstore("ok", 1)
 		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 			Name:         "kyc",
 			VerifierType: 1,
-			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 			Version:      1,
 			Status:       verifyregistry.VerifierActive,
 		})
@@ -522,7 +522,7 @@ tos.sstore("ok", 1)
 		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 			Name:         "kyc",
 			VerifierType: 1,
-			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 			Version:      1,
 			Status:       verifyregistry.VerifierActive,
 		})
@@ -565,7 +565,7 @@ tos.sstore("ok", 1)
 		verifyregistry.WriteVerifier(st, verifyregistry.VerifierRecord{
 			Name:         "kyc",
 			VerifierType: 1,
-			VerifierAddr: common.HexToAddress("0x1234000000000000000000000000000000000000"),
+			VerifierAddr: common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 			Version:      1,
 			Status:       verifyregistry.VerifierRevoked, // inactive
 		})

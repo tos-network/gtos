@@ -148,7 +148,7 @@ func TestDeployAll(t *testing.T) {
 	d := NewDeployer()
 	d.AddContract("TestContract", []byte("fake-tor-data"), nil)
 
-	deployer := common.HexToAddress("0x1234567890abcdef1234567890abcdef12345678")
+	deployer := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	manifest, err := d.DeployAll(deployer)
 	if err != nil {
 		t.Fatalf("DeployAll failed: %v", err)

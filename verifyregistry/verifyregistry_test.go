@@ -47,7 +47,7 @@ func grantGovernor(t *testing.T, st *state.StateDB, addr common.Address) {
 func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	verifier := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
 		Name:         "state_proof",
@@ -63,7 +63,7 @@ func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 		t.Fatalf("unexpected verifier record %+v", rec)
 	}
 
-	subject := common.HexToAddress("0xabcd")
+	subject := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	attest := makeSysAction(t, sysaction.ActionRegistryAttestVerification, subjectVerificationPayload{
 		Subject:   subject.Hex(),
 		ProofType: "state_proof",
@@ -81,8 +81,8 @@ func TestRegisterVerifierAndAttestSubject(t *testing.T) {
 func TestInactiveVerifierBlocksVerificationWrites(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
-	subject := common.HexToAddress("0xabcd")
+	verifier := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	subject := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
 		Name:         "state_proof",
@@ -113,9 +113,9 @@ func TestInactiveVerifierBlocksVerificationWrites(t *testing.T) {
 func TestGovernorCanDeactivateVerifierAndRevokeClaim(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
-	governor := common.HexToAddress("0x9999000000000000000000000000000000000000")
-	subject := common.HexToAddress("0xabcd")
+	verifier := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	governor := common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
+	subject := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 	grantGovernor(t, st, governor)
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
@@ -154,8 +154,8 @@ func TestGovernorCanDeactivateVerifierAndRevokeClaim(t *testing.T) {
 func TestRevokeVerificationRequiresExistingClaim(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
-	subject := common.HexToAddress("0xabcd")
+	verifier := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	subject := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
 		Name:         "state_proof",
@@ -178,8 +178,8 @@ func TestRevokeVerificationRequiresExistingClaim(t *testing.T) {
 func TestRevokeVerificationTwiceRejected(t *testing.T) {
 	st := newTestState()
 	h := &handler{}
-	verifier := common.HexToAddress("0x1234000000000000000000000000000000000000")
-	subject := common.HexToAddress("0xabcd")
+	verifier := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	subject := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
 
 	register := makeSysAction(t, sysaction.ActionRegistryRegisterVerifier, registerVerifierPayload{
 		Name:         "state_proof",

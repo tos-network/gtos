@@ -45,15 +45,15 @@ func (m *mockStateDB) SetState(addr common.Address, key common.Hash, val common.
 // ---------- test addresses ----------
 
 var (
-	walletAddr    = common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	ownerAddr     = common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
-	guardianAddr  = common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
-	sponsorAddr   = common.HexToAddress("0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
-	recipientAddr = common.HexToAddress("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
-	gatewayAddr   = common.HexToAddress("0x1111111111111111111111111111111111111111")
-	newOwnerAddr  = common.HexToAddress("0x2222222222222222222222222222222222222222")
-	creatorAddr   = common.HexToAddress("0x3333333333333333333333333333333333333333")
-	fulfillerAddr = common.HexToAddress("0x4444444444444444444444444444444444444444")
+	walletAddr    = common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
+	ownerAddr     = common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
+	guardianAddr  = common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
+	sponsorAddr   = common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
+	recipientAddr = common.HexToAddress("0x3ccadfb801017cfb0f5dc61ef0e96fdaacbdb11c91ba5a230959e8d14020ea50")
+	gatewayAddr   = common.HexToAddress("0xc93118fe4956b46c1460d1bb6740f640236701d1210f2160f9c1e0cfeed6b41e")
+	newOwnerAddr  = common.HexToAddress("0x0791868d8f29ea735f26a17a9aea038cd4255baac26eac5a74e58a07ed2f1975")
+	creatorAddr   = common.HexToAddress("0xc56e1aa20e343822f1ec16c0a9230f7a17603f07dafd3ad5dbb1dd43ee34fdad")
+	fulfillerAddr = common.HexToAddress("0xf71d99c2b05b3ab38ebabfae54f08b149f9dffa9fd49cf69e20b9f0ea86514f2")
 )
 
 // ---------- helper ----------

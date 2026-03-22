@@ -219,7 +219,7 @@ func TestGetContractMetadataReturnsPublishedPackageIdentity(t *testing.T) {
 	pubID := [32]byte{0x42}
 	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
 		PublisherID: pubID,
-		Controller:  common.HexToAddress("0x1234000000000000000000000000000000000000"),
+		Controller:  common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d"),
 		Namespace:   "demo",
 		Status:      pkgregistry.PkgActive,
 	})
