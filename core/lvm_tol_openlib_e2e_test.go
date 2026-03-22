@@ -70,7 +70,7 @@ func mustBuildStdlibReleaseTor(t *testing.T, contract string) []byte {
 		}
 	}
 	if !found {
-		t.Fatalf("stdlib release entry not found for %s", contract)
+		t.Fatalf("openlib release entry not found for %s", contract)
 	}
 	sourcePath := filepath.Join(root, entry.SourcePath)
 	source, err := os.ReadFile(sourcePath)
@@ -79,7 +79,7 @@ func mustBuildStdlibReleaseTor(t *testing.T, contract string) []byte {
 	}
 	built, err := lua.BuildStdlibReleaseArtifacts(source, sourcePath, entry)
 	if err != nil {
-		t.Fatalf("build stdlib release artifacts for %s: %v", contract, err)
+		t.Fatalf("build openlib release artifacts for %s: %v", contract, err)
 	}
 	return built.PackageTOR
 }

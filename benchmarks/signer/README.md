@@ -29,6 +29,6 @@ Outputs are saved to `benchmarks/signer/results/`.
 
 Notes:
 
-- `ed25519std` is Go stdlib `crypto/ed25519`.
+- `ed25519std` is Go openlib `crypto/ed25519`.
 - `ed25519gtos` is GTOS `crypto/ed25519` backend without `ed25519native`.
 - `ed25519native` label appears when built with `ed25519c ed25519native`.

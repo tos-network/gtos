@@ -1137,10 +1137,10 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// tos.import("moduleName") → table
 	//   Loads a whitelisted built-in TOS standard library module.
-	//   Unlike the removed stdlib require(), only pre-audited modules are available.
+	//   Unlike the removed openlib require(), only pre-audited modules are available.
 	//
 	//   Available modules:
-	//     "tos20"  — TOS-20 fungible token standard (see core/lua_stdlib.go)
+	//     "tos20"  — TOS-20 fungible token standard (see core/lua_openlib.go)
 	//
 	//   Example:
 	//     local T = tos.import("tos20")

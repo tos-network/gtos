@@ -31,7 +31,7 @@ func TestSignVerifyCompatibility(t *testing.T) {
 		t.Fatal("Verify returned false")
 	}
 	if !stded25519.Verify(stded25519.PublicKey(pub), msg, sig) {
-		t.Fatal("stdlib Verify returned false")
+		t.Fatal("openlib Verify returned false")
 	}
 
 	badSig := append([]byte(nil), sig...)

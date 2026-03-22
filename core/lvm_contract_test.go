@@ -5009,7 +5009,7 @@ func TestLvmContractDelegatecall(t *testing.T) {
 	})
 }
 
-// TestLvmContractAccess tests the tos.import("access") RBAC stdlib.
+// TestLvmContractAccess tests the tos.import("access") RBAC openlib.
 //
 // The fixed tx signer (addr1) derived from key1 is the DEFAULT_ADMIN after
 // calling AC.init() — because tos.caller on the first transaction equals addr1.
@@ -5196,7 +5196,7 @@ func TestLvmContractAccess(t *testing.T) {
 	})
 }
 
-// TestLvmContractTimelock tests the tos.import("timelock") stdlib.
+// TestLvmContractTimelock tests the tos.import("timelock") openlib.
 //
 // Block timestamps advance by 3 s per block (PeriodMs=3000 in the test config).
 // Tests use delay=0 (immediate) or delay=60 (needs many blocks) to cover both

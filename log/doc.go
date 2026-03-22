@@ -318,7 +318,7 @@ github.com/kr/logfmt
 
 github.com/spacemonkeygo/spacelog
 
-golang's stdlib, notably io and net/http
+golang's openlib, notably io and net/http
 
 # The Name
 

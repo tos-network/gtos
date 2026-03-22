@@ -19,7 +19,7 @@ func init() {
 	} {
 		bc, err := lua.CompileSourceToBytecode([]byte(src), name)
 		if err != nil {
-			panic("lua_stdlib: failed to pre-compile module " + name + ": " + err.Error())
+			panic("lua_openlib: failed to pre-compile module " + name + ": " + err.Error())
 		}
 		builtinModules[name] = bc
 	}
@@ -330,7 +330,7 @@ M.handlers = {
 return M
 `
 
-// accessLuaSrc is the Role-Based Access Control (RBAC) stdlib.
+// accessLuaSrc is the Role-Based Access Control (RBAC) openlib.
 //
 // Usage inside a contract:
 //
@@ -416,7 +416,7 @@ end
 return M
 `
 
-// timelockLuaSrc is the Timelock stdlib — a two-step, time-delayed execution
+// timelockLuaSrc is the Timelock openlib — a two-step, time-delayed execution
 // pattern analogous to OpenZeppelin's TimelockController.
 //
 // Usage inside a contract:
@@ -536,7 +536,7 @@ end
 return M
 `
 
-// pausableLuaSrc is the Pausable stdlib — an emergency-stop mechanism that
+// pausableLuaSrc is the Pausable openlib — an emergency-stop mechanism that
 // allows a designated pauser to halt sensitive contract functions.
 //
 // Usage inside a contract:
@@ -624,7 +624,7 @@ end
 return M
 `
 
-// reentrancyGuardLuaSrc is a simple storage-slot-based reentrancy guard stdlib.
+// reentrancyGuardLuaSrc is a simple storage-slot-based reentrancy guard openlib.
 //
 // Usage inside a contract:
 //

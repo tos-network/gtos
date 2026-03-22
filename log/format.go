@@ -68,7 +68,7 @@ func (f formatFunc) Format(r *Record) []byte {
 	return f(r)
 }
 
-// TerminalStringer is an analogous interface to the stdlib stringer, allowing
+// TerminalStringer is an analogous interface to the openlib stringer, allowing
 // own types to have custom shortened serialization formats when printed to the
 // screen.
 type TerminalStringer interface {

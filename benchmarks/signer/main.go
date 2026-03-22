@@ -117,7 +117,7 @@ func main() {
 		})
 	}
 
-	// ed25519 (stdlib)
+	// ed25519 (openlib)
 	{
 		pub, priv, err := stded25519.GenerateKey(rand.Reader)
 		if err != nil {

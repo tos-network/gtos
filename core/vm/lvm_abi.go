@@ -233,7 +233,7 @@ func abiGoToLua(typ abi.Type, val interface{}) (lua.LValue, error) {
 		if !ok {
 			return nil, fmt.Errorf("expected common.Address, got %T", val)
 		}
-		// Return as LString for compatibility with stdlib modules (tos20, tos721, etc.)
+		// Return as LString for compatibility with openlib modules (tos20, tos721, etc.)
 		// that use L.CheckString() for address keys.
 		return lua.LString(addr.Hex()), nil
 
