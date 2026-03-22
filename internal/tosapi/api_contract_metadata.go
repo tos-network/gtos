@@ -28,26 +28,30 @@ type DeployedCodeInfo struct {
 
 // TOLArtifactInfo is the inspection payload for one compiled .toc artifact.
 type TOLArtifactInfo struct {
-	ContractName string                              `json:"contract_name"`
-	BytecodeHash string                              `json:"bytecode_hash"`
-	ABI          json.RawMessage                     `json:"abi"`
-	Metadata     *tolmeta.ContractMetadata           `json:"metadata,omitempty"`
-	Discovery    *tolmeta.DiscoveryManifest          `json:"discovery,omitempty"`
-	AgentPackage *tolmeta.AgentPackageInfo           `json:"agent_package,omitempty"`
-	Routing      *agentdiscovery.TypedRoutingProfile `json:"routing_profile,omitempty"`
+	ContractName  string                              `json:"contract_name"`
+	BytecodeHash  string                              `json:"bytecode_hash"`
+	ABI           json.RawMessage                     `json:"abi"`
+	Metadata      *tolmeta.ContractMetadata           `json:"metadata,omitempty"`
+	Discovery     *tolmeta.DiscoveryManifest          `json:"discovery,omitempty"`
+	AgentPackage  *tolmeta.AgentPackageInfo           `json:"agent_package,omitempty"`
+	Profile       *tolmeta.AgentContractProfile       `json:"profile,omitempty"`
+	Routing       *agentdiscovery.TypedRoutingProfile `json:"routing_profile,omitempty"`
+	SuggestedCard *agentdiscovery.PublishedCard       `json:"suggested_card,omitempty"`
 }
 
 // TOLPackageInfo is the inspection payload for one deployed .tor package.
 type TOLPackageInfo struct {
-	Name         string                   `json:"name,omitempty"`
-	Package      string                   `json:"package,omitempty"`
-	Version      string                   `json:"version,omitempty"`
-	MainContract string                   `json:"main_contract,omitempty"`
-	InitCode     string                   `json:"init_code,omitempty"`
-	Manifest     json.RawMessage          `json:"manifest"`
-	Contracts    []TOLPackageContractInfo `json:"contracts"`
-	Published    *PackageInfo             `json:"published,omitempty"`
-	Publisher    *PublisherInfo           `json:"publisher,omitempty"`
+	Name          string                        `json:"name,omitempty"`
+	Package       string                        `json:"package,omitempty"`
+	Version       string                        `json:"version,omitempty"`
+	MainContract  string                        `json:"main_contract,omitempty"`
+	InitCode      string                        `json:"init_code,omitempty"`
+	Manifest      json.RawMessage               `json:"manifest"`
+	Contracts     []TOLPackageContractInfo      `json:"contracts"`
+	Profile       *tolmeta.AgentBundleProfile   `json:"bundle_profile,omitempty"`
+	Published     *PackageInfo                  `json:"published,omitempty"`
+	Publisher     *PublisherInfo                `json:"publisher,omitempty"`
+	SuggestedCard *agentdiscovery.PublishedCard `json:"suggested_card,omitempty"`
 }
 
 // TOLPackageContractInfo describes one manifest contract entry inside a .tor package.
@@ -146,6 +150,7 @@ func inspectTOLPackage(pkgBytes []byte, st *state.StateDB) (*TOLPackageInfo, err
 		Manifest:     append(json.RawMessage(nil), pkg.ManifestJSON...),
 		Contracts:    make([]TOLPackageContractInfo, 0, len(manifest.Contracts)),
 	}
+	profiles := make([]*tolmeta.AgentContractProfile, 0, len(manifest.Contracts))
 	for _, contract := range manifest.Contracts {
 		entry := TOLPackageContractInfo{
 			Name:          contract.Name,
@@ -162,9 +167,16 @@ func inspectTOLPackage(pkgBytes []byte, st *state.StateDB) (*TOLPackageInfo, err
 				return nil, fmt.Errorf("package contract %q: %w", contract.Name, err)
 			}
 			entry.Artifact = artInfo
+			if artInfo.Profile != nil {
+				profiles = append(profiles, artInfo.Profile)
+			}
 		}
 		info.Contracts = append(info.Contracts, entry)
 	}
+	if len(profiles) > 0 {
+		info.Profile = tolmeta.BuildAgentBundleProfile(inferPackageProfileFamily(packageName, manifest.Name), packageName, manifest.Version, profiles)
+	}
+	info.SuggestedCard = agentdiscovery.BuildPublishedCardFromBundle(info.Profile)
 	if st != nil {
 		if published, publisher := inspectPublishedPackage(st, pkgBytes); published != nil {
 			info.Published = published
@@ -190,14 +202,18 @@ func inspectTOLArtifact(artifactBytes []byte, packageName string) (*TOLArtifactI
 		packageName = defaultArtifactPackageName(meta, art)
 	}
 	discovery := tolmeta.BuildDiscoveryManifest(meta, packageName)
+	profile := tolmeta.BuildAgentProfile(meta, packageName)
+	profile.Identity.PackageName = packageName
 	return &TOLArtifactInfo{
-		ContractName: art.ContractName,
-		BytecodeHash: art.BytecodeHash,
-		ABI:          append(json.RawMessage(nil), art.ABIJSON...),
-		Metadata:     meta,
-		Discovery:    discovery,
-		AgentPackage: tolmeta.BuildAgentPackageInfo(meta, packageName),
-		Routing:      agentdiscovery.BuildTypedRoutingProfile(discovery),
+		ContractName:  art.ContractName,
+		BytecodeHash:  art.BytecodeHash,
+		ABI:           append(json.RawMessage(nil), art.ABIJSON...),
+		Metadata:      meta,
+		Discovery:     discovery,
+		AgentPackage:  tolmeta.BuildAgentPackageInfo(meta, packageName),
+		Profile:       profile,
+		Routing:       agentdiscovery.BuildTypedRoutingProfile(discovery),
+		SuggestedCard: agentdiscovery.BuildPublishedCardFromProfile(profile, discovery),
 	}, nil
 }
 
@@ -209,6 +225,21 @@ func defaultArtifactPackageName(meta *tolmeta.ContractMetadata, art *lua.Artifac
 		return strings.ToLower(strings.TrimSpace(art.ContractName))
 	}
 	return "contract"
+}
+
+func inferPackageProfileFamily(packageName, manifestName string) string {
+	name := strings.TrimSpace(packageName)
+	if name == "" {
+		name = strings.TrimSpace(manifestName)
+	}
+	if strings.HasPrefix(name, "tolang.openlib.") {
+		rest := strings.TrimPrefix(name, "tolang.openlib.")
+		if idx := strings.Index(rest, "."); idx >= 0 {
+			return rest[:idx]
+		}
+		return rest
+	}
+	return name
 }
 
 func inspectPublishedPackage(st *state.StateDB, pkgBytes []byte) (*PackageInfo, *PublisherInfo) {

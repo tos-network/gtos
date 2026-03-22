@@ -5,10 +5,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/rpc"
+	tolmeta "github.com/tos-network/tolang/metadata"
 )
 
 type rpcExtTestError struct {
@@ -34,8 +36,39 @@ type rpcExtTestService struct {
 	lastGetLeaseAddress common.Address
 	lastGetLeaseBlock   string
 
+	lastGetContractMetadataAddress common.Address
+	lastGetContractMetadataBlock   string
+
+	lastGetCapabilityName        string
+	lastGetDelegationPrincipal   string
+	lastGetDelegationDelegate    string
+	lastGetDelegationScope       string
+	lastGetPackageName           string
+	lastGetPackageVersion        string
+	lastGetPackageByHash         string
+	lastGetLatestPackageName     string
+	lastGetLatestPackageChannel  string
+	lastGetPublisherID           string
+	lastGetPublisherNamespace    string
+	lastGetVerifierName          string
+	lastGetVerificationSubject   string
+	lastGetVerificationProofType string
+	lastGetSettlementPolicyOwner string
+	lastGetSettlementPolicyAsset string
+	lastGetAgentIdentityAddress  string
+
 	lastGetCodeHash  common.Hash
 	lastGetCodeBlock string
+
+	lastAgentDiscoveryPublishArgs          AgentDiscoveryPublishArgs
+	lastAgentDiscoveryPublishSuggestedArgs AgentDiscoveryPublishSuggestedArgs
+	lastAgentDiscoverySuggestedCardArgs    AgentDiscoverySuggestedCardArgs
+	lastAgentDiscoverySearchCapability     string
+	lastAgentDiscoverySearchLimit          *int
+	lastAgentDiscoveryGetCardNodeRecord    string
+	lastAgentDiscoveryDirectoryNodeRecord  string
+	lastAgentDiscoveryDirectoryCapability  string
+	lastAgentDiscoveryDirectoryLimit       *int
 
 	lastLeaseDeployArgs      LeaseDeployArgs
 	lastLeaseDeployBuildArgs LeaseDeployArgs
@@ -172,6 +205,275 @@ func (s *rpcExtTestService) GetLease(address common.Address, block string) inter
 		TombstoneExpiredAt:  hexutil.Uint64(0),
 		BlockNumber:         hexutil.Uint64(88),
 	}
+}
+
+func (s *rpcExtTestService) GetContractMetadata(address common.Address, block string) interface{} {
+	s.lastGetContractMetadataAddress = address
+	s.lastGetContractMetadataBlock = block
+	return DeployedCodeInfo{
+		Address:  address,
+		CodeHash: common.HexToHash("0xcafe"),
+		CodeKind: "tor",
+		Package: &TOLPackageInfo{
+			Name:         "privacy",
+			Package:      "tolang.openlib.privacy",
+			Version:      "1.0.0",
+			MainContract: "ConfidentialEscrow",
+			Profile: &tolmeta.AgentBundleProfile{
+				SchemaVersion: tolmeta.AgentBundleProfileSchemaVersion,
+			},
+			Published: &PackageInfo{
+				Name:        "tolang.openlib.privacy",
+				Namespace:   "tolang.openlib",
+				Version:     "1.0.0",
+				PackageHash: common.HexToHash("0xbeef").Hex(),
+				PublisherID: common.HexToAddress("0x7777").Hex(),
+				Channel:     "stable",
+				Status:      "active",
+				Trusted:     true,
+			},
+			Publisher: &PublisherInfo{
+				PublisherID: common.HexToAddress("0x7777").Hex(),
+				Controller:  common.HexToAddress("0x9999").Hex(),
+				Namespace:   "tolang.openlib",
+				Status:      "active",
+			},
+			SuggestedCard: &agentdiscovery.PublishedCard{
+				Version:        1,
+				AgentID:        "privacy-agent",
+				AgentAddress:   common.HexToAddress("0x1234").Hex(),
+				PackageName:    "tolang.openlib.privacy",
+				PackageVersion: "1.0.0",
+				ProfileRef:     "openlib/releases/privacy/privacy.bundle.profile.json",
+			},
+		},
+	}
+}
+
+func (s *rpcExtTestService) TolGetCapability(name string) interface{} {
+	s.lastGetCapabilityName = name
+	return &CapabilityInfo{
+		Name:     name,
+		BitIndex: 7,
+		Status:   "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetDelegation(principalHex, delegateHex, scopeHex string) interface{} {
+	s.lastGetDelegationPrincipal = principalHex
+	s.lastGetDelegationDelegate = delegateHex
+	s.lastGetDelegationScope = scopeHex
+	return &DelegationInfo{
+		Principal:       principalHex,
+		Delegate:        delegateHex,
+		ScopeRef:        scopeHex,
+		Status:          "active",
+		EffectiveStatus: "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetPackage(name, version string) interface{} {
+	s.lastGetPackageName = name
+	s.lastGetPackageVersion = version
+	return &PackageInfo{
+		Name:        name,
+		Version:     version,
+		PackageHash: common.HexToHash("0x1111").Hex(),
+		PublisherID: common.HexToHash("0x2222").Hex(),
+		Channel:     "stable",
+		Status:      "active",
+		Trusted:     true,
+	}
+}
+
+func (s *rpcExtTestService) TolGetPackageByHash(packageHash string) interface{} {
+	s.lastGetPackageByHash = packageHash
+	return &PackageInfo{
+		Name:        "tolang.openlib.privacy",
+		Version:     "1.0.0",
+		PackageHash: packageHash,
+		PublisherID: common.HexToHash("0x2222").Hex(),
+		Channel:     "stable",
+		Status:      "active",
+		Trusted:     true,
+	}
+}
+
+func (s *rpcExtTestService) TolGetLatestPackage(name, channel string) interface{} {
+	s.lastGetLatestPackageName = name
+	s.lastGetLatestPackageChannel = channel
+	return &PackageInfo{
+		Name:        name,
+		Version:     "1.2.3",
+		PackageHash: common.HexToHash("0x3333").Hex(),
+		PublisherID: common.HexToHash("0x2222").Hex(),
+		Channel:     channel,
+		Status:      "active",
+		Trusted:     true,
+	}
+}
+
+func (s *rpcExtTestService) TolGetPublisher(publisherID string) interface{} {
+	s.lastGetPublisherID = publisherID
+	return &PublisherInfo{
+		PublisherID: publisherID,
+		Controller:  common.HexToAddress("0x4444").Hex(),
+		Namespace:   "tolang.openlib",
+		Status:      "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetPublisherByNamespace(namespace string) interface{} {
+	s.lastGetPublisherNamespace = namespace
+	return &PublisherInfo{
+		PublisherID: common.HexToHash("0x2222").Hex(),
+		Controller:  common.HexToAddress("0x4444").Hex(),
+		Namespace:   namespace,
+		Status:      "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetVerifier(name string) interface{} {
+	s.lastGetVerifierName = name
+	return &VerifierInfo{
+		Name:         name,
+		VerifierType: 1,
+		VerifierAddr: common.HexToAddress("0x5555").Hex(),
+		Status:       "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetVerification(subjectHex, proofType string) interface{} {
+	s.lastGetVerificationSubject = subjectHex
+	s.lastGetVerificationProofType = proofType
+	return &VerificationClaimInfo{
+		Subject:         subjectHex,
+		ProofType:       proofType,
+		Status:          "active",
+		EffectiveStatus: "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetSettlementPolicy(ownerHex, asset string) interface{} {
+	s.lastGetSettlementPolicyOwner = ownerHex
+	s.lastGetSettlementPolicyAsset = asset
+	return &SettlementPolicyInfo{
+		PolicyID:  common.HexToHash("0x6666").Hex(),
+		Owner:     ownerHex,
+		Asset:     asset,
+		MaxAmount: "1000",
+		Status:    "active",
+	}
+}
+
+func (s *rpcExtTestService) TolGetAgentIdentity(agentHex string) interface{} {
+	s.lastGetAgentIdentityAddress = agentHex
+	return &AgentIdentityInfo{
+		AgentAddress: agentHex,
+		Registered:   true,
+		Status:       1,
+		Stake:        "42",
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryInfo() interface{} {
+	return agentdiscovery.Info{
+		Enabled:          true,
+		ProfileVersion:   agentdiscovery.ProfileVersion,
+		TalkProtocol:     agentdiscovery.TalkProtocol,
+		NodeID:           "node-1",
+		NodeRecord:       "enr:-test",
+		PrimaryIdentity:  common.HexToAddress("0x1234").Hex(),
+		CardSequence:     9,
+		ConnectionModes:  agentdiscovery.ConnectionModeTalkReq,
+		Capabilities:     []string{"settlement.execute"},
+		HasPublishedCard: true,
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryPublish(args AgentDiscoveryPublishArgs) interface{} {
+	s.lastAgentDiscoveryPublishArgs = args
+	return agentdiscovery.Info{
+		Enabled:          true,
+		ProfileVersion:   agentdiscovery.ProfileVersion,
+		TalkProtocol:     agentdiscovery.TalkProtocol,
+		PrimaryIdentity:  args.PrimaryIdentity.Hex(),
+		CardSequence:     args.CardSequence,
+		ConnectionModes:  agentdiscovery.ConnectionModeTalkReq,
+		Capabilities:     args.Capabilities,
+		HasPublishedCard: true,
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryPublishSuggested(args AgentDiscoveryPublishSuggestedArgs) interface{} {
+	s.lastAgentDiscoveryPublishSuggestedArgs = args
+	return agentdiscovery.Info{
+		Enabled:          true,
+		ProfileVersion:   agentdiscovery.ProfileVersion,
+		TalkProtocol:     agentdiscovery.TalkProtocol,
+		PrimaryIdentity:  args.PrimaryIdentity.Hex(),
+		CardSequence:     args.CardSequence,
+		ConnectionModes:  agentdiscovery.ConnectionModeTalkReq,
+		Capabilities:     []string{"settlement.execute"},
+		HasPublishedCard: true,
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryGetSuggestedCard(args AgentDiscoverySuggestedCardArgs) interface{} {
+	s.lastAgentDiscoverySuggestedCardArgs = args
+	return agentdiscovery.PublishedCard{
+		Version:        1,
+		AgentID:        "settlement-agent",
+		AgentAddress:   common.HexToAddress("0x1234").Hex(),
+		PackageName:    "tolang.openlib.settlement",
+		PackageVersion: "1.0.0",
+		ProfileRef:     "openlib/releases/settlement/TaskSettlement.profile.json",
+		Capabilities: []agentdiscovery.PublishedCapability{
+			{Name: "settlement.execute", Mode: "managed"},
+		},
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryClear() interface{} {
+	return agentdiscovery.Info{
+		Enabled:          true,
+		ProfileVersion:   agentdiscovery.ProfileVersion,
+		TalkProtocol:     agentdiscovery.TalkProtocol,
+		HasPublishedCard: false,
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoverySearch(capability string, limit *int) interface{} {
+	s.lastAgentDiscoverySearchCapability = capability
+	s.lastAgentDiscoverySearchLimit = limit
+	return []agentdiscovery.SearchResult{{
+		NodeID:          "node-1",
+		NodeRecord:      "enr:-test",
+		PrimaryIdentity: common.HexToAddress("0x1234").Hex(),
+		Capabilities:    []string{capability},
+	}}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryGetCard(nodeRecord string) interface{} {
+	s.lastAgentDiscoveryGetCardNodeRecord = nodeRecord
+	return agentdiscovery.CardResponse{
+		NodeID:     "node-1",
+		NodeRecord: nodeRecord,
+		CardJSON:   `{"agent_id":"settlement-agent"}`,
+		ParsedCard: &agentdiscovery.PublishedCard{AgentID: "settlement-agent"},
+	}
+}
+
+func (s *rpcExtTestService) AgentDiscoveryDirectorySearch(nodeRecord string, capability string, limit *int) interface{} {
+	s.lastAgentDiscoveryDirectoryNodeRecord = nodeRecord
+	s.lastAgentDiscoveryDirectoryCapability = capability
+	s.lastAgentDiscoveryDirectoryLimit = limit
+	return []agentdiscovery.SearchResult{{
+		NodeID:          "node-2",
+		NodeRecord:      "enr:-dir",
+		PrimaryIdentity: common.HexToAddress("0x5678").Hex(),
+		Capabilities:    []string{capability},
+	}}
 }
 
 func (s *rpcExtTestService) LeaseDeploy(args LeaseDeployArgs) interface{} {
@@ -518,6 +820,109 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 		t.Fatalf("unexpected lease record: %+v", leaseRec)
 	}
 
+	codeInfo, err := client.GetContractMetadata(ctx, address, big.NewInt(5))
+	if err != nil {
+		t.Fatalf("GetContractMetadata error: %v", err)
+	}
+	if svc.lastGetContractMetadataBlock != "0x5" {
+		t.Fatalf("GetContractMetadata block arg = %q, want 0x5", svc.lastGetContractMetadataBlock)
+	}
+	if codeInfo.Package == nil || codeInfo.Package.SuggestedCard == nil || codeInfo.Package.SuggestedCard.AgentID != "privacy-agent" {
+		t.Fatalf("unexpected contract metadata: %+v", codeInfo)
+	}
+	if codeInfo.Package.Published == nil || !codeInfo.Package.Published.Trusted {
+		t.Fatalf("expected published package trust info, got %+v", codeInfo.Package)
+	}
+
+	capabilityInfo, err := client.GetCapability(ctx, "settlement.execute")
+	if err != nil {
+		t.Fatalf("GetCapability error: %v", err)
+	}
+	if svc.lastGetCapabilityName != "settlement.execute" || capabilityInfo == nil || capabilityInfo.BitIndex != 7 {
+		t.Fatalf("unexpected capability info: arg=%q out=%+v", svc.lastGetCapabilityName, capabilityInfo)
+	}
+
+	scopeRef := common.HexToHash("0x7777")
+	delegationInfo, err := client.GetDelegation(ctx, address, common.HexToAddress("0x9999"), scopeRef)
+	if err != nil {
+		t.Fatalf("GetDelegation error: %v", err)
+	}
+	if svc.lastGetDelegationScope != scopeRef.Hex() || delegationInfo == nil || delegationInfo.ScopeRef != scopeRef.Hex() {
+		t.Fatalf("unexpected delegation info: scope=%q out=%+v", svc.lastGetDelegationScope, delegationInfo)
+	}
+
+	pkgInfo, err := client.GetPackage(ctx, "tolang.openlib.privacy", "1.0.0")
+	if err != nil {
+		t.Fatalf("GetPackage error: %v", err)
+	}
+	if svc.lastGetPackageName != "tolang.openlib.privacy" || pkgInfo == nil || !pkgInfo.Trusted {
+		t.Fatalf("unexpected package info: name=%q out=%+v", svc.lastGetPackageName, pkgInfo)
+	}
+
+	pkgByHash, err := client.GetPackageByHash(ctx, common.HexToHash("0xabcd"))
+	if err != nil {
+		t.Fatalf("GetPackageByHash error: %v", err)
+	}
+	if svc.lastGetPackageByHash != common.HexToHash("0xabcd").Hex() || pkgByHash == nil || pkgByHash.PackageHash != common.HexToHash("0xabcd").Hex() {
+		t.Fatalf("unexpected package-by-hash info: hash=%q out=%+v", svc.lastGetPackageByHash, pkgByHash)
+	}
+
+	latestPkg, err := client.GetLatestPackage(ctx, "tolang.openlib.privacy", "stable")
+	if err != nil {
+		t.Fatalf("GetLatestPackage error: %v", err)
+	}
+	if svc.lastGetLatestPackageChannel != "stable" || latestPkg == nil || latestPkg.Version != "1.2.3" {
+		t.Fatalf("unexpected latest package info: channel=%q out=%+v", svc.lastGetLatestPackageChannel, latestPkg)
+	}
+
+	publisherInfo, err := client.GetPublisher(ctx, common.HexToHash("0x2222"))
+	if err != nil {
+		t.Fatalf("GetPublisher error: %v", err)
+	}
+	if svc.lastGetPublisherID != common.HexToHash("0x2222").Hex() || publisherInfo == nil || publisherInfo.Namespace != "tolang.openlib" {
+		t.Fatalf("unexpected publisher info: id=%q out=%+v", svc.lastGetPublisherID, publisherInfo)
+	}
+
+	publisherByNS, err := client.GetPublisherByNamespace(ctx, "tolang.openlib")
+	if err != nil {
+		t.Fatalf("GetPublisherByNamespace error: %v", err)
+	}
+	if svc.lastGetPublisherNamespace != "tolang.openlib" || publisherByNS == nil || publisherByNS.Namespace != "tolang.openlib" {
+		t.Fatalf("unexpected publisher-by-namespace info: namespace=%q out=%+v", svc.lastGetPublisherNamespace, publisherByNS)
+	}
+
+	verifierInfo, err := client.GetVerifier(ctx, "zk-settlement")
+	if err != nil {
+		t.Fatalf("GetVerifier error: %v", err)
+	}
+	if svc.lastGetVerifierName != "zk-settlement" || verifierInfo == nil || verifierInfo.VerifierType != 1 {
+		t.Fatalf("unexpected verifier info: name=%q out=%+v", svc.lastGetVerifierName, verifierInfo)
+	}
+
+	verificationInfo, err := client.GetVerification(ctx, address, "zktls")
+	if err != nil {
+		t.Fatalf("GetVerification error: %v", err)
+	}
+	if svc.lastGetVerificationProofType != "zktls" || verificationInfo == nil || verificationInfo.ProofType != "zktls" {
+		t.Fatalf("unexpected verification info: proofType=%q out=%+v", svc.lastGetVerificationProofType, verificationInfo)
+	}
+
+	settlementPolicyInfo, err := client.GetSettlementPolicy(ctx, address, "UNO")
+	if err != nil {
+		t.Fatalf("GetSettlementPolicy error: %v", err)
+	}
+	if svc.lastGetSettlementPolicyAsset != "UNO" || settlementPolicyInfo == nil || settlementPolicyInfo.MaxAmount != "1000" {
+		t.Fatalf("unexpected settlement policy info: asset=%q out=%+v", svc.lastGetSettlementPolicyAsset, settlementPolicyInfo)
+	}
+
+	agentIdentityInfo, err := client.GetAgentIdentity(ctx, address)
+	if err != nil {
+		t.Fatalf("GetAgentIdentity error: %v", err)
+	}
+	if svc.lastGetAgentIdentityAddress != address.Hex() || agentIdentityInfo == nil || !agentIdentityInfo.Registered {
+		t.Fatalf("unexpected agent identity info: address=%q out=%+v", svc.lastGetAgentIdentityAddress, agentIdentityInfo)
+	}
+
 	codeHash := common.HexToHash("0x1234")
 	code, err := client.GetCodeObject(ctx, codeHash, big.NewInt(-1))
 	if err != nil {
@@ -538,6 +943,94 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 		t.Fatalf("unexpected code meta: %+v", meta)
 	}
 
+}
+
+func TestRPCExtAgentDiscoveryMethods(t *testing.T) {
+	client, svc, cleanup := newRPCExtTestClient(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	info, err := client.AgentDiscoveryInfo(ctx)
+	if err != nil {
+		t.Fatalf("AgentDiscoveryInfo error: %v", err)
+	}
+	if !info.Enabled || !info.HasPublishedCard || info.CardSequence != 9 {
+		t.Fatalf("unexpected discovery info: %+v", info)
+	}
+
+	publishInfo, err := client.AgentDiscoveryPublish(ctx, AgentDiscoveryPublishArgs{
+		PrimaryIdentity: common.HexToAddress("0x1234"),
+		Capabilities:    []string{"settlement.execute"},
+		ConnectionModes: []string{"talkreq"},
+		CardJSON:        `{"agent_id":"settlement-agent"}`,
+		CardSequence:    11,
+	})
+	if err != nil {
+		t.Fatalf("AgentDiscoveryPublish error: %v", err)
+	}
+	if svc.lastAgentDiscoveryPublishArgs.CardSequence != 11 || publishInfo.CardSequence != 11 {
+		t.Fatalf("unexpected publish result: args=%+v out=%+v", svc.lastAgentDiscoveryPublishArgs, publishInfo)
+	}
+
+	suggested, err := client.AgentDiscoveryGetSuggestedCard(ctx, common.HexToAddress("0x9999"), big.NewInt(7))
+	if err != nil {
+		t.Fatalf("AgentDiscoveryGetSuggestedCard error: %v", err)
+	}
+	if svc.lastAgentDiscoverySuggestedCardArgs.Block != "0x7" {
+		t.Fatalf("suggested card block arg = %q, want 0x7", svc.lastAgentDiscoverySuggestedCardArgs.Block)
+	}
+	if suggested.AgentID != "settlement-agent" || len(suggested.Capabilities) != 1 {
+		t.Fatalf("unexpected suggested card: %+v", suggested)
+	}
+
+	suggestedInfo, err := client.AgentDiscoveryPublishSuggested(ctx, AgentDiscoveryPublishSuggestedArgs{
+		Address:         common.HexToAddress("0x8888"),
+		PrimaryIdentity: common.HexToAddress("0x1234"),
+		ConnectionModes: []string{"talkreq", "https"},
+		CardSequence:    12,
+	}, big.NewInt(8))
+	if err != nil {
+		t.Fatalf("AgentDiscoveryPublishSuggested error: %v", err)
+	}
+	if svc.lastAgentDiscoveryPublishSuggestedArgs.Block != "0x8" {
+		t.Fatalf("publish suggested block arg = %q, want 0x8", svc.lastAgentDiscoveryPublishSuggestedArgs.Block)
+	}
+	if !suggestedInfo.HasPublishedCard || suggestedInfo.CardSequence != 12 {
+		t.Fatalf("unexpected publish suggested result: %+v", suggestedInfo)
+	}
+
+	results, err := client.AgentDiscoverySearch(ctx, "settlement.execute", nil)
+	if err != nil {
+		t.Fatalf("AgentDiscoverySearch error: %v", err)
+	}
+	if svc.lastAgentDiscoverySearchCapability != "settlement.execute" || len(results) != 1 {
+		t.Fatalf("unexpected search result: capability=%q results=%+v", svc.lastAgentDiscoverySearchCapability, results)
+	}
+
+	card, err := client.AgentDiscoveryGetCard(ctx, "enr:-test")
+	if err != nil {
+		t.Fatalf("AgentDiscoveryGetCard error: %v", err)
+	}
+	if svc.lastAgentDiscoveryGetCardNodeRecord != "enr:-test" || card.ParsedCard == nil || card.ParsedCard.AgentID != "settlement-agent" {
+		t.Fatalf("unexpected card response: node=%q resp=%+v", svc.lastAgentDiscoveryGetCardNodeRecord, card)
+	}
+
+	limit := 3
+	dirResults, err := client.AgentDiscoveryDirectorySearch(ctx, "enr:-directory", "settlement.execute", &limit)
+	if err != nil {
+		t.Fatalf("AgentDiscoveryDirectorySearch error: %v", err)
+	}
+	if svc.lastAgentDiscoveryDirectoryNodeRecord != "enr:-directory" || svc.lastAgentDiscoveryDirectoryCapability != "settlement.execute" || len(dirResults) != 1 {
+		t.Fatalf("unexpected directory search: node=%q capability=%q results=%+v", svc.lastAgentDiscoveryDirectoryNodeRecord, svc.lastAgentDiscoveryDirectoryCapability, dirResults)
+	}
+
+	cleared, err := client.AgentDiscoveryClear(ctx)
+	if err != nil {
+		t.Fatalf("AgentDiscoveryClear error: %v", err)
+	}
+	if cleared.HasPublishedCard {
+		t.Fatalf("expected cleared discovery info, got %+v", cleared)
+	}
 }
 
 func TestRPCExtWriteAndDPoSMethods(t *testing.T) {

@@ -146,6 +146,80 @@ func TestServicePublishAndGetCard(t *testing.T) {
 	if resp.CardJSON != string(cardJSON) {
 		t.Fatalf("unexpected card JSON: %s", resp.CardJSON)
 	}
+	if resp.ParsedCard == nil {
+		t.Fatal("expected parsed card")
+	}
+	if resp.ParsedCard.AgentID != "agent-provider" {
+		t.Fatalf("unexpected parsed card agent id %q", resp.ParsedCard.AgentID)
+	}
+	if len(resp.ParsedCard.Capabilities) != 1 || resp.ParsedCard.Capabilities[0].Name != "sponsor.topup.testnet" {
+		t.Fatalf("unexpected parsed card capabilities %+v", resp.ParsedCard.Capabilities)
+	}
+}
+
+func TestServicePublishCardBuildsCanonicalCard(t *testing.T) {
+	t.Parallel()
+
+	provider := startLocalUDPv5(t)
+	defer provider.Close()
+
+	requester := startLocalUDPv5(t, provider.Self())
+	defer requester.Close()
+
+	providerSvc, err := New(provider.LocalNode(), provider)
+	if err != nil {
+		t.Fatalf("new provider service: %v", err)
+	}
+	requesterSvc, err := New(requester.LocalNode(), requester)
+	if err != nil {
+		t.Fatalf("new requester service: %v", err)
+	}
+
+	identity := common.HexToAddress("0x1234")
+	if _, err := providerSvc.PublishCard(PublishCardConfig{
+		PrimaryIdentity: identity,
+		ConnectionModes: ConnectionModeTalkReq | ConnectionModeHTTPS,
+		CardSequence:    11,
+		Card: &PublishedCard{
+			Version:        1,
+			AgentID:        "settlement-agent",
+			PackageName:    "tolang.openlib.settlement",
+			PackageVersion: "1.0.0",
+			ProfileRef:     "openlib/releases/settlement/TaskSettlement.profile.json",
+			Capabilities: []PublishedCapability{
+				{Name: "settlement.execute", Mode: "managed"},
+			},
+			RoutingProfile: &TypedRoutingProfile{
+				ServiceKind:  "SETTLEMENT",
+				ReceiptMode:  "AUTO_RECEIPT",
+				PrivacyMode:  "AUDITABLE_CONFIDENTIAL",
+				PricingKind:  "FIXED",
+				ContractType: "task_escrow",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("publish card: %v", err)
+	}
+
+	if err := requester.Ping(provider.Self()); err != nil {
+		t.Fatalf("ping provider: %v", err)
+	}
+	resp, err := requesterSvc.GetCard(provider.Self())
+	if err != nil {
+		t.Fatalf("get card: %v", err)
+	}
+	if resp.ParsedCard == nil {
+		t.Fatal("expected parsed card")
+	}
+	if resp.ParsedCard.AgentAddress != identity.Hex() {
+		t.Fatalf("unexpected agent address %q", resp.ParsedCard.AgentAddress)
+	}
+	if resp.ParsedCard.PackageName != "tolang.openlib.settlement" {
+		t.Fatalf("unexpected package name %q", resp.ParsedCard.PackageName)
+	}
+	if resp.ParsedCard.RoutingProfile == nil || resp.ParsedCard.RoutingProfile.ReceiptMode != "AUTO_RECEIPT" {
+		t.Fatalf("unexpected routing profile %+v", resp.ParsedCard.RoutingProfile)
+	}
 }
 
 func TestDirectorySearchTalkHandler(t *testing.T) {
@@ -285,6 +359,119 @@ func TestServiceClearRemovesPublishedProfile(t *testing.T) {
 	var bloom capabilityBloomEntry
 	if err := record.Load(&bloom); err == nil {
 		t.Fatalf("expected capability bloom entry to be removed")
+	}
+}
+
+func TestPublishRejectsStructuredCardCapabilityMismatch(t *testing.T) {
+	t.Parallel()
+
+	provider := startLocalUDPv5(t)
+	defer provider.Close()
+
+	svc, err := New(provider.LocalNode(), provider)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+
+	cardJSON, err := json.Marshal(map[string]any{
+		"version":  1,
+		"agent_id": "provider-agent",
+		"capabilities": []map[string]any{
+			{"name": "oracle.resolve"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal card: %v", err)
+	}
+
+	if _, err := svc.Publish(PublishConfig{
+		PrimaryIdentity: common.HexToAddress("0x9999"),
+		Capabilities:    []string{"sponsor.topup.testnet"},
+		ConnectionModes: ConnectionModeTalkReq,
+		CardJSON:        string(cardJSON),
+		CardSequence:    4,
+	}); err == nil {
+		t.Fatal("expected capability mismatch error")
+	}
+}
+
+func TestGetCardParsesStructuredRoutingAndThreatHints(t *testing.T) {
+	t.Parallel()
+
+	provider := startLocalUDPv5(t)
+	defer provider.Close()
+
+	requester := startLocalUDPv5(t, provider.Self())
+	defer requester.Close()
+
+	providerSvc, err := New(provider.LocalNode(), provider)
+	if err != nil {
+		t.Fatalf("new provider service: %v", err)
+	}
+	requesterSvc, err := New(requester.LocalNode(), requester)
+	if err != nil {
+		t.Fatalf("new requester service: %v", err)
+	}
+
+	cardJSON, err := json.Marshal(map[string]any{
+		"version":         1,
+		"agent_id":        "settlement-agent",
+		"profile_ref":     "openlib/releases/settlement/TaskSettlement.profile.json",
+		"package_name":    "tolang.openlib.settlement",
+		"package_version": "1.0.0",
+		"capabilities": []map[string]any{
+			{"name": "settlement.execute", "mode": "managed"},
+		},
+		"routing_profile": map[string]any{
+			"contract_type":   "task_escrow",
+			"service_kind":    "SETTLEMENT",
+			"capability_kind": "WRITE_EXECUTION",
+			"privacy_mode":    "AUDITABLE_CONFIDENTIAL",
+			"receipt_mode":    "AUTO_RECEIPT",
+		},
+		"threat_model": map[string]any{
+			"family":             "settlement",
+			"trust_boundary":     "task poster, worker, dispute resolver",
+			"failure_posture":    "fail closed on wrong status or wrong actor",
+			"runtime_dependency": "strong dependency on host escrow and release correctness plus rollback",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal card: %v", err)
+	}
+
+	if _, err := providerSvc.Publish(PublishConfig{
+		PrimaryIdentity: common.HexToAddress("0x1234"),
+		Capabilities:    []string{"settlement.execute"},
+		ConnectionModes: ConnectionModeTalkReq,
+		CardJSON:        string(cardJSON),
+		CardSequence:    9,
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	if err := requester.Ping(provider.Self()); err != nil {
+		t.Fatalf("ping provider: %v", err)
+	}
+	node, err := ParseNode(provider.Self().String())
+	if err != nil {
+		t.Fatalf("parse node: %v", err)
+	}
+	resp, err := requesterSvc.GetCard(node)
+	if err != nil {
+		t.Fatalf("get card: %v", err)
+	}
+	if resp.ParsedCard == nil {
+		t.Fatal("expected parsed card")
+	}
+	if resp.ParsedCard.ProfileRef != "openlib/releases/settlement/TaskSettlement.profile.json" {
+		t.Fatalf("unexpected profile ref %q", resp.ParsedCard.ProfileRef)
+	}
+	if resp.ParsedCard.RoutingProfile == nil || resp.ParsedCard.RoutingProfile.ReceiptMode != "AUTO_RECEIPT" {
+		t.Fatalf("unexpected routing profile %+v", resp.ParsedCard.RoutingProfile)
+	}
+	if resp.ParsedCard.ThreatModel == nil || resp.ParsedCard.ThreatModel.Family != "settlement" {
+		t.Fatalf("unexpected threat model %+v", resp.ParsedCard.ThreatModel)
 	}
 }
 

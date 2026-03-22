@@ -25,6 +25,7 @@ type Service struct {
 	mu              sync.RWMutex
 	capabilities    []string
 	cardJSON        string
+	parsedCard      *PublishedCard
 	cardSequence    uint64
 	primaryIdentity common.Address
 	connectionModes uint8
@@ -71,6 +72,15 @@ func (s *Service) Publish(cfg PublishConfig) (Info, error) {
 	if err != nil {
 		return Info{}, err
 	}
+	parsedCard, err := ParsePublishedCard(cardJSON)
+	if err != nil {
+		return Info{}, err
+	}
+	if parsedCard != nil {
+		if err := ensureCardCapabilitiesMatch(parsedCard, normalizedCaps); err != nil {
+			return Info{}, err
+		}
+	}
 	bloom, err := buildCapabilityBloom(normalizedCaps)
 	if err != nil {
 		return Info{}, err
@@ -89,12 +99,36 @@ func (s *Service) Publish(cfg PublishConfig) (Info, error) {
 	s.mu.Lock()
 	s.capabilities = normalizedCaps
 	s.cardJSON = cardJSON
+	s.parsedCard = parsedCard
 	s.cardSequence = cfg.CardSequence
 	s.primaryIdentity = cfg.PrimaryIdentity
 	s.connectionModes = cfg.ConnectionModes
 	s.mu.Unlock()
 
 	return s.Info(), nil
+}
+
+// PublishCard publishes a structured card directly, deriving the capability
+// bloom and canonical wire JSON from the normalized card content.
+func (s *Service) PublishCard(cfg PublishCardConfig) (Info, error) {
+	if cfg.Card == nil {
+		return Info{}, fmt.Errorf("card must not be nil")
+	}
+	card, caps, err := canonicalizePublishedCard(cfg.Card, cfg.PrimaryIdentity)
+	if err != nil {
+		return Info{}, err
+	}
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return Info{}, fmt.Errorf("marshal card JSON: %w", err)
+	}
+	return s.Publish(PublishConfig{
+		PrimaryIdentity: cfg.PrimaryIdentity,
+		Capabilities:    caps,
+		ConnectionModes: cfg.ConnectionModes,
+		CardJSON:        string(cardJSON),
+		CardSequence:    cfg.CardSequence,
+	})
 }
 
 func (s *Service) Clear() Info {
@@ -115,6 +149,7 @@ func (s *Service) Clear() Info {
 	s.mu.Lock()
 	s.capabilities = nil
 	s.cardJSON = ""
+	s.parsedCard = nil
 	s.cardSequence = 0
 	s.primaryIdentity = common.Address{}
 	s.connectionModes = 0
@@ -283,6 +318,7 @@ func (s *Service) GetCard(node *enode.Node) (CardResponse, error) {
 			NodeID:     node.ID().String(),
 			NodeRecord: node.String(),
 			CardJSON:   msg.Card,
+			ParsedCard: parsePublishedCardForResponse(msg.Card),
 		}, nil
 	case "ERROR":
 		return CardResponse{}, errors.New(msg.Error)
@@ -319,6 +355,135 @@ func (s *Service) handleTalkRequest(_ enode.ID, _ *net.UDPAddr, message []byte) 
 	default:
 		return encodeTalkMessage(talkMessage{Type: "ERROR", Error: "unsupported request type"})
 	}
+}
+
+func ParsePublishedCard(cardJSON string) (*PublishedCard, error) {
+	trimmed := strings.TrimSpace(cardJSON)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return nil, fmt.Errorf("invalid card JSON: %w", err)
+	}
+	if !hasStructuredCardFields(raw) {
+		return nil, nil
+	}
+	var card PublishedCard
+	if err := json.Unmarshal([]byte(trimmed), &card); err != nil {
+		return nil, fmt.Errorf("invalid structured card JSON: %w", err)
+	}
+	for i := range card.Capabilities {
+		name, err := normalizeCapability(card.Capabilities[i].Name)
+		if err != nil {
+			return nil, fmt.Errorf("invalid card capability %q: %w", card.Capabilities[i].Name, err)
+		}
+		card.Capabilities[i].Name = name
+	}
+	return &card, nil
+}
+
+func parsePublishedCardForResponse(cardJSON string) *PublishedCard {
+	card, err := ParsePublishedCard(cardJSON)
+	if err != nil {
+		return nil
+	}
+	return card
+}
+
+func hasStructuredCardFields(raw map[string]json.RawMessage) bool {
+	for _, key := range []string{
+		"version",
+		"agent_id",
+		"agent_address",
+		"profile_ref",
+		"discovery_ref",
+		"package_name",
+		"package_version",
+		"capabilities",
+		"routing_profile",
+		"threat_model",
+	} {
+		if _, ok := raw[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureCardCapabilitiesMatch(card *PublishedCard, normalizedCaps []string) error {
+	if card == nil || len(card.Capabilities) == 0 {
+		return nil
+	}
+	if len(card.Capabilities) != len(normalizedCaps) {
+		return fmt.Errorf("card capabilities do not match published capabilities")
+	}
+	want := make(map[string]struct{}, len(normalizedCaps))
+	for _, capability := range normalizedCaps {
+		want[capability] = struct{}{}
+	}
+	for _, capability := range card.Capabilities {
+		if _, ok := want[capability.Name]; !ok {
+			return fmt.Errorf("card capabilities do not match published capabilities")
+		}
+	}
+	return nil
+}
+
+func canonicalizePublishedCard(card *PublishedCard, primaryIdentity common.Address) (*PublishedCard, []string, error) {
+	if card == nil {
+		return nil, nil, fmt.Errorf("card must not be nil")
+	}
+	cloned := clonePublishedCard(card)
+	if strings.TrimSpace(cloned.AgentAddress) == "" && primaryIdentity != (common.Address{}) {
+		cloned.AgentAddress = primaryIdentity.Hex()
+	}
+	cloned = trimEmptyCard(cloned)
+	caps, err := publishedCardCapabilities(cloned)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cloned, caps, nil
+}
+
+func publishedCardCapabilities(card *PublishedCard) ([]string, error) {
+	if card == nil {
+		return nil, fmt.Errorf("card must not be nil")
+	}
+	names := make([]string, 0, len(card.Capabilities))
+	for _, capability := range card.Capabilities {
+		name := strings.TrimSpace(capability.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	normalized, err := normalizeCapabilities(names)
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("card must declare at least one capability")
+	}
+	return normalized, nil
+}
+
+func clonePublishedCard(card *PublishedCard) *PublishedCard {
+	if card == nil {
+		return nil
+	}
+	cloned := *card
+	cloned.Capabilities = append([]PublishedCapability(nil), card.Capabilities...)
+	if card.RoutingProfile != nil {
+		routing := *card.RoutingProfile
+		cloned.RoutingProfile = &routing
+	}
+	if card.ThreatModel != nil {
+		threat := *card.ThreatModel
+		threat.Invariants = append([]string(nil), card.ThreatModel.Invariants...)
+		cloned.ThreatModel = &threat
+	}
+	return &cloned
 }
 
 func (s *Service) collectCandidates(limit int) []*enode.Node {

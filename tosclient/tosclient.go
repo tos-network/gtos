@@ -9,10 +9,12 @@ import (
 	"math/big"
 
 	"github.com/tos-network/gtos"
+	"github.com/tos-network/gtos/agentdiscovery"
 	"github.com/tos-network/gtos/common"
 	"github.com/tos-network/gtos/common/hexutil"
 	"github.com/tos-network/gtos/core/types"
 	"github.com/tos-network/gtos/rpc"
+	tolmeta "github.com/tos-network/tolang/metadata"
 )
 
 // Client defines typed wrappers for the TOS RPC API.
@@ -119,6 +121,189 @@ type LeaseCloseArgs struct {
 	Nonce        *hexutil.Uint64 `json:"nonce,omitempty"`
 	Gas          *hexutil.Uint64 `json:"gas,omitempty"`
 	ContractAddr common.Address  `json:"contractAddr"`
+}
+
+// AgentDiscoveryPublishArgs is the argument object for tos_agentDiscoveryPublish.
+type AgentDiscoveryPublishArgs struct {
+	PrimaryIdentity common.Address `json:"primaryIdentity"`
+	Capabilities    []string       `json:"capabilities,omitempty"`
+	ConnectionModes []string       `json:"connectionModes,omitempty"`
+	CardJSON        string         `json:"cardJson"`
+	CardSequence    uint64         `json:"cardSequence,omitempty"`
+}
+
+// AgentDiscoveryPublishSuggestedArgs is the argument object for
+// tos_agentDiscoveryPublishSuggested.
+type AgentDiscoveryPublishSuggestedArgs struct {
+	Address         common.Address `json:"address"`
+	PrimaryIdentity common.Address `json:"primaryIdentity"`
+	ConnectionModes []string       `json:"connectionModes,omitempty"`
+	CardSequence    uint64         `json:"cardSequence,omitempty"`
+	Block           string         `json:"block,omitempty"`
+}
+
+// AgentDiscoverySuggestedCardArgs is the argument object for
+// tos_agentDiscoveryGetSuggestedCard.
+type AgentDiscoverySuggestedCardArgs struct {
+	Address common.Address `json:"address"`
+	Block   string         `json:"block,omitempty"`
+}
+
+// PackageInfo is the client-facing package registry projection returned from
+// deployed metadata inspection and package registry RPCs.
+type PackageInfo struct {
+	Name          string `json:"name"`
+	Namespace     string `json:"namespace,omitempty"`
+	Version       string `json:"version"`
+	PackageHash   string `json:"package_hash"`
+	ManifestHash  string `json:"manifest_hash,omitempty"`
+	PublisherID   string `json:"publisher_id"`
+	Channel       string `json:"channel"`
+	Status        string `json:"status"`
+	Trusted       bool   `json:"trusted"`
+	ContractCount uint64 `json:"contract_count"`
+	DiscoveryRef  string `json:"discovery_ref,omitempty"`
+	PublishedAt   uint64 `json:"published_at"`
+	CreatedAt     uint64 `json:"created_at,omitempty"`
+	UpdatedAt     uint64 `json:"updated_at,omitempty"`
+}
+
+// PublisherInfo is the client-facing publisher registry projection returned
+// from deployed metadata inspection and publisher registry RPCs.
+type PublisherInfo struct {
+	PublisherID string `json:"publisher_id"`
+	Controller  string `json:"controller"`
+	MetadataRef string `json:"metadata_ref"`
+	Namespace   string `json:"namespace,omitempty"`
+	Status      string `json:"status"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+}
+
+// CapabilityInfo is the client-facing capability registry projection.
+type CapabilityInfo struct {
+	Owner       string `json:"owner,omitempty"`
+	Name        string `json:"name"`
+	BitIndex    uint64 `json:"bit_index"`
+	Category    uint64 `json:"category"`
+	Version     uint64 `json:"version"`
+	Status      string `json:"status"`
+	ManifestRef string `json:"manifest_ref,omitempty"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+}
+
+// DelegationInfo is the client-facing delegation registry projection.
+type DelegationInfo struct {
+	Principal       string `json:"principal"`
+	Delegate        string `json:"delegate"`
+	ScopeRef        string `json:"scope_ref"`
+	CapabilityRef   string `json:"capability_ref"`
+	PolicyRef       string `json:"policy_ref"`
+	NotBeforeMS     uint64 `json:"not_before_ms"`
+	ExpiryMS        uint64 `json:"expiry_ms"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	CreatedAt       uint64 `json:"created_at,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+}
+
+// VerifierInfo is the client-facing verifier registry projection.
+type VerifierInfo struct {
+	Name         string `json:"name"`
+	VerifierType uint64 `json:"verifier_type"`
+	Controller   string `json:"controller,omitempty"`
+	VerifierAddr string `json:"verifier_addr"`
+	PolicyRef    string `json:"policy_ref,omitempty"`
+	Version      uint64 `json:"version"`
+	Status       string `json:"status"`
+	CreatedAt    uint64 `json:"created_at,omitempty"`
+	UpdatedAt    uint64 `json:"updated_at,omitempty"`
+}
+
+// VerificationClaimInfo is the client-facing proof verification projection.
+type VerificationClaimInfo struct {
+	Subject         string `json:"subject"`
+	ProofType       string `json:"proof_type"`
+	VerifiedAt      uint64 `json:"verified_at"`
+	ExpiryMS        uint64 `json:"expiry_ms"`
+	Status          string `json:"status"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	UpdatedAt       uint64 `json:"updated_at,omitempty"`
+}
+
+// SettlementPolicyInfo is the client-facing pay-policy registry projection.
+type SettlementPolicyInfo struct {
+	PolicyID  string `json:"policy_id"`
+	Kind      uint64 `json:"kind"`
+	Owner     string `json:"owner"`
+	Asset     string `json:"asset"`
+	MaxAmount string `json:"max_amount"`
+	RulesRef  string `json:"rules_ref,omitempty"`
+	Status    string `json:"status"`
+	CreatedAt uint64 `json:"created_at,omitempty"`
+	UpdatedAt uint64 `json:"updated_at,omitempty"`
+}
+
+// AgentIdentityInfo is the client-facing agent identity registry projection.
+type AgentIdentityInfo struct {
+	AgentAddress    string `json:"agent_address"`
+	Registered      bool   `json:"registered"`
+	Suspended       bool   `json:"suspended"`
+	Status          uint64 `json:"status"`
+	Stake           string `json:"stake"`
+	MetadataURI     string `json:"metadata_uri,omitempty"`
+	BindingHash     string `json:"binding_hash,omitempty"`
+	BindingActive   bool   `json:"binding_active"`
+	BindingVerified bool   `json:"binding_verified"`
+	BindingExpiry   uint64 `json:"binding_expiry"`
+}
+
+// TOLArtifactInfo is the client-facing view of deployed `.toc` metadata.
+type TOLArtifactInfo struct {
+	ContractName  string                              `json:"contract_name"`
+	BytecodeHash  string                              `json:"bytecode_hash"`
+	ABI           json.RawMessage                     `json:"abi"`
+	Metadata      *tolmeta.ContractMetadata           `json:"metadata,omitempty"`
+	Discovery     *tolmeta.DiscoveryManifest          `json:"discovery,omitempty"`
+	AgentPackage  *tolmeta.AgentPackageInfo           `json:"agent_package,omitempty"`
+	Profile       *tolmeta.AgentContractProfile       `json:"profile,omitempty"`
+	Routing       *agentdiscovery.TypedRoutingProfile `json:"routing_profile,omitempty"`
+	SuggestedCard *agentdiscovery.PublishedCard       `json:"suggested_card,omitempty"`
+}
+
+// TOLPackageContractInfo describes one contract entry inside a deployed `.tor`
+// package manifest.
+type TOLPackageContractInfo struct {
+	Name          string           `json:"name"`
+	ArtifactPath  string           `json:"artifact_path,omitempty"`
+	InterfacePath string           `json:"interface_path,omitempty"`
+	Artifact      *TOLArtifactInfo `json:"artifact,omitempty"`
+}
+
+// TOLPackageInfo is the client-facing view of deployed `.tor` package metadata.
+type TOLPackageInfo struct {
+	Name          string                        `json:"name,omitempty"`
+	Package       string                        `json:"package,omitempty"`
+	Version       string                        `json:"version,omitempty"`
+	MainContract  string                        `json:"main_contract,omitempty"`
+	InitCode      string                        `json:"init_code,omitempty"`
+	Manifest      json.RawMessage               `json:"manifest"`
+	Contracts     []TOLPackageContractInfo      `json:"contracts"`
+	Profile       *tolmeta.AgentBundleProfile   `json:"bundle_profile,omitempty"`
+	Published     *PackageInfo                  `json:"published,omitempty"`
+	Publisher     *PublisherInfo                `json:"publisher,omitempty"`
+	SuggestedCard *agentdiscovery.PublishedCard `json:"suggested_card,omitempty"`
+}
+
+// DeployedCodeInfo is the typed `tos_getContractMetadata` response describing
+// raw, `.toc`, or `.tor` code stored at a given address.
+type DeployedCodeInfo struct {
+	Address  common.Address   `json:"address"`
+	CodeHash common.Hash      `json:"code_hash"`
+	CodeKind string           `json:"code_kind"`
+	Artifact *TOLArtifactInfo `json:"artifact,omitempty"`
+	Package  *TOLPackageInfo  `json:"package,omitempty"`
 }
 
 // LeaseRecord contains protocol-native lease metadata at a specific block.
@@ -386,6 +571,201 @@ func (ec *Client) GetLease(ctx context.Context, address common.Address, blockNum
 		TombstoneExpiredAt:  uint64(raw.TombstoneExpiredAt),
 		BlockNumber:         uint64(raw.BlockNumber),
 	}, nil
+}
+
+// GetContractMetadata returns deployed code metadata for raw, `.toc`, or `.tor`
+// code at the given address. It exposes unified profile, routing, suggested-card,
+// and package publishing facts through a single typed client call.
+func (ec *Client) GetContractMetadata(ctx context.Context, address common.Address, blockNumber *big.Int) (*DeployedCodeInfo, error) {
+	var out DeployedCodeInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_getContractMetadata", address, toBlockNumArg(blockNumber)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetCapability returns one capability record from the protocol registry.
+func (ec *Client) GetCapability(ctx context.Context, name string) (*CapabilityInfo, error) {
+	var out *CapabilityInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetCapability", name); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetDelegation returns one delegation record from the protocol registry.
+func (ec *Client) GetDelegation(ctx context.Context, principal common.Address, delegate common.Address, scopeRef common.Hash) (*DelegationInfo, error) {
+	var out *DelegationInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetDelegation", principal.Hex(), delegate.Hex(), scopeRef.Hex()); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetPackage returns one published package record by name/version.
+func (ec *Client) GetPackage(ctx context.Context, name, version string) (*PackageInfo, error) {
+	var out *PackageInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetPackage", name, version); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetPackageByHash returns one published package record by package hash.
+func (ec *Client) GetPackageByHash(ctx context.Context, packageHash common.Hash) (*PackageInfo, error) {
+	var out *PackageInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetPackageByHash", packageHash.Hex()); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetLatestPackage returns the latest active package for name/channel.
+func (ec *Client) GetLatestPackage(ctx context.Context, name, channel string) (*PackageInfo, error) {
+	var out *PackageInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetLatestPackage", name, channel); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetPublisher returns one publisher record by publisher ID hash.
+func (ec *Client) GetPublisher(ctx context.Context, publisherID common.Hash) (*PublisherInfo, error) {
+	var out *PublisherInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetPublisher", publisherID.Hex()); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetPublisherByNamespace returns the namespace owner/publisher record.
+func (ec *Client) GetPublisherByNamespace(ctx context.Context, namespace string) (*PublisherInfo, error) {
+	var out *PublisherInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetPublisherByNamespace", namespace); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetVerifier returns one verifier record by canonical name.
+func (ec *Client) GetVerifier(ctx context.Context, name string) (*VerifierInfo, error) {
+	var out *VerifierInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetVerifier", name); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetVerification returns one verification claim by subject/proof type.
+func (ec *Client) GetVerification(ctx context.Context, subject common.Address, proofType string) (*VerificationClaimInfo, error) {
+	var out *VerificationClaimInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetVerification", subject.Hex(), proofType); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetSettlementPolicy returns one settlement/pay-policy record by owner/asset.
+func (ec *Client) GetSettlementPolicy(ctx context.Context, owner common.Address, asset string) (*SettlementPolicyInfo, error) {
+	var out *SettlementPolicyInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetSettlementPolicy", owner.Hex(), asset); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetAgentIdentity returns one registered agent identity projection.
+func (ec *Client) GetAgentIdentity(ctx context.Context, agent common.Address) (*AgentIdentityInfo, error) {
+	var out *AgentIdentityInfo
+	if err := ec.c.CallContext(ctx, &out, "tos_tolGetAgentIdentity", agent.Hex()); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AgentDiscoveryInfo returns the current local agent discovery publication state.
+func (ec *Client) AgentDiscoveryInfo(ctx context.Context) (*agentdiscovery.Info, error) {
+	var out agentdiscovery.Info
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryInfo"); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoveryPublish publishes a raw discovery card and capability bloom.
+func (ec *Client) AgentDiscoveryPublish(ctx context.Context, args AgentDiscoveryPublishArgs) (*agentdiscovery.Info, error) {
+	var out agentdiscovery.Info
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryPublish", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoveryPublishSuggested publishes the canonical suggested discovery
+// card derived from deployed `.toc` / `.tor` metadata.
+func (ec *Client) AgentDiscoveryPublishSuggested(ctx context.Context, args AgentDiscoveryPublishSuggestedArgs, blockNumber *big.Int) (*agentdiscovery.Info, error) {
+	wire := args
+	wire.Block = toBlockNumArg(blockNumber)
+	if blockNumber == nil {
+		wire.Block = ""
+	}
+	var out agentdiscovery.Info
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryPublishSuggested", wire); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoveryGetSuggestedCard returns the canonical structured discovery
+// card derived from deployed `.toc` / `.tor` metadata without publishing it.
+func (ec *Client) AgentDiscoveryGetSuggestedCard(ctx context.Context, address common.Address, blockNumber *big.Int) (*agentdiscovery.PublishedCard, error) {
+	args := AgentDiscoverySuggestedCardArgs{
+		Address: address,
+	}
+	if blockNumber != nil {
+		args.Block = toBlockNumArg(blockNumber)
+	}
+	var out agentdiscovery.PublishedCard
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryGetSuggestedCard", args); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoveryClear removes the current local discovery publication.
+func (ec *Client) AgentDiscoveryClear(ctx context.Context) (*agentdiscovery.Info, error) {
+	var out agentdiscovery.Info
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryClear"); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoverySearch searches the discovery network for providers of a capability.
+func (ec *Client) AgentDiscoverySearch(ctx context.Context, capability string, limit *int) ([]agentdiscovery.SearchResult, error) {
+	var out []agentdiscovery.SearchResult
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoverySearch", capability, limit); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AgentDiscoveryGetCard fetches a published card from a specific node record.
+func (ec *Client) AgentDiscoveryGetCard(ctx context.Context, nodeRecord string) (*agentdiscovery.CardResponse, error) {
+	var out agentdiscovery.CardResponse
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryGetCard", nodeRecord); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentDiscoveryDirectorySearch queries a directory node for providers of a capability.
+func (ec *Client) AgentDiscoveryDirectorySearch(ctx context.Context, nodeRecord string, capability string, limit *int) ([]agentdiscovery.SearchResult, error) {
+	var out []agentdiscovery.SearchResult
+	if err := ec.c.CallContext(ctx, &out, "tos_agentDiscoveryDirectorySearch", nodeRecord, capability, limit); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // SetSigner submits a signer-change operation transaction.

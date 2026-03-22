@@ -55,6 +55,49 @@ type PublishConfig struct {
 	CardSequence    uint64
 }
 
+// PublishCardConfig publishes a structured card directly, deriving the
+// capability bloom from the card contents and normalizing the card into the
+// canonical JSON form used on the wire.
+type PublishCardConfig struct {
+	PrimaryIdentity common.Address
+	ConnectionModes uint8
+	Card            *PublishedCard
+	CardSequence    uint64
+}
+
+// PublishedCard is the structured subset of an agent discovery card that GTOS
+// understands natively. Unknown fields may still exist in the raw card JSON;
+// this type only captures the normalized routing/threat/profile hints that
+// clients most commonly need.
+type PublishedCard struct {
+	Version        uint16                `json:"version,omitempty"`
+	AgentID        string                `json:"agent_id,omitempty"`
+	AgentAddress   string                `json:"agent_address,omitempty"`
+	ProfileRef     string                `json:"profile_ref,omitempty"`
+	DiscoveryRef   string                `json:"discovery_ref,omitempty"`
+	PackageName    string                `json:"package_name,omitempty"`
+	PackageVersion string                `json:"package_version,omitempty"`
+	Capabilities   []PublishedCapability `json:"capabilities,omitempty"`
+	RoutingProfile *TypedRoutingProfile  `json:"routing_profile,omitempty"`
+	ThreatModel    *PublishedThreatModel `json:"threat_model,omitempty"`
+}
+
+type PublishedCapability struct {
+	Name string `json:"name"`
+	Mode string `json:"mode,omitempty"`
+	Ref  string `json:"ref,omitempty"`
+}
+
+// PublishedThreatModel is the normalized threat posture subset that discovery
+// clients can consume directly from an agent card.
+type PublishedThreatModel struct {
+	Family            string   `json:"family,omitempty"`
+	TrustBoundary     string   `json:"trust_boundary,omitempty"`
+	FailurePosture    string   `json:"failure_posture,omitempty"`
+	RuntimeDependency string   `json:"runtime_dependency,omitempty"`
+	Invariants        []string `json:"critical_invariants,omitempty"`
+}
+
 type Info struct {
 	Enabled          bool     `json:"enabled"`
 	ProfileVersion   uint16   `json:"profileVersion"`
@@ -94,9 +137,10 @@ type ProviderTrustSummary struct {
 }
 
 type CardResponse struct {
-	NodeID     string `json:"nodeId"`
-	NodeRecord string `json:"nodeRecord"`
-	CardJSON   string `json:"cardJson"`
+	NodeID     string         `json:"nodeId"`
+	NodeRecord string         `json:"nodeRecord"`
+	CardJSON   string         `json:"cardJson"`
+	ParsedCard *PublishedCard `json:"parsed_card,omitempty"`
 }
 
 type talkMessage struct {

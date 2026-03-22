@@ -37,6 +37,15 @@ contract Beta {
 }
 `
 
+const contractMetadataOpenlibSettlementSource = `pragma tolang 0.4.0;
+package tolang.openlib.settlement;
+
+contract TaskSettlement {
+    function approveTask(u256 task_id) public {
+    }
+}
+`
+
 const contractMetadataArtifactSource = `pragma tolang 0.4.0;
 
 contract Solo {
@@ -143,6 +152,18 @@ func TestGetContractMetadataReturnsPackageDescriptor(t *testing.T) {
 	if alpha.Artifact.AgentPackage == nil || len(alpha.Artifact.AgentPackage.Errors) == 0 {
 		t.Fatal("expected declared errors in agent package")
 	}
+	if alpha.Artifact.Profile == nil {
+		t.Fatal("expected unified profile")
+	}
+	if alpha.Artifact.Profile.Identity.PackageName != "demo.checkout" {
+		t.Fatalf("unexpected profile package name %q", alpha.Artifact.Profile.Identity.PackageName)
+	}
+	if alpha.Artifact.SuggestedCard == nil {
+		t.Fatal("expected suggested card")
+	}
+	if alpha.Artifact.SuggestedCard.AgentID != "alpha" {
+		t.Fatalf("unexpected suggested card agent id %q", alpha.Artifact.SuggestedCard.AgentID)
+	}
 	foundFail := false
 	for _, method := range alpha.Artifact.Discovery.InterfaceMethods {
 		if method.Name != "fail" {
@@ -165,6 +186,18 @@ func TestGetContractMetadataReturnsPackageDescriptor(t *testing.T) {
 	}
 	if beta.Artifact == nil || beta.Artifact.Metadata == nil || beta.Artifact.Metadata.Contract.Name != "Beta" {
 		t.Fatalf("unexpected Beta artifact %#v", beta.Artifact)
+	}
+	if got.Package.Profile == nil {
+		t.Fatal("expected bundle profile")
+	}
+	if got.Package.Profile.PackageName != "demo.checkout" || len(got.Package.Profile.Contracts) != 2 {
+		t.Fatalf("unexpected bundle profile %#v", got.Package.Profile)
+	}
+	if got.Package.SuggestedCard == nil {
+		t.Fatal("expected bundle suggested card")
+	}
+	if got.Package.SuggestedCard.PackageName != "demo.checkout" {
+		t.Fatalf("unexpected bundle suggested card %#v", got.Package.SuggestedCard)
 	}
 }
 
@@ -268,6 +301,15 @@ func TestGetContractMetadataReturnsArtifactDescriptor(t *testing.T) {
 	if got.Artifact.AgentPackage == nil || len(got.Artifact.AgentPackage.Errors) != 1 {
 		t.Fatalf("unexpected agent package %#v", got.Artifact.AgentPackage)
 	}
+	if got.Artifact.Profile == nil {
+		t.Fatal("expected unified profile")
+	}
+	if got.Artifact.Profile.Identity.PackageName != "solo" {
+		t.Fatalf("unexpected profile package name %q", got.Artifact.Profile.Identity.PackageName)
+	}
+	if got.Artifact.SuggestedCard == nil {
+		t.Fatal("expected suggested card")
+	}
 }
 
 func TestGetContractMetadataReturnsRoutingProfile(t *testing.T) {
@@ -308,6 +350,62 @@ func TestGetContractMetadataReturnsRoutingProfile(t *testing.T) {
 	}
 	if got.Artifact.Routing.PrivacyMode != "PUBLIC_ONLY" {
 		t.Fatalf("routing privacy mode: got %q want %q", got.Artifact.Routing.PrivacyMode, "PUBLIC_ONLY")
+	}
+	if got.Artifact.Profile == nil || got.Artifact.Profile.TypedDiscovery == nil {
+		t.Fatalf("expected typed discovery in unified profile, got %#v", got.Artifact.Profile)
+	}
+	if got.Artifact.SuggestedCard == nil || got.Artifact.SuggestedCard.RoutingProfile == nil {
+		t.Fatalf("expected routing-aware suggested card, got %#v", got.Artifact.SuggestedCard)
+	}
+}
+
+func TestGetContractMetadataReturnsOpenlibThreatModelInProfile(t *testing.T) {
+	st, err := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
+	if err != nil {
+		t.Fatalf("failed to create state db: %v", err)
+	}
+	pkgBytes, err := lua.CompilePackage([]byte(contractMetadataOpenlibSettlementSource), "TaskSettlement.tol", &lua.PackageOptions{
+		PackageName:    "tolang.openlib.settlement",
+		PackageVersion: "1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("CompilePackage failed: %v", err)
+	}
+	addr := common.HexToAddress("0x2626262626262626262626262626262626262626262626262626262626262626")
+	st.SetCode(addr, pkgBytes)
+
+	api := NewBlockChainAPI(&getCodeBackendMock{
+		backendMock: newBackendMock(),
+		st:          st,
+		head:        &types.Header{Number: big.NewInt(199)},
+	})
+	got, err := api.GetContractMetadata(context.Background(), addr, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || got.Package == nil {
+		t.Fatal("expected package descriptor")
+	}
+	if got.Package.Profile == nil || got.Package.Profile.ThreatModel == nil {
+		t.Fatalf("expected bundle profile threat model, got %#v", got.Package.Profile)
+	}
+	if got.Package.SuggestedCard == nil || got.Package.SuggestedCard.ThreatModel == nil {
+		t.Fatalf("expected package suggested card threat model, got %#v", got.Package.SuggestedCard)
+	}
+	if got.Package.Profile.ThreatModel.Family != "settlement" {
+		t.Fatalf("unexpected bundle threat model family %q", got.Package.Profile.ThreatModel.Family)
+	}
+	if len(got.Package.Contracts) != 1 || got.Package.Contracts[0].Artifact == nil || got.Package.Contracts[0].Artifact.Profile == nil {
+		t.Fatalf("expected contract profile, got %#v", got.Package.Contracts)
+	}
+	if got.Package.Contracts[0].Artifact.Profile.ThreatModel == nil {
+		t.Fatal("expected contract threat model")
+	}
+	if got.Package.Contracts[0].Artifact.Profile.ThreatModel.Family != "settlement" {
+		t.Fatalf("unexpected contract threat model family %q", got.Package.Contracts[0].Artifact.Profile.ThreatModel.Family)
+	}
+	if got.Package.Contracts[0].Artifact.SuggestedCard == nil || got.Package.Contracts[0].Artifact.SuggestedCard.ThreatModel == nil {
+		t.Fatal("expected contract suggested card threat model")
 	}
 }
 
