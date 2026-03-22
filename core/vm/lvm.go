@@ -25,6 +25,7 @@ import (
 	"github.com/tos-network/gtos/lease"
 	"github.com/tos-network/gtos/params"
 	"github.com/tos-network/gtos/paypolicy"
+	"github.com/tos-network/gtos/pkgregistry"
 	"github.com/tos-network/gtos/referral"
 	"github.com/tos-network/gtos/registry"
 	"github.com/tos-network/gtos/reputation"
@@ -4942,6 +4943,27 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.Push(lua.LNil)
 			return 2
 		}
+
+		// Registry-backed package identity validation.
+		// If a registry record exists, enforce package and publisher status.
+		// If no record exists, allow the call (backward-compatible).
+		pkgHash := crypto.Keccak256Hash(calleeCode[:])
+		prec := pkgregistry.ReadPackageByHash(stateDB, pkgHash)
+		if prec.PackageName != "" {
+			if prec.Status == pkgregistry.PkgRevoked {
+				L.Push(lua.LFalse)
+				L.Push(lua.LString("PACKAGE_REVOKED"))
+				return 2
+			}
+			pub := pkgregistry.ReadPublisher(stateDB, prec.PublisherID)
+			if pub.Status == pkgregistry.PkgRevoked {
+				L.Push(lua.LFalse)
+				L.Push(lua.LString("PUBLISHER_REVOKED"))
+				return 2
+			}
+		}
+		// TODO: remove permissive fallback once registry is populated.
+
 		ok, err := packageHasContract(calleeCode, contractName)
 		if err != nil || !ok {
 			L.Push(lua.LFalse)
