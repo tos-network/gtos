@@ -125,6 +125,7 @@ func TestAPIGetRuntimeReceipt(t *testing.T) {
 	settlementRef := common.HexToHash("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb22")
 	sender := common.HexToAddress("0x8ac013baac6fd392efc57bb097b1c813eae702332ba3eaa1625f942c5472626d")
 	recipient := common.HexToAddress("0x473302ca547d5f9877e272cffe58d4def43198b66ba35cff4b2e584be19efa05")
+	sponsor := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 
 	WriteRuntimeReceiptExists(db, receiptRef)
 	WriteRuntimeReceiptKind(db, receiptRef, 7)
@@ -132,6 +133,7 @@ func TestAPIGetRuntimeReceipt(t *testing.T) {
 	WriteRuntimeReceiptMode(db, receiptRef, ModePublicTransfer)
 	WriteRuntimeReceiptSender(db, receiptRef, sender)
 	WriteRuntimeReceiptRecipient(db, receiptRef, recipient)
+	WriteRuntimeReceiptSponsor(db, receiptRef, sponsor)
 	WriteRuntimeReceiptSettlementRef(db, receiptRef, settlementRef)
 	WriteRuntimeReceiptOpenedAt(db, receiptRef, 10)
 	WriteRuntimeReceiptFinalizedAt(db, receiptRef, 20)
@@ -150,6 +152,9 @@ func TestAPIGetRuntimeReceipt(t *testing.T) {
 	if got.Sender != sender || got.Recipient != recipient {
 		t.Fatalf("unexpected sender/recipient: %+v", got)
 	}
+	if got.Sponsor != sponsor {
+		t.Fatalf("unexpected sponsor: %+v", got)
+	}
 }
 
 func TestAPIGetSettlementEffect(t *testing.T) {
@@ -158,12 +163,14 @@ func TestAPIGetSettlementEffect(t *testing.T) {
 	receiptRef := common.HexToHash("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 	sender := common.HexToAddress("0xdf96edbc954f43d46dc80e0180291bb781ac0a8a3a69c785631d4193e9a9d5e7")
 	recipient := common.HexToAddress("0xf4897a85e6ac20f6b7b22e2c3a8fac52fb6c36430b80655354e5aa4f5e1a3533")
+	sponsor := common.HexToAddress("0x1111111111111111111111111111111111111111111111111111111111111111")
 
 	WriteSettlementEffectExists(db, settlementRef)
 	WriteSettlementEffectReceiptRef(db, settlementRef, receiptRef)
 	WriteSettlementEffectMode(db, settlementRef, ModeRefundPublic)
 	WriteSettlementEffectSender(db, settlementRef, sender)
 	WriteSettlementEffectRecipient(db, settlementRef, recipient)
+	WriteSettlementEffectSponsor(db, settlementRef, sponsor)
 	WriteSettlementEffectCreatedAt(db, settlementRef, 77)
 
 	api := newTestSettlementAPI(db)
@@ -176,5 +183,8 @@ func TestAPIGetSettlementEffect(t *testing.T) {
 	}
 	if got.CreatedAt != 77 {
 		t.Fatalf("created_at=%d want 77", got.CreatedAt)
+	}
+	if got.Sponsor != sponsor {
+		t.Fatalf("unexpected sponsor: %+v", got)
 	}
 }

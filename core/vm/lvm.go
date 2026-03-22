@@ -707,6 +707,25 @@ func parseOptionalBytes32Field(tbl *lua.LTable, key string) (common.Hash, error)
 	return bytes32ToHash(out), nil
 }
 
+func parseOptionalAddressField(tbl *lua.LTable, key string) (common.Address, error) {
+	if tbl == nil {
+		return common.Address{}, nil
+	}
+	lv := tbl.RawGetString(key)
+	if lv == lua.LNil {
+		return common.Address{}, nil
+	}
+	s, ok := lv.(lua.LString)
+	if !ok {
+		return common.Address{}, fmt.Errorf("%s: expected canonical hex address", key)
+	}
+	addr, err := parseStrictHexAddress(string(s))
+	if err != nil {
+		return common.Address{}, fmt.Errorf("%s: %w", key, err)
+	}
+	return addr, nil
+}
+
 func parseOptionalPurposeField(tbl *lua.LTable, key string) (uint8, error) {
 	if tbl == nil {
 		return 0, nil
@@ -819,6 +838,9 @@ func buildRuntimeReceiptTable(L *lua.LState, receipt *settlement.RuntimeReceipt)
 	if receipt.Recipient != (common.Address{}) {
 		tbl.RawSetString("recipient", lua.LString(receipt.Recipient.Hex()))
 	}
+	if receipt.Sponsor != (common.Address{}) {
+		tbl.RawSetString("sponsor", lua.LString(receipt.Sponsor.Hex()))
+	}
 	tbl.RawSetString("settlement_ref", hashHexOrNil(receipt.SettlementRef))
 	tbl.RawSetString("proof_ref", hashHexOrNil(receipt.ProofRef))
 	tbl.RawSetString("failure_ref", hashHexOrNil(receipt.FailureRef))
@@ -842,6 +864,9 @@ func buildSettlementEffectTable(L *lua.LState, effect *settlement.SettlementEffe
 	if effect.Recipient != (common.Address{}) {
 		tbl.RawSetString("recipient", lua.LString(effect.Recipient.Hex()))
 	}
+	if effect.Sponsor != (common.Address{}) {
+		tbl.RawSetString("sponsor", lua.LString(effect.Sponsor.Hex()))
+	}
 	tbl.RawSetString("amount_ref", hashHexOrNil(effect.AmountRef))
 	tbl.RawSetString("policy_ref", hashHexOrNil(effect.PolicyRef))
 	tbl.RawSetString("artifact_ref", hashHexOrNil(effect.ArtifactRef))
@@ -862,6 +887,7 @@ func executeRuntimeSettlement(
 	proofRef common.Hash,
 	policyRef common.Hash,
 	artifactRef common.Hash,
+	sponsor common.Address,
 ) (common.Hash, error) {
 	if !settlement.ReadRuntimeReceiptExists(stateDB, receiptRef) {
 		return common.Hash{}, settlement.ErrReceiptNotFound
@@ -888,6 +914,19 @@ func executeRuntimeSettlement(
 		blockCtx.Transfer(stateDB, contractAddr, recipient, amount)
 		amountRef = publicAmountRef(amount)
 	case settlement.ModeUnoTransfer, settlement.ModeRefundUno:
+		ctStr, ok := amountArg.(lua.LString)
+		if !ok {
+			return common.Hash{}, fmt.Errorf("ciphertext mode requires hex string payload")
+		}
+		ct, err := parseCiphertextHex(string(ctStr))
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if err := applyUnoTransfer(stateDB, recipient, ct); err != nil {
+			return common.Hash{}, err
+		}
+		amountRef = unoAmountRef(ct)
+	case settlement.ModeEscrowReleaseUno:
 		ctStr, ok := amountArg.(lua.LString)
 		if !ok {
 			return common.Hash{}, fmt.Errorf("ciphertext mode requires hex string payload")
@@ -933,6 +972,7 @@ func executeRuntimeSettlement(
 	settlement.WriteSettlementEffectMode(stateDB, settlementRef, mode)
 	settlement.WriteSettlementEffectSender(stateDB, settlementRef, contractAddr)
 	settlement.WriteSettlementEffectRecipient(stateDB, settlementRef, recipient)
+	settlement.WriteSettlementEffectSponsor(stateDB, settlementRef, sponsor)
 	settlement.WriteSettlementEffectAmountRef(stateDB, settlementRef, amountRef)
 	settlement.WriteSettlementEffectPolicyRef(stateDB, settlementRef, policyRef)
 	settlement.WriteSettlementEffectArtifactRef(stateDB, settlementRef, artifactRef)
@@ -941,6 +981,7 @@ func executeRuntimeSettlement(
 	settlement.WriteRuntimeReceiptMode(stateDB, receiptRef, mode)
 	settlement.WriteRuntimeReceiptSender(stateDB, receiptRef, contractAddr)
 	settlement.WriteRuntimeReceiptRecipient(stateDB, receiptRef, recipient)
+	settlement.WriteRuntimeReceiptSponsor(stateDB, receiptRef, sponsor)
 	settlement.WriteRuntimeReceiptSettlementRef(stateDB, receiptRef, settlementRef)
 	settlement.WriteRuntimeReceiptAmountRef(stateDB, receiptRef, amountRef)
 	settlement.WriteRuntimeReceiptPolicyRef(stateDB, receiptRef, policyRef)
@@ -972,6 +1013,7 @@ func finalizeRuntimeReceiptSuccess(stateDB StateDB, receiptRef common.Hash, sett
 	settlement.WriteRuntimeReceiptMode(stateDB, receiptRef, effect.Mode)
 	settlement.WriteRuntimeReceiptSender(stateDB, receiptRef, effect.Sender)
 	settlement.WriteRuntimeReceiptRecipient(stateDB, receiptRef, effect.Recipient)
+	settlement.WriteRuntimeReceiptSponsor(stateDB, receiptRef, effect.Sponsor)
 	settlement.WriteRuntimeReceiptSettlementRef(stateDB, receiptRef, settlementRef)
 	settlement.WriteRuntimeReceiptAmountRef(stateDB, receiptRef, effect.AmountRef)
 	settlement.WriteRuntimeReceiptPolicyRef(stateDB, receiptRef, effect.PolicyRef)
@@ -1306,7 +1348,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 0
 	}))
 
-	// tos.receipt_open(receiptRef, kind)
+	// tos.receipt_open(receiptRef, kind, opts?)
 	L.SetField(tosTable, "receipt_open", L.NewFunction(func(L *lua.LState) int {
 		if ctx.Readonly {
 			L.RaiseError("tos.receipt_open: state modification not allowed in staticcall")
@@ -1323,10 +1365,25 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			return 0
 		}
 		kind := uint16(L.CheckInt(2))
-		chargePrimGas(gasSStore * 2)
+		var opts *lua.LTable
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			tbl, ok := L.Get(3).(*lua.LTable)
+			if !ok {
+				L.RaiseError("tos.receipt_open: opts must be a table")
+				return 0
+			}
+			opts = tbl
+		}
+		sponsor, err := parseOptionalAddressField(opts, "sponsor")
+		if err != nil {
+			L.RaiseError("tos.receipt_open: %v", err)
+			return 0
+		}
+		chargePrimGas(gasSStore * 3)
 		settlement.WriteRuntimeReceiptExists(stateDB, receiptRef)
 		settlement.WriteRuntimeReceiptKind(stateDB, receiptRef, kind)
 		settlement.WriteRuntimeReceiptStatus(stateDB, receiptRef, settlement.ReceiptStatusOpen)
+		settlement.WriteRuntimeReceiptSponsor(stateDB, receiptRef, sponsor)
 		settlement.WriteRuntimeReceiptOpenedAt(stateDB, receiptRef, currentBlockMillis(blockCtx))
 		return 0
 	}))
@@ -1480,8 +1537,16 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.RaiseError("tos.settle: %v", err)
 			return 0
 		}
+		sponsor, err := parseOptionalAddressField(opts, "sponsor")
+		if err != nil {
+			L.RaiseError("tos.settle: %v", err)
+			return 0
+		}
 		chargePrimGas(gasSStore*3 + gasTransfer)
-		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef)
+		if sponsor == (common.Address{}) {
+			sponsor = settlement.ReadRuntimeReceiptSponsor(stateDB, bytes32ToHash(receiptRefRaw))
+		}
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef, sponsor)
 		if err != nil {
 			L.RaiseError("tos.settle: %v", err)
 			return 0
@@ -1544,8 +1609,16 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.RaiseError("tos.settle_refund: %v", err)
 			return 0
 		}
+		sponsor, err := parseOptionalAddressField(opts, "sponsor")
+		if err != nil {
+			L.RaiseError("tos.settle_refund: %v", err)
+			return 0
+		}
 		chargePrimGas(gasSStore*3 + gasTransfer)
-		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef)
+		if sponsor == (common.Address{}) {
+			sponsor = settlement.ReadRuntimeReceiptSponsor(stateDB, bytes32ToHash(receiptRefRaw))
+		}
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), 0, autoFinalize, proofRef, policyRef, artifactRef, sponsor)
 		if err != nil {
 			L.RaiseError("tos.settle_refund: %v", err)
 			return 0
@@ -1564,8 +1637,8 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.RaiseError("tos.settle_escrow: %v", err)
 			return 0
 		}
-		if modeValue != settlement.ModeEscrowReleasePublic {
-			L.RaiseError("tos.settle_escrow: only ESCROW_RELEASE_PUBLIC is supported in v1")
+		if modeValue != settlement.ModeEscrowReleasePublic && modeValue != settlement.ModeEscrowReleaseUno {
+			L.RaiseError("tos.settle_escrow: invalid escrow settlement mode")
 			return 0
 		}
 		recipient, err := parseStrictHexAddress(L.CheckString(2))
@@ -1612,8 +1685,16 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			L.RaiseError("tos.settle_escrow: %v", err)
 			return 0
 		}
+		sponsor, err := parseOptionalAddressField(opts, "sponsor")
+		if err != nil {
+			L.RaiseError("tos.settle_escrow: %v", err)
+			return 0
+		}
 		chargePrimGas(gasSStore*3 + gasTransfer)
-		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), purpose, autoFinalize, proofRef, policyRef, artifactRef)
+		if sponsor == (common.Address{}) {
+			sponsor = settlement.ReadRuntimeReceiptSponsor(stateDB, bytes32ToHash(receiptRefRaw))
+		}
+		settlementRef, err := executeRuntimeSettlement(stateDB, blockCtx, contractAddr, modeValue, recipient, L.CheckAny(3), bytes32ToHash(receiptRefRaw), purpose, autoFinalize, proofRef, policyRef, artifactRef, sponsor)
 		if err != nil {
 			L.RaiseError("tos.settle_escrow: %v", err)
 			return 0

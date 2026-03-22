@@ -233,23 +233,26 @@ type DelegationInfo struct {
 
 // VerifierInfo is the client-facing verifier registry projection.
 type VerifierInfo struct {
-	Name         string `json:"name"`
-	VerifierType uint64 `json:"verifier_type"`
-	Controller   string `json:"controller,omitempty"`
-	VerifierAddr string `json:"verifier_addr"`
-	PolicyRef    string `json:"policy_ref,omitempty"`
-	Version      uint64 `json:"version"`
-	Status       string `json:"status"`
-	CreatedAt    uint64 `json:"created_at,omitempty"`
-	UpdatedAt    uint64 `json:"updated_at,omitempty"`
-	UpdatedBy    string `json:"updated_by,omitempty"`
-	StatusRef    string `json:"status_ref,omitempty"`
+	Name          string `json:"name"`
+	VerifierType  uint64 `json:"verifier_type"`
+	VerifierClass string `json:"verifier_class,omitempty"`
+	Controller    string `json:"controller,omitempty"`
+	VerifierAddr  string `json:"verifier_addr"`
+	PolicyRef     string `json:"policy_ref,omitempty"`
+	Version       uint64 `json:"version"`
+	Status        string `json:"status"`
+	CreatedAt     uint64 `json:"created_at,omitempty"`
+	UpdatedAt     uint64 `json:"updated_at,omitempty"`
+	UpdatedBy     string `json:"updated_by,omitempty"`
+	StatusRef     string `json:"status_ref,omitempty"`
 }
 
 // VerificationClaimInfo is the client-facing proof verification projection.
 type VerificationClaimInfo struct {
 	Subject         string `json:"subject"`
 	ProofType       string `json:"proof_type"`
+	ProofClass      string `json:"proof_class,omitempty"`
+	VerifierClass   string `json:"verifier_class,omitempty"`
 	VerifiedAt      uint64 `json:"verified_at"`
 	ExpiryMS        uint64 `json:"expiry_ms"`
 	Status          string `json:"status"`
@@ -261,17 +264,18 @@ type VerificationClaimInfo struct {
 
 // SettlementPolicyInfo is the client-facing pay-policy registry projection.
 type SettlementPolicyInfo struct {
-	PolicyID  string `json:"policy_id"`
-	Kind      uint64 `json:"kind"`
-	Owner     string `json:"owner"`
-	Asset     string `json:"asset"`
-	MaxAmount string `json:"max_amount"`
-	RulesRef  string `json:"rules_ref,omitempty"`
-	Status    string `json:"status"`
-	CreatedAt uint64 `json:"created_at,omitempty"`
-	UpdatedAt uint64 `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
-	StatusRef string `json:"status_ref,omitempty"`
+	PolicyID    string `json:"policy_id"`
+	Kind        uint64 `json:"kind"`
+	PolicyClass string `json:"policy_class,omitempty"`
+	Owner       string `json:"owner"`
+	Asset       string `json:"asset"`
+	MaxAmount   string `json:"max_amount"`
+	RulesRef    string `json:"rules_ref,omitempty"`
+	Status      string `json:"status"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
+	StatusRef   string `json:"status_ref,omitempty"`
 }
 
 // AgentIdentityInfo is the client-facing agent identity registry projection.
@@ -297,6 +301,7 @@ type RuntimeReceiptInfo struct {
 	ModeName      string `json:"mode_name,omitempty"`
 	Sender        string `json:"sender"`
 	Recipient     string `json:"recipient"`
+	Sponsor       string `json:"sponsor,omitempty"`
 	SettlementRef string `json:"settlement_ref,omitempty"`
 	ProofRef      string `json:"proof_ref,omitempty"`
 	FailureRef    string `json:"failure_ref,omitempty"`
@@ -315,6 +320,7 @@ type SettlementEffectInfo struct {
 	ModeName      string `json:"mode_name,omitempty"`
 	Sender        string `json:"sender"`
 	Recipient     string `json:"recipient"`
+	Sponsor       string `json:"sponsor,omitempty"`
 	AmountRef     string `json:"amount_ref,omitempty"`
 	PolicyRef     string `json:"policy_ref,omitempty"`
 	ArtifactRef   string `json:"artifact_ref,omitempty"`

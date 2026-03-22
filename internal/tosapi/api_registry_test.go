@@ -481,14 +481,14 @@ func TestTolGetVerifierAndVerificationReturnRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected verifier error: %v", err)
 	}
-	if verifier == nil || verifier.VerifierAddr != verifierAddr.Hex() || verifier.Controller == "" || verifier.CreatedAt != 20 || verifier.UpdatedAt != 21 {
+	if verifier == nil || verifier.VerifierAddr != verifierAddr.Hex() || verifier.Controller == "" || verifier.VerifierClass != "zk_proof" || verifier.CreatedAt != 20 || verifier.UpdatedAt != 21 {
 		t.Fatalf("unexpected verifier payload %+v", verifier)
 	}
 	claim, err := api.TolGetVerification(context.Background(), subject.Hex(), "state_proof")
 	if err != nil {
 		t.Fatalf("unexpected verification error: %v", err)
 	}
-	if claim == nil || claim.Status != "active" || claim.VerifiedAt != 7 || claim.UpdatedAt != 22 {
+	if claim == nil || claim.Status != "active" || claim.VerifierClass != "zk_proof" || claim.ProofClass != "zk_proof" || claim.VerifiedAt != 7 || claim.UpdatedAt != 22 {
 		t.Fatalf("unexpected verification payload %+v", claim)
 	}
 }
@@ -556,7 +556,7 @@ func TestTolGetSettlementPolicyReturnsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected settlement policy error: %v", err)
 	}
-	if got == nil || got.MaxAmount != "500" || got.Status != "active" || got.CreatedAt != 30 || got.UpdatedAt != 31 {
+	if got == nil || got.MaxAmount != "500" || got.PolicyClass != "pay" || got.Status != "active" || got.CreatedAt != 30 || got.UpdatedAt != 31 {
 		t.Fatalf("unexpected settlement policy payload %+v", got)
 	}
 }

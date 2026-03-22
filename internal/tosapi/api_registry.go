@@ -108,22 +108,25 @@ type NamespaceGovernanceInfo struct {
 }
 
 type VerifierInfo struct {
-	Name         string `json:"name"`
-	VerifierType uint64 `json:"verifier_type"`
-	Controller   string `json:"controller,omitempty"`
-	VerifierAddr string `json:"verifier_addr"`
-	PolicyRef    string `json:"policy_ref,omitempty"`
-	Version      uint64 `json:"version"`
-	Status       string `json:"status"`
-	CreatedAt    uint64 `json:"created_at,omitempty"`
-	UpdatedAt    uint64 `json:"updated_at,omitempty"`
-	UpdatedBy    string `json:"updated_by,omitempty"`
-	StatusRef    string `json:"status_ref,omitempty"`
+	Name          string `json:"name"`
+	VerifierType  uint64 `json:"verifier_type"`
+	VerifierClass string `json:"verifier_class,omitempty"`
+	Controller    string `json:"controller,omitempty"`
+	VerifierAddr  string `json:"verifier_addr"`
+	PolicyRef     string `json:"policy_ref,omitempty"`
+	Version       uint64 `json:"version"`
+	Status        string `json:"status"`
+	CreatedAt     uint64 `json:"created_at,omitempty"`
+	UpdatedAt     uint64 `json:"updated_at,omitempty"`
+	UpdatedBy     string `json:"updated_by,omitempty"`
+	StatusRef     string `json:"status_ref,omitempty"`
 }
 
 type VerificationClaimInfo struct {
 	Subject         string `json:"subject"`
 	ProofType       string `json:"proof_type"`
+	ProofClass      string `json:"proof_class,omitempty"`
+	VerifierClass   string `json:"verifier_class,omitempty"`
 	VerifiedAt      uint64 `json:"verified_at"`
 	ExpiryMS        uint64 `json:"expiry_ms"`
 	Status          string `json:"status"`
@@ -134,17 +137,18 @@ type VerificationClaimInfo struct {
 }
 
 type SettlementPolicyInfo struct {
-	PolicyID  string `json:"policy_id"`
-	Kind      uint64 `json:"kind"`
-	Owner     string `json:"owner"`
-	Asset     string `json:"asset"`
-	MaxAmount string `json:"max_amount"`
-	RulesRef  string `json:"rules_ref,omitempty"`
-	Status    string `json:"status"`
-	CreatedAt uint64 `json:"created_at,omitempty"`
-	UpdatedAt uint64 `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
-	StatusRef string `json:"status_ref,omitempty"`
+	PolicyID    string `json:"policy_id"`
+	Kind        uint64 `json:"kind"`
+	PolicyClass string `json:"policy_class,omitempty"`
+	Owner       string `json:"owner"`
+	Asset       string `json:"asset"`
+	MaxAmount   string `json:"max_amount"`
+	RulesRef    string `json:"rules_ref,omitempty"`
+	Status      string `json:"status"`
+	CreatedAt   uint64 `json:"created_at,omitempty"`
+	UpdatedAt   uint64 `json:"updated_at,omitempty"`
+	UpdatedBy   string `json:"updated_by,omitempty"`
+	StatusRef   string `json:"status_ref,omitempty"`
 }
 
 type AgentIdentityInfo struct {
@@ -360,17 +364,18 @@ func (s *TOSAPI) TolGetVerifier(ctx context.Context, name string) (*VerifierInfo
 		return nil, nil
 	}
 	return &VerifierInfo{
-		Name:         rec.Name,
-		VerifierType: uint64(rec.VerifierType),
-		Controller:   rec.Controller.Hex(),
-		VerifierAddr: rec.VerifierAddr.Hex(),
-		PolicyRef:    common.Hash(rec.PolicyRef).Hex(),
-		Version:      uint64(rec.Version),
-		Status:       verifierStatusString(rec.Status),
-		CreatedAt:    rec.CreatedAt,
-		UpdatedAt:    rec.UpdatedAt,
-		UpdatedBy:    rec.UpdatedBy.Hex(),
-		StatusRef:    common.Hash(rec.StatusRef).Hex(),
+		Name:          rec.Name,
+		VerifierType:  uint64(rec.VerifierType),
+		VerifierClass: verifyregistry.VerifierTypeName(rec.VerifierType),
+		Controller:    rec.Controller.Hex(),
+		VerifierAddr:  rec.VerifierAddr.Hex(),
+		PolicyRef:     common.Hash(rec.PolicyRef).Hex(),
+		Version:       uint64(rec.Version),
+		Status:        verifierStatusString(rec.Status),
+		CreatedAt:     rec.CreatedAt,
+		UpdatedAt:     rec.UpdatedAt,
+		UpdatedBy:     rec.UpdatedBy.Hex(),
+		StatusRef:     common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 
@@ -384,6 +389,8 @@ func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType s
 	if rec.Subject == (common.Address{}) {
 		return nil, nil
 	}
+	verifier := verifyregistry.ReadVerifier(st, rec.ProofType)
+	verifierType := verifier.VerifierType
 	var nowMS uint64
 	if header != nil {
 		nowMS = header.Time * 1000
@@ -391,6 +398,8 @@ func (s *TOSAPI) TolGetVerification(ctx context.Context, subjectHex, proofType s
 	return &VerificationClaimInfo{
 		Subject:         rec.Subject.Hex(),
 		ProofType:       rec.ProofType,
+		ProofClass:      verifyregistry.ProofClassName(rec.ProofType, verifierType),
+		VerifierClass:   verifyregistry.VerifierTypeName(verifierType),
 		VerifiedAt:      rec.VerifiedAt,
 		ExpiryMS:        rec.ExpiryMS,
 		Status:          verificationStatusString(rec.Status),
@@ -415,17 +424,18 @@ func (s *TOSAPI) TolGetSettlementPolicy(ctx context.Context, ownerHex, asset str
 		maxAmount = rec.MaxAmount.String()
 	}
 	return &SettlementPolicyInfo{
-		PolicyID:  common.Hash(rec.PolicyID).Hex(),
-		Kind:      uint64(rec.Kind),
-		Owner:     rec.Owner.Hex(),
-		Asset:     rec.Asset,
-		MaxAmount: maxAmount,
-		RulesRef:  common.Hash(rec.RulesRef).Hex(),
-		Status:    payPolicyStatusString(rec.Status),
-		CreatedAt: rec.CreatedAt,
-		UpdatedAt: rec.UpdatedAt,
-		UpdatedBy: rec.UpdatedBy.Hex(),
-		StatusRef: common.Hash(rec.StatusRef).Hex(),
+		PolicyID:    common.Hash(rec.PolicyID).Hex(),
+		Kind:        uint64(rec.Kind),
+		PolicyClass: paypolicy.PolicyKindName(rec.Kind),
+		Owner:       rec.Owner.Hex(),
+		Asset:       rec.Asset,
+		MaxAmount:   maxAmount,
+		RulesRef:    common.Hash(rec.RulesRef).Hex(),
+		Status:      payPolicyStatusString(rec.Status),
+		CreatedAt:   rec.CreatedAt,
+		UpdatedAt:   rec.UpdatedAt,
+		UpdatedBy:   rec.UpdatedBy.Hex(),
+		StatusRef:   common.Hash(rec.StatusRef).Hex(),
 	}, nil
 }
 

@@ -257,6 +257,12 @@ func TestGetContractMetadataReturnsPublishedPackageIdentity(t *testing.T) {
 	if got.Package.Publisher == nil || got.Package.Publisher.Status != "active" || got.Package.Publisher.Namespace != "demo" {
 		t.Fatalf("unexpected publisher info %+v", got.Package.Publisher)
 	}
+	if got.Package.SuggestedCard == nil || got.Package.SuggestedCard.DeploymentTrust == nil {
+		t.Fatalf("expected suggested card deployment trust, got %#v", got.Package.SuggestedCard)
+	}
+	if !got.Package.SuggestedCard.DeploymentTrust.Trusted || got.Package.SuggestedCard.DeploymentTrust.NamespaceStatus != "clear" {
+		t.Fatalf("unexpected suggested card deployment trust %+v", got.Package.SuggestedCard.DeploymentTrust)
+	}
 }
 
 func TestGetContractMetadataReturnsArtifactDescriptor(t *testing.T) {

@@ -32,11 +32,12 @@ const (
 
 // Settlement modes exposed through the GTOS settlement bus v1.
 const (
-	ModePublicTransfer uint16 = iota + 1
-	ModeUnoTransfer
-	ModeEscrowReleasePublic
-	ModeRefundPublic
-	ModeRefundUno
+	ModePublicTransfer      uint16 = 1
+	ModeUnoTransfer         uint16 = 2
+	ModeEscrowReleasePublic uint16 = 3
+	ModeRefundPublic        uint16 = 4
+	ModeRefundUno           uint16 = 5
+	ModeEscrowReleaseUno    uint16 = 6
 )
 
 // CallbackStatus tracks the lifecycle of a callback.
@@ -153,6 +154,7 @@ type RuntimeReceipt struct {
 	Mode          uint16         `json:"mode"`
 	Sender        common.Address `json:"sender"`
 	Recipient     common.Address `json:"recipient"`
+	Sponsor       common.Address `json:"sponsor,omitempty"`
 	SettlementRef common.Hash    `json:"settlement_ref"`
 	ProofRef      common.Hash    `json:"proof_ref,omitempty"`
 	FailureRef    common.Hash    `json:"failure_ref,omitempty"`
@@ -170,6 +172,7 @@ type SettlementEffect struct {
 	Mode          uint16         `json:"mode"`
 	Sender        common.Address `json:"sender"`
 	Recipient     common.Address `json:"recipient"`
+	Sponsor       common.Address `json:"sponsor,omitempty"`
 	AmountRef     common.Hash    `json:"amount_ref,omitempty"`
 	PolicyRef     common.Hash    `json:"policy_ref,omitempty"`
 	ArtifactRef   common.Hash    `json:"artifact_ref,omitempty"`
@@ -197,6 +200,8 @@ func SettlementModeName(mode uint16) string {
 		return "UNO_TRANSFER"
 	case ModeEscrowReleasePublic:
 		return "ESCROW_RELEASE_PUBLIC"
+	case ModeEscrowReleaseUno:
+		return "ESCROW_RELEASE_UNO"
 	case ModeRefundPublic:
 		return "REFUND_PUBLIC"
 	case ModeRefundUno:
@@ -214,6 +219,8 @@ func ParseSettlementMode(mode string) (uint16, error) {
 		return ModeUnoTransfer, nil
 	case "ESCROW_RELEASE_PUBLIC":
 		return ModeEscrowReleasePublic, nil
+	case "ESCROW_RELEASE_UNO":
+		return ModeEscrowReleaseUno, nil
 	case "REFUND_PUBLIC":
 		return ModeRefundPublic, nil
 	case "REFUND_UNO":

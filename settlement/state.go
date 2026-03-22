@@ -436,6 +436,14 @@ func WriteRuntimeReceiptRecipient(db stateDB, receiptRef common.Hash, recipient 
 	writeAddressSlot(db, rrSlot(receiptRef, "recipient"), recipient)
 }
 
+func ReadRuntimeReceiptSponsor(db stateDB, receiptRef common.Hash) common.Address {
+	return readAddressSlot(db, rrSlot(receiptRef, "sponsor"))
+}
+
+func WriteRuntimeReceiptSponsor(db stateDB, receiptRef common.Hash, sponsor common.Address) {
+	writeAddressSlot(db, rrSlot(receiptRef, "sponsor"), sponsor)
+}
+
 func ReadRuntimeReceiptSettlementRef(db stateDB, receiptRef common.Hash) common.Hash {
 	return db.GetState(registry, rrSlot(receiptRef, "settlementRef"))
 }
@@ -540,6 +548,14 @@ func WriteSettlementEffectRecipient(db stateDB, settlementRef common.Hash, recip
 	writeAddressSlot(db, seSlot(settlementRef, "recipient"), recipient)
 }
 
+func ReadSettlementEffectSponsor(db stateDB, settlementRef common.Hash) common.Address {
+	return readAddressSlot(db, seSlot(settlementRef, "sponsor"))
+}
+
+func WriteSettlementEffectSponsor(db stateDB, settlementRef common.Hash, sponsor common.Address) {
+	writeAddressSlot(db, seSlot(settlementRef, "sponsor"), sponsor)
+}
+
 func ReadSettlementEffectAmountRef(db stateDB, settlementRef common.Hash) common.Hash {
 	return db.GetState(registry, seSlot(settlementRef, "amountRef"))
 }
@@ -583,6 +599,7 @@ func ReadRuntimeReceipt(db stateDB, receiptRef common.Hash) (*RuntimeReceipt, er
 		Mode:          ReadRuntimeReceiptMode(db, receiptRef),
 		Sender:        ReadRuntimeReceiptSender(db, receiptRef),
 		Recipient:     ReadRuntimeReceiptRecipient(db, receiptRef),
+		Sponsor:       ReadRuntimeReceiptSponsor(db, receiptRef),
 		SettlementRef: ReadRuntimeReceiptSettlementRef(db, receiptRef),
 		ProofRef:      ReadRuntimeReceiptProofRef(db, receiptRef),
 		FailureRef:    ReadRuntimeReceiptFailureRef(db, receiptRef),
@@ -604,6 +621,7 @@ func ReadSettlementEffect(db stateDB, settlementRef common.Hash) (*SettlementEff
 		Mode:          ReadSettlementEffectMode(db, settlementRef),
 		Sender:        ReadSettlementEffectSender(db, settlementRef),
 		Recipient:     ReadSettlementEffectRecipient(db, settlementRef),
+		Sponsor:       ReadSettlementEffectSponsor(db, settlementRef),
 		AmountRef:     ReadSettlementEffectAmountRef(db, settlementRef),
 		PolicyRef:     ReadSettlementEffectPolicyRef(db, settlementRef),
 		ArtifactRef:   ReadSettlementEffectArtifactRef(db, settlementRef),

@@ -181,6 +181,7 @@ func inspectTOLPackage(pkgBytes []byte, st *state.StateDB) (*TOLPackageInfo, err
 		if published, publisher := inspectPublishedPackage(st, pkgBytes); published != nil {
 			info.Published = published
 			info.Publisher = publisher
+			attachPublishedDeploymentTrust(info.SuggestedCard, published)
 		}
 	}
 	return info, nil
@@ -255,4 +256,19 @@ func inspectPublishedPackage(st *state.StateDB, pkgBytes []byte) (*PackageInfo, 
 		return published, nil
 	}
 	return published, publisherInfoFromRecord(pubRec, nsRec)
+}
+
+func attachPublishedDeploymentTrust(card *agentdiscovery.PublishedCard, published *PackageInfo) {
+	if card == nil || published == nil {
+		return
+	}
+	card.DeploymentTrust = &agentdiscovery.PublishedDeploymentTrust{
+		PackageName:     published.Name,
+		PackageVersion:  published.Version,
+		PublisherID:     published.PublisherID,
+		Trusted:         published.Trusted,
+		Status:          published.Status,
+		EffectiveStatus: published.EffectiveStatus,
+		NamespaceStatus: published.NamespaceStatus,
+	}
 }

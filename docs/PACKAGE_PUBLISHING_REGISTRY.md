@@ -1,6 +1,6 @@
 # Package Publishing Registry
 
-**Status: V1.3 IMPLEMENTED (2026-03-22)**
+**Status: V1.4 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
@@ -23,10 +23,14 @@ Implemented in code today:
   deployed `.tor` matches a published package hash
 - deployment trust join includes publisher namespace and trusted flag
   semantics when the package is resolved through the protocol registry
+- suggested discovery cards now carry normalized `deployment_trust` hints,
+  so discovery/runtime consumers can retain package/publisher trust context
+  even after publishing or fetching agent cards
 
 Still open for later waves:
 
-- deeper discovery / deployment trust integration
+- broader ecosystem policy once multiple independent deployment trust domains
+  need to compose beyond the current canonical package/publisher model
 
 ## Purpose
 

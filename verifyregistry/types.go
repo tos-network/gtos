@@ -21,6 +21,16 @@ const (
 	VerificationExpired VerificationStatus = 2
 )
 
+const (
+	VerifierTypeZK          uint16 = 1
+	VerifierTypeOracle      uint16 = 2
+	VerifierTypeAttestation uint16 = 3
+	VerifierTypeReceipt     uint16 = 4
+	VerifierTypeConsensus   uint16 = 5
+	VerifierTypeTLSNotary   uint16 = 6
+	VerifierTypeCommittee   uint16 = 7
+)
+
 type VerifierRecord struct {
 	Name         string
 	VerifierType uint16
@@ -66,5 +76,57 @@ func (s VerificationStatus) String() string {
 		return "expired"
 	default:
 		return "active"
+	}
+}
+
+func VerifierTypeName(verifierType uint16) string {
+	switch verifierType {
+	case VerifierTypeZK:
+		return "zk_proof"
+	case VerifierTypeOracle:
+		return "oracle_attestation"
+	case VerifierTypeAttestation:
+		return "attestation"
+	case VerifierTypeReceipt:
+		return "runtime_receipt"
+	case VerifierTypeConsensus:
+		return "consensus_verification"
+	case VerifierTypeTLSNotary:
+		return "tlsnotary_attestation"
+	case VerifierTypeCommittee:
+		return "committee_consensus"
+	default:
+		return "custom"
+	}
+}
+
+func ProofClassName(proofType string, verifierType uint16) string {
+	switch verifierType {
+	case VerifierTypeTLSNotary:
+		return "tlsnotary_attestation"
+	case VerifierTypeReceipt:
+		return "runtime_receipt"
+	case VerifierTypeCommittee, VerifierTypeConsensus:
+		return "committee_consensus"
+	case VerifierTypeOracle:
+		return "oracle_attestation"
+	case VerifierTypeAttestation:
+		return "attestation"
+	case VerifierTypeZK:
+		return "zk_proof"
+	}
+	switch proofType {
+	case "tlsnotary", "tls_notary":
+		return "tlsnotary_attestation"
+	case "receipt", "runtime_receipt", "settlement_receipt":
+		return "runtime_receipt"
+	case "consensus", "committee", "m_of_n_consensus":
+		return "committee_consensus"
+	case "attestation":
+		return "attestation"
+	case "oracle":
+		return "oracle_attestation"
+	default:
+		return VerifierTypeName(verifierType)
 	}
 }

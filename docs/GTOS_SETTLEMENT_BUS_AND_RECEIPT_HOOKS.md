@@ -1,6 +1,6 @@
 # GTOS Settlement Bus And Receipt Hooks
 
-**Status: V1 IMPLEMENTED (2026-03-22)**
+**Status: V1.1 IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
@@ -22,6 +22,12 @@ Implemented in code today:
     `openfox settlement runtime-receipt ...`,
     `openfox settlement runtime-effect ...`, and matching operator API
     endpoints
+- sponsor-aware settlement joins through runtime receipt/effect state plus
+  client/runtime inspection
+- `ESCROW_RELEASE_UNO` settlement mode and confidential escrow-release
+  normalization through the same settlement-bus lifecycle
+- OpenFox local settlement records now bridge onto canonical runtime
+  `receipt_ref` / `settlement_ref` values when those refs are available
 - VM/runtime tests for:
   - public transfer + auto-finalized receipt
   - split-phase settle + `receipt_success`
@@ -31,11 +37,6 @@ Implemented in code today:
 
 Still open for later waves:
 
-- sponsor-aware settlement joins
-- `ESCROW_RELEASE_UNO` and deeper confidential refund/release normalization
-- bridging legacy OpenFox local settlement anchor IDs onto canonical runtime
-  `receipt_ref` / `settlement_ref` values when a publisher flow adopts native
-  settlement-bus identifiers end to end
 - deciding which flows should mirror runtime receipts into app-level
   `ReceiptBook` by default
 

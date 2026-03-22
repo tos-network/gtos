@@ -1,6 +1,6 @@
 # GTOS Protocol Registries
 
-**Status: V1.2 IMPLEMENTED (2026-03-22)**
+**Status: V1.3 IMPLEMENTED (2026-03-22)**
 
 Current v1 scope now implemented in code:
 
@@ -17,10 +17,13 @@ Current v1 scope now implemented in code:
 - operator-facing lifecycle metadata (`updated_by` / `status_ref`) now exposed
   across capability, delegation, verifier, verification-claim, and pay-policy
   registry projections
+- richer verifier inspection classes (`verifier_class` / `proof_class`) now
+  exposed through RPC/client consumption
+- richer settlement-policy inspection classes (`policy_class`) now exposed
+  through RPC/client consumption
 
 Still open for later waves:
 
-- richer verifier / settlement-policy classes
 - broader agent/runtime consumption paths
 
 ## Purpose

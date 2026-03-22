@@ -70,16 +70,17 @@ type PublishCardConfig struct {
 // this type only captures the normalized routing/threat/profile hints that
 // clients most commonly need.
 type PublishedCard struct {
-	Version        uint16                `json:"version,omitempty"`
-	AgentID        string                `json:"agent_id,omitempty"`
-	AgentAddress   string                `json:"agent_address,omitempty"`
-	ProfileRef     string                `json:"profile_ref,omitempty"`
-	DiscoveryRef   string                `json:"discovery_ref,omitempty"`
-	PackageName    string                `json:"package_name,omitempty"`
-	PackageVersion string                `json:"package_version,omitempty"`
-	Capabilities   []PublishedCapability `json:"capabilities,omitempty"`
-	RoutingProfile *TypedRoutingProfile  `json:"routing_profile,omitempty"`
-	ThreatModel    *PublishedThreatModel `json:"threat_model,omitempty"`
+	Version         uint16                    `json:"version,omitempty"`
+	AgentID         string                    `json:"agent_id,omitempty"`
+	AgentAddress    string                    `json:"agent_address,omitempty"`
+	ProfileRef      string                    `json:"profile_ref,omitempty"`
+	DiscoveryRef    string                    `json:"discovery_ref,omitempty"`
+	PackageName     string                    `json:"package_name,omitempty"`
+	PackageVersion  string                    `json:"package_version,omitempty"`
+	Capabilities    []PublishedCapability     `json:"capabilities,omitempty"`
+	RoutingProfile  *TypedRoutingProfile      `json:"routing_profile,omitempty"`
+	ThreatModel     *PublishedThreatModel     `json:"threat_model,omitempty"`
+	DeploymentTrust *PublishedDeploymentTrust `json:"deployment_trust,omitempty"`
 }
 
 type PublishedCapability struct {
@@ -96,6 +97,16 @@ type PublishedThreatModel struct {
 	FailurePosture    string   `json:"failure_posture,omitempty"`
 	RuntimeDependency string   `json:"runtime_dependency,omitempty"`
 	Invariants        []string `json:"critical_invariants,omitempty"`
+}
+
+type PublishedDeploymentTrust struct {
+	PackageName     string `json:"package_name,omitempty"`
+	PackageVersion  string `json:"package_version,omitempty"`
+	PublisherID     string `json:"publisher_id,omitempty"`
+	Trusted         bool   `json:"trusted"`
+	Status          string `json:"status,omitempty"`
+	EffectiveStatus string `json:"effective_status,omitempty"`
+	NamespaceStatus string `json:"namespace_status,omitempty"`
 }
 
 type Info struct {

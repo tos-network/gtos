@@ -79,6 +79,53 @@ if ri.proof_ref ~= "` + proofRef.Hex() + `" then error("proof mismatch") end
 	}
 }
 
+func TestSettlementBusSponsorAwareSplitPhase(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0xED}
+	recipientAddr := common.Address{0xEE}
+	sponsorAddr := common.Address{0xEF}
+	st.AddBalance(contractAddr, big.NewInt(700))
+
+	receiptRef := common.HexToHash("0x3010000000000000000000000000000000000000000000000000000000000003")
+
+	src := `
+local r = "` + receiptRef.Hex() + `"
+local sponsor = "` + sponsorAddr.Hex() + `"
+tos.receipt_open(r, 2, { sponsor = sponsor })
+local s = tos.settle("PUBLIC_TRANSFER", "` + recipientAddr.Hex() + `", "250", r, { auto_finalize = false })
+local ri = tos.receipt_info(r)
+if ri == nil or ri.status ~= "open" then error("expected open receipt after split-phase settle") end
+if ri.sponsor ~= sponsor then error("expected sponsor on open receipt") end
+local si = tos.settlement_info(s)
+if si == nil or si.sponsor ~= sponsor then error("expected sponsor on settlement effect") end
+tos.receipt_success(r, s)
+ri = tos.receipt_info(r)
+if ri.status ~= "success" then error("expected success after receipt_success") end
+if ri.sponsor ~= sponsor then error("expected sponsor after receipt_success") end
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("split-phase sponsor settlement: %v", err)
+	}
+	receipt, err := settlement.ReadRuntimeReceipt(st, receiptRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Sponsor != sponsorAddr {
+		t.Fatalf("receipt sponsor=%s want %s", receipt.Sponsor.Hex(), sponsorAddr.Hex())
+	}
+	if receipt.SettlementRef == (common.Hash{}) {
+		t.Fatal("expected settlement ref on runtime receipt")
+	}
+	effect, err := settlement.ReadSettlementEffect(st, receipt.SettlementRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Sponsor != sponsorAddr {
+		t.Fatalf("effect sponsor=%s want %s", effect.Sponsor.Hex(), sponsorAddr.Hex())
+	}
+}
+
 func TestSettlementBusMissingReceiptRollsBack(t *testing.T) {
 	st := newAgentTestState()
 	contractAddr := common.Address{0xE5}
@@ -177,3 +224,54 @@ if si == nil or si.mode_name ~= "UNO_TRANSFER" then error("expected uno settleme
 	}
 }
 
+func TestSettlementBusEscrowReleaseUno(t *testing.T) {
+	pub, priv := testKeypair(t)
+	st := newAgentTestState()
+	contractAddr := common.Address{0xEB}
+	recipientAddr := common.Address{0xEC}
+
+	deposit, err := cryptopriv.Encrypt(pub[:], 21)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	depositHex := "0x" + hex.EncodeToString(deposit)
+	receiptRef := common.HexToHash("0x7100000000000000000000000000000000000000000000000000000000000007")
+
+	src := `
+tos.receipt_open("` + receiptRef.Hex() + `", 6)
+local s = tos.settle_escrow("ESCROW_RELEASE_UNO", "` + recipientAddr.Hex() + `", "` + depositHex + `", "` + receiptRef.Hex() + `")
+local ri = tos.receipt_info("` + receiptRef.Hex() + `")
+if ri.status ~= "success" then error("expected escrow uno receipt success") end
+if ri.mode_name ~= "ESCROW_RELEASE_UNO" then error("expected escrow uno receipt mode") end
+local si = tos.settlement_info(s)
+if si == nil or si.mode_name ~= "ESCROW_RELEASE_UNO" then error("expected escrow uno settlement info") end
+`
+	_, _, _, err = runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("escrow uno settlement: %v", err)
+	}
+
+	commit := st.GetState(recipientAddr, privCommitmentSlot)
+	handle := st.GetState(recipientAddr, privHandleSlot)
+	var finalCt [64]byte
+	copy(finalCt[:32], commit[:])
+	copy(finalCt[32:], handle[:])
+	msgPoint, err := cryptopriv.DecryptToPoint(priv[:], finalCt[:])
+	if err != nil {
+		t.Fatalf("DecryptToPoint: %v", err)
+	}
+	plaintext, ok, err := cryptopriv.SolveDiscreteLog(msgPoint, 1<<20)
+	if err != nil {
+		t.Fatalf("SolveDiscreteLog: %v", err)
+	}
+	if !ok || plaintext != 21 {
+		t.Fatalf("unexpected plaintext=%d ok=%v", plaintext, ok)
+	}
+	receipt, err := settlement.ReadRuntimeReceipt(st, receiptRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Mode != settlement.ModeEscrowReleaseUno {
+		t.Fatalf("receipt mode=%d want %d", receipt.Mode, settlement.ModeEscrowReleaseUno)
+	}
+}

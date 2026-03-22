@@ -359,10 +359,11 @@ func (s *rpcExtTestService) TolGetNamespaceClaim(namespace string) interface{} {
 func (s *rpcExtTestService) TolGetVerifier(name string) interface{} {
 	s.lastGetVerifierName = name
 	return &VerifierInfo{
-		Name:         name,
-		VerifierType: 1,
-		VerifierAddr: common.HexToAddress("0x5555").Hex(),
-		Status:       "active",
+		Name:          name,
+		VerifierType:  1,
+		VerifierClass: "zk_proof",
+		VerifierAddr:  common.HexToAddress("0x5555").Hex(),
+		Status:        "active",
 	}
 }
 
@@ -372,6 +373,8 @@ func (s *rpcExtTestService) TolGetVerification(subjectHex, proofType string) int
 	return &VerificationClaimInfo{
 		Subject:         subjectHex,
 		ProofType:       proofType,
+		ProofClass:      "tlsnotary_attestation",
+		VerifierClass:   "tlsnotary_attestation",
 		Status:          "active",
 		EffectiveStatus: "active",
 	}
@@ -381,11 +384,12 @@ func (s *rpcExtTestService) TolGetSettlementPolicy(ownerHex, asset string) inter
 	s.lastGetSettlementPolicyOwner = ownerHex
 	s.lastGetSettlementPolicyAsset = asset
 	return &SettlementPolicyInfo{
-		PolicyID:  common.HexToHash("0x6666").Hex(),
-		Owner:     ownerHex,
-		Asset:     asset,
-		MaxAmount: "1000",
-		Status:    "active",
+		PolicyID:    common.HexToHash("0x6666").Hex(),
+		PolicyClass: "settlement",
+		Owner:       ownerHex,
+		Asset:       asset,
+		MaxAmount:   "1000",
+		Status:      "active",
 	}
 }
 
@@ -409,6 +413,7 @@ func (s *rpcExtTestService) GetRuntimeReceipt(receiptRef common.Hash) interface{
 		ModeName:      "PUBLIC_TRANSFER",
 		Sender:        common.HexToAddress("0x1111").Hex(),
 		Recipient:     common.HexToAddress("0x2222").Hex(),
+		Sponsor:       common.HexToAddress("0x7777").Hex(),
 		SettlementRef: common.HexToHash("0xabcdef").Hex(),
 		ProofRef:      common.HexToHash("0x3333").Hex(),
 		OpenedAt:      100,
@@ -425,6 +430,7 @@ func (s *rpcExtTestService) GetSettlementEffect(settlementRef common.Hash) inter
 		ModeName:      "REFUND_PUBLIC",
 		Sender:        common.HexToAddress("0x2222").Hex(),
 		Recipient:     common.HexToAddress("0x3333").Hex(),
+		Sponsor:       common.HexToAddress("0x8888").Hex(),
 		AmountRef:     common.HexToHash("0x4444").Hex(),
 		CreatedAt:     120,
 	}
@@ -960,7 +966,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVerifier error: %v", err)
 	}
-	if svc.lastGetVerifierName != "zk-settlement" || verifierInfo == nil || verifierInfo.VerifierType != 1 {
+	if svc.lastGetVerifierName != "zk-settlement" || verifierInfo == nil || verifierInfo.VerifierType != 1 || verifierInfo.VerifierClass != "zk_proof" {
 		t.Fatalf("unexpected verifier info: name=%q out=%+v", svc.lastGetVerifierName, verifierInfo)
 	}
 
@@ -968,7 +974,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVerification error: %v", err)
 	}
-	if svc.lastGetVerificationProofType != "zktls" || verificationInfo == nil || verificationInfo.ProofType != "zktls" {
+	if svc.lastGetVerificationProofType != "zktls" || verificationInfo == nil || verificationInfo.ProofType != "zktls" || verificationInfo.ProofClass != "tlsnotary_attestation" {
 		t.Fatalf("unexpected verification info: proofType=%q out=%+v", svc.lastGetVerificationProofType, verificationInfo)
 	}
 
@@ -976,7 +982,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettlementPolicy error: %v", err)
 	}
-	if svc.lastGetSettlementPolicyAsset != "UNO" || settlementPolicyInfo == nil || settlementPolicyInfo.MaxAmount != "1000" {
+	if svc.lastGetSettlementPolicyAsset != "UNO" || settlementPolicyInfo == nil || settlementPolicyInfo.MaxAmount != "1000" || settlementPolicyInfo.PolicyClass != "settlement" {
 		t.Fatalf("unexpected settlement policy info: asset=%q out=%+v", svc.lastGetSettlementPolicyAsset, settlementPolicyInfo)
 	}
 
@@ -992,7 +998,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRuntimeReceipt error: %v", err)
 	}
-	if svc.lastGetRuntimeReceiptRef != common.HexToHash("0x9999") || receiptInfo == nil || receiptInfo.SettlementRef != common.HexToHash("0xabcdef").Hex() {
+	if svc.lastGetRuntimeReceiptRef != common.HexToHash("0x9999") || receiptInfo == nil || receiptInfo.SettlementRef != common.HexToHash("0xabcdef").Hex() || receiptInfo.Sponsor != common.HexToAddress("0x7777").Hex() {
 		t.Fatalf("unexpected runtime receipt info: ref=%s out=%+v", svc.lastGetRuntimeReceiptRef.Hex(), receiptInfo)
 	}
 
@@ -1000,7 +1006,7 @@ func TestRPCExtStorageAndSignerMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettlementEffect error: %v", err)
 	}
-	if svc.lastGetSettlementEffectRef != common.HexToHash("0xabcdef") || effectInfo == nil || effectInfo.ModeName != "REFUND_PUBLIC" {
+	if svc.lastGetSettlementEffectRef != common.HexToHash("0xabcdef") || effectInfo == nil || effectInfo.ModeName != "REFUND_PUBLIC" || effectInfo.Sponsor != common.HexToAddress("0x8888").Hex() {
 		t.Fatalf("unexpected settlement effect info: ref=%s out=%+v", svc.lastGetSettlementEffectRef.Hex(), effectInfo)
 	}
 

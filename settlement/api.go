@@ -41,6 +41,7 @@ type RuntimeReceiptResult struct {
 	ModeName      string         `json:"mode_name"`
 	Sender        common.Address `json:"sender"`
 	Recipient     common.Address `json:"recipient"`
+	Sponsor       common.Address `json:"sponsor"`
 	SettlementRef common.Hash    `json:"settlement_ref"`
 	ProofRef      common.Hash    `json:"proof_ref"`
 	FailureRef    common.Hash    `json:"failure_ref"`
@@ -59,6 +60,7 @@ type SettlementEffectResult struct {
 	ModeName      string         `json:"mode_name"`
 	Sender        common.Address `json:"sender"`
 	Recipient     common.Address `json:"recipient"`
+	Sponsor       common.Address `json:"sponsor"`
 	AmountRef     common.Hash    `json:"amount_ref"`
 	PolicyRef     common.Hash    `json:"policy_ref"`
 	ArtifactRef   common.Hash    `json:"artifact_ref"`
@@ -129,6 +131,7 @@ func (api *PublicSettlementAPI) GetRuntimeReceipt(receiptRef common.Hash) (*Runt
 		ModeName:      SettlementModeName(receipt.Mode),
 		Sender:        receipt.Sender,
 		Recipient:     receipt.Recipient,
+		Sponsor:       receipt.Sponsor,
 		SettlementRef: receipt.SettlementRef,
 		ProofRef:      receipt.ProofRef,
 		FailureRef:    receipt.FailureRef,
@@ -154,6 +157,7 @@ func (api *PublicSettlementAPI) GetSettlementEffect(settlementRef common.Hash) (
 		ModeName:      SettlementModeName(effect.Mode),
 		Sender:        effect.Sender,
 		Recipient:     effect.Recipient,
+		Sponsor:       effect.Sponsor,
 		AmountRef:     effect.AmountRef,
 		PolicyRef:     effect.PolicyRef,
 		ArtifactRef:   effect.ArtifactRef,

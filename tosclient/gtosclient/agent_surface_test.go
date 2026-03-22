@@ -320,6 +320,7 @@ func (s *agentSurfaceRPCService) GetRuntimeReceipt(receiptRef common.Hash) inter
 			ModeName:      "PUBLIC_TRANSFER",
 			Sender:        common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000aa").Hex(),
 			Recipient:     common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000bb").Hex(),
+			Sponsor:       common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000cc").Hex(),
 			SettlementRef: common.HexToHash("0xbbb1").Hex(),
 			OpenedAt:      10,
 			FinalizedAt:   11,
@@ -340,6 +341,7 @@ func (s *agentSurfaceRPCService) GetSettlementEffect(settlementRef common.Hash) 
 			ModeName:      "PUBLIC_TRANSFER",
 			Sender:        common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000aa").Hex(),
 			Recipient:     common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000bb").Hex(),
+			Sponsor:       common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000cc").Hex(),
 			CreatedAt:     10,
 		}
 	default:
@@ -465,6 +467,9 @@ func TestGetRuntimeReceiptSurfaceJoinsReceiptEffectAndRuntime(t *testing.T) {
 	}
 	if surface.RecipientRuntime == nil || surface.RecipientRuntime.PackageName != "tolang.openlib.privacy" {
 		t.Fatalf("expected recipient runtime join, got %+v", surface.RecipientRuntime)
+	}
+	if surface.Receipt.Sponsor != common.HexToAddress("0x00000000000000000000000000000000000000000000000000000000000000cc").Hex() || surface.Effect.Sponsor != surface.Receipt.Sponsor {
+		t.Fatalf("expected sponsor join on runtime settlement surface, got receipt=%+v effect=%+v", surface.Receipt, surface.Effect)
 	}
 }
 
