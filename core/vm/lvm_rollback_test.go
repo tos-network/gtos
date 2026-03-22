@@ -17,6 +17,13 @@ import (
 	"github.com/tos-network/gtos/crypto"
 )
 
+func testEscrowSlot(contractAddr, agentAddr common.Address, purpose uint8) common.Hash {
+	key := append([]byte("tol.escrow."), contractAddr.Bytes()...)
+	key = append(key, agentAddr.Bytes()...)
+	key = append(key, purpose)
+	return common.BytesToHash(crypto.Keccak256(key))
+}
+
 // ---------------------------------------------------------------------------
 // Test 1: Nested call storage rollback
 //
@@ -113,6 +120,87 @@ func TestNestedCallValueRollback(t *testing.T) {
 	childBal := st.GetBalance(childAddr)
 	if childBal.Sign() != 0 {
 		t.Fatalf("child balance after value rollback: want 0, got %s", childBal.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 3: Escrow reserve rollback on top-level failure
+//
+// A contract escrows funds and then reverts. Both the escrow ledger entry and
+// the contract balance must roll back to their pre-call values.
+// ---------------------------------------------------------------------------
+func TestEscrowReserveRollbackOnTopLevelFailure(t *testing.T) {
+	contractAddr := common.Address{0xE1}
+	agentAddr := common.Address{0xE2}
+	callerAddr := common.Address{0xE0}
+	st := newAgentTestState()
+	st.CreateAccount(contractAddr)
+	st.CreateAccount(callerAddr)
+	st.AddBalance(contractAddr, big.NewInt(1000))
+
+	code := fmt.Sprintf(`
+		tos.escrow(%q, 400, 0)
+		error("revert after escrow")
+	`, agentAddr.Hex())
+	st.SetCode(contractAddr, []byte(code))
+
+	lvm := NewLVM(newBlockCtx(), TxContext{
+		Origin:   callerAddr,
+		GasPrice: big.NewInt(1),
+	}, st, testChainConfig)
+	_, _, err := lvm.Call(ContractAccount(callerAddr), contractAddr, nil, 5_000_000, big.NewInt(0))
+	if err == nil {
+		t.Fatal("expected reverted top-level call")
+	}
+
+	if got := st.GetBalance(contractAddr); got.Cmp(big.NewInt(1000)) != 0 {
+		t.Fatalf("contract balance after escrow rollback: want 1000, got %s", got.String())
+	}
+	slot := st.GetState(contractAddr, testEscrowSlot(contractAddr, agentAddr, 0))
+	if slot != (common.Hash{}) {
+		t.Fatalf("escrow slot after rollback: want zero, got %x", slot[:])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test 3b: Escrow release rollback on nested failure
+//
+// A parent calls a child that releases escrow and then reverts. The child
+// escrow balance and the beneficiary balance must remain unchanged.
+// ---------------------------------------------------------------------------
+func TestNestedCallReleaseRollback(t *testing.T) {
+	childAddr := common.Address{0xE3}
+	beneficiary := common.Address{0xE4}
+	parentAddr := common.Address{0xE5}
+	st := newAgentTestState()
+	st.CreateAccount(childAddr)
+	st.CreateAccount(parentAddr)
+	st.SetCode(childAddr, []byte(fmt.Sprintf(`
+		tos.release(%q, 300, 0)
+		error("revert after release")
+	`, beneficiary.Hex())))
+	st.SetState(childAddr, testEscrowSlot(childAddr, beneficiary, 0), common.BigToHash(big.NewInt(300)))
+
+	parentCode := fmt.Sprintf(`
+		local ok, _ = tos.call(%q, 0)
+		tos.sstore("call_ok", ok and 1 or 0)
+	`, childAddr.Hex())
+
+	_, _, _, err := runLua(st, parentAddr, parentCode, 5_000_000)
+	if err != nil {
+		t.Fatalf("parent execution failed: %v", err)
+	}
+
+	okSlot := st.GetState(parentAddr, StorageSlot("call_ok"))
+	if got := new(big.Int).SetBytes(okSlot[:]).Uint64(); got != 0 {
+		t.Fatalf("call_ok: want 0 (child reverted), got %d", got)
+	}
+	slot := st.GetState(childAddr, testEscrowSlot(childAddr, beneficiary, 0))
+	if got := slot.Big(); got.Cmp(big.NewInt(300)) != 0 {
+		t.Fatalf("escrow slot after nested release rollback: want 300, got %s", got.String())
+	}
+	if bal := st.GetBalance(beneficiary); bal.Sign() != 0 {
+		t.Fatalf("beneficiary balance after nested release rollback: want 0, got %s", bal.String())
 	}
 }
 

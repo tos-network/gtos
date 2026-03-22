@@ -1,6 +1,6 @@
 # LVM Native Economic Primitives
 
-**Status: V1 PARTIALLY IMPLEMENTED (2026-03-22)**
+**Status: V1.2 PARTIALLY IMPLEMENTED (2026-03-22)**
 
 Implemented in code today:
 
@@ -8,6 +8,9 @@ Implemented in code today:
 - state-backed `tos.hascapability(...)` and `tos.hasdelegation(...)`
 - protocol-backed `tos.isverified(...)`
 - protocol-backed `tos.canpay(...)`
+- native `tos.escrow(...)`, `tos.release(...)`, `tos.slash(...)`, and
+  `tos.escrowbalanceof(...)` with rollback coverage for top-level revert and
+  nested-call failure
 - stable runtime inspection primitives: `tos.agentinfo(...)`,
   `tos.packageinfo(...)`, `tos.packagelatest(...)`, `tos.publisherinfo(...)`
 - package / contract inspection over deployed TOL code and package metadata
@@ -317,8 +320,13 @@ Why second:
 
 Deliverables:
 
-- defined ledger semantics
-- tests for rollback, nested failure, and balance movement
+- ~~defined ledger semantics~~ — **DONE**: escrow is scoped to the calling
+  contract; reserve subtracts contract balance and credits contract-local
+  escrow ledger; release/slash debit escrow ledger and credit beneficiary
+- ~~tests for rollback, nested failure, and balance movement~~ — **DONE**:
+  `lvm_agent_test.go` covers reserve/release/slash/balance movement and
+  isolation; `lvm_rollback_test.go` now covers top-level escrow rollback and
+  nested-call release rollback
 
 ### Phase 3: UNO runtime contract
 
