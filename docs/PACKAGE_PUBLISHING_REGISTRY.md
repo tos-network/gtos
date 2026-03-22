@@ -329,7 +329,9 @@ Deliverables:
 
 - **PARTIALLY DONE**: deployed metadata and package RPC now expose protocol
   package identity, latest-channel resolution, and publisher status for trust
-  decisions; broader OpenFox/discovery routing adoption remains open
+  decisions; LVM now also exposes `tos.packageinfo(...)`,
+  `tos.packagelatest(...)`, and `tos.publisherinfo(...)` for runtime trust
+  checks; broader OpenFox/discovery routing adoption remains open
 
 ---
 

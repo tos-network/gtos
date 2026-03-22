@@ -12,7 +12,9 @@ import (
 	"github.com/tos-network/gtos/crypto"
 	"github.com/tos-network/gtos/delegation"
 	"github.com/tos-network/gtos/params"
+	"github.com/tos-network/gtos/pkgregistry"
 	"github.com/tos-network/gtos/reputation"
+	lua "github.com/tos-network/tolang"
 )
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
@@ -264,6 +266,34 @@ end
 	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
 	if err != nil {
 		t.Fatalf("agentload unknown field: %v", err)
+	}
+}
+
+// TestAgentInfoAlias verifies tos.agentinfo mirrors tos.agentload semantics.
+func TestAgentInfoAlias(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0x70}
+	agentAddr := common.Address{0x71}
+
+	stake := new(big.Int).Mul(big.NewInt(7_000), big.NewInt(1e18))
+	agent.WriteStake(st, agentAddr, stake)
+	agent.WriteStatus(st, agentAddr, agent.AgentActive)
+
+	src := `
+local addr = "` + agentAddr.Hex() + `"
+local s1 = tos.agentload(addr, "stake")
+local s2 = tos.agentinfo(addr, "stake")
+if s1 ~= s2 then
+  error("agentinfo mismatch")
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 1_000_000)
+	if err != nil {
+		t.Fatalf("agentinfo alias: %v", err)
+	}
+	if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+		t.Fatal("ok slot not set")
 	}
 }
 
@@ -534,5 +564,113 @@ end
 	_, _, _, err = runLua(st, contract2, srcCheck, 1_000_000)
 	if err != nil {
 		t.Fatalf("escrow isolation check: %v", err)
+	}
+}
+
+func compileAndDeployTestPackage(t *testing.T, st *state.StateDB, addr common.Address, contractName, packageName, version string) []byte {
+	t.Helper()
+	src := []byte(`pragma tolang 0.4.0;
+package ` + packageName + `;
+contract ` + contractName + ` {
+    function ping() public pure returns (u256) { return 1; }
+}`)
+	pkgBytes, err := lua.CompilePackage(src, contractName+".tol", &lua.PackageOptions{
+		PackageName:    packageName,
+		PackageVersion: version,
+	})
+	if err != nil {
+		t.Fatalf("CompilePackage failed: %v", err)
+	}
+	st.SetCode(addr, pkgBytes)
+	return pkgBytes
+}
+
+func TestPackageInfoAndPublisherInfo(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0x72}
+	pkgAddr := common.Address{0x73}
+	pubID := [32]byte{0x44}
+	controller := common.HexToAddress("0x1234000000000000000000000000000000000000")
+	pkgBytes := compileAndDeployTestPackage(t, st, pkgAddr, "Greeter", "demo.checkout", "1.0.0")
+
+	pkgregistry.WritePublisher(st, pkgregistry.PublisherRecord{
+		PublisherID: pubID,
+		Controller:  controller,
+		Status:      pkgregistry.PkgActive,
+	})
+	pkgregistry.WritePackage(st, pkgregistry.PackageRecord{
+		PackageName:    "demo.checkout",
+		PackageVersion: "1.0.0",
+		PackageHash:    crypto.Keccak256Hash(pkgBytes),
+		PublisherID:    pubID,
+		Channel:        pkgregistry.ChannelStable,
+		Status:         pkgregistry.PkgActive,
+		ContractCount:  1,
+		PublishedAt:    99,
+	})
+
+	src := `
+local addr = "` + pkgAddr.Hex() + `"
+if tos.packageinfo(addr, "package_name") ~= "demo.checkout" then
+  error("package_name mismatch")
+end
+if tos.packageinfo(addr, "package_version") ~= "1.0.0" then
+  error("package_version mismatch")
+end
+if tos.packageinfo(addr, "channel") ~= "stable" then
+  error("channel mismatch")
+end
+if tos.packageinfo(addr, "status") ~= "active" then
+  error("status mismatch")
+end
+if tos.packageinfo(addr, "contract_count") ~= 1 then
+  error("contract_count mismatch")
+end
+local pub = tos.packageinfo(addr, "publisher_id")
+if pub == nil then
+  error("publisher_id missing")
+end
+if tos.publisherinfo(pub, "status") ~= "active" then
+  error("publisher status mismatch")
+end
+if tos.publisherinfo(pub, "controller") ~= "` + controller.Hex() + `" then
+  error("publisher controller mismatch")
+end
+if tos.packagelatest("demo.checkout", "stable", "package_version") ~= "1.0.0" then
+  error("packagelatest mismatch")
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 5_000_000)
+	if err != nil {
+		t.Fatalf("packageinfo/publisherinfo: %v", err)
+	}
+	if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+		t.Fatal("ok slot not set")
+	}
+}
+
+func TestPackageInfoReturnsNilForUnpublishedOrUnknownChannel(t *testing.T) {
+	st := newAgentTestState()
+	contractAddr := common.Address{0x74}
+	pkgAddr := common.Address{0x75}
+	compileAndDeployTestPackage(t, st, pkgAddr, "Greeter", "demo.unpublished", "0.1.0")
+
+	src := `
+local addr = "` + pkgAddr.Hex() + `"
+if tos.packageinfo(addr, "package_name") ~= nil then
+  error("expected nil for unpublished package")
+end
+if tos.packagelatest("demo.unpublished", "nightly", "package_version") ~= nil then
+  error("expected nil for unknown channel")
+end
+tos.sstore("ok", 1)
+`
+	_, _, _, err := runLua(st, contractAddr, src, 5_000_000)
+	if err != nil {
+		t.Fatalf("packageinfo unpublished: %v", err)
+	}
+	if st.GetState(contractAddr, StorageSlot("ok")) == (common.Hash{}) {
+		t.Fatal("ok slot not set")
 	}
 }

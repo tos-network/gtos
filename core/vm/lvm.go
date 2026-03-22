@@ -933,6 +933,41 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		return 0
 	}))
 
+	// tos.host_transfer(toAddr, amount)
+	//   Called by @pay annotation preamble to transfer funds from the contract
+	//   to a recipient.  Accepts LUint256 or string amount.
+	L.SetField(tosTable, "host_transfer", L.NewFunction(func(L *lua.LState) int {
+		if ctx.Readonly {
+			L.RaiseError("tos.host_transfer: state modification not allowed in staticcall")
+			return 0
+		}
+		chargePrimGas(gasTransfer)
+		recipientHex := L.CheckString(1)
+		recipient := common.HexToAddress(recipientHex)
+		// Parse amount — handle both LUint256 and string
+		amountLV := L.CheckAny(2)
+		var amount *big.Int
+		switch v := amountLV.(type) {
+		case lua.LUint256:
+			amount, _ = new(big.Int).SetString(v.String(), 10)
+		case lua.LString:
+			amount, _ = new(big.Int).SetString(string(v), 10)
+		default:
+			L.RaiseError("tos.host_transfer: invalid amount type")
+			return 0
+		}
+		if amount == nil || amount.Sign() < 0 {
+			L.RaiseError("tos.host_transfer: invalid amount")
+			return 0
+		}
+		if !blockCtx.CanTransfer(stateDB, contractAddr, amount) {
+			L.RaiseError("tos.host_transfer: insufficient balance")
+			return 0
+		}
+		blockCtx.Transfer(stateDB, contractAddr, recipient, amount)
+		return 0
+	}))
+
 	// tos.send(toAddr, amount) → bool
 	//   Soft-failure variant of tos.transfer.
 	//   Returns true on success, false on any failure (insufficient balance,
@@ -1542,22 +1577,7 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 
 	// ── Agent-Native primitives ───────────────────────────────────────────────
 
-	// tos.agentload(addr, field) → value | nil
-	//   Reads a field from the Agent-Native registries for the given address.
-	//   Gas cost: params.AgentLoadGas per call (equivalent to 1 SLOAD).
-	//
-	//   Supported fields:
-	//     "stake"         → uint256 (locked stake in wei)
-	//     "suspended"     → bool    (1 = suspended, 0 = not)
-	//     "is_registered" → bool    (1 = registered)
-	//     "capabilities"  → uint256 (capability bitmap)
-	//     "reputation"    → uint256 (signed i256 as two's-complement uint256)
-	//     "rating_count"  → uint256 (number of ratings received)
-	L.SetField(tosTable, "agentload", L.NewFunction(func(L *lua.LState) int {
-		addrHex := L.CheckString(1)
-		field := L.CheckString(2)
-		chargePrimGas(params.AgentLoadGas)
-		addr := common.HexToAddress(addrHex)
+	pushAgentInfoField := func(L *lua.LState, addr common.Address, field string) bool {
 		switch field {
 		case "stake":
 			L.Push(luBig(agent.ReadStake(stateDB, addr)))
@@ -1576,14 +1596,116 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 		case "capabilities":
 			L.Push(luBig(capability.CapabilitiesOf(stateDB, addr)))
 		case "reputation":
-			// TotalScoreOf returns a signed *big.Int; convert to two's-complement uint256.
 			score := reputation.TotalScoreOf(stateDB, addr)
 			L.Push(bigIntToLU256(score))
 		case "rating_count":
 			L.Push(luBig(reputation.RatingCountOf(stateDB, addr)))
 		default:
 			L.Push(lua.LNil)
+			return false
 		}
+		return true
+	}
+
+	packageStatusString := func(status pkgregistry.PackageStatus) string {
+		switch status {
+		case pkgregistry.PkgDeprecated:
+			return "deprecated"
+		case pkgregistry.PkgRevoked:
+			return "revoked"
+		default:
+			return "active"
+		}
+	}
+
+	packageChannelString := func(channel pkgregistry.ChannelKind) string {
+		switch channel {
+		case pkgregistry.ChannelBeta:
+			return "beta"
+		case pkgregistry.ChannelStable:
+			return "stable"
+		case pkgregistry.ChannelDeprecated:
+			return "deprecated"
+		default:
+			return "dev"
+		}
+	}
+
+	pushPackageInfoField := func(L *lua.LState, rec pkgregistry.PackageRecord, field string) bool {
+		switch field {
+		case "package_name":
+			L.Push(lua.LString(rec.PackageName))
+		case "package_version":
+			L.Push(lua.LString(rec.PackageVersion))
+		case "package_hash":
+			L.Push(lua.LString(common.Hash(rec.PackageHash).Hex()))
+		case "publisher_id":
+			L.Push(lua.LString(common.Hash(rec.PublisherID).Hex()))
+		case "manifest_hash":
+			L.Push(lua.LString(common.Hash(rec.ManifestHash).Hex()))
+		case "channel":
+			L.Push(lua.LString(packageChannelString(rec.Channel)))
+		case "status":
+			L.Push(lua.LString(packageStatusString(rec.Status)))
+		case "contract_count":
+			L.Push(lua.Lu256FromUint64(uint64(rec.ContractCount)))
+		case "published_at":
+			L.Push(lua.Lu256FromUint64(rec.PublishedAt))
+		case "discovery_ref":
+			L.Push(lua.LString(common.Hash(rec.DiscoveryRef).Hex()))
+		default:
+			L.Push(lua.LNil)
+			return false
+		}
+		return true
+	}
+
+	pushPublisherInfoField := func(L *lua.LState, rec pkgregistry.PublisherRecord, field string) bool {
+		switch field {
+		case "publisher_id":
+			L.Push(lua.LString(common.Hash(rec.PublisherID).Hex()))
+		case "controller":
+			L.Push(lua.LString(rec.Controller.Hex()))
+		case "metadata_ref":
+			L.Push(lua.LString(common.Hash(rec.MetadataRef).Hex()))
+		case "status":
+			L.Push(lua.LString(packageStatusString(rec.Status)))
+		default:
+			L.Push(lua.LNil)
+			return false
+		}
+		return true
+	}
+
+	// tos.agentload(addr, field) → value | nil
+	//   Reads a field from the Agent-Native registries for the given address.
+	//   Gas cost: params.AgentLoadGas per call (equivalent to 1 SLOAD).
+	//
+	//   Supported fields:
+	//     "stake"         → uint256 (locked stake in wei)
+	//     "suspended"     → bool    (1 = suspended, 0 = not)
+	//     "is_registered" → bool    (1 = registered)
+	//     "capabilities"  → uint256 (capability bitmap)
+	//     "reputation"    → uint256 (signed i256 as two's-complement uint256)
+	//     "rating_count"  → uint256 (number of ratings received)
+	L.SetField(tosTable, "agentload", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		addr := common.HexToAddress(addrHex)
+		pushAgentInfoField(L, addr, field)
+		return 1
+	}))
+
+	// tos.agentinfo(addr, field) → value | nil
+	//   Stable runtime-backed inspection surface over GTOS agent state.
+	//   v1 mirrors tos.agentload(...) but uses the long-lived inspection name.
+	L.SetField(tosTable, "agentinfo", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		addr := common.HexToAddress(addrHex)
+		pushAgentInfoField(L, addr, field)
 		return 1
 	}))
 
@@ -1767,6 +1889,78 @@ func Execute(stateDB StateDB, blockCtx BlockContext, chainConfig *params.ChainCo
 			}
 		}
 		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// tos.packageinfo(addr, field) → value | nil
+	//   Runtime-backed inspection of a deployed published `.tor` package.
+	//   Returns nil if the address has no deployed package code or no published
+	//   package record for the deployed package hash.
+	L.SetField(tosTable, "packageinfo", L.NewFunction(func(L *lua.LState) int {
+		addrHex := L.CheckString(1)
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		addr := common.HexToAddress(addrHex)
+		code := stateDB.GetCode(addr)
+		if len(code) == 0 || !lua.IsPackage(code) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		rec := pkgregistry.ReadPackageByHash(stateDB, crypto.Keccak256Hash(code))
+		if rec.PackageHash == ([32]byte{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		pushPackageInfoField(L, rec, field)
+		return 1
+	}))
+
+	// tos.packagelatest(name, channel, field) → value | nil
+	//   Resolves the latest active package in the given channel and returns one
+	//   field from the package record.
+	L.SetField(tosTable, "packagelatest", L.NewFunction(func(L *lua.LState) int {
+		name := strings.TrimSpace(L.CheckString(1))
+		channelRaw := strings.ToLower(strings.TrimSpace(L.CheckString(2)))
+		field := L.CheckString(3)
+		chargePrimGas(params.AgentLoadGas)
+		var channel pkgregistry.ChannelKind
+		switch channelRaw {
+		case "", "stable":
+			channel = pkgregistry.ChannelStable
+		case "dev":
+			channel = pkgregistry.ChannelDev
+		case "beta":
+			channel = pkgregistry.ChannelBeta
+		case "deprecated":
+			channel = pkgregistry.ChannelDeprecated
+		default:
+			L.Push(lua.LNil)
+			return 1
+		}
+		rec := pkgregistry.ReadLatestPackage(stateDB, name, channel)
+		if rec.PackageHash == ([32]byte{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		pushPackageInfoField(L, rec, field)
+		return 1
+	}))
+
+	// tos.publisherinfo(publisherID, field) → value | nil
+	//   Runtime-backed inspection of GTOS publisher registry state.
+	L.SetField(tosTable, "publisherinfo", L.NewFunction(func(L *lua.LState) int {
+		pubHex := strings.TrimSpace(L.CheckString(1))
+		field := L.CheckString(2)
+		chargePrimGas(params.AgentLoadGas)
+		pubHash := common.HexToHash(pubHex)
+		var pubID [32]byte
+		copy(pubID[:], pubHash[:])
+		rec := pkgregistry.ReadPublisher(stateDB, pubID)
+		if rec.Controller == (common.Address{}) {
+			L.Push(lua.LNil)
+			return 1
+		}
+		pushPublisherInfoField(L, rec, field)
 		return 1
 	}))
 

@@ -8,6 +8,8 @@ Implemented in code today:
 - state-backed `tos.hascapability(...)` and `tos.hasdelegation(...)`
 - protocol-backed `tos.isverified(...)`
 - protocol-backed `tos.canpay(...)`
+- stable runtime inspection primitives: `tos.agentinfo(...)`,
+  `tos.packageinfo(...)`, `tos.packagelatest(...)`, `tos.publisherinfo(...)`
 - package / contract inspection over deployed TOL code and package metadata
 - package inspection now joins published package identity, publisher status,
   and latest-channel package resolution through GTOS RPC
@@ -334,6 +336,16 @@ Deliverables:
 Why fourth:
 
 - agent runtimes and OpenFox benefit once primitives and registries are stable
+
+Deliverables:
+
+- ~~runtime-backed agent inspection primitive~~ — **DONE**:
+  `tos.agentinfo(...)`
+- ~~runtime-backed package / publisher inspection primitives~~ — **DONE**:
+  `tos.packageinfo(...)`, `tos.packagelatest(...)`, `tos.publisherinfo(...)`
+- RPC and deployed metadata inspection continue to expose the broader
+  off-chain view (`routing_profile`, published package identity, publisher
+  trust)
 
 ---
 
