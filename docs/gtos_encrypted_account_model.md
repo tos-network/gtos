@@ -456,57 +456,102 @@ After migration, these accounts hold **encrypted balance** (Commitment + Handle)
 
 ## 8.2 Transaction type changes
 
-### ShieldTx and UnshieldTx become obsolete
+### All non-SignerTx types become obsolete
 
-With no plaintext balance, there is no need to bridge between plaintext and encrypted:
+With no plaintext balance and all transfers unified into encrypted commitment operations, three tx types are eliminated:
 
+- `PrivTransferTx (0x01)`: its commitment-transfer logic is **merged into SignerTx** as the default value transfer mechanism. A separate tx type is no longer needed.
 - `ShieldTx (0x02)`: converts plaintext → encrypted. **Delete** — no plaintext to shield from.
 - `UnshieldTx (0x03)`: converts encrypted → plaintext. **Delete** — no plaintext to unshield to.
 
-### Remaining transaction types
+### Transaction types reduce from 4 to 1
 
-| Tx type | Status | Change |
+| Tx type | Status | Reason |
 |---------|--------|--------|
-| `SignerTx (0x00)` | **Keep** | Gas fees use encrypted operations; value transfers use encrypted path |
-| `PrivTransferTx (0x01)` | **Keep** | Already fully encrypted, no changes needed |
-| `ShieldTx (0x02)` | **Delete** | No plaintext balance to shield from |
-| `UnshieldTx (0x03)` | **Delete** | No plaintext balance to unshield to |
-
-Transaction types reduce from 4 to 2:
+| `SignerTx (0x00)` | **Keep (sole tx type)** | Absorbs all functionality |
+| `PrivTransferTx (0x01)` | **Delete (merge into SignerTx)** | SignerTx now does encrypted transfers natively |
+| `ShieldTx (0x02)` | **Delete** | No plaintext to shield from |
+| `UnshieldTx (0x03)` | **Delete** | No plaintext to unshield to |
 
 ```
 Before:  SignerTx + PrivTransferTx + ShieldTx + UnshieldTx  (4 types)
-After:   SignerTx + PrivTransferTx                          (2 types)
+After:   SignerTx                                            (1 type)
 ```
 
-### SignerTx changes
+### Why PrivTransferTx is no longer needed
 
-`SignerTx` remains the general-purpose transaction type but its internal execution changes:
+The distinction between SignerTx and PrivTransferTx was:
 
-| Operation | Before | After |
-|-----------|--------|-------|
-| Gas deduction | `SubBalance(payer, gasCost)` | `SubScalarFromBalance(payer, gasCost)` |
-| Value transfer | `Transfer(from, to, amount)` | Encrypted transfer with client-side proof |
-| Fee to coinbase | `AddBalance(coinbase, fee)` | `AddScalarToBalance(coinbase, fee)` |
-| Gas refund | `AddBalance(payer, remaining)` | `AddScalarToBalance(payer, remaining)` |
+| | SignerTx (before) | PrivTransferTx (before) |
+|---|---|---|
+| Transfer amount | **Plaintext** (visible in tx.Value) | **Encrypted** (hidden in commitment) |
+| Balance operation | `SubBalance(*big.Int)` | `SubCiphertexts(commitment)` |
+| Who sees the amount | Everyone | Only sender + receiver |
+
+After the encrypted account model, SignerTx absorbs the encrypted transfer logic:
+
+| | SignerTx (after) |
+|---|---|
+| Transfer amount | **Encrypted** — transfer commitment + range proof |
+| Balance operation | `SubEncryptedFromBalance(commitment)` / `AddEncryptedToBalance(commitment)` |
+| Who sees the amount | Only sender + receiver |
+
+The PrivTransferTx commitment-transfer logic (from `core/privacy_tx_prepare.go`) is promoted into SignerTx's value transfer path. There is no longer a reason for two separate tx types.
+
+### Unified SignerTx operations
+
+`SignerTx` becomes the single transaction type, handling all operations via its `Data` and `To` fields:
+
+| Operation | How it works |
+|-----------|-------------|
+| **Value transfer** | `To = recipient`, value carried as encrypted transfer commitment + range proof (formerly PrivTransferTx logic) |
+| **System action** | `To = SystemActionAddress`, action + encrypted amount in `Data`, range proof for amount validation |
+| **Contract call** | `To = contract`, calldata in `Data` |
+| **Gas deduction** | Homomorphic scalar subtraction — gas amount is a public protocol parameter, not user privacy |
+| **Gas refund** | Homomorphic scalar addition — `AddScalarToBalance(payer, remaining)` |
+| **Fee to coinbase** | Homomorphic scalar addition — `AddScalarToBalance(coinbase, fee)` |
+
+### Gas remains a public scalar
+
+Gas amounts are **not encrypted**. They are public protocol parameters (gas price, gas limit, gas used). This is intentional:
+
+- Gas metering must be deterministic and publicly verifiable
+- Gas pricing is a protocol-level concern, not user privacy
+- `SubScalarFromBalance()` and `AddScalarToBalance()` handle public-amount operations on encrypted balances
+
+The distinction is:
+- **Transfer amounts**: encrypted (user privacy) — commitment-to-commitment operations
+- **Gas/fee amounts**: public scalars — `AddScalarToCiphertext()` operations (already implemented)
+
+### System action amount validation
+
+System actions that require minimum amounts (e.g., `VALIDATOR_REGISTER` requires `MinValidatorStake`) use client-side range proofs:
+
+```
+Client provides: encrypted stake commitment + range proof proving (stake >= MinValidatorStake)
+Validator verifies: range proof (without knowing the exact stake amount)
+```
+
+This is the same mechanism already used by PrivTransferTx for balance sufficiency checks. No new cryptography is needed.
 
 ## 8.3 Impact on Gigagas L1 proving surface
 
-With ShieldTx and UnshieldTx deleted, the Phase 1 proving target simplifies:
+With all tx types unified into SignerTx, the Gigagas L1 proving target is maximally simplified:
 
 ```
 Before:  4 tx types to prove (native transfer, shield, priv transfer, unshield)
-After:   2 tx types to prove (SignerTx encrypted transfer, PrivTransferTx)
+After:   1 tx type to prove  (SignerTx with encrypted operations)
 ```
 
-This directly reduces the proof circuit complexity for Phase 1-2.
+One tx type means one proof circuit, one witness model, one state diff format. This is the simplest possible proving surface for Phase 1-2.
 
 ## 8.4 Additional work estimate for system actions and tx types
 
 | Item | Effort |
 |------|--------|
 | Migrate 10 system actions (uniform pattern) | ~1 week |
-| Delete ShieldTx + UnshieldTx (code + tests) | ~1 week |
+| Merge PrivTransferTx commitment logic into SignerTx | ~1 week |
+| Delete PrivTransferTx / ShieldTx / UnshieldTx (code + tests) | ~1 week |
 | Modify SignerTx gas/transfer path | ~2 weeks (included in section 7 estimate) |
 | 42 metadata-only actions | **0** |
 
@@ -552,9 +597,9 @@ None — this is a restructuring, not new functionality.
 | `core/priv/state.go` | `CommitmentSlot`, `HandleSlot`, `VersionSlot`, `NonceSlot` constants |
 | `core/priv/state.go` | `GetAccountState()`, `SetAccountState()` via storage slots |
 | `core/state/statedb.go` | `GetBalance()`, `SetBalance()` plaintext methods |
-| `core/types/transaction.go` | `ShieldTxType` (0x02), `UnshieldTxType` (0x03) constants |
-| `core/privacy_tx_prepare.go` | Shield and unshield execution paths |
-| Related test files | Shield/unshield test cases |
+| `core/types/transaction.go` | `PrivTransferTxType` (0x01), `ShieldTxType` (0x02), `UnshieldTxType` (0x03) constants |
+| `core/privacy_tx_prepare.go` | Shield, unshield, and standalone priv-transfer execution paths (commitment logic merged into SignerTx) |
+| Related test files | PrivTransfer/Shield/Unshield test cases |
 
 ---
 
@@ -573,6 +618,7 @@ The result is:
 
 - One balance per account (encrypted)
 - One nonce per account (unified)
+- One tx type (`SignerTx`) for all operations
 - One proving surface for Gigagas L1
 - One state mutation path for all transfers
 - Simpler code, simpler proofs, simpler state
