@@ -180,6 +180,95 @@ Only the proposer executes transactions. The other 14 validators verify a ZK pro
 
 ---
 
+## Proposer vs Prover: Two Processes, One Machine
+
+The Proposer and Prover are **two independent processes** running on the same validator machine (or same rack). They are not the same process.
+
+### Architecture
+
+```
++---------------------------------------------+
+|              Validator Machine               |
+|                                              |
+|  +------------------+  +------------------+  |
+|  |     gtos          |  |   tosproofd       |  |
+|  |  (Proposer)       |  |   (Prover)        |  |
+|  |                   |  |                   |  |
+|  |  - pick txs       |  |  - receive witness |  |
+|  |  - execute txs    |  |  - run ZK circuit  |  |
+|  |  - export witness |->|  - generate proof  |  |
+|  |  - seal block     |  |  - return sidecar  |  |
+|  |  - broadcast block|<-|                   |  |
+|  |  - store sidecar  |  |                   |  |
+|  +------------------+  +------------------+  |
+|       gtos node             proof worker      |
+|       (Go)                  (Go/Rust)         |
++---------------------------------------------+
+```
+
+### Why two separate processes
+
+| Reason | Explanation |
+|--------|-------------|
+| **Non-blocking** | gtos produces blocks every 360ms. Proof generation may take seconds or tens of seconds. Running proof generation inside gtos would stall block production. |
+| **Resource isolation** | Proof generation is CPU-intensive (potentially GPU-accelerated). The gtos node is primarily I/O + network. Separate processes prevent resource contention. |
+| **Language flexibility** | gtos is written in Go. The prover circuit may use Rust (Halo2, SP1, and most ZK libraries are Rust-native). Separate processes communicate via IPC. |
+| **Independent upgrades** | Swapping the proving system (e.g., from stub to real prover) only requires restarting `tosproofd`, not the gtos node. |
+
+### Communication
+
+Phase 1 uses **Unix domain socket** (same-machine, zero network overhead):
+
+```go
+// gtos side (miner/proof_orchestrator.go)
+type ProofWorkerClient interface {
+    RequestTransferBatchProofAsync(req *ProofWorkerRequest, callback func(*ProofWorkerResponse, error))
+}
+
+// tosproofd side (proofworker/server.go)
+// Listens on Unix socket, receives witness, returns proof
+```
+
+### Timing
+
+```
+time ------------------------------------------------->
+
+gtos:       [pick tx] [execute] [seal] [broadcast block]
+                  |                |
+                  +- export witness ->
+                                   |
+tosproofd:                         [receive] [generate proof...........] [return sidecar]
+                                                                              |
+gtos:                                                        [store sidecar to rawdb]
+```
+
+Block is sealed and broadcast first. Proof arrives later. This is Phase 1 "async shadow proving" — block production never waits for proof.
+
+### Who pays the cost
+
+| Role | Work | Who |
+|------|------|-----|
+| Proposer | Execute txs + export witness | The validator whose DPoS turn it is (rotates among 15 validators) |
+| Prover | Generate ZK proof | `tosproofd` on the same validator machine |
+| Other 14 validators | Verify proof (~1-5ms) | All other validators (net beneficiaries — much less work than before) |
+
+There is no dedicated "prover operator". The proposing validator runs both `gtos` and `tosproofd`. Since DPoS rotates proposer duty across all 15 validators, the proving cost is **evenly distributed**.
+
+### Future evolution (Phase 5+)
+
+At ~10,000 TPS, proof generation becomes heavier (millions of txs per checkpoint range). Options:
+
+| Model | Description |
+|-------|-------------|
+| **Validator self-proving** (Phase 1-4) | Each validator runs its own `tosproofd`. Simplest model. |
+| **Dedicated prover service** | Independent prover nodes; validators pay for proof generation. |
+| **Prover market** | Multiple provers compete; fastest/cheapest proof is adopted. |
+
+Phase 1-4 use the self-proving model. Prover decentralization is a Phase 5+ concern.
+
+---
+
 ## Summary
 
 **One sentence:** Users sign and send transactions exactly the same way. The difference is that inside the chain, 14 out of 15 validators verify a proof instead of re-executing every transaction — reducing per-block validation cost from ~100ms to ~5ms and enabling throughput scaling to ~10,000 TPS.
