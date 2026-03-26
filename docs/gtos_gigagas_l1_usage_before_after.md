@@ -364,6 +364,60 @@ Compared to the current full-execution model (~50-100ms per block), this is a **
 
 ---
 
+## User Confirmation Latency: No Change
+
+A common concern: "Do I have to wait 10 minutes for a proof before my transaction is confirmed?"
+
+**No. Confirmation latency is identical to today.**
+
+### Confirmation levels before and after
+
+| Confirmation level | Before | After Gigagas L1 | User waits? |
+|--------------------|--------|-------------------|-------------|
+| **0-conf** (mempool accepted) | ~instant | ~instant | No change |
+| **1-conf** (included in block) | ~360ms | **~360ms** | **No change** |
+| **Proved** (proof sidecar available) | N/A | ~2-30s after block | **User does NOT wait for this** |
+| **Finalized** (checkpoint QC) | ~10min | ~10min | No change |
+
+The "Proved" level is a new internal chain concept. Users never wait for it. It exists for validator consumption only.
+
+### Why 1-confirmation is unaffected
+
+Block production does not wait for proof generation:
+
+```
+0ms:      User sends tx
+~360ms:   Proposer picks tx, executes, seals block, broadcasts
+          <- This is 1-confirmation, same as today
+
+~2-30s:   Prover asynchronously generates proof sidecar
+          (user already has 1-conf, does not need to wait)
+
+~10min:   Checkpoint finalize
+          (same as today)
+```
+
+### Proposer block sealing flow
+
+```
+1. Pick tx from mempool         <- user's tx selected here
+2. Execute tx                   <- proposer executes locally
+3. Seal block                   <- completed within 360ms
+4. Broadcast block              <- user receives 1-confirmation
+   |
+   +-- async: export witness -> tosproofd generates proof -> sidecar arrives seconds later
+```
+
+At step 4, the proof has not been generated yet. But the block is already produced and the user's transaction is confirmed. The proof is a background process that does not affect user-facing latency.
+
+### Practical guidance
+
+- **Small-value transactions:** 1-confirmation (~360ms) is sufficient, same as today
+- **High-value transactions / cross-chain withdrawals:** wait for finalize (~10min), same as today
+- **Proof availability:** irrelevant to users; only matters for internal validator operation
+
+---
+
 ## Do We Still Need 15 Validators?
 
 **Yes.** Proof verification replaces transaction re-execution, but it does not replace consensus. Validators still perform six out of seven original duties — only "execute transactions to validate" is replaced by "verify proof".
