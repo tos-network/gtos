@@ -56,6 +56,31 @@ const (
 	UnshieldTxType            // 0x03
 )
 
+// IsProofFastPath returns true if this transaction type is eligible for
+// proof-backed batch validation in Phase 1 (native-transfer-batch-v1).
+func (tx *Transaction) IsProofFastPath() bool {
+	return tx.ProofClass() != ProofCoverageNone
+}
+
+// ProofClass returns the proof coverage class for this transaction.
+// In Phase 1, only transfer-class transactions are proof-eligible.
+func (tx *Transaction) ProofClass() ProofCoverageClass {
+	switch tx.Type() {
+	case SignerTxType:
+		// SignerTx is proof-eligible only if it is a plain value transfer
+		// (no contract call). A plain transfer has nil or empty data and
+		// a non-nil To address.
+		if tx.To() != nil && len(tx.Data()) == 0 {
+			return ProofCoverageTransfer
+		}
+		return ProofCoverageNone
+	case ShieldTxType, PrivTransferTxType, UnshieldTxType:
+		return ProofCoverageTransfer
+	default:
+		return ProofCoverageNone
+	}
+}
+
 // Transaction is an TOS transaction.
 type Transaction struct {
 	inner TxData    // Consensus contents of a transaction
