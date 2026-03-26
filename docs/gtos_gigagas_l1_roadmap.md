@@ -1,5 +1,54 @@
 # gtos Gigagas L1 Roadmap
 
+## Open Research: Parallel Proving over Encrypted Accounts
+
+After Phase 0.5 unifies all balances into encrypted commitments and all tx types into a single `SignerTx`, a critical question remains:
+
+> **How do we design account-level parallelism so that proof generation can be parallelized or aggregated, not serialized per-account?**
+
+### The problem
+
+In the encrypted account model, every transfer mutates a Pedersen commitment:
+
+```
+sender.Commitment   = sender.Commitment   - transferCt
+receiver.Commitment = receiver.Commitment + transferCt
+```
+
+If two transactions touch the same account (e.g., account A sends to B and C), their commitment updates are **order-dependent** — the second tx's pre-state depends on the first tx's post-state. This creates a serial dependency chain that blocks parallel proving.
+
+### Why this matters for Gigagas throughput
+
+At 10,000 TPS, a single block contains ~3,600 txs. If popular accounts (exchanges, validators, hot wallets) appear in hundreds of txs per block, the serial dependency chain on those accounts becomes the proving bottleneck — even if the prover has 64 cores or a GPU.
+
+### Candidate approaches
+
+| Approach | Idea | Trade-off |
+|----------|------|-----------|
+| **Account-partitioned proving** | Partition txs by sender account. Each partition proves independently. Aggregate with recursive proof. | Works well if accounts are evenly distributed. Hot accounts still serialize. |
+| **Deferred commitment aggregation** | Each tx produces a delta commitment (not applied to account state). Deltas are aggregated per-account at batch boundary. | Requires new commitment algebra. Verification must accept aggregated deltas. |
+| **UTXO-style commitment model** | Instead of mutating a single account commitment, each tx consumes and produces independent commitments (like Zcash notes). | Eliminates account-level serial dependency entirely. Major model change. |
+| **Optimistic parallel + conflict retry** | Execute/prove all txs in parallel optimistically. Detect conflicts (same account touched). Re-prove conflicting txs serially. | Simple to implement. Worst case degrades to serial. |
+| **Access-list-predicted parallelism** | Txs declare which accounts they touch (access list). Prover schedules non-conflicting txs in parallel. | Requires accurate access lists. Works well for transfers. |
+
+### Current status
+
+This is an **open research topic**, not a resolved design. The roadmap proceeds with serial proving for same-account txs (correct but slow for hot accounts). Parallel proving optimization is tracked as a cross-cutting concern that may influence Phase 3-5 design choices.
+
+### Interaction with roadmap phases
+
+| Phase | Relevance |
+|-------|-----------|
+| Phase 0.5 | Account model choice (commitment structure) determines parallelism options |
+| Phase 1 | Witness export must capture per-tx deltas (not cumulative state) to enable future parallelism |
+| Phase 2 | State diff format should support per-account delta aggregation |
+| Phase 3-4 | Contract proving adds storage-level dependencies beyond account balance |
+| Phase 5 | Sub-proof sharding + recursive aggregation is the execution layer for parallel proving |
+
+This topic is documented here to ensure that design decisions in Phase 0.5–2 do not accidentally close off parallelism options needed in Phase 5.
+
+---
+
 ## Goal
 
 Inspired by Ethereum's "Gigagas L1" vision for ~2029, gtos aims to **raise mainnet execution throughput from the current hundreds of TPS to the ~10,000 TPS class**.
