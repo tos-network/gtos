@@ -485,8 +485,91 @@ The real benefit is not fewer validators, but **lighter validators**:
 
 ---
 
+## Prover Hardware Acceleration
+
+Proof generation is CPU-intensive. The `tosproofd` prover process supports hardware acceleration transparently — the gtos node only communicates via IPC and is unaware of the backend hardware.
+
+### Three acceleration tiers
+
+| Tier | Speedup | Maturity | When to use |
+|------|---------|----------|-------------|
+| **Multi-core CPU parallel** | 4-16x | Mature | Phase 1-2 (transfer proofs) |
+| **GPU (CUDA/OpenCL)** | 10-100x | Production-ready | Phase 3+ (contract proofs) |
+| **FPGA / ASIC** | 100-1000x | Early stage | Phase 5+ (future consideration) |
+
+### Why GPU matters
+
+The core proving operations — multi-scalar multiplication (MSM) and number-theoretic transform (NTT) — are massively parallelizable. A GPU has thousands of cores doing these operations simultaneously:
+
+```
+CPU 64-core:       proof generation ~2 seconds
+GPU (RTX 4090):    proof generation ~0.1-0.3 seconds
+```
+
+### GPU-ready proof libraries (production-ready)
+
+| Library | Language | GPU support | Used by |
+|---------|----------|-------------|---------|
+| **ICICLE** (Ingonyama) | Rust/CUDA | CUDA | Scroll, Axiom |
+| **bellperson** | Rust/CUDA/OpenCL | CUDA, OpenCL | Filecoin |
+| **rapids-snark** | C++/CUDA | CUDA | Production |
+| **SP1 GPU prover** | Rust/CUDA | CUDA | Succinct |
+
+### Proof system selection: GPU support is a hard requirement
+
+The proof system for `tosproofd` must have mature GPU acceleration. This is not optional — Phase 3+ proving load cannot be met with CPU alone.
+
+| Criterion | Requirement |
+|-----------|-------------|
+| GPU acceleration library | Must have production-ready GPU support |
+| Recursive composition | Must support proof-of-proof for Phase 5 aggregation |
+| No trusted setup | Strongly preferred |
+| Small proof size | < 10 KB per batch proof |
+| Fast verification | < 5ms (must be faster than re-execution) |
+| Rust ecosystem | Rust-native (tosproofd is Rust; gtos calls via CGO/FFI) |
+
+### Leading candidate: Halo 2 + ICICLE
+
+| Property | Value |
+|----------|-------|
+| Proof system | Halo 2 (PLONKish, no trusted setup) |
+| GPU library | ICICLE (Ingonyama, production CUDA) |
+| Recursion | Native support |
+| Proof size | ~5-10 KB |
+| Verification time | ~2-3ms |
+| Used by | Scroll (zkEVM), Axiom (ZK coprocessor) |
+
+### Architecture: hardware is transparent to gtos
+
+```
+gtos node                          tosproofd
+    |                                  |
+    |-- witness (Unix socket) -------->|
+    |                                  |  Internally:
+    |                                  |  · CPU multi-thread (Phase 1-2)
+    |                                  |  · GPU CUDA (Phase 3-4)
+    |                                  |  · Multi-GPU cluster (Phase 5)
+    |                                  |
+    |<-- proof sidecar (Unix socket) --|
+```
+
+The gtos node never knows or cares what hardware generated the proof. Upgrading from CPU to GPU only requires restarting `tosproofd` with GPU-enabled binary — zero changes to the chain node.
+
+### Recommended prover hardware per phase
+
+| Phase | Tx load per block | Recommended hardware |
+|-------|-------------------|----------------------|
+| Phase 1 (shadow proving) | ~100 tx | CPU only (stub prover) |
+| Phase 2 (transfer proof) | ~1,000 tx | 16-64 core CPU |
+| Phase 3-4 (contract proof) | ~1,400 tx | GPU (RTX 3090+ or equivalent) |
+| Phase 5 (10k TPS) | ~3,600 tx | Multi-GPU or GPU cluster |
+
+---
+
 ## Summary
 
 **One sentence:** Users sign and send transactions exactly the same way. The difference is that inside the chain, 14 out of 15 validators verify a proof instead of re-executing every transaction — reducing per-block validation cost from ~100ms to ~5ms and enabling throughput scaling to ~10,000 TPS.
 
 **Validators are still needed** — they provide consensus, not just execution. But they become much lighter: from heavy compute nodes to lightweight proof verifiers.
+
+**Proof generation** is handled by `tosproofd`, a separate process that supports CPU and GPU acceleration. Hardware upgrades are transparent to the chain — no code changes needed.
