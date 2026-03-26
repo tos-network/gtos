@@ -269,6 +269,75 @@ Phase 1-4 use the self-proving model. Prover decentralization is a Phase 5+ conc
 
 ---
 
+## Do We Still Need 15 Validators?
+
+**Yes.** Proof verification replaces transaction re-execution, but it does not replace consensus. Validators still perform six out of seven original duties — only "execute transactions to validate" is replaced by "verify proof".
+
+### Validator responsibilities after Gigagas L1
+
+| Responsibility | Still needed? | Changes? |
+|----------------|---------------|----------|
+| DPoS block proposer rotation | Yes | No change |
+| Sign and seal blocks (ed25519) | Yes | No change |
+| Checkpoint QC voting (2/3+1 signatures) | Yes | No change |
+| Fork choice (select canonical chain) | Yes | No change |
+| Broadcast and relay blocks | Yes | No change |
+| Maintain state trie | Yes | No change |
+| Execute transactions to validate | ~~Yes~~ | **Replaced by proof verification** |
+
+### Why validators cannot be reduced
+
+**1. Checkpoint finality requires 2/3+1 signatures**
+
+```
+Current: 15 validators, finalize requires ceil(15 x 2/3) = 10 signatures
+```
+
+Fewer validators means fewer signatures needed for finality, which lowers the cost of a collusion attack. The validator count is a security parameter, not an execution parameter.
+
+**2. DPoS rotation requires multiple proposers**
+
+If only one node proposes and proves, it becomes a centralized single point. It could:
+- Censor transactions (refuse to include specific txs)
+- Go offline (halt the chain)
+- Forge state (produce invalid proofs)
+
+Multiple validators rotating through proposer duty ensure no single party controls the chain.
+
+**3. ZK proofs do not replace consensus**
+
+A ZK proof proves: **"the state transition is correct."**
+
+A ZK proof does NOT prove:
+- The block was produced by a legitimate DPoS proposer (requires DPoS signatures)
+- The block is accepted by a majority of validators (requires checkpoint QC)
+- There is no longer competing chain (requires fork choice)
+
+**Proofs replace re-execution, not consensus.**
+
+### What actually changes: validator hardware cost
+
+The real benefit is not fewer validators, but **lighter validators**:
+
+| Metric | Before | After Gigagas L1 |
+|--------|--------|-------------------|
+| CPU requirement | High (execute all txs) | **Low** (verify proof only) |
+| Per-block processing time | ~100ms+ (full execution) | **~5-10ms** (proof verify + state diff apply) |
+| Achievable TPS | Bounded by CPU execution speed | Bounded by proof verification speed and network bandwidth |
+| Hardware cost per validator | High | **Significantly lower** |
+| Barrier to becoming a validator | High (need fast CPU to keep up) | **Lower** (proof verification is lightweight) |
+
+### Result
+
+- **Same number of validators** (15) — consensus security is preserved
+- **Each validator does much less work** — from "execute all transactions" to "verify one proof"
+- **More people can afford to run validators** — hardware requirements drop
+- **The chain can process more transactions** — validator throughput is no longer the bottleneck
+
+---
+
 ## Summary
 
 **One sentence:** Users sign and send transactions exactly the same way. The difference is that inside the chain, 14 out of 15 validators verify a proof instead of re-executing every transaction — reducing per-block validation cost from ~100ms to ~5ms and enabling throughput scaling to ~10,000 TPS.
+
+**Validators are still needed** — they provide consensus, not just execution. But they become much lighter: from heavy compute nodes to lightweight proof verifiers.
