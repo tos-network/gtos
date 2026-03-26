@@ -395,7 +395,124 @@ Compared to "delete plaintext" (11-18 weeks), this is ~30% less work because:
 
 ---
 
-# 8. Risks
+# 8. System Action and Transaction Type Impact
+
+## 8.1 System action audit: 52 actions, only 10 need changes
+
+gtos has 52 system action types across 19 handler modules. The vast majority are pure metadata operations that never touch plaintext balance.
+
+### Actions that touch plaintext balance (10 actions — must migrate)
+
+All 10 follow the same pattern: `SubBalance(from, amount)` + `AddBalance(registry, amount)` for deposits/stakes, or the reverse for withdrawals. The migration is uniform: replace with `SubScalarFromBalance` / `AddScalarToBalance`.
+
+| Action | Handler | What it does | Migration |
+|--------|---------|-------------|-----------|
+| `VALIDATOR_REGISTER` | `validator/handler.go` | Lock validator stake | `SubBalance` → `SubScalarFromBalance` |
+| `VALIDATOR_WITHDRAW` | `validator/handler.go` | Refund validator stake | `AddBalance` → `AddScalarToBalance` |
+| `AGENT_REGISTER` | `agent/handler.go` | Lock agent stake | Same pattern |
+| `AGENT_INCREASE_STAKE` | `agent/handler.go` | Add to agent stake | Same pattern |
+| `AGENT_DECREASE_STAKE` | `agent/handler.go` | Refund agent stake | Same pattern |
+| `TASK_SCHEDULE` | `task/handler.go` | Task deposit | Same pattern |
+| `TASK_CANCEL` | `task/handler.go` | Refund task deposit | Same pattern |
+| `LEASE_RENEW` | `lease/handler.go` | Lease deposit | Same pattern |
+| `LEASE_CLOSE` | `lease/handler.go` | Refund lease deposit | Same pattern |
+| `TNS_REGISTER` | `tns/handler.go` | Domain registration fee | Same pattern |
+
+**Estimated effort:** ~1 week. All 10 actions use the same deposit/withdraw pattern.
+
+### Actions that do NOT touch balance (42 actions — no changes needed)
+
+These are pure metadata operations (write storage slots, update registries, set permissions):
+
+- **Policy wallet** (11 actions): SetSpendCaps, SetAllowlist, SetTerminalPolicy, AuthorizeDelegate, RevokeDelegate, SetGuardian, InitiateRecovery, CancelRecovery, CompleteRecovery, Suspend, Unsuspend, SetAuditorKey
+- **Package registry** (7 actions): RegisterPublisher, SetPublisherStatus, Publish, Deprecate, Revoke, DisputeNamespace, ResolveNamespace
+- **Registry/Verifier/PayPolicy** (10 actions): RegisterCap, DeprecateCap, RevokeCap, GrantDelegation, RevokeDelegation, RegisterVerifier, DeactivateVerifier, AttestVerification, RevokeVerification, RegisterPayPolicy, DeactivatePayPolicy
+- **Capability** (3 actions): Register, Grant, Revoke
+- **Gateway** (3 actions): Register, Update, Deregister
+- **Settlement** (3 actions): RegisterCallback, ExecuteCallback, FulfillAsync
+- **KYC** (2 actions): Set, Suspend
+- **Delegation** (2 actions): MarkUsed, Revoke
+- **Group** (2 actions): Register, StateCommit
+- **Reputation** (2 actions): AuthorizeScorer, RecordScore
+- **Referral** (1 action): Bind
+- **AccountSigner** (1 action): SetSigner
+- **Validator maintenance** (2 actions): EnterMaintenance, ExitMaintenance
+
+**No system actions need to be deleted.**
+
+### Registry accounts that accumulate balance
+
+These system contract addresses currently hold plaintext balance from deposits/stakes:
+
+| Address | What it holds |
+|---------|---------------|
+| `ValidatorRegistryAddress` | Validator stakes |
+| `AgentRegistryAddress` | Agent stakes |
+| `LeaseRegistryAddress` | Lease deposits |
+| `TNSRegistryAddress` | Registration fees |
+| `TaskSchedulerAddress` | Task deposits |
+
+After migration, these accounts hold **encrypted balance** (Commitment + Handle) instead of plaintext `*big.Int`. The homomorphic operations handle this transparently.
+
+## 8.2 Transaction type changes
+
+### ShieldTx and UnshieldTx become obsolete
+
+With no plaintext balance, there is no need to bridge between plaintext and encrypted:
+
+- `ShieldTx (0x02)`: converts plaintext → encrypted. **Delete** — no plaintext to shield from.
+- `UnshieldTx (0x03)`: converts encrypted → plaintext. **Delete** — no plaintext to unshield to.
+
+### Remaining transaction types
+
+| Tx type | Status | Change |
+|---------|--------|--------|
+| `SignerTx (0x00)` | **Keep** | Gas fees use encrypted operations; value transfers use encrypted path |
+| `PrivTransferTx (0x01)` | **Keep** | Already fully encrypted, no changes needed |
+| `ShieldTx (0x02)` | **Delete** | No plaintext balance to shield from |
+| `UnshieldTx (0x03)` | **Delete** | No plaintext balance to unshield to |
+
+Transaction types reduce from 4 to 2:
+
+```
+Before:  SignerTx + PrivTransferTx + ShieldTx + UnshieldTx  (4 types)
+After:   SignerTx + PrivTransferTx                          (2 types)
+```
+
+### SignerTx changes
+
+`SignerTx` remains the general-purpose transaction type but its internal execution changes:
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| Gas deduction | `SubBalance(payer, gasCost)` | `SubScalarFromBalance(payer, gasCost)` |
+| Value transfer | `Transfer(from, to, amount)` | Encrypted transfer with client-side proof |
+| Fee to coinbase | `AddBalance(coinbase, fee)` | `AddScalarToBalance(coinbase, fee)` |
+| Gas refund | `AddBalance(payer, remaining)` | `AddScalarToBalance(payer, remaining)` |
+
+## 8.3 Impact on Gigagas L1 proving surface
+
+With ShieldTx and UnshieldTx deleted, the Phase 1 proving target simplifies:
+
+```
+Before:  4 tx types to prove (native transfer, shield, priv transfer, unshield)
+After:   2 tx types to prove (SignerTx encrypted transfer, PrivTransferTx)
+```
+
+This directly reduces the proof circuit complexity for Phase 1-2.
+
+## 8.4 Additional work estimate for system actions and tx types
+
+| Item | Effort |
+|------|--------|
+| Migrate 10 system actions (uniform pattern) | ~1 week |
+| Delete ShieldTx + UnshieldTx (code + tests) | ~1 week |
+| Modify SignerTx gas/transfer path | ~2 weeks (included in section 7 estimate) |
+| 42 metadata-only actions | **0** |
+
+---
+
+# 9. Risks
 
 | Risk | Mitigation |
 |------|-----------|
@@ -407,7 +524,7 @@ Compared to "delete plaintext" (11-18 weeks), this is ~30% less work because:
 
 ---
 
-# 9. Files Affected
+# 10. Files Affected
 
 ## New files
 
@@ -435,10 +552,13 @@ None — this is a restructuring, not new functionality.
 | `core/priv/state.go` | `CommitmentSlot`, `HandleSlot`, `VersionSlot`, `NonceSlot` constants |
 | `core/priv/state.go` | `GetAccountState()`, `SetAccountState()` via storage slots |
 | `core/state/statedb.go` | `GetBalance()`, `SetBalance()` plaintext methods |
+| `core/types/transaction.go` | `ShieldTxType` (0x02), `UnshieldTxType` (0x03) constants |
+| `core/privacy_tx_prepare.go` | Shield and unshield execution paths |
+| Related test files | Shield/unshield test cases |
 
 ---
 
-# 10. Summary
+# 11. Summary
 
 The encrypted account model replaces two parallel balance systems with one:
 
