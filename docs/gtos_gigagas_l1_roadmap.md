@@ -22,6 +22,42 @@ After Phase 5, gtos targets **~10,000 TPS** for transfer-dominated workloads wit
 
 ---
 
+## Proof System Strategy
+
+gtos adopts a **hybrid proof-system strategy**:
+
+### Primary proving family (Phase 1–4)
+
+**Custom-circuit SNARK-style proving** for proof-backed state transition validation.
+
+This is not a general-purpose zkVM approach. gtos defines its own circuits for each proving target:
+
+| Phase | Proving target | Circuit scope |
+|-------|---------------|---------------|
+| Phase 1–2 | Transfer batches (native, shield, priv transfer, unshield) | Balance/nonce transitions, privacy commitments |
+| Phase 3 | Restricted contracts | Allowlisted code-hash execution traces |
+| Phase 4 | Hot-path profiles | Profile-bounded LVM execution semantics |
+
+### Phase 5 direction
+
+**Recursive aggregation / multi-proof composition / segmented proving.**
+
+Sub-range proofs are generated in parallel and recursively aggregated into checkpoint-range proofs. The aggregation circuit is a separate proving layer on top of the per-batch circuits.
+
+### Non-goal
+
+**No zkEVM compatibility target.** gtos does not aim to prove EVM opcode semantics. The proving target is gtos's own state machine (system actions + LVM runtime + UNO privacy), not Ethereum EVM. This is a deliberate architectural choice:
+
+- gtos controls its own execution surface and can define proof-friendly profiles
+- zkEVM universal compatibility would add massive circuit complexity for no benefit
+- Profile-based proving reaches production faster than universal proving
+
+### Implementation approach
+
+Phase 1 ships with a **stub prover** (deterministic fake proofs for pipeline testing). The real proving backend is plugged in before Phase 2 activation. The node-side protocol (`ProofArtifact`, `BatchProofVerifier` interface) is proof-system-agnostic — switching the backend does not require node code changes.
+
+---
+
 ## Scope
 
 This document defines the **5-phase engineering roadmap** for evolving `gtos` from its current execution architecture toward a Gigagas L1 model.
