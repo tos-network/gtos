@@ -411,14 +411,54 @@ See: [Phase 2 Design](./gtos_gigagas_l1_phase2_design.md)
 2. Refine proof-friendly state commitments
 3. Gradually expand proof coverage
 
-## Phase 4: Gigagas GTOS
+## Phase 4: Hot-Path Proof-Native Validation
 
 *Validator behavior: most high-frequency paths are proof-native*
 
-1. Chunked/blob data plane
-2. Pipelined proposer/builder/prover
-3. Stateless validation (optional)
-4. Full ~10,000 TPS class target
+1. Expand proof coverage to dominant LVM contract profiles
+2. Pipelined proposer/builder/prover workflow
+3. Profile-based allowlisted proof validation
+
+**Phase 4 exit criteria:** most high-frequency tx classes are proof-native. Validator execution cost is dominated by proof verification, not tx replay.
+
+See: [Phase 4 Design](./gtos_gigagas_l1_phase4_hotpath_proof_native_validation.md)
+
+## Phase 5: Throughput Scaling
+
+*Target: ~10,000 TPS class*
+
+Phase 1–4 solve the **validator re-execution bottleneck** but do not automatically deliver 10,000 TPS. Five additional bottlenecks must be addressed:
+
+| # | Bottleneck | Phase 1–4 status | Phase 5 action |
+|---|-----------|-----------------|----------------|
+| 1 | Block gas limit | Not addressed (current: 30M, need: 75M+) | Gas model redesign |
+| 2 | Data availability | Not addressed (~2 MB/s at 10k TPS) | Chunked data plane |
+| 3 | Proof generation speed | Partial (checkpoint range, no sub-proof sharding) | Recursive proof aggregation |
+| 4 | Builder execution speed | Partial (builder still executes all txs) | Parallel execution optimization |
+| 5 | State I/O | Not addressed (MPT write amplification) | State layout optimization |
+
+### Current throughput ceiling analysis
+
+```
+Block time:       360ms (~2.78 blocks/s)
+Genesis gas limit: 30,000,000
+Transfer gas cost: ~21,000
+Theoretical max:   30M / 21k × 2.78 ≈ 3,968 TPS (transfer-only)
+```
+
+Even with zero validator re-execution cost, the current gas limit caps throughput below 4,000 TPS. Raising gas limit alone does not linearly scale throughput — DA, state I/O, and proof speed become binding constraints.
+
+### Phase 5 sub-modules
+
+1. **Gas Model & Block Capacity** — raise gas limit to 75M+, revisit transfer gas pricing
+2. **Chunked Data Plane** — `DataRoot` + `DataChunks` (designed in architecture doc, not yet implemented)
+3. **Sub-Proof Sharding + Recursive Aggregation** — parallel sub-provers per block range, aggregate into checkpoint-range proof
+4. **Builder Parallel Execution** — access-list-predicted parallel tx execution at the builder
+5. **State I/O Optimization** — flat state / verkle trie / optimized state diff application
+
+**Phase 5 exit criteria:** gtos sustains ~10,000 TPS for transfer-dominated workloads with proof-native validation, adequate DA, and acceptable proof latency.
+
+See: [Phase 5 Design](./gtos_gigagas_l1_phase5_throughput_scaling.md)
 
 ---
 
@@ -456,18 +496,27 @@ The recommended Phase 2 model is **background execution**: proof verification ga
 
 # Final Summary
 
-The path from current gtos to Gigagas L1 has four phases. The critical transition happens at **Phase 2**, where validators shift from re-execution to proof verification for consensus acceptance.
+The path from current gtos to Gigagas L1 has five phases. Phase 1–4 solve the validator re-execution bottleneck. Phase 5 solves the throughput scaling bottlenecks needed to reach ~10,000 TPS.
 
-| Phase | Validator model | Key change |
-|-------|----------------|------------|
-| 0 (current) | Full re-execution | Baseline |
-| 1 | Full re-execution + shadow proofs | Build proving infrastructure |
-| 2 | Proof verification (background execution for state trie) | **Consensus acceptance via proof** |
-| 3 | Expanding proof coverage | More tx classes skip re-execution |
-| 4 | Proof-native validation | Gigagas throughput class |
+| Phase | Validator model | Key change | TPS impact |
+|-------|----------------|------------|------------|
+| 0 (current) | Full re-execution | Baseline | ~hundreds |
+| 1 | Full re-execution + shadow proofs | Build proving infrastructure | No change |
+| 2 | Proof verification for transfers | **Consensus acceptance via proof** | Latency drop |
+| 3 | Expanding proof coverage | More tx classes skip re-execution | Latency drop |
+| 4 | Hot-path proof-native validation | Most high-freq paths proof-native | ~3,000–4,000 |
+| 5 | Throughput scaling | Gas limit + DA + recursive proving + parallel execution + state I/O | **~10,000** |
 
-gtos is better positioned than Ethereum for this transition because:
-- No EVM historical baggage
-- Existing privacy proof infrastructure
-- Controllable execution surface (system actions + LVM, not open EVM)
-- Smaller validator set with deterministic finality
+**Phase 1–4 are necessary but not sufficient for 10,000 TPS.** They eliminate the largest single bottleneck (validator re-execution). Phase 5 addresses the remaining bottlenecks: block capacity, data availability, proof generation speed, builder throughput, and state I/O.
+
+### gtos vs Ethereum approach
+
+- Ethereum 2029: **prove the EVM** (zkEVM — universal EVM compatibility)
+- gtos: **prove dominant gtos execution profiles** (profile-based zk-native validation)
+
+gtos is better positioned for this transition because:
+- No EVM historical baggage — proving target is self-defined, not legacy-constrained
+- Existing privacy proof infrastructure — UNO/ciphertext proofs are already native
+- Controllable execution surface — can define proof-friendly profiles and allowlists
+- Smaller validator set with deterministic finality — simpler consensus integration
+- Profile-based approach is more practical than universal zkVM for reaching production faster
