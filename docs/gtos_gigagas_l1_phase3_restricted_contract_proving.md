@@ -976,3 +976,12 @@ That is the narrowest realistic Phase 3 path that:
 - avoids a premature full zkVM commitment
 - is specific enough to implement now
 - keeps `gtos` moving toward a real Gigagas L1 architecture
+
+---
+
+## Related Documents
+
+- [Gigagas L1 Roadmap](./gtos_gigagas_l1_roadmap.md)
+- [Phase 2 Design: Proof-Backed Transfer Validation](./gtos_gigagas_l1_phase2_proof_backed_transfer_validation.md)
+- [Phase 3 File-by-File Coding Checklist](./gtos_gigagas_l1_phase3_coding_checklist.md)
+- [Phase 4 Design: Hot-Path Proof-Native Validation](./gtos_gigagas_l1_phase4_hotpath_proof_native_validation.md)

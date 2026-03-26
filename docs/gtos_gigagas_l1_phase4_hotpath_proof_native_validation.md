@@ -998,3 +998,12 @@ That is the narrowest realistic Phase 4 path that:
 - remains implementable with the current `gtos` architecture
 - pushes validator replay off the dominant path
 - gets meaningfully closer to a true Gigagas-style L1
+
+---
+
+## Related Documents
+
+- [Gigagas L1 Roadmap](./gtos_gigagas_l1_roadmap.md)
+- [Phase 3 Design: Restricted Contract Proving](./gtos_gigagas_l1_phase3_restricted_contract_proving.md)
+- [Phase 4 File-by-File Coding Checklist](./gtos_gigagas_l1_phase4_coding_checklist.md)
+- [Phase 5 Design: Throughput Scaling](./gtos_gigagas_l1_phase5_throughput_scaling.md)

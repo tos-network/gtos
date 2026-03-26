@@ -425,7 +425,7 @@ See: [Phase 1 Implementation Checklist](./gtos_gigagas_l1_phase1_implementation_
 
 **Phase 2 exit criteria:** validators accept proof-covered blocks via proof verification (~1-5ms) instead of full re-execution (~100ms+). Classical fallback works for blocks without sidecars.
 
-See: [Phase 2 Design](./gtos_gigagas_l1_phase2_design.md)
+See: [Phase 2 Design](./gtos_gigagas_l1_phase2_proof_backed_transfer_validation.md)
 
 ## Phase 3: Restricted Contract Proving
 
@@ -434,6 +434,10 @@ See: [Phase 2 Design](./gtos_gigagas_l1_phase2_design.md)
 1. Extend proving kernel to cover restricted LVM contract subsets
 2. Refine proof-friendly state commitments
 3. Gradually expand proof coverage
+
+**Phase 3 exit criteria:** allowlisted restricted contract calls are proof-native. Proof coverage extends beyond transfer-only to a bounded subset of LVM contract semantics.
+
+See: [Phase 3 Design](./gtos_gigagas_l1_phase3_restricted_contract_proving.md)
 
 ## Phase 4: Hot-Path Proof-Native Validation
 

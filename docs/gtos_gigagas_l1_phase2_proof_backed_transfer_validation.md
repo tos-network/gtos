@@ -1367,3 +1367,12 @@ That is the narrowest realistic implementation path that:
 - avoids requiring full contract proving
 - allows direct coding now
 - moves `gtos` closer to real proof-backed L1 validation
+
+---
+
+## Related Documents
+
+- [Gigagas L1 Roadmap](./gtos_gigagas_l1_roadmap.md)
+- [Phase 1 Implementation Checklist](./gtos_gigagas_l1_phase1_implementation_checklist.md)
+- [Phase 2 File-by-File Coding Checklist](./gtos_gigagas_l1_phase2_coding_checklist.md)
+- [Phase 3 Design: Restricted Contract Proving](./gtos_gigagas_l1_phase3_restricted_contract_proving.md)
