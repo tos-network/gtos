@@ -452,6 +452,9 @@ This is explicitly **not** synchronous proof-gated block production. Synchronous
 ---
 
 ### D3. Implement a Phase 1 transfer-batch prover stub, then real prover integration
+
+**Existing infrastructure reference:** gtos already has a production aggregated range proof implementation in `crypto/ed25519/priv_rangeproofs_aggregated.go` and `crypto/priv/prove.go` (`ProveAggregatedRangeProof`). The stub prover should follow the same dual-backend pattern used by the privacy prover: CGO backend for performance (`crypto/ed25519/priv_batch_verify_cgo.go`) and pure-Go fallback (`crypto/ed25519/priv_batch_verify_nocgo.go`).
+
 **Files**
 - `proofworker/service.go`
 - prover backend integration files as needed
@@ -461,6 +464,7 @@ This is explicitly **not** synchronous proof-gated block production. Synchronous
 - [ ] Add deterministic fake proof mode for CI
 - [ ] Add real transfer-batch prover integration
 - [ ] Verify response schema remains identical between stub and real mode
+- [ ] Follow CGO + pure-Go dual-backend pattern from existing privacy prover
 
 **Exit criteria**
 - [ ] CI can exercise full pipeline with stub proofs

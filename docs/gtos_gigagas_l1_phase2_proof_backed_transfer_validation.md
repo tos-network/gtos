@@ -492,6 +492,12 @@ For `native-transfer-batch-v1`, do **not** allow arbitrary dynamic logs beyond t
 
 - `core/block_validator_proof.go`
 
+## Existing infrastructure reference
+
+gtos already has a pluggable proof verifier registry in `sysaction/oracle_hooks.go` (`RegisterProofVerifier()`, `RegisterProofVerifierAddress()`). The `BatchProofVerifier` implementation should be registered through this mechanism so that proof verification dispatch is consistent with the existing oracle/proof hook pattern.
+
+The `BatchVerifier` pattern in `core/priv/batch_verify.go` (accumulate proof terms → single `Verify()` call) should inform the `VerifyTransferBatchProof` implementation: accumulate public inputs and commitment checks, then perform a single cryptographic verification.
+
 ## New interface
 
 ```go

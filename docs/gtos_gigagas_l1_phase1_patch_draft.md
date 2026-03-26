@@ -648,6 +648,10 @@ Create a stable artifact shared by builder, prover, validator, and RPC.
   - `Digest(*ProofArtifact) common.Hash`
   - `}`
 
+### Existing infrastructure to reference
+
+The `BatchVerifier` pattern in `core/priv/batch_verify.go` (accumulate multiple proofs → single `Verify()` call) should inform the design of the `ProofArtifactCodec` and the Phase 2 `BatchProofVerifier` interface. The aggregated range proof implementation in `crypto/ed25519/priv_rangeproofs_aggregated.go` demonstrates how gtos already composes multiple proof statements into a single verification.
+
 ### Patch sketch
 #### `core/types/proof.go`
 Define canonical proof artifact schema:

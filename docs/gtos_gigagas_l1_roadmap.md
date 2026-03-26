@@ -52,6 +52,21 @@ Sub-range proofs are generated in parallel and recursively aggregated into check
 - zkEVM universal compatibility would add massive circuit complexity for no benefit
 - Profile-based proving reaches production faster than universal proving
 
+### Existing proof infrastructure in gtos
+
+gtos already has production-grade proof infrastructure that the Gigagas L1 roadmap builds on:
+
+| Existing facility | Location | Reuse in Gigagas L1 |
+|-------------------|----------|---------------------|
+| **Aggregated Bulletproof range proofs** | `crypto/ed25519/priv_rangeproofs_aggregated.go` | Proof aggregation pattern for Phase 1-2 transfer batch proofs |
+| **BatchVerifier** (accumulate proofs → single verify) | `core/priv/batch_verify.go`, `crypto/priv/batch_verify.go` | Design pattern for `BatchProofVerifier` interface in Phase 2+ |
+| **Proof Bundle** (pre-computed ZK proofs bundled with calldata) | `core/vm/proof_bundle.go` | Proof packaging format reference for Phase 3 contract proofs |
+| **Pluggable proof verifier registry** | `sysaction/oracle_hooks.go` (`RegisterProofVerifier()`) | Registration mechanism for Phase 2+ batch proof verifiers |
+| **CGO + Pure Go dual backend** | `crypto/ed25519/priv_batch_verify_{cgo,nocgo}.go` | Phase 1 stub prover (Go) → real prover (CGO/Rust FFI) pattern |
+| **Merlin transcripts** (Fiat-Shamir) | Used throughout `crypto/priv/` | Transcript-based proof integrity for new proof types |
+
+These are not toy prototypes — they handle real privacy transaction verification in production. The Gigagas L1 proving pipeline extends this foundation to cover batch state transitions, not just individual privacy operations.
+
 ### Implementation approach
 
 Phase 1 ships with a **stub prover** (deterministic fake proofs for pipeline testing). The real proving backend is plugged in before Phase 2 activation. The node-side protocol (`ProofArtifact`, `BatchProofVerifier` interface) is proof-system-agnostic — switching the backend does not require node code changes.
