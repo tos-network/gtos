@@ -67,9 +67,56 @@ gtos already has production-grade proof infrastructure that the Gigagas L1 roadm
 
 These are not toy prototypes — they handle real privacy transaction verification in production. The Gigagas L1 proving pipeline extends this foundation to cover batch state transitions, not just individual privacy operations.
 
+### Hardware acceleration requirement
+
+Proof generation is CPU-intensive. At higher throughput (Phase 3+), GPU acceleration becomes essential. **The proof system must be chosen with mature GPU library support as a hard requirement.**
+
+| Acceleration | Speedup | Maturity |
+|--------------|---------|----------|
+| Multi-core CPU parallel | 4-16x | Mature |
+| GPU (CUDA/OpenCL) | 10-100x | Production-ready |
+| FPGA / ASIC | 100-1000x | Early stage (Phase 5+ consideration) |
+
+The core proving operations (multi-scalar multiplication / MSM, number-theoretic transform / NTT) are the same across all SNARK systems and are the primary GPU acceleration targets.
+
+### Proof system selection criteria
+
+The proof system for `tosproofd` must satisfy:
+
+| Criterion | Requirement | Reason |
+|-----------|-------------|--------|
+| **GPU acceleration library** | Must have production-ready GPU support | Phase 3+ proving load requires GPU. No GPU = prover bottleneck. |
+| **Recursive composition** | Must support proof-of-proof (recursive SNARKs) | Phase 5 checkpoint-range aggregation depends on this. |
+| **No trusted setup** (preferred) | Strongly preferred, not absolute | Eliminates ceremony coordination risk. |
+| **Small proof size** | < 10 KB per batch proof | Sidecar storage and network propagation cost. |
+| **Fast verification** | < 5ms per proof | Validator must verify faster than re-executing. |
+| **Rust ecosystem** | Rust-native library | `tosproofd` prover is written in Rust; Go node calls via CGO/FFI. |
+
+### GPU-ready proof system candidates
+
+| System | GPU library | Recursion | Trusted setup | Proof size | Verification |
+|--------|------------|-----------|---------------|------------|-------------|
+| **Halo 2** | ICICLE (Ingonyama) | Native | No | ~5-10 KB | ~2-3ms |
+| **Plonk + KZG** | ICICLE, bellperson | Via aggregation | Yes | ~1-2 KB | ~1-2ms |
+| **SP1 (Succinct)** | SP1 GPU prover | Native | No | ~200-500 KB | ~5-10ms |
+| **Groth16** | bellperson, rapids-snark | No (requires wrapping) | Yes | ~200 B | ~1ms |
+
+**Halo 2 + ICICLE** is the current leading candidate: no trusted setup, native recursion, production GPU library (ICICLE supports CUDA and is used by Scroll, Axiom, and others), and small proof size.
+
 ### Implementation approach
 
 Phase 1 ships with a **stub prover** (deterministic fake proofs for pipeline testing). The real proving backend is plugged in before Phase 2 activation. The node-side protocol (`ProofArtifact`, `BatchProofVerifier` interface) is proof-system-agnostic — switching the backend does not require node code changes.
+
+The `tosproofd` architecture isolates hardware acceleration from the chain node. The gtos node communicates with `tosproofd` via IPC (Unix socket). Internally, `tosproofd` may use CPU threads, GPU (CUDA/OpenCL), or future hardware — this is transparent to the gtos node.
+
+### Recommended prover hardware per phase
+
+| Phase | Tx load | Prover hardware |
+|-------|---------|-----------------|
+| Phase 1 (shadow proving) | ~100 tx/block | CPU only (stub prover) |
+| Phase 2 (transfer proof) | ~1,000 tx/block | 16-64 core CPU |
+| Phase 3-4 (contract proof) | ~1,400 tx/block | GPU (RTX 3090+ or equivalent) |
+| Phase 5 (10k TPS) | ~3,600 tx/block | Multi-GPU or GPU cluster |
 
 ---
 
