@@ -269,6 +269,101 @@ Phase 1-4 use the self-proving model. Prover decentralization is a Phase 5+ conc
 
 ---
 
+## Timing Budget: Proposer, Prover, and Validator
+
+### Proposer: must finish within 360ms block time
+
+The proposer (the gtos node) must complete all work within the 360ms block interval. Breakdown:
+
+```
+Block time = 360ms
+
+  Pick txs from mempool                ~1-5ms
+  Execute txs (balance+/-, nonce++)    ~30-100ms
+  Compute state root (MPT trie)        ~10-30ms
+  Export witness (Phase 1 addition)     ~5-10ms
+  Assemble block + seal (ed25519)      ~1-2ms
+  ----------------------------------------
+  Total                                ~50-150ms
+
+  Remaining time for network broadcast ~200-300ms
+```
+
+| Scenario | Txs per block | Execution time | Total |
+|----------|--------------|----------------|-------|
+| Current actual load | ~100 tx/block | ~10ms | ~30ms |
+| Current full capacity | ~1,400 tx/block (30M gas) | ~50-100ms | ~80-150ms |
+| Phase 5 target | ~3,600 tx/block (100M gas) | ~100-200ms | ~150-250ms |
+
+The proposer comfortably fits within the 360ms window at current load. Phase 5 high-load scenarios will be tighter.
+
+### Prover: 2-30 seconds (async, NOT on the critical path)
+
+The prover (`tosproofd`) runs asynchronously after block sealing. It is never constrained by the 360ms block time.
+
+```
+  Receive witness                      ~1-10ms
+  Build ZK circuit inputs              ~100-500ms
+  Generate ZK proof                    ~2-30 seconds
+  Return sidecar                       ~1ms
+  ----------------------------------------
+  Total                                ~2-30 seconds
+```
+
+Proof generation time depends on the proving system and batch size:
+
+| Proving system | 1,000 transfer batch | Notes |
+|----------------|---------------------|-------|
+| **Stub prover** (Phase 1) | ~1ms | Fake proof for pipeline testing only |
+| **Halo 2** | ~2-10s | Complex circuit authoring, small proof (~KB) |
+| **SP1 (Succinct)** | ~10-30s | Write Rust code, larger proof (~hundreds KB) |
+| **Risc0** | ~10-60s | Similar to SP1 |
+| **Plonk + KZG** | ~3-15s | Requires trusted setup |
+
+### Why slow proving is acceptable
+
+```
+Timeline (3 consecutive blocks):
+
+Block N:    [Proposer: 150ms] [Broadcast: 210ms]
+                |
+                +-- witness --> [Prover: ~~~~~~~~~ 10 seconds ~~~~~~~~~] --> sidecar N
+                                                                                |
+Block N+1:  [Proposer: 150ms] [Broadcast: 210ms]                               |
+                                                                                |
+Block N+2:  [Proposer: 150ms] [Broadcast: 210ms]                               |
+                                                                                v
+                                                                 Store to rawdb (block N sidecar)
+```
+
+Block N is sealed and broadcast immediately. The proof for block N arrives seconds later, after several more blocks have already been produced. This is Phase 1 "async shadow proving".
+
+In Phase 2+ (proof used for consensus validation), the sidecar may arrive a few seconds to tens of seconds after the block. This is acceptable because checkpoint finality operates on a 1664-block interval (~10 minutes) — the proof only needs to arrive before the next checkpoint.
+
+### Validator: 1-5ms (proof verification)
+
+After Gigagas L1, non-proposer validators verify a proof instead of re-executing all transactions:
+
+| Operation | Time |
+|-----------|------|
+| Load proof sidecar from rawdb | ~0.1ms |
+| Verify ZK proof | ~1-3ms |
+| Verify commitments (tx, receipt, state diff) | ~0.5ms |
+| Apply state diff | ~1-3ms |
+| **Total** | **~2-7ms** |
+
+Compared to the current full-execution model (~50-100ms per block), this is a **10-50x reduction** in per-block validation time.
+
+### Summary table
+
+| Role | Time | Constraint |
+|------|------|------------|
+| **Proposer** | **50-150ms** | Must finish within 360ms block time |
+| **Prover** | **2-30 seconds** | Async, does not block block production |
+| **Validator (proof verify)** | **1-5ms** | Much faster than current full execution (~100ms) |
+
+---
+
 ## Do We Still Need 15 Validators?
 
 **Yes.** Proof verification replaces transaction re-execution, but it does not replace consensus. Validators still perform six out of seven original duties — only "execute transactions to validate" is replaced by "verify proof".
