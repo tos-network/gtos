@@ -678,3 +678,21 @@ gtos is better positioned for this transition because:
 - Controllable execution surface — can define proof-friendly profiles and allowlists
 - Smaller validator set with deterministic finality — simpler consensus integration
 - Profile-based approach is more practical than universal zkVM for reaching production faster
+
+---
+
+# Reference Documents
+
+| Document | Content |
+|----------|---------|
+| [Phase 0.5: Encrypted Account Model](./gtos_gigagas_l1_phase0_encrypted_account_model.md) | Replace plaintext balance with encrypted commitment in StateAccount; unify 4 tx types to 1 |
+| [Phase 1: Implementation Checklist](./gtos_gigagas_l1_phase1_implementation_checklist.md) | Workstreams A–H, milestones 1–7 for shadow proving pipeline |
+| [Phase 1: Patch Draft](./gtos_gigagas_l1_phase1_patch_draft.md) | File-level patch plan for 12 modules |
+| [Phase 2: Proof-Backed Transfer Validation](./gtos_gigagas_l1_phase2_proof_backed_transfer_validation.md) | Detailed design for validator proof path and state diff materialization |
+| [Phase 2: Coding Checklist](./gtos_gigagas_l1_phase2_coding_checklist.md) | File-by-file coding checklist |
+| [Phase 3: Restricted Contract Proving](./gtos_gigagas_l1_phase3_restricted_contract_proving.md) | Allowlisted contract proof coverage |
+| [Phase 3: Coding Checklist](./gtos_gigagas_l1_phase3_coding_checklist.md) | File-by-file coding checklist |
+| [Phase 4: Hot-Path Proof-Native Validation](./gtos_gigagas_l1_phase4_hotpath_proof_native_validation.md) | Profile-based proof coverage for dominant tx paths |
+| [Phase 4: Coding Checklist](./gtos_gigagas_l1_phase4_coding_checklist.md) | File-by-file coding checklist |
+| [Phase 5: Throughput Scaling](./gtos_gigagas_l1_phase5_throughput_scaling.md) | Gas model, chunked DA, recursive proving, builder parallelism, state I/O |
+| [Before vs After: User & Validator Perspective](./gtos_gigagas_l1_usage_before_after.md) | Transfer flow comparison, timing budget, validator roles, prover hardware, confirmation latency |
