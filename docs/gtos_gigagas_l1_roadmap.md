@@ -1,10 +1,32 @@
-# gtos Roadmap: From Current Architecture to a Gigagas L1 Native-Transfer Batch-Proof Pipeline
+# gtos Gigagas L1 Roadmap
+
+## Goal
+
+Inspired by Ethereum's "Gigagas L1" vision for ~2029, gtos aims to **raise mainnet execution throughput from the current hundreds of TPS to the ~10,000 TPS class**.
+
+The core idea is the same as Ethereum's direction: **instead of having every validator re-execute every transaction, use zero-knowledge proofs so that validators "verify a proof" rather than "repeat execution"**.
+
+However, gtos is **not** building a zkEVM. gtos has its own execution surface (system actions, LVM/Lua contracts, UNO privacy primitives), so the proving target is **gtos's own state transition semantics**, not EVM opcode compatibility. This makes gtos a **profile-based zk-native L1**, not a zkEVM chain.
+
+### What this roadmap delivers
+
+| Milestone | What changes |
+|-----------|-------------|
+| Phase 1 | Shadow proving infrastructure — witness export, proof worker, sidecar persistence |
+| Phase 2 | Validators stop re-executing proof-covered transfer batches |
+| Phase 3 | Proof coverage expands to restricted LVM contract subsets |
+| Phase 4 | Most high-frequency paths are proof-native |
+| Phase 5 | Throughput scaling — gas limit, data plane, recursive proving, parallel execution, state I/O |
+
+After Phase 5, gtos targets **~10,000 TPS** for transfer-dominated workloads with proof-native validation.
+
+---
 
 ## Scope
 
-This document defines a **12-module engineering roadmap** for evolving `gtos` from its current execution architecture toward a **Gigagas L1** model, starting with a **zk-native-transfer batch proof** path and **explicitly excluding full smart-contract proving in the first phase**.
+This document defines the **5-phase engineering roadmap** for evolving `gtos` from its current execution architecture toward a Gigagas L1 model.
 
-The immediate objective is **not** to prove arbitrary LVM/Lua contract execution. The first milestone is narrower and more practical:
+The immediate first milestone is intentionally narrow:
 
 - native plaintext transfers
 - shield
@@ -19,6 +41,7 @@ to:
 
 - **block builders / executors execute batches and generate a state-transition proof**
 - **validators verify the proof and public inputs instead of fully re-executing the batch**
+- **throughput scales to ~10,000 TPS via gas model, data plane, and recursive proving**
 
 ---
 
@@ -37,8 +60,9 @@ To reach a Gigagas-style architecture, the system must be restructured so that:
 
 1. execution emits a deterministic witness
 2. a batch prover constructs a proof over the batch state transition
-3. the block header carries proof-related commitments
+3. proof metadata is carried out-of-band (Phase 1-4) or in-header (Phase 5+)
 4. validators verify the batch proof instead of replaying all transactions
+5. throughput bottlenecks beyond re-execution (gas limit, DA, proof speed, state I/O) are addressed
 
 ---
 
