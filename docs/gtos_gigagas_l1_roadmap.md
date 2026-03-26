@@ -386,7 +386,7 @@ Without a standard artifact format, each subsystem will evolve incompatible assu
 
 **Phase 1 exit criteria:** proving pipeline runs in staging with zero proof divergence from local execution.
 
-See: [Phase 1 Implementation Checklist](./gtos_gigagas_l1_implementation_checklist.md)
+See: [Phase 1 Implementation Checklist](./gtos_gigagas_l1_phase1_implementation_checklist.md)
 
 ## Phase 2: Proof-Backed Transfer Validation
 
@@ -401,7 +401,7 @@ See: [Phase 1 Implementation Checklist](./gtos_gigagas_l1_implementation_checkli
 
 **Phase 2 exit criteria:** validators accept proof-covered blocks via proof verification (~1-5ms) instead of full re-execution (~100ms+). Classical fallback works for blocks without sidecars.
 
-See: [Phase 2 Route](./gtos_gigagas_l1_phase2_route.md)
+See: [Phase 2 Design](./gtos_gigagas_l1_phase2_design.md)
 
 ## Phase 3: Restricted Contract Proving
 
