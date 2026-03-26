@@ -36,17 +36,24 @@ This draft is grounded against the current code layout, including:
 ### Purpose
 Extend state execution so the proving pipeline receives a deterministic witness directly from execution, instead of reconstructing touched state after the fact.
 
+### Hard constraints
+
+1. **Determinism:** All witness entries must be explicitly sorted (accounts by address, slots by key, priv entries by (address, key)). No reliance on Go map iteration order. Determinism stress tests (100 repeated runs, identical digest) must pass before miner/prover integration begins. This is a blocking prerequisite for Milestones 3+.
+
+2. **Tx-buffered commit-on-finalize:** Witness collection uses a two-layer model. During tx execution, mutations go to a `TxWitnessBuffer`. On tx success, buffer merges into `BatchWitness`. On tx revert, buffer is discarded entirely. The witness layer never writes directly to the batch during execution and never needs journal-based compensation.
+
 ### New files
 - `core/state/batch_witness.go`
 - `core/state/witness_encoder.go`
+- `core/state/tx_witness_buffer.go`
 
 ### Modified files
 - `core/state/statedb.go`
-- `core/state/journal.go`
 - `core/state/state_object.go`
 
 ### New structs
 - `BatchWitness`
+- `TxWitnessBuffer`
 - `BatchWitnessAccountEntry`
 - `BatchWitnessStorageEntry`
 - `BatchWitnessPrivEntry`
@@ -71,7 +78,13 @@ Add the canonical witness model used by the proof worker:
 - touched accounts
 - pre/post state fragments
 - priv-specific deltas
-- deterministic ordering guarantees
+- deterministic ordering guarantees (explicit sort, no map dependency)
+
+#### `core/state/tx_witness_buffer.go`
+Add per-tx staging buffer:
+- records all state mutations during a single tx
+- `MergeInto(batch *BatchWitness)` on tx success
+- discarded on tx revert (no journal compensation needed)
 
 #### `core/state/witness_encoder.go`
 Add:
@@ -84,24 +97,27 @@ Add:
 Add fields to `StateDB`:
 - `witnessCollector WitnessCollector`
 - `witnessEnabled bool`
+- `txWitnessBuf *TxWitnessBuffer`
 
 Add methods:
 - `EnableBatchWitness(collector WitnessCollector)`
 - `DisableBatchWitness()`
+- `BeginTxWitness()` — opens a new `TxWitnessBuffer`
+- `CommitTxWitness()` — merges buffer into batch witness
+- `DiscardTxWitness()` — discards buffer without merging
 - `ExportBatchWitness() *BatchWitness`
 
-Instrument:
+Instrument (writes go to tx buffer, not batch):
 - `SetBalance`
 - `SetNonce`
 - `SetCode`
 - `SetState`
 - relevant private-state setters / mutators
 
-#### `core/state/journal.go`
-Extend journal entries so reverted writes can also revert witness state if needed.
+Note: `journal.go` does **not** need witness revert hooks. Revert safety is handled by discarding the `TxWitnessBuffer` at the tx boundary, not by journal compensation.
 
 #### `core/state/state_object.go`
-Hook account-level state changes into witness collection with pre/post capture.
+Hook account-level state changes into witness collection with pre/post capture (via tx buffer).
 
 ---
 
@@ -213,6 +229,15 @@ Bridge `ShieldTx`, `PrivTransferTx`, and `UnshieldTx` processing into the trace 
 ### Purpose
 Lift privacy operations from single-tx proof helpers into first-class batch semantics.
 
+### Hard constraint
+Privacy batch normalization must **preserve execution order and explicit dependency edges**. Privacy txs have serial dependencies (priv nonce, source commitment, ciphertext state) that make reordering unsafe.
+
+Phase 1 rules:
+- Native transfers may be grouped freely within a batch
+- Privacy txs must retain their block execution order within the batch
+- If the same priv account is touched multiple times in one batch, an explicit sequence index must be preserved
+- The normalizer must never rearrange privacy tx ordering
+
 ### New files
 - `core/priv/batch_events.go`
 - `core/priv/batch_normalizer.go`
@@ -240,10 +265,10 @@ Lift privacy operations from single-tx proof helpers into first-class batch sema
 
 ### Patch sketch
 #### `core/priv/batch_events.go`
-Define batch-visible privacy event types.
+Define batch-visible privacy event types. Each event carries an explicit `SequenceIndex` preserving block execution order.
 
 #### `core/priv/batch_normalizer.go`
-Turn existing tx-local privacy execution facts into batch event objects.
+Turn existing tx-local privacy execution facts into batch event objects. Normalizer preserves original execution order — no reordering for optimization.
 
 #### `core/priv/prover.go`
 Keep single-tx proving helpers, but expose batch-oriented event extraction APIs alongside them.
@@ -255,52 +280,47 @@ Add batch validation helpers for normalized privacy events.
 
 # 3. core/types
 
-## Module 5 — Extend Block Header with Batch-Proof Metadata
+## Module 5 — Out-of-Band Proof Sidecar Model
 
 ### Purpose
-Make proof metadata part of the block object model.
+Carry proof metadata for `native-transfer-batch-v1` without modifying the canonical block header.
+
+### Decision
+Phase 1 uses an **out-of-band proof sidecar keyed by canonical block hash**. The `Header` struct remains unchanged in Phase 1. Proof metadata is **not** stuffed into `Header.Extra` either, because that would still alter the header hash.
+
+Proof metadata is stored as a block-associated sidecar object, indexed by canonical block hash and persisted in a dedicated rawdb bucket outside the consensus header/body encoding.
 
 ### New files
-- `core/types/proof_header.go`
+- `core/types/proof_sidecar.go`
+- `core/rawdb/accessors_proof.go`
 
 ### Modified files
-- `core/types/block.go`
-- `core/types/gen_header_json.go` (regenerated)
-- `core/types/gen_header_rlp.go` (regenerated)
-- any header hashing / marshalling tests
+- `core/types/block.go` (helpers only, no header field changes)
+- `miner/worker.go`
+- `core/block_validator_proof.go`
+- RPC marshalling path
 
 ### New structs
-- `BatchProofHeaderFields`
-- `ProofMode`
-- `ProofVersion`
+- `BatchProofSidecar`
+- `BatchProofLocator`
 
 ### New interfaces
-None required at this layer.
+- `type ProofSidecarStore interface {`
+  - `PutSidecar(blockHash common.Hash, sidecar *BatchProofSidecar) error`
+  - `GetSidecar(blockHash common.Hash) (*BatchProofSidecar, error)`
+  - `HasSidecar(blockHash common.Hash) bool`
+  - `}`
 
 ### Patch sketch
-#### `core/types/proof_header.go`
-Define proof metadata fields and helpers:
-- `ProofType`
-- `ProofVersion`
-- `BatchProofHash`
-- `BatchPublicInputsHash`
-- `BatchTxCommitment`
-- `BatchWitnessCommitment`
+Phase 1 does not add proof fields to `Header`. Phase 1 does not stuff proof data into `Header.Extra`.
 
-#### `core/types/block.go`
-Option A:
-- add proof fields directly to `Header`
-
-Option B:
-- add a proof sidecar header object referenced from `Header.Extra`
-
-Recommended first patch:
-- use explicit fields if you are comfortable regenerating RLP/JSON types now
-- otherwise stage through sidecar support first
-
-Also add methods:
-- `func (h *Header) HasBatchProof() bool`
-- `func (h *Header) BatchProofType() string`
+Instead:
+- miner writes a proof sidecar after batch execution / proving
+- sidecar is persisted to rawdb keyed by block hash
+- validator loads the sidecar by block hash when proof mode is enabled
+- RPC exposes sidecar contents through proof-aware methods
+- canonical block hashing remains unchanged
+- canonical header RLP / JSON generation remains untouched
 
 ---
 
@@ -360,10 +380,13 @@ as proof-eligible in phase one.
 
 # 4. miner / block
 
-## Module 7 — Two-Phase Block Assembly in the Miner
+## Module 7 — Async Shadow Proving in the Miner
 
 ### Purpose
-Refactor block production so proof-eligible batches are executed, witnessed, proved, and then assembled into a block.
+Add proof-eligible batch classification and async shadow proving to the miner without blocking block production.
+
+### Hard constraint
+Phase 1 uses **asynchronous shadow proving**. The miner does not wait for a proof before sealing. Blocks are sealed on the classical path. Witness export and proof requests happen post-seal.
 
 ### New files
 - `miner/proof_batch.go`
@@ -380,9 +403,8 @@ Refactor block production so proof-eligible batches are executed, witnessed, pro
 ### New interfaces
 - `type BatchProofOrchestrator interface {`
   - `BuildEligibleBatch(env *environment) (*ProofEligibleBatch, error)`
-  - `ExecuteBatch(env *environment, batch *ProofEligibleBatch) error`
   - `ExportWitness(env *environment) (*state.BatchWitness, error)`
-  - `RequestProof(batch *ProofEligibleBatch) (*ProofAssemblyResult, error)`
+  - `RequestProofAsync(batch *ProofEligibleBatch) error`
   - `}`
 
 ### Patch sketch
@@ -393,29 +415,20 @@ Introduce:
 - proof fast-path exclusion logic
 
 #### `miner/proof_orchestrator.go`
-Add orchestration logic for:
-- execute batch
-- collect witness
-- compute commitments
-- call proof worker
-- attach proof artifact back to block assembly
+Add orchestration logic for Phase 1 async shadow proving:
+- classify proof-eligible txs during block assembly
+- after block sealing: export witness and compute commitments
+- submit async proof request to worker (non-blocking)
+- on proof completion callback: persist sidecar to rawdb keyed by block hash
 
 #### `miner/worker.go`
-Refactor:
-- `fillTransactions`
-- `generateWork`
-- `commitWork`
-- `commit`
+Add post-seal hook:
+- export witness for the sealed block
+- compute batch commitments
+- submit async proof request
+- block production is never blocked by proof generation
 
-Add a new path:
-- build proof-eligible batch
-- execute batch
-- export witness
-- request proof
-- attach proof metadata to header / block
-- continue seal flow
-
-Do not remove classical path yet.
+Do not remove classical path. Classical execution and sealing remain unchanged.
 
 ---
 
@@ -554,7 +567,7 @@ Use proof class during selection:
 ## Module 11 — Dedicated Batch Prover Worker
 
 ### Purpose
-Move proving out of the node hot path into a dedicated process.
+Move proving out of the node hot path into a dedicated process. In Phase 1, the worker runs independently and receives async requests after block sealing. It is never in the block production critical path.
 
 ### New files
 - `cmd/tosproofd/main.go`
@@ -579,7 +592,7 @@ Move proving out of the node hot path into a dedicated process.
   - `Prove(req *ProofWorkerRequest) (*ProofWorkerResponse, error)`
   - `}`
 - `type ProofWorkerClient interface {`
-  - `RequestTransferBatchProof(req *ProofWorkerRequest) (*ProofWorkerResponse, error)`
+  - `RequestTransferBatchProofAsync(req *ProofWorkerRequest, callback func(*ProofWorkerResponse, error))`
   - `}`
 
 ### Patch sketch
@@ -593,7 +606,7 @@ Implement proof request lifecycle.
 Expose IPC / gRPC / unix socket / HTTP endpoint for proving requests.
 
 #### `proofworker/client.go`
-Add node-side client used by the miner.
+Add node-side async client used by the miner. The client submits requests non-blocking and invokes a callback on completion. The callback persists the proof sidecar to rawdb.
 
 #### `proofworker/config.go`
 Add configuration for:
@@ -664,8 +677,9 @@ Use the same artifact type end-to-end.
 ## Step 1 — Types and artifact skeleton
 Implement first:
 - `core/types/proof.go`
-- `core/types/proof_header.go`
+- `core/types/proof_sidecar.go`
 - `core/types/proof_receipt.go`
+- `core/rawdb/accessors_proof.go`
 
 This gives the rest of the system stable object models.
 

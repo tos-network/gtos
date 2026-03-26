@@ -47,7 +47,7 @@ To reach a Gigagas-style architecture, the system must be restructured so that:
 ## 1. core/state
 
 ### Module 1: Batch Witness Export Layer
-**Suggested location:** `core/state/batch_witness.go`
+**Suggested location:** `core/state/batch_witness.go`, `core/state/tx_witness_buffer.go`
 
 The current state layer is still optimized for trie mutation, journaling, snapshots, and revert handling. To support batch proving, `StateDB` must be extended so that execution produces a canonical witness stream.
 
@@ -64,7 +64,13 @@ This module should:
 - record receipt/log-relevant effects
 - export a stable witness structure consumable by a proof worker
 
-**Why it matters:**  
+**Phase 1 hard constraints:**
+
+1. **Determinism:** All witness entries must be explicitly sorted (accounts by address, slots by key, priv entries by (address, key)). No reliance on Go map iteration order. Determinism stress tests (100 repeated runs, identical digest) must pass before miner/prover integration begins.
+
+2. **Tx-buffered commit-on-finalize:** Witness collection uses a two-layer model (`TxWitnessBuffer` → `BatchWitness`). During tx execution, mutations go to `TxWitnessBuffer`. On tx success, buffer merges into `BatchWitness`. On tx revert, buffer is discarded entirely. The witness layer never writes directly to the batch during execution and never needs journal-based compensation.
+
+**Why it matters:**
 The prover should not reconstruct state access by reverse-engineering node execution. The execution path itself should emit the witness.
 
 ---
@@ -124,33 +130,46 @@ This module should normalize privacy execution into batch-level events such as:
 - `FeeCredited`
 - `PrivNonceAdvanced`
 
-**Why it matters:**  
-A batch prover cannot treat privacy actions as isolated black boxes. They must be represented uniformly inside batch state-transition semantics.
+**Phase 1 hard constraint:** Privacy batch normalization must **preserve execution order and explicit dependency edges**. Privacy txs have serial dependencies (priv nonce, source commitment, ciphertext state) that make reordering unsafe. The normalizer must never rearrange privacy tx ordering. Native transfers may be grouped freely, but privacy txs must retain their block execution order within the batch.
+
+**Why it matters:**
+A batch prover cannot treat privacy actions as isolated black boxes. They must be represented uniformly inside batch state-transition semantics, with serial dependencies made explicit.
 
 ---
 
 ## 3. core/types
 
-### Module 5: Extend Block Header with Batch-Proof Metadata
-**Suggested location:** `core/types/block.go`
+### Module 5: Out-of-Band Proof Sidecar Model
+**Suggested location:** `core/types/proof_sidecar.go`, `core/rawdb/accessors_proof.go`
 
-The current header model is designed for classical execution validation. A proof-first path needs explicit batch-proof metadata in the header or an associated sidecar.
+#### Phase 1 Decision
 
-This module should introduce fields such as:
+Phase 1 uses an **out-of-band proof sidecar keyed by canonical block hash**. The canonical `Header` struct is **not modified** in Phase 1. Proof metadata is not stuffed into `Header.Extra` either, because that would still alter the header hash.
+
+This decision is intentional because Phase 1 is a **shadow-proving** stage:
+- proof metadata does not need to enter block hashing
+- proof metadata does not need to become a consensus field yet
+- validators may consume proof sidecars when available, while legacy block/header structure remains unchanged
+
+A future phase may choose to promote selected proof fields into the canonical header if and when the network is ready for a consensus-level fork.
+
+The sidecar should carry:
 
 - `ProofType`
+- `ProofVersion`
+- `CircuitVersion`
 - `BatchProofHash`
 - `BatchPublicInputsHash`
 - `BatchTxCommitment`
 - `BatchWitnessCommitment`
-- optional `ProofVersion`
+- `ProofBytes` or proof blob reference
+- `ProverID`
+- `ProvingTimeMs`
 
-**Recommended rollout strategy:**
-- short term: allow sidecar or extra-data carriage
-- medium term: promote proof metadata into explicit block/header fields
+Storage: independent rawdb bucket, key = block hash, value = encoded `BatchProofSidecar`.
 
-**Why it matters:**  
-Without proof-aware header structure, validators have no consensus object to validate beyond the classical state root.
+**Why it matters:**
+Without proof-aware block metadata, validators have no object to validate beyond the classical state root. The sidecar model achieves this without requiring a consensus fork in the shadow-proving phase.
 
 ---
 
@@ -177,7 +196,7 @@ RPC, block explorers, debuggers, and future tooling must be able to distinguish:
 
 ## 4. miner / block
 
-### Module 7: Two-Phase Block Assembly in the Miner
+### Module 7: Async Shadow Proving in the Miner
 **Suggested location:** `miner/worker.go`
 
 The current miner path is still classical:
@@ -187,13 +206,15 @@ The current miner path is still classical:
 3. assemble block, receipts, and state
 4. seal and publish
 
-To support batch proving, this needs to become a two-phase pipeline:
+**Phase 1 hard constraint:** Phase 1 uses **asynchronous shadow proving**. The miner does not wait for a proof before sealing. The Phase 1 pipeline is:
 
-1. build a **proof-eligible batch**
-2. execute and export witness
-3. invoke batch prover
-4. attach proof artifact and commitments
-5. seal and publish the block
+1. build a **proof-eligible batch** (classify txs)
+2. execute and seal the block on the classical path
+3. export witness and compute commitments post-seal
+4. submit async proof request to the worker (non-blocking)
+5. on proof completion, persist sidecar to rawdb keyed by block hash
+
+Synchronous proof-gated block production is a Phase 2+ concern.
 
 In the first proving phase, only include:
 
@@ -208,8 +229,8 @@ Exclude:
 - contract deployment
 - complex cross-contract semantics
 
-**Why it matters:**  
-The miner becomes the orchestration layer between execution and proving.
+**Why it matters:**
+The miner becomes the orchestration layer between execution and proving. Async shadow proving ensures block production is never blocked by proof generation latency.
 
 ---
 
@@ -286,6 +307,8 @@ The block builder must know which transactions are eligible for proof-native bat
 
 Today, proof generation is still close to transaction-local library or CLI usage. A Gigagas architecture needs a dedicated proving worker process.
 
+In Phase 1 (async shadow proving), the worker runs independently. The node submits proof requests asynchronously after block sealing and persists the resulting sidecar to rawdb when the proof completes. The worker is never in the block production critical path.
+
 This worker should accept:
 
 - `preStateRoot`
@@ -302,7 +325,7 @@ And it should produce:
 - proof metadata
 - artifact digest / commitment
 
-**Why it matters:**  
+**Why it matters:**
 Proof generation is heavier and more specialized than ordinary node execution. It should be a dedicated service, potentially with different hardware and language/runtime choices.
 
 ---
@@ -342,69 +365,109 @@ Without a standard artifact format, each subsystem will evolve incompatible assu
 
 # Recommended Implementation Order
 
-## Phase 1: Establish the Proof Skeleton
-1. Extend `core/types` for proof-aware header and receipt metadata  
-2. Add `core/state` batch witness export  
-3. Define proof artifact schema  
-4. Build a dedicated batch prover worker  
-5. Modify miner block assembly to invoke the proof worker  
-6. Add proof-based validation path in block validation  
+## Current State (Phase 0)
 
-## Phase 2: Make the Path Observable and Operable
-7. Extend RPC with proof-aware queries  
-8. Add proof eligibility classification to send path / txpool  
-9. Normalize native/privacy transfer trace emission  
-10. Normalize privacy operations as batch events  
+- Every validator re-executes every transaction
+- `BlockValidator.ValidateState()` compares locally-computed `gas / receipts / state root` against the block header
+- Privacy proofs are consumed locally during execution but do not replace full re-execution
 
-## Phase 3: Expand Proof Coverage
-11. Refine proof-friendly state commitments  
-12. Gradually extend from native-transfer-only batches toward restricted contract subsets
+## Phase 1: Shadow Proving Infrastructure
+
+*Validator behavior: unchanged — full re-execution*
+
+1. Proof artifact and sidecar type definitions (out-of-band, no Header changes)
+2. Rawdb proof sidecar persistence
+3. Batch witness export with determinism guarantees
+4. Transfer-only trace model with privacy order preservation
+5. Dedicated `tosproofd` async proof worker
+6. Miner async shadow proving (post-seal witness + proof request)
+7. Proof-aware RPC endpoints
+8. Proof eligibility classification in txpool
+
+**Phase 1 exit criteria:** proving pipeline runs in staging with zero proof divergence from local execution.
+
+See: [Phase 1 Implementation Checklist](./gtos_gigagas_l1_implementation_checklist.md)
+
+## Phase 2: Proof-Backed Transfer Validation
+
+*Validator behavior: proof verification replaces re-execution for proof-covered blocks*
+
+1. `ValidateStateWithProof()` — verify proof + public inputs instead of local execution
+2. `insertChain` proof-path branch with classical fallback
+3. `ZKExecutionConfig` activation block in chain config
+4. Background execution for state trie maintenance (proof gates consensus, execution deferred)
+5. Proved head tracking
+6. Monitoring: proof-path vs classical-path latency comparison
+
+**Phase 2 exit criteria:** validators accept proof-covered blocks via proof verification (~1-5ms) instead of full re-execution (~100ms+). Classical fallback works for blocks without sidecars.
+
+See: [Phase 2 Route](./gtos_gigagas_l1_phase2_route.md)
+
+## Phase 3: Restricted Contract Proving
+
+*Validator behavior: more tx classes skip re-execution*
+
+1. Extend proving kernel to cover restricted LVM contract subsets
+2. Refine proof-friendly state commitments
+3. Gradually expand proof coverage
+
+## Phase 4: Gigagas GTOS
+
+*Validator behavior: most high-frequency paths are proof-native*
+
+1. Chunked/blob data plane
+2. Pipelined proposer/builder/prover
+3. Stateless validation (optional)
+4. Full ~10,000 TPS class target
 
 ---
 
 # Minimum Viable Gigagas Step for gtos
 
-The most practical first milestone is:
-
 ## `native-transfer-batch-v1`
 
-This batch-proof mode should cover only:
+This batch-proof mode covers only:
 
 - native transfer
 - shield
 - private transfer
 - unshield
 
-And should **exclude**:
+And excludes:
 
 - arbitrary Lua/LVM contracts
 - deployment
 - nested contract call graphs
 - complex contract storage semantics
 
-This gives `gtos` a realistic first transition from:
+This is the narrowest scope that exercises the full proving pipeline end-to-end.
 
-- **proof-capable modules**
+---
 
-to:
+# Key Milestone: When Do Validators Stop Re-Executing?
 
-- **proof-native block production and validation**
+**Not in Phase 1.** Phase 1 is shadow proving — infrastructure only.
+
+**In Phase 2.** Phase 2 introduces `ValidateStateWithProof()` which replaces `Process() + ValidateState()` for proof-covered blocks. This is the architectural step where consensus acceptance shifts from “re-execute and compare” to “verify proof and accept”.
+
+The recommended Phase 2 model is **background execution**: proof verification gates consensus acceptance (fast), while full execution runs asynchronously to maintain the state trie for subsequent blocks.
 
 ---
 
 # Final Summary
 
-To move `gtos` toward a Gigagas L1 architecture, the core shift is not simply “adding more proofs” for existing privacy functionality.
+The path from current gtos to Gigagas L1 has four phases. The critical transition happens at **Phase 2**, where validators shift from re-execution to proof verification for consensus acceptance.
 
-The real shift is architectural:
+| Phase | Validator model | Key change |
+|-------|----------------|------------|
+| 0 (current) | Full re-execution | Baseline |
+| 1 | Full re-execution + shadow proofs | Build proving infrastructure |
+| 2 | Proof verification (background execution for state trie) | **Consensus acceptance via proof** |
+| 3 | Expanding proof coverage | More tx classes skip re-execution |
+| 4 | Proof-native validation | Gigagas throughput class |
 
-- `core/state` must emit proving-ready witness data
-- `core/vm` must produce deterministic transfer traces
-- `core/types` must carry proof metadata
-- `miner/block` must assemble proof-backed blocks
-- `rpc` must expose proof-native observability
-- a dedicated `proof worker` must generate and package batch state-transition proofs
-
-The first practical proving target should be a **zk-native-transfer batch proof pipeline**, not full smart-contract proving.
-
-That is the narrowest path that still changes the chain from a **classical execution-first L1** into a **proof-first L1 candidate**.
+gtos is better positioned than Ethereum for this transition because:
+- No EVM historical baggage
+- Existing privacy proof infrastructure
+- Controllable execution surface (system actions + LVM, not open EVM)
+- Smaller validator set with deterministic finality
