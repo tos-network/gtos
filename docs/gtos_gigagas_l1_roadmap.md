@@ -12,6 +12,7 @@ However, gtos is **not** building a zkEVM. gtos has its own execution surface (s
 
 | Milestone | What changes |
 |-----------|-------------|
+| Phase 0.5 | Encrypted account model — unify 4 tx types into 1, eliminate plaintext balance |
 | Phase 1 | Shadow proving infrastructure — witness export, proof worker, sidecar persistence |
 | Phase 2 | Validators stop re-executing proof-covered transfer batches |
 | Phase 3 | Proof coverage expands to restricted LVM contract subsets |
@@ -122,14 +123,9 @@ The `tosproofd` architecture isolates hardware acceleration from the chain node.
 
 ## Scope
 
-This document defines the **5-phase engineering roadmap** for evolving `gtos` from its current execution architecture toward a Gigagas L1 model.
+This document defines the **6-phase engineering roadmap** (Phase 0.5 through Phase 5) for evolving `gtos` from its current execution architecture toward a Gigagas L1 model.
 
-The immediate first milestone is intentionally narrow:
-
-- native plaintext transfers
-- shield
-- private transfer
-- unshield
+The first step (Phase 0.5) is a structural prerequisite: unify the dual-account model (plaintext balance + encrypted balance) into a single encrypted account model with one tx type. This simplifies all subsequent phases by reducing the proving surface from 4 tx types to 1.
 
 The long-term target is to move the chain from:
 
@@ -492,19 +488,53 @@ Without a standard artifact format, each subsystem will evolve incompatible assu
 - Every validator re-executes every transaction
 - `BlockValidator.ValidateState()` compares locally-computed `gas / receipts / state root` against the block header
 - Privacy proofs are consumed locally during execution but do not replace full re-execution
+- Dual-account model: plaintext `Balance *big.Int` in StateAccount + encrypted `Commitment/Handle` in storage slots
+- 4 tx types: `SignerTx`, `PrivTransferTx`, `ShieldTx`, `UnshieldTx`
+
+## Phase 0.5: Encrypted Account Model (structural prerequisite)
+
+*Validator behavior: unchanged — full re-execution. But the account model and tx types are simplified.*
+
+This phase is done **before** Phase 1 to minimize the proving surface for all subsequent phases.
+
+1. Replace `StateAccount.Balance *big.Int` with `Commitment [32]byte` + `Handle [32]byte` + `Version uint8`
+2. Reuse `StateAccount.Nonce uint64` as unified nonce (type unchanged, 95 call sites need minimal changes)
+3. Merge `PrivTransferTx` commitment-transfer logic into `SignerTx`
+4. Delete `PrivTransferTx (0x01)`, `ShieldTx (0x02)`, `UnshieldTx (0x03)`
+5. Migrate 10 system actions that touch plaintext balance (uniform `SubBalance` → `SubScalarFromBalance` pattern)
+6. Eliminate 4 storage slots (`CommitmentSlot`, `HandleSlot`, `VersionSlot`, `NonceSlot`)
+7. Gas fees via existing `AddScalarToCiphertext()` homomorphic operations
+8. Block rewards via `AddScalarToBalance(coinbase, reward)`
+9. Hard fork: StateAccount RLP changes → all state roots recomputed
+
+**Phase 0.5 exit criteria:**
+- Single tx type (`SignerTx`) handles all operations
+- Single balance model (encrypted commitment in StateAccount)
+- No plaintext balance anywhere in the system
+- All 42 metadata-only system actions work unchanged
+- 10 balance-touching system actions migrated to encrypted operations
+
+See: [Phase 0.5 Design](./gtos_gigagas_l1_phase0_encrypted_account_model.md)
+
+**Why Phase 0.5 must come first:**
+- Without it, Phase 1 must build witness/trace/proof infrastructure for 4 tx types
+- With it, Phase 1 builds for 1 tx type only (SignerTx)
+- ~10 weeks of work that saves ~6 weeks in Phase 1-2 (net savings ~4 weeks + cleaner architecture)
 
 ## Phase 1: Shadow Proving Infrastructure
 
 *Validator behavior: unchanged — full re-execution*
 
+*Prerequisite: Phase 0.5 (encrypted account model) is complete. Only 1 tx type (SignerTx) exists.*
+
 1. Proof artifact and sidecar type definitions (out-of-band, no Header changes)
 2. Rawdb proof sidecar persistence
-3. Batch witness export with determinism guarantees
-4. Transfer-only trace model with privacy order preservation
+3. Batch witness export with determinism guarantees (single tx type = single witness model)
+4. Encrypted transfer trace model
 5. Dedicated `tosproofd` async proof worker
 6. Miner async shadow proving (post-seal witness + proof request)
 7. Proof-aware RPC endpoints
-8. Proof eligibility classification in txpool
+8. Proof eligibility classification in txpool (simplified: all SignerTx are proof-eligible)
 
 **Phase 1 exit criteria:** proving pipeline runs in staging with zero proof divergence from local execution.
 
@@ -592,21 +622,20 @@ See: [Phase 5 Design](./gtos_gigagas_l1_phase5_throughput_scaling.md)
 
 ## `native-transfer-batch-v1`
 
-This batch-proof mode covers only:
+After Phase 0.5, there is only one tx type (`SignerTx`). The first batch-proof mode covers:
 
-- native transfer
-- shield
-- private transfer
-- unshield
+- Encrypted value transfers (commitment-to-commitment)
+- Gas fee operations (homomorphic scalar add/sub)
+- System action deposits/withdrawals (homomorphic scalar operations)
 
 And excludes:
 
-- arbitrary Lua/LVM contracts
+- arbitrary Lua/LVM contract execution
 - deployment
 - nested contract call graphs
 - complex contract storage semantics
 
-This is the narrowest scope that exercises the full proving pipeline end-to-end.
+This is the narrowest scope that exercises the full proving pipeline end-to-end. With only 1 tx type, the proving surface is minimal.
 
 ---
 
@@ -622,16 +651,19 @@ The recommended Phase 2 model is **background execution**: proof verification ga
 
 # Final Summary
 
-The path from current gtos to Gigagas L1 has five phases. Phase 1–4 solve the validator re-execution bottleneck. Phase 5 solves the throughput scaling bottlenecks needed to reach ~10,000 TPS.
+The path from current gtos to Gigagas L1 has six phases. Phase 0.5 simplifies the foundation. Phase 1–4 solve the validator re-execution bottleneck. Phase 5 solves the throughput scaling bottlenecks needed to reach ~10,000 TPS.
 
 | Phase | Validator model | Key change | TPS impact |
 |-------|----------------|------------|------------|
-| 0 (current) | Full re-execution | Baseline | ~hundreds |
-| 1 | Full re-execution + shadow proofs | Build proving infrastructure | No change |
+| 0 (current) | Full re-execution, dual account model | Baseline | ~hundreds |
+| **0.5** | Full re-execution, **single encrypted account** | **4 tx types → 1, plaintext balance eliminated** | No change |
+| 1 | Full re-execution + shadow proofs | Build proving infrastructure (1 tx type) | No change |
 | 2 | Proof verification for transfers | **Consensus acceptance via proof** | Latency drop |
 | 3 | Expanding proof coverage | More tx classes skip re-execution | Latency drop |
 | 4 | Hot-path proof-native validation | Most high-freq paths proof-native | ~3,000–4,000 |
 | 5 | Throughput scaling | Gas limit + DA + recursive proving + parallel execution + state I/O | **~10,000** |
+
+**Phase 0.5 is the structural prerequisite.** It simplifies all subsequent phases by reducing the proving surface from 4 tx types to 1.
 
 **Phase 1–4 are necessary but not sufficient for 10,000 TPS.** They eliminate the largest single bottleneck (validator re-execution). Phase 5 addresses the remaining bottlenecks: block capacity, data availability, proof generation speed, builder throughput, and state I/O.
 
